@@ -94,6 +94,21 @@ customersRouter.post('/', managerOrAdmin, async (req, res, next) => {
   try {
     const data = createCustomerSchema.parse(req.body);
 
+    // Check if customer with this phone already exists
+    const existingCustomer = await prisma.customer.findUnique({
+      where: { phone: data.phone },
+      include: {
+        _count: { select: { students: true } },
+        students: { select: { id: true, name: true } },
+      },
+    });
+
+    if (existingCustomer) {
+      throw new AppError(409, `לקוח עם מספר טלפון ${data.phone} כבר קיים: ${existingCustomer.name}`, {
+        existingCustomer,
+      });
+    }
+
     const customer = await prisma.customer.create({
       data: {
         name: data.name,

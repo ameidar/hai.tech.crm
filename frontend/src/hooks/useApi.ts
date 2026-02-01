@@ -402,7 +402,7 @@ export const useRecalculateMeeting = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      mutateData<Meeting, null>(`/meetings/${id}/recalculate`, 'post', null),
+      mutateData<Meeting, object>(`/meetings/${id}/recalculate`, 'post', {}),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['meetings'] });
       queryClient.invalidateQueries({ queryKey: ['meeting', data.id] });

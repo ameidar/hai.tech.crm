@@ -36,8 +36,8 @@ import {
   dayOfWeekHebrew,
   meetingStatusHebrew,
 } from '../types';
-import type { Meeting, MeetingStatus, Registration, RegistrationStatus, PaymentStatus, PaymentMethod } from '../types';
-import { paymentStatusHebrew } from '../types';
+import type { Meeting, MeetingStatus, Registration, RegistrationStatus, PaymentStatus, PaymentMethod, ActivityType } from '../types';
+import { paymentStatusHebrew, activityTypeHebrew } from '../types';
 
 export default function CycleDetail() {
   const { id } = useParams<{ id: string }>();
@@ -616,6 +616,7 @@ export default function CycleDetail() {
             meeting={selectedMeeting}
             instructors={instructors || []}
             defaultInstructorId={cycle?.instructorId}
+            defaultActivityType={cycle?.activityType}
             onUpdate={(data) => handleUpdateMeetingData(selectedMeeting.id, data)}
             onCancel={() => setSelectedMeeting(null)}
             isLoading={updateMeeting.isPending}
@@ -874,14 +875,16 @@ interface MeetingUpdateFormProps {
   meeting: Meeting;
   instructors: { id: string; name: string; isActive: boolean }[];
   defaultInstructorId?: string;
-  onUpdate: (data: { status?: MeetingStatus; instructorId?: string; topic?: string; notes?: string }) => void;
+  defaultActivityType?: ActivityType;
+  onUpdate: (data: { status?: MeetingStatus; instructorId?: string; activityType?: ActivityType; topic?: string; notes?: string }) => void;
   onCancel: () => void;
   isLoading?: boolean;
 }
 
-function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, onUpdate, onCancel, isLoading }: MeetingUpdateFormProps) {
+function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultActivityType, onUpdate, onCancel, isLoading }: MeetingUpdateFormProps) {
   const [status, setStatus] = useState(meeting.status);
   const [instructorId, setInstructorId] = useState(meeting.instructor?.id || defaultInstructorId || '');
+  const [activityType, setActivityType] = useState<ActivityType>(meeting.activityType || defaultActivityType || 'frontal');
   const [topic, setTopic] = useState(meeting.topic || '');
   const [notes, setNotes] = useState(meeting.notes || '');
 
@@ -897,6 +900,7 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, onUpdate
     onUpdate({
       status,
       instructorId: instructorId !== (meeting.instructor?.id || defaultInstructorId) ? instructorId : undefined,
+      activityType: activityType !== (meeting.activityType || defaultActivityType) ? activityType : undefined,
       topic: topic || undefined,
       notes: notes || undefined,
     });
@@ -964,6 +968,20 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, onUpdate
             <span>בוטל</span>
           </button>
         </div>
+      </div>
+
+      <div>
+        <label className="form-label">סוג פעילות</label>
+        <select
+          value={activityType}
+          onChange={(e) => setActivityType(e.target.value as ActivityType)}
+          className="form-input"
+        >
+          <option value="frontal">פרונטלי</option>
+          <option value="online">אונליין</option>
+          <option value="private_lesson">פרטי</option>
+        </select>
+        <p className="text-xs text-gray-500 mt-1">משפיע על חישוב התשלום למדריך</p>
       </div>
 
       <div>

@@ -99,6 +99,8 @@ enum ActivityType {
   online
   frontal
   private_lesson @map("private")
+
+  @@map("activity_type")
 }
 
 // ===================

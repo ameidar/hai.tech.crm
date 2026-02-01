@@ -1,0 +1,74 @@
+# HaiTech CRM - Docker Compose
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    container_name: haitech-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: haitech
+      POSTGRES_PASSWORD: haitech_password
+      POSTGRES_DB: haitech_crm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U haitech -d haitech_crm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: haitech-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://haitech:haitech_password@db:5432/haitech_crm?schema=public
+      PORT: 3001
+      NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET:-change-this-in-production}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-this-refresh-secret}
+      JWT_EXPIRES_IN: 1d
+      JWT_REFRESH_EXPIRES_IN: 7d
+      FRONTEND_URL: https://18f95599f0b7.ngrok-free.app
+      API_KEY: ${API_KEY:-haitech-crm-api-key-2026}
+      ZOOM_WEBHOOK_URL: https://hook.eu1.make.com/feok703p7eao5btbutcrwpnoyihdlrmg
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis (for future queue/cache)
+  redis:
+    image: redis:7-alpine
+    container_name: haitech-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  default:
+    name: haitech-network

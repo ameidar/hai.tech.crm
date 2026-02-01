@@ -1,0 +1,487 @@
+import { Router } from 'express';
+import { prisma } from '../utils/prisma.js';
+import { authenticate, managerOrAdmin } from '../middleware/auth.js';
+import { AppError } from '../middleware/errorHandler.js';
+import { updateMeetingSchema, postponeMeetingSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
+
+// Send WhatsApp alert for negative profit
+async function sendNegativeProfitAlert(meetingData: {
+  cycleName: string;
+  courseName: string;
+  branchName: string;
+  instructorName: string;
+  date: string;
+  revenue: number;
+  cost: number;
+  profit: number;
+}) {
+  const alertPhone = process.env.ALERT_PHONE || '972528746137';
+  const greenApiInstanceId = process.env.GREEN_API_INSTANCE_ID;
+  const greenApiToken = process.env.GREEN_API_TOKEN;
+
+  if (!greenApiInstanceId || !greenApiToken) {
+    console.log('Green API not configured, skipping WhatsApp alert');
+    return;
+  }
+
+  const message = `⚠️ התראה: רווח שלילי בפגישה
+
+📅 תאריך: ${meetingData.date}
+📚 מחזור: ${meetingData.cycleName}
+🎓 קורס: ${meetingData.courseName}
+🏢 סניף: ${meetingData.branchName}
+👨‍🏫 מדריך: ${meetingData.instructorName}
+
+💰 הכנסה: ₪${meetingData.revenue}
+💸 עלות: ₪${meetingData.cost}
+📉 רווח: ₪${meetingData.profit}`;
+
+  try {
+    const response = await fetch(
+      `https://api.green-api.com/waInstance${greenApiInstanceId}/sendMessage/${greenApiToken}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chatId: `${alertPhone}@c.us`,
+          message,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      console.error('Failed to send WhatsApp alert:', await response.text());
+    } else {
+      console.log('WhatsApp alert sent for negative profit');
+    }
+  } catch (error) {
+    console.error('Error sending WhatsApp alert:', error);
+  }
+}
+
+export const meetingsRouter = Router();
+
+meetingsRouter.use(authenticate);
+
+// List meetings
+meetingsRouter.get('/', async (req, res, next) => {
+  try {
+    const { page, limit } = paginationSchema.parse(req.query);
+    const date = req.query.date as string | undefined;
+    const from = req.query.from as string | undefined;
+    const to = req.query.to as string | undefined;
+    const status = req.query.status as string | undefined;
+    let instructorId = req.query.instructorId as string | undefined;
+    const cycleId = req.query.cycleId as string | undefined;
+    const branchId = req.query.branchId as string | undefined;
+
+    // If user is an instructor, only show their meetings
+    if (req.user!.role === 'instructor') {
+      const instructor = await prisma.instructor.findUnique({
+        where: { userId: req.user!.userId },
+        select: { id: true },
+      });
+      if (instructor) {
+        instructorId = instructor.id;
+      }
+    }
+
+    const where = {
+      ...(date && { scheduledDate: new Date(date) }),
+      ...(from && to && {
+        scheduledDate: {
+          gte: new Date(from),
+          lte: new Date(to),
+        },
+      }),
+      ...(status && { status: status as any }),
+      ...(instructorId && { instructorId }),
+      ...(cycleId && { cycleId }),
+      ...(branchId && { cycle: { branchId } }),
+    };
+
+    const [meetings, total] = await Promise.all([
+      prisma.meeting.findMany({
+        where,
+        include: {
+          cycle: {
+            include: {
+              course: { select: { id: true, name: true } },
+              branch: { select: { id: true, name: true } },
+            },
+          },
+          instructor: { select: { id: true, name: true, phone: true } },
+          _count: { select: { attendance: true } },
+        },
+        orderBy: [
+          { scheduledDate: 'asc' },
+          { startTime: 'asc' },
+        ],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.meeting.count({ where }),
+    ]);
+
+    res.json({
+      data: meetings,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get meeting by ID
+meetingsRouter.get('/:id', async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+
+    const meeting = await prisma.meeting.findUnique({
+      where: { id },
+      include: {
+        cycle: {
+          include: {
+            course: true,
+            branch: true,
+            registrations: {
+              where: { status: { in: ['registered', 'active'] } },
+              include: {
+                student: {
+                  include: {
+                    customer: { select: { id: true, name: true, phone: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+        instructor: true,
+        attendance: {
+          include: {
+            registration: {
+              include: {
+                student: { select: { id: true, name: true } },
+              },
+            },
+            recordedBy: { select: { id: true, name: true } },
+          },
+        },
+        statusUpdatedBy: { select: { id: true, name: true } },
+        rescheduledTo: { select: { id: true, scheduledDate: true } },
+        rescheduledFrom: { select: { id: true, scheduledDate: true } },
+      },
+    });
+
+    if (!meeting) {
+      throw new AppError(404, 'Meeting not found');
+    }
+
+    res.json(meeting);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Update meeting (status, notes, etc.)
+meetingsRouter.put('/:id', async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+    const data = updateMeetingSchema.parse(req.body);
+
+    // Check if user can update this meeting
+    const existingMeeting = await prisma.meeting.findUnique({
+      where: { id },
+      include: { cycle: true },
+    });
+
+    if (!existingMeeting) {
+      throw new AppError(404, 'Meeting not found');
+    }
+
+    // Instructors can only update on the meeting day
+    if (req.user!.role === 'instructor') {
+      const today = new Date().toISOString().split('T')[0];
+      const meetingDate = existingMeeting.scheduledDate.toISOString().split('T')[0];
+      
+      if (today !== meetingDate) {
+        throw new AppError(403, 'Instructors can only update meetings on the scheduled day');
+      }
+    }
+
+    const updateData: any = { ...data };
+    
+    // Track status change
+    if (data.status && data.status !== existingMeeting.status) {
+      updateData.statusUpdatedAt = new Date();
+      updateData.statusUpdatedById = req.user!.userId;
+      
+      // Update cycle counters and calculate financials when completed
+      if (data.status === 'completed') {
+        // Get full cycle data with registrations and instructor
+        const cycleData = await prisma.cycle.findUnique({
+          where: { id: existingMeeting.cycleId },
+          include: {
+            registrations: {
+              where: { status: { in: ['registered', 'active'] } },
+            },
+            instructor: true,
+          },
+        });
+
+        if (cycleData) {
+          // Calculate revenue based on cycle type
+          let revenue = 0;
+          const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
+          
+          if (cycleData.type === 'private') {
+            // Sum all registration amounts and divide by total meetings
+            const totalRegistrationAmount = cycleData.registrations.reduce(
+              (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
+              0
+            );
+            revenue = Math.round(totalRegistrationAmount / cycleData.totalMeetings);
+          } else if (cycleData.type === 'institutional_per_child') {
+            // Price per student × number of students (use studentCount if set, otherwise count registrations)
+            const pricePerStudent = Number(cycleData.pricePerStudent || 0);
+            const studentCount = cycleData.studentCount || activeRegistrations.length;
+            revenue = Math.round(pricePerStudent * studentCount);
+          } else if (cycleData.type === 'institutional_fixed') {
+            // Fixed meeting revenue
+            revenue = Number(cycleData.meetingRevenue || 0);
+          }
+
+          // Calculate instructor payment based on rate and duration
+          // Use the MEETING's instructor (might be different from cycle default)
+          const meetingInstructorId = data.instructorId || existingMeeting.instructorId;
+          const instructor = await prisma.instructor.findUnique({ where: { id: meetingInstructorId } });
+          
+          let instructorPayment = 0;
+          if (instructor) {
+            // Determine rate based on cycle type
+            let hourlyRate = 0;
+            if (cycleData.type === 'private') {
+              hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
+            } else if (cycleData.isOnline) {
+              hourlyRate = Number(instructor.rateOnline || 0);
+            } else {
+              hourlyRate = Number(instructor.rateFrontal || 0);
+            }
+            
+            // Calculate duration from meeting's actual times, or fall back to cycle default
+            const meetingStart = existingMeeting.startTime;
+            const meetingEnd = existingMeeting.endTime;
+            let durationMinutes = cycleData.durationMinutes;
+            
+            if (meetingStart && meetingEnd) {
+              // Calculate from actual meeting times
+              const startMs = meetingStart.getTime();
+              const endMs = meetingEnd.getTime();
+              durationMinutes = (endMs - startMs) / (1000 * 60);
+            }
+            
+            const durationHours = durationMinutes / 60;
+            instructorPayment = Math.round(hourlyRate * durationHours);
+          }
+
+          // Calculate profit
+          const profit = revenue - instructorPayment;
+
+          updateData.revenue = revenue;
+          updateData.instructorPayment = instructorPayment;
+          updateData.profit = profit;
+
+          // Update cycle counters - recalculate from totalMeetings
+          const updatedCompleted = cycleData.completedMeetings + 1;
+          await prisma.cycle.update({
+            where: { id: existingMeeting.cycleId },
+            data: {
+              completedMeetings: updatedCompleted,
+              remainingMeetings: cycleData.totalMeetings - updatedCompleted,
+            },
+          });
+
+          // Send WhatsApp alert if profit is negative
+          if (profit < 0) {
+            const cycleWithDetails = await prisma.cycle.findUnique({
+              where: { id: existingMeeting.cycleId },
+              include: {
+                course: { select: { name: true } },
+                branch: { select: { name: true } },
+                instructor: { select: { name: true } },
+              },
+            });
+
+            if (cycleWithDetails) {
+              sendNegativeProfitAlert({
+                cycleName: cycleWithDetails.name,
+                courseName: cycleWithDetails.course.name,
+                branchName: cycleWithDetails.branch.name,
+                instructorName: cycleWithDetails.instructor.name,
+                date: existingMeeting.scheduledDate.toLocaleDateString('he-IL'),
+                revenue,
+                cost: instructorPayment,
+                profit,
+              }).catch(err => console.error('WhatsApp alert error:', err));
+            }
+          }
+        }
+      }
+      
+      // Handle status change FROM completed to something else (decrement counters)
+      if (existingMeeting.status === 'completed' && data.status !== 'completed') {
+        const cycleData = await prisma.cycle.findUnique({
+          where: { id: existingMeeting.cycleId },
+        });
+        
+        if (cycleData && cycleData.completedMeetings > 0) {
+          const updatedCompleted = cycleData.completedMeetings - 1;
+          await prisma.cycle.update({
+            where: { id: existingMeeting.cycleId },
+            data: {
+              completedMeetings: updatedCompleted,
+              remainingMeetings: cycleData.totalMeetings - updatedCompleted,
+            },
+          });
+        }
+        
+        // Reset financial fields
+        updateData.revenue = 0;
+        updateData.instructorPayment = 0;
+        updateData.profit = 0;
+      }
+    }
+
+    const meeting = await prisma.meeting.update({
+      where: { id },
+      data: updateData,
+      include: {
+        cycle: {
+          include: {
+            course: { select: { name: true } },
+            branch: { select: { name: true } },
+          },
+        },
+        instructor: { select: { id: true, name: true } },
+      },
+    });
+
+    res.json(meeting);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Postpone meeting
+meetingsRouter.post('/:id/postpone', managerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+    const data = postponeMeetingSchema.parse(req.body);
+
+    const existingMeeting = await prisma.meeting.findUnique({
+      where: { id },
+      include: { cycle: true },
+    });
+
+    if (!existingMeeting) {
+      throw new AppError(404, 'Meeting not found');
+    }
+
+    if (existingMeeting.status !== 'scheduled') {
+      throw new AppError(400, 'Can only postpone scheduled meetings');
+    }
+
+    // Create new meeting
+    const newMeeting = await prisma.meeting.create({
+      data: {
+        cycleId: existingMeeting.cycleId,
+        instructorId: existingMeeting.instructorId,
+        scheduledDate: new Date(data.newDate),
+        startTime: data.newStartTime 
+          ? new Date(`1970-01-01T${data.newStartTime}:00Z`)
+          : existingMeeting.startTime,
+        endTime: data.newEndTime
+          ? new Date(`1970-01-01T${data.newEndTime}:00Z`)
+          : existingMeeting.endTime,
+        status: 'scheduled',
+      },
+    });
+
+    // Update original meeting
+    await prisma.meeting.update({
+      where: { id },
+      data: {
+        status: 'postponed',
+        statusUpdatedAt: new Date(),
+        statusUpdatedById: req.user!.userId,
+        rescheduledToId: newMeeting.id,
+      },
+    });
+
+    res.json({
+      originalMeeting: { id, status: 'postponed' },
+      newMeeting,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get meeting attendance
+meetingsRouter.get('/:id/attendance', async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+
+    const attendance = await prisma.attendance.findMany({
+      where: { meetingId: id },
+      include: {
+        registration: {
+          include: {
+            student: {
+              include: {
+                customer: { select: { name: true, phone: true } },
+              },
+            },
+          },
+        },
+        recordedBy: { select: { id: true, name: true } },
+      },
+    });
+
+    // Also get students who haven't been marked
+    const meeting = await prisma.meeting.findUnique({
+      where: { id },
+      include: {
+        cycle: {
+          include: {
+            registrations: {
+              where: { status: { in: ['registered', 'active'] } },
+              include: {
+                student: {
+                  include: {
+                    customer: { select: { name: true, phone: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const markedIds = new Set(attendance.map(a => a.registrationId));
+    const unmarked = meeting?.cycle.registrations.filter(r => !markedIds.has(r.id)) || [];
+
+    res.json({
+      marked: attendance,
+      unmarked,
+    });
+  } catch (error) {
+    next(error);
+  }
+});

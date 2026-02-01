@@ -1,0 +1,357 @@
+// HaiTech CRM - Prisma Schema
+// PostgreSQL database for managing coding education business
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===================
+// ENUMS
+// ===================
+
+enum UserRole {
+  admin
+  manager
+  instructor
+}
+
+enum CourseCategory {
+  programming
+  ai
+  robotics
+  printing_3d @map("3d_printing")
+}
+
+enum BranchType {
+  school
+  community_center
+  frontal
+  online
+}
+
+enum OrderStatus {
+  draft
+  active
+  completed
+  cancelled
+}
+
+enum CycleType {
+  private
+  institutional_per_child
+  institutional_fixed
+}
+
+enum CycleStatus {
+  active
+  completed
+  cancelled
+}
+
+enum DayOfWeek {
+  sunday
+  monday
+  tuesday
+  wednesday
+  thursday
+  friday
+  saturday
+}
+
+enum RegistrationStatus {
+  registered
+  active
+  completed
+  cancelled
+}
+
+enum PaymentStatus {
+  unpaid
+  partial
+  paid
+}
+
+enum PaymentMethod {
+  credit
+  transfer
+  cash
+}
+
+enum MeetingStatus {
+  scheduled
+  completed
+  cancelled
+  postponed
+}
+
+enum AttendanceStatus {
+  present
+  absent
+  late
+}
+
+// ===================
+// MODELS
+// ===================
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  name         String
+  phone        String?
+  role         UserRole  @default(instructor)
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLogin    DateTime? @map("last_login")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  instructor       Instructor?
+  meetingUpdates   Meeting[]    @relation("MeetingStatusUpdater")
+  attendanceRecords Attendance[]
+
+  @@map("users")
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  name      String
+  email     String?
+  phone     String   @unique
+  address   String?
+  city      String?
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  students Student[]
+
+  @@map("customers")
+}
+
+model Student {
+  id         String    @id @default(uuid())
+  customerId String    @map("customer_id")
+  name       String
+  birthDate  DateTime? @map("birth_date") @db.Date
+  grade      String?
+  notes      String?
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  customer      Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  registrations Registration[]
+
+  @@map("students")
+}
+
+model Course {
+  id             String         @id @default(uuid())
+  name           String
+  description    String?
+  targetAudience String?        @map("target_audience")
+  category       CourseCategory
+  isActive       Boolean        @default(true) @map("is_active")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  // Relations
+  cycles Cycle[]
+
+  @@map("courses")
+}
+
+model Branch {
+  id           String     @id @default(uuid())
+  name         String
+  type         BranchType
+  address      String?
+  city         String?
+  contactName  String?    @map("contact_name")
+  contactPhone String?    @map("contact_phone")
+  contactEmail String?    @map("contact_email")
+  isActive     Boolean    @default(true) @map("is_active")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  institutionalOrders InstitutionalOrder[]
+  cycles              Cycle[]
+
+  @@map("branches")
+}
+
+model Instructor {
+  id              String   @id @default(uuid())
+  userId          String?  @unique @map("user_id")
+  name            String
+  phone           String   @unique
+  email           String?
+  rateFrontal     Decimal? @map("rate_frontal") @db.Decimal(10, 2)
+  rateOnline      Decimal? @map("rate_online") @db.Decimal(10, 2)
+  ratePrivate     Decimal? @map("rate_private") @db.Decimal(10, 2)
+  ratePreparation Decimal? @map("rate_preparation") @db.Decimal(10, 2)
+  isActive        Boolean  @default(true) @map("is_active")
+  notes           String?
+  inviteToken     String?  @unique @map("invite_token")
+  inviteExpiresAt DateTime? @map("invite_expires_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  cycles   Cycle[]
+  meetings Meeting[]
+
+  @@map("instructors")
+}
+
+model InstitutionalOrder {
+  id                String      @id @default(uuid())
+  branchId          String      @map("branch_id")
+  orderNumber       String?     @map("order_number")
+  orderDate         DateTime?   @map("order_date") @db.Date
+  startDate         DateTime    @map("start_date") @db.Date
+  endDate           DateTime    @map("end_date") @db.Date
+  pricePerMeeting   Decimal     @map("price_per_meeting") @db.Decimal(10, 2)
+  estimatedMeetings Int?        @map("estimated_meetings")
+  estimatedTotal    Decimal?    @map("estimated_total") @db.Decimal(10, 2)
+  contactName       String      @map("contact_name")
+  contactPhone      String      @map("contact_phone")
+  contactEmail      String?     @map("contact_email")
+  contractFile      String?     @map("contract_file")
+  status            OrderStatus @default(draft)
+  notes             String?
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+
+  // Relations
+  branch Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  cycles Cycle[]
+
+  @@map("institutional_orders")
+}
+
+model Cycle {
+  id                   String      @id @default(uuid())
+  fireberryId          String?     @unique @map("fireberry_id")
+  name                 String
+  courseId             String      @map("course_id")
+  branchId             String      @map("branch_id")
+  instructorId         String      @map("instructor_id")
+  institutionalOrderId String?     @map("institutional_order_id")
+  type                 CycleType
+  startDate            DateTime    @map("start_date") @db.Date
+  endDate              DateTime    @map("end_date") @db.Date
+  dayOfWeek            DayOfWeek   @map("day_of_week")
+  startTime            DateTime    @map("start_time") @db.Time
+  endTime              DateTime    @map("end_time") @db.Time
+  durationMinutes      Int         @map("duration_minutes")
+  totalMeetings        Int         @map("total_meetings")
+  pricePerStudent      Decimal?    @map("price_per_student") @db.Decimal(10, 2)
+  meetingRevenue       Decimal?    @map("meeting_revenue") @db.Decimal(10, 2)
+  studentCount         Int?        @map("student_count")
+  maxStudents          Int?        @map("max_students")
+  sendParentReminders  Boolean     @default(false) @map("send_parent_reminders")
+  isOnline             Boolean     @default(false) @map("is_online")
+  zoomHostId           String?     @map("zoom_host_id")
+  completedMeetings    Int         @default(0) @map("completed_meetings")
+  remainingMeetings    Int         @default(0) @map("remaining_meetings")
+  status               CycleStatus @default(active)
+  createdAt            DateTime    @default(now()) @map("created_at")
+  updatedAt            DateTime    @updatedAt @map("updated_at")
+
+  // Relations
+  course             Course              @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  branch             Branch              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  instructor         Instructor          @relation(fields: [instructorId], references: [id], onDelete: Restrict)
+  institutionalOrder InstitutionalOrder? @relation(fields: [institutionalOrderId], references: [id], onDelete: SetNull)
+  registrations      Registration[]
+  meetings           Meeting[]
+
+  @@map("cycles")
+}
+
+model Registration {
+  id                 String              @id @default(uuid())
+  studentId          String              @map("student_id")
+  cycleId            String              @map("cycle_id")
+  registrationDate   DateTime            @default(now()) @map("registration_date") @db.Date
+  status             RegistrationStatus  @default(registered)
+  amount             Decimal?            @db.Decimal(10, 2)
+  paymentStatus      PaymentStatus?      @map("payment_status")
+  paymentMethod      PaymentMethod?      @map("payment_method")
+  invoiceLink        String?             @map("invoice_link")
+  cancellationDate   DateTime?           @map("cancellation_date") @db.Date
+  cancellationReason String?             @map("cancellation_reason")
+  notes              String?
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  // Relations
+  student    Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  cycle      Cycle        @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  attendance Attendance[]
+
+  @@unique([studentId, cycleId])
+  @@map("registrations")
+}
+
+model Meeting {
+  id                String        @id @default(uuid())
+  cycleId           String        @map("cycle_id")
+  instructorId      String        @map("instructor_id")
+  scheduledDate     DateTime      @map("scheduled_date") @db.Date
+  startTime         DateTime      @map("start_time") @db.Time
+  endTime           DateTime      @map("end_time") @db.Time
+  status            MeetingStatus @default(scheduled)
+  statusUpdatedAt   DateTime?     @map("status_updated_at")
+  statusUpdatedById String?       @map("status_updated_by")
+  revenue           Decimal       @default(0) @db.Decimal(10, 2)
+  instructorPayment Decimal       @default(0) @map("instructor_payment") @db.Decimal(10, 2)
+  profit            Decimal       @default(0) @db.Decimal(10, 2)
+  topic             String?
+  notes             String?
+  zoomMeetingId     String?       @map("zoom_meeting_id")
+  zoomJoinUrl       String?       @map("zoom_join_url")
+  zoomStartUrl      String?       @map("zoom_start_url")
+  rescheduledToId   String?       @map("rescheduled_to_id")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  cycle           Cycle        @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  instructor      Instructor   @relation(fields: [instructorId], references: [id], onDelete: Restrict)
+  statusUpdatedBy User?        @relation("MeetingStatusUpdater", fields: [statusUpdatedById], references: [id])
+  rescheduledTo   Meeting?     @relation("RescheduledMeetings", fields: [rescheduledToId], references: [id])
+  rescheduledFrom Meeting[]    @relation("RescheduledMeetings")
+  attendance      Attendance[]
+
+  @@map("meetings")
+}
+
+model Attendance {
+  id             String           @id @default(uuid())
+  meetingId      String           @map("meeting_id")
+  registrationId String           @map("registration_id")
+  status         AttendanceStatus
+  notes          String?
+  recordedAt     DateTime         @default(now()) @map("recorded_at")
+  recordedById   String           @map("recorded_by")
+
+  // Relations
+  meeting      Meeting      @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  recordedBy   User         @relation(fields: [recordedById], references: [id])
+
+  @@unique([meetingId, registrationId])
+  @@map("attendance")
+}

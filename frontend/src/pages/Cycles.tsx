@@ -1,0 +1,953 @@
+import { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
+import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X } from 'lucide-react';
+import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle } from '../hooks/useApi';
+import PageHeader from '../components/ui/PageHeader';
+import Loading from '../components/ui/Loading';
+import EmptyState from '../components/ui/EmptyState';
+import Modal from '../components/ui/Modal';
+import { cycleStatusHebrew, cycleTypeHebrew, dayOfWeekHebrew } from '../types';
+import type { Cycle, CycleType, CycleStatus, DayOfWeek } from '../types';
+
+export default function Cycles() {
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingCycle, setEditingCycle] = useState<Cycle | null>(null);
+  const [statusFilter, setStatusFilter] = useState<CycleStatus | ''>('');
+  const [instructorFilter, setInstructorFilter] = useState('');
+  const [branchFilter, setBranchFilter] = useState('');
+  const [dayFilter, setDayFilter] = useState<DayOfWeek | ''>('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  // Debounce search
+  useMemo(() => {
+    const timeout = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(timeout);
+  }, [searchQuery]);
+
+  const { data: cycles, isLoading } = useCycles({ 
+    status: statusFilter || undefined,
+    instructorId: instructorFilter || undefined,
+    branchId: branchFilter || undefined,
+    dayOfWeek: dayFilter || undefined,
+    search: debouncedSearch || undefined,
+  });
+  const { data: courses } = useCourses();
+  const { data: branches } = useBranches();
+  const { data: instructors } = useInstructors();
+  const createCycle = useCreateCycle();
+  const updateCycle = useUpdateCycle();
+  const deleteCycle = useDeleteCycle();
+
+  const clearFilters = () => {
+    setStatusFilter('');
+    setInstructorFilter('');
+    setBranchFilter('');
+    setDayFilter('');
+    setSearchQuery('');
+  };
+
+  const hasActiveFilters = statusFilter || instructorFilter || branchFilter || dayFilter || searchQuery;
+
+  const handleDeleteCycle = async (id: string, name: string) => {
+    if (window.confirm(`האם למחוק את המחזור "${name}"? פעולה זו תמחק גם את כל הפגישות הקשורות.`)) {
+      try {
+        await deleteCycle.mutateAsync(id);
+      } catch (error) {
+        console.error('Failed to delete cycle:', error);
+        alert('שגיאה במחיקת המחזור');
+      }
+    }
+  };
+
+  const handleAddCycle = async (data: Partial<Cycle>) => {
+    try {
+      await createCycle.mutateAsync(data);
+      setShowAddModal(false);
+    } catch (error) {
+      console.error('Failed to create cycle:', error);
+    }
+  };
+
+  const handleUpdateCycle = async (data: Partial<Cycle>) => {
+    if (!editingCycle) return;
+    try {
+      await updateCycle.mutateAsync({ id: editingCycle.id, data });
+      setEditingCycle(null);
+    } catch (error) {
+      console.error('Failed to update cycle:', error);
+      alert('שגיאה בעדכון המחזור');
+    }
+  };
+
+  const formatTime = (time: string) => {
+    // Handle ISO date format (1970-01-01T16:00:00.000Z) or simple time (16:00)
+    if (time.includes('T')) {
+      // Extract UTC time directly without timezone conversion
+      const date = new Date(time);
+      const hours = date.getUTCHours().toString().padStart(2, '0');
+      const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+      return `${hours}:${minutes}`;
+    }
+    return time.substring(0, 5);
+  };
+
+  return (
+    <>
+      <PageHeader
+        title="מחזורים"
+        subtitle={`${cycles?.length || 0} מחזורים`}
+        actions={
+          <button onClick={() => setShowAddModal(true)} className="btn btn-primary">
+            <Plus size={18} />
+            מחזור חדש
+          </button>
+        }
+      />
+
+      <div className="flex-1 p-6 overflow-auto">
+        {/* Filters */}
+        <div className="mb-6 space-y-4">
+          <div className="flex flex-wrap gap-4 items-center">
+            {/* Search by name */}
+            <div className="relative flex-1 min-w-[200px] max-w-md">
+              <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="חיפוש לפי שם מחזור..."
+                className="form-input pr-10 w-full"
+              />
+            </div>
+
+            {/* Instructor filter */}
+            <select
+              value={instructorFilter}
+              onChange={(e) => setInstructorFilter(e.target.value)}
+              className="form-input w-48"
+            >
+              <option value="">כל המדריכים</option>
+              {instructors?.map((instructor) => (
+                <option key={instructor.id} value={instructor.id}>
+                  {instructor.name}
+                </option>
+              ))}
+            </select>
+
+            {/* Branch filter */}
+            <select
+              value={branchFilter}
+              onChange={(e) => setBranchFilter(e.target.value)}
+              className="form-input w-48"
+            >
+              <option value="">כל הסניפים</option>
+              {branches?.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+
+            {/* Day filter */}
+            <select
+              value={dayFilter}
+              onChange={(e) => setDayFilter(e.target.value as DayOfWeek | '')}
+              className="form-input w-40"
+            >
+              <option value="">כל הימים</option>
+              <option value="sunday">ראשון</option>
+              <option value="monday">שני</option>
+              <option value="tuesday">שלישי</option>
+              <option value="wednesday">רביעי</option>
+              <option value="thursday">חמישי</option>
+              <option value="friday">שישי</option>
+            </select>
+
+            {/* Status filter */}
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as CycleStatus | '')}
+              className="form-input w-40"
+            >
+              <option value="">כל הסטטוסים</option>
+              <option value="active">פעיל</option>
+              <option value="completed">הושלם</option>
+              <option value="cancelled">בוטל</option>
+            </select>
+
+            {/* Clear filters button */}
+            {hasActiveFilters && (
+              <button
+                onClick={clearFilters}
+                className="btn btn-secondary flex items-center gap-1"
+              >
+                <X size={16} />
+                נקה סינון
+              </button>
+            )}
+          </div>
+        </div>
+
+        {isLoading ? (
+          <Loading size="lg" text="טוען מחזורים..." />
+        ) : cycles && cycles.length > 0 ? (
+          <div className="card overflow-hidden">
+            <table>
+              <thead>
+                <tr>
+                  <th>שם המחזור</th>
+                  <th>קורס</th>
+                  <th>סניף</th>
+                  <th>מדריך</th>
+                  <th>יום ושעה</th>
+                  <th>סוג</th>
+                  <th>התקדמות</th>
+                  <th>סטטוס</th>
+                  <th>פעולות</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cycles.map((cycle) => (
+                  <tr key={cycle.id}>
+                    <td>
+                      <Link
+                        to={`/cycles/${cycle.id}`}
+                        className="text-blue-600 hover:underline font-medium"
+                      >
+                        {cycle.name}
+                      </Link>
+                    </td>
+                    <td>{cycle.course?.name || '-'}</td>
+                    <td>{cycle.branch?.name || '-'}</td>
+                    <td>{cycle.instructor?.name || '-'}</td>
+                    <td>
+                      <div className="flex items-center gap-1">
+                        <Clock size={14} className="text-gray-400" />
+                        <span>
+                          {dayOfWeekHebrew[cycle.dayOfWeek]} {formatTime(cycle.startTime)}
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <span className={`badge ${cycle.type === 'private' ? 'badge-warning' : 'badge-info'}`}>
+                        {cycleTypeHebrew[cycle.type]}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="flex items-center gap-2">
+                        <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-blue-600 rounded-full"
+                            style={{
+                              width: `${(cycle.completedMeetings / cycle.totalMeetings) * 100}%`,
+                            }}
+                          />
+                        </div>
+                        <span className="text-sm text-gray-500">
+                          {cycle.completedMeetings}/{cycle.totalMeetings}
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <span className={`badge ${
+                        cycle.status === 'active' ? 'badge-success' :
+                        cycle.status === 'completed' ? 'badge-info' : 'badge-danger'
+                      }`}>
+                        {cycleStatusHebrew[cycle.status]}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setEditingCycle(cycle)}
+                          className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="עריכה"
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCycle(cycle.id, cycle.name)}
+                          className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          title="מחיקה"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyState
+            icon={<RefreshCcw size={64} />}
+            title="אין מחזורים"
+            description="עדיין לא נוספו מחזורים למערכת"
+            action={
+              <button onClick={() => setShowAddModal(true)} className="btn btn-primary">
+                <Plus size={18} />
+                הוסף מחזור ראשון
+              </button>
+            }
+          />
+        )}
+      </div>
+
+      {/* Add Cycle Modal */}
+      <Modal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        title="מחזור חדש"
+        size="xl"
+      >
+        <CycleForm
+          courses={courses || []}
+          branches={branches || []}
+          instructors={instructors || []}
+          onSubmit={handleAddCycle}
+          onCancel={() => setShowAddModal(false)}
+          isLoading={createCycle.isPending}
+        />
+      </Modal>
+
+      {/* Edit Cycle Modal */}
+      <Modal
+        isOpen={!!editingCycle}
+        onClose={() => setEditingCycle(null)}
+        title="עריכת מחזור"
+        size="xl"
+      >
+        {editingCycle && (
+          <CycleEditForm
+            cycle={editingCycle}
+            courses={courses || []}
+            branches={branches || []}
+            instructors={instructors || []}
+            onSubmit={handleUpdateCycle}
+            onCancel={() => setEditingCycle(null)}
+            isLoading={updateCycle.isPending}
+          />
+        )}
+      </Modal>
+    </>
+  );
+}
+
+// Cycle Form
+interface CycleFormProps {
+  courses: { id: string; name: string }[];
+  branches: { id: string; name: string }[];
+  instructors: { id: string; name: string }[];
+  onSubmit: (data: Partial<Cycle>) => void;
+  onCancel: () => void;
+  isLoading?: boolean;
+}
+
+function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoading }: CycleFormProps) {
+  const [formData, setFormData] = useState({
+    name: '',
+    courseId: '',
+    branchId: '',
+    instructorId: '',
+    type: 'private' as CycleType,
+    startDate: '',
+    endDate: '',
+    dayOfWeek: 'sunday' as DayOfWeek,
+    startTime: '16:00',
+    endTime: '17:30',
+    durationMinutes: 90,
+    totalMeetings: 12,
+    pricePerStudent: 0,
+    meetingRevenue: 0,
+    studentCount: 0,
+    maxStudents: 15,
+    sendParentReminders: true,
+    isOnline: false,
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const priceValue = Number(formData.pricePerStudent);
+    const meetingRevenueValue = Number(formData.meetingRevenue);
+    const studentCountValue = Number(formData.studentCount);
+    const maxStudentsValue = Number(formData.maxStudents);
+    
+    const submitData: any = {
+      ...formData,
+      durationMinutes: Number(formData.durationMinutes),
+      totalMeetings: Number(formData.totalMeetings),
+      pricePerStudent: (formData.type === 'private' || formData.type === 'institutional_per_child') && priceValue > 0 ? priceValue : undefined,
+      meetingRevenue: formData.type === 'institutional_fixed' && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
+      studentCount: formData.type === 'institutional_per_child' && studentCountValue > 0 ? studentCountValue : undefined,
+      maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
+    };
+    // Remove endDate if empty - it will be calculated automatically
+    if (!submitData.endDate) {
+      delete submitData.endDate;
+    }
+    onSubmit(submitData);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="col-span-2">
+          <label className="form-label">שם המחזור *</label>
+          <input
+            type="text"
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            className="form-input"
+            placeholder="לדוגמה: מיינקראפט JS - אורט באר שבע - סמסטר א"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="form-label">קורס *</label>
+          <select
+            value={formData.courseId}
+            onChange={(e) => setFormData({ ...formData, courseId: e.target.value })}
+            className="form-input"
+            required
+          >
+            <option value="">בחר קורס</option>
+            {courses.map((course) => (
+              <option key={course.id} value={course.id}>
+                {course.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="form-label">סניף *</label>
+          <select
+            value={formData.branchId}
+            onChange={(e) => setFormData({ ...formData, branchId: e.target.value })}
+            className="form-input"
+            required
+          >
+            <option value="">בחר סניף</option>
+            {branches.map((branch) => (
+              <option key={branch.id} value={branch.id}>
+                {branch.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="form-label">מדריך *</label>
+          <select
+            value={formData.instructorId}
+            onChange={(e) => setFormData({ ...formData, instructorId: e.target.value })}
+            className="form-input"
+            required
+          >
+            <option value="">בחר מדריך</option>
+            {instructors.map((instructor) => (
+              <option key={instructor.id} value={instructor.id}>
+                {instructor.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="form-label">סוג מחזור *</label>
+          <select
+            value={formData.type}
+            onChange={(e) => setFormData({ ...formData, type: e.target.value as CycleType })}
+            className="form-input"
+          >
+            <option value="private">פרטי</option>
+            <option value="institutional_per_child">מוסדי (פר ילד)</option>
+            <option value="institutional_fixed">מוסדי (סכום קבוע)</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="border-t pt-4">
+        <h4 className="font-medium text-gray-700 mb-4">תאריכים</h4>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="form-label">תאריך התחלה *</label>
+            <input
+              type="date"
+              value={formData.startDate}
+              onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+              className="form-input"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="form-label">תאריך סיום</label>
+            <input
+              type="date"
+              value={formData.endDate}
+              onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+              className="form-input"
+            />
+            <p className="text-xs text-gray-500 mt-1">אופציונלי - יחושב אוטומטית לפי מספר המפגשים וחגים</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t pt-4">
+        <h4 className="font-medium text-gray-700 mb-4">לוח זמנים</h4>
+        <div className="grid grid-cols-4 gap-4">
+          <div>
+            <label className="form-label">יום בשבוע *</label>
+            <select
+              value={formData.dayOfWeek}
+              onChange={(e) => setFormData({ ...formData, dayOfWeek: e.target.value as DayOfWeek })}
+              className="form-input"
+            >
+              <option value="sunday">ראשון</option>
+              <option value="monday">שני</option>
+              <option value="tuesday">שלישי</option>
+              <option value="wednesday">רביעי</option>
+              <option value="thursday">חמישי</option>
+              <option value="friday">שישי</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="form-label">שעת התחלה *</label>
+            <input
+              type="time"
+              value={formData.startTime}
+              onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
+              className="form-input"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="form-label">שעת סיום *</label>
+            <input
+              type="time"
+              value={formData.endTime}
+              onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
+              className="form-input"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="form-label">סה"כ מפגשים *</label>
+            <input
+              type="number"
+              value={formData.totalMeetings}
+              onChange={(e) => setFormData({ ...formData, totalMeetings: Number(e.target.value) })}
+              className="form-input"
+              min="1"
+              required
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t pt-4">
+        <h4 className="font-medium text-gray-700 mb-4">הגדרות נוספות</h4>
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <label className="form-label">מקסימום תלמידים</label>
+            <input
+              type="number"
+              value={formData.maxStudents}
+              onChange={(e) => setFormData({ ...formData, maxStudents: Number(e.target.value) })}
+              className="form-input"
+              min="1"
+            />
+          </div>
+
+          {(formData.type === 'private' || formData.type === 'institutional_per_child') && (
+            <div>
+              <label className="form-label">מחיר לתלמיד {formData.type === 'institutional_per_child' ? '(למפגש)' : ''}</label>
+              <div className="relative">
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+                <input
+                  type="number"
+                  value={formData.pricePerStudent}
+                  onChange={(e) => setFormData({ ...formData, pricePerStudent: Number(e.target.value) })}
+                  className="form-input pr-8"
+                  min="0"
+                />
+              </div>
+            </div>
+          )}
+
+          {formData.type === 'institutional_per_child' && (
+            <div>
+              <label className="form-label">מספר נרשמים</label>
+              <input
+                type="number"
+                value={formData.studentCount}
+                onChange={(e) => setFormData({ ...formData, studentCount: Number(e.target.value) })}
+                className="form-input"
+                min="0"
+              />
+            </div>
+          )}
+
+          {formData.type === 'institutional_fixed' && (
+            <div>
+              <label className="form-label">הכנסה למפגש</label>
+              <div className="relative">
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+                <input
+                  type="number"
+                  value={formData.meetingRevenue}
+                  onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
+                  className="form-input pr-8"
+                  min="0"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-6 mt-4">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={formData.sendParentReminders}
+              onChange={(e) => setFormData({ ...formData, sendParentReminders: e.target.checked })}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm text-gray-700">שלח תזכורות להורים</span>
+          </label>
+
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={formData.isOnline}
+              onChange={(e) => setFormData({ ...formData, isOnline: e.target.checked })}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm text-gray-700">מחזור אונליין (Zoom)</span>
+          </label>
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-3 pt-4 border-t">
+        <button type="button" onClick={onCancel} className="btn btn-secondary">
+          ביטול
+        </button>
+        <button type="submit" className="btn btn-primary" disabled={isLoading}>
+          {isLoading ? 'יוצר מחזור...' : 'צור מחזור'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// Cycle Edit Form
+interface CycleEditFormProps {
+  cycle: Cycle;
+  courses: { id: string; name: string }[];
+  branches: { id: string; name: string }[];
+  instructors: { id: string; name: string }[];
+  onSubmit: (data: Partial<Cycle>) => void;
+  onCancel: () => void;
+  isLoading?: boolean;
+}
+
+function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCancel, isLoading }: CycleEditFormProps) {
+  const formatTimeForInput = (time: string) => {
+    if (time.includes('T')) {
+      const date = new Date(time);
+      return date.toISOString().substring(11, 16);
+    }
+    return time.substring(0, 5);
+  };
+
+  const [formData, setFormData] = useState({
+    name: cycle.name,
+    courseId: cycle.courseId,
+    branchId: cycle.branchId,
+    instructorId: cycle.instructorId,
+    type: cycle.type,
+    status: cycle.status,
+    dayOfWeek: cycle.dayOfWeek,
+    startTime: formatTimeForInput(cycle.startTime),
+    endTime: formatTimeForInput(cycle.endTime),
+    totalMeetings: cycle.totalMeetings,
+    pricePerStudent: cycle.pricePerStudent || 0,
+    meetingRevenue: cycle.meetingRevenue || 0,
+    studentCount: cycle.studentCount || 0,
+    maxStudents: cycle.maxStudents || 15,
+    sendParentReminders: cycle.sendParentReminders,
+    isOnline: cycle.isOnline,
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const priceValue = Number(formData.pricePerStudent);
+    const meetingRevenueValue = Number(formData.meetingRevenue);
+    const studentCountValue = Number(formData.studentCount);
+    const maxStudentsValue = Number(formData.maxStudents);
+    
+    onSubmit({
+      name: formData.name,
+      courseId: formData.courseId,
+      branchId: formData.branchId,
+      instructorId: formData.instructorId,
+      type: formData.type,
+      status: formData.status,
+      dayOfWeek: formData.dayOfWeek,
+      startTime: formData.startTime,
+      endTime: formData.endTime,
+      totalMeetings: Number(formData.totalMeetings),
+      pricePerStudent: (formData.type === 'private' || formData.type === 'institutional_per_child') && priceValue > 0 ? priceValue : undefined,
+      meetingRevenue: formData.type === 'institutional_fixed' && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
+      studentCount: formData.type === 'institutional_per_child' && studentCountValue > 0 ? studentCountValue : undefined,
+      maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
+      sendParentReminders: formData.sendParentReminders,
+      isOnline: formData.isOnline,
+    });
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="col-span-2">
+          <label className="form-label">שם המחזור *</label>
+          <input
+            type="text"
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            className="form-input"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="form-label">קורס *</label>
+          <select
+            value={formData.courseId}
+            onChange={(e) => setFormData({ ...formData, courseId: e.target.value })}
+            className="form-input"
+            required
+          >
+            <option value="">בחר קורס</option>
+            {courses.map((course) => (
+              <option key={course.id} value={course.id}>
+                {course.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="form-label">סניף *</label>
+          <select
+            value={formData.branchId}
+            onChange={(e) => setFormData({ ...formData, branchId: e.target.value })}
+            className="form-input"
+            required
+          >
+            <option value="">בחר סניף</option>
+            {branches.map((branch) => (
+              <option key={branch.id} value={branch.id}>
+                {branch.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="form-label">מדריך *</label>
+          <select
+            value={formData.instructorId}
+            onChange={(e) => setFormData({ ...formData, instructorId: e.target.value })}
+            className="form-input"
+            required
+          >
+            <option value="">בחר מדריך</option>
+            {instructors.map((instructor) => (
+              <option key={instructor.id} value={instructor.id}>
+                {instructor.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="form-label">סוג מחזור</label>
+          <select
+            value={formData.type}
+            onChange={(e) => setFormData({ ...formData, type: e.target.value as CycleType })}
+            className="form-input"
+          >
+            <option value="private">פרטי</option>
+            <option value="institutional_per_child">מוסדי (פר ילד)</option>
+            <option value="institutional_fixed">מוסדי (סכום קבוע)</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="form-label">סטטוס</label>
+          <select
+            value={formData.status}
+            onChange={(e) => setFormData({ ...formData, status: e.target.value as CycleStatus })}
+            className="form-input"
+          >
+            <option value="active">פעיל</option>
+            <option value="completed">הושלם</option>
+            <option value="cancelled">בוטל</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="border-t pt-4">
+        <h4 className="font-medium text-gray-700 mb-4">לוח זמנים</h4>
+        <div className="grid grid-cols-4 gap-4">
+          <div>
+            <label className="form-label">יום בשבוע</label>
+            <select
+              value={formData.dayOfWeek}
+              onChange={(e) => setFormData({ ...formData, dayOfWeek: e.target.value as DayOfWeek })}
+              className="form-input"
+            >
+              <option value="sunday">ראשון</option>
+              <option value="monday">שני</option>
+              <option value="tuesday">שלישי</option>
+              <option value="wednesday">רביעי</option>
+              <option value="thursday">חמישי</option>
+              <option value="friday">שישי</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="form-label">שעת התחלה</label>
+            <input
+              type="time"
+              value={formData.startTime}
+              onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
+              className="form-input"
+            />
+          </div>
+
+          <div>
+            <label className="form-label">שעת סיום</label>
+            <input
+              type="time"
+              value={formData.endTime}
+              onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
+              className="form-input"
+            />
+          </div>
+
+          <div>
+            <label className="form-label">סה"כ מפגשים</label>
+            <input
+              type="number"
+              value={formData.totalMeetings}
+              onChange={(e) => setFormData({ ...formData, totalMeetings: Number(e.target.value) })}
+              className="form-input"
+              min="1"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t pt-4">
+        <h4 className="font-medium text-gray-700 mb-4">הגדרות נוספות</h4>
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <label className="form-label">מקסימום תלמידים</label>
+            <input
+              type="number"
+              value={formData.maxStudents}
+              onChange={(e) => setFormData({ ...formData, maxStudents: Number(e.target.value) })}
+              className="form-input"
+              min="1"
+            />
+          </div>
+
+          {(formData.type === 'private' || formData.type === 'institutional_per_child') && (
+            <div>
+              <label className="form-label">מחיר לתלמיד {formData.type === 'institutional_per_child' ? '(למפגש)' : ''}</label>
+              <div className="relative">
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+                <input
+                  type="number"
+                  value={formData.pricePerStudent}
+                  onChange={(e) => setFormData({ ...formData, pricePerStudent: Number(e.target.value) })}
+                  className="form-input pr-8"
+                  min="0"
+                />
+              </div>
+            </div>
+          )}
+
+          {formData.type === 'institutional_per_child' && (
+            <div>
+              <label className="form-label">מספר נרשמים</label>
+              <input
+                type="number"
+                value={formData.studentCount}
+                onChange={(e) => setFormData({ ...formData, studentCount: Number(e.target.value) })}
+                className="form-input"
+                min="0"
+              />
+            </div>
+          )}
+
+          {formData.type === 'institutional_fixed' && (
+            <div>
+              <label className="form-label">הכנסה למפגש</label>
+              <div className="relative">
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+                <input
+                  type="number"
+                  value={formData.meetingRevenue}
+                  onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
+                  className="form-input pr-8"
+                  min="0"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-6 mt-4">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={formData.sendParentReminders}
+              onChange={(e) => setFormData({ ...formData, sendParentReminders: e.target.checked })}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm text-gray-700">שלח תזכורות להורים</span>
+          </label>
+
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={formData.isOnline}
+              onChange={(e) => setFormData({ ...formData, isOnline: e.target.checked })}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm text-gray-700">מחזור אונליין (Zoom)</span>
+          </label>
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-3 pt-4 border-t">
+        <button type="button" onClick={onCancel} className="btn btn-secondary">
+          ביטול
+        </button>
+        <button type="submit" className="btn btn-primary" disabled={isLoading}>
+          {isLoading ? 'שומר...' : 'שמור שינויים'}
+        </button>
+      </div>
+    </form>
+  );
+}

@@ -1,0 +1,417 @@
+import { useState, useMemo } from 'react';
+import { BarChart3, Calendar, TrendingUp, DollarSign, Building2, FileText, Download } from 'lucide-react';
+import PageHeader from '../components/ui/PageHeader';
+import Loading from '../components/ui/Loading';
+import { useMeetings, useCycles, useInstructors, useBranches } from '../hooks/useApi';
+
+export default function Reports() {
+  const [dateRange, setDateRange] = useState(() => {
+    const today = new Date();
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    return {
+      from: startOfMonth.toISOString().split('T')[0],
+      to: endOfMonth.toISOString().split('T')[0],
+    };
+  });
+  const [branchFilter, setBranchFilter] = useState('');
+  const [activeTab, setActiveTab] = useState<'overview' | 'billing'>('overview');
+
+  const { data: branches, isLoading: loadingBranches } = useBranches();
+  const { data: meetings, isLoading: loadingMeetings } = useMeetings({
+    from: dateRange.from,
+    to: dateRange.to,
+    branchId: branchFilter || undefined,
+  });
+  const { data: cycles, isLoading: loadingCycles } = useCycles({ status: 'active' });
+  const { data: instructors, isLoading: loadingInstructors } = useInstructors();
+
+  const stats = useMemo(() => {
+    if (!meetings || !Array.isArray(meetings)) {
+      return {
+        totalMeetings: 0,
+        completedMeetings: 0,
+        cancelledMeetings: 0,
+        totalRevenue: 0,
+        totalCosts: 0,
+        profit: 0,
+      };
+    }
+
+    const completed = meetings.filter((m) => m.status === 'completed');
+    const cancelled = meetings.filter((m) => m.status === 'cancelled');
+    const totalRevenue = completed.reduce((sum, m) => sum + Number(m.revenue || 0), 0);
+    const totalCosts = completed.reduce((sum, m) => sum + Number(m.instructorPayment || 0), 0);
+
+    return {
+      totalMeetings: meetings.length,
+      completedMeetings: completed.length,
+      cancelledMeetings: cancelled.length,
+      totalRevenue,
+      totalCosts,
+      profit: totalRevenue - totalCosts,
+    };
+  }, [meetings]);
+
+  // Branch billing summary
+  const branchBilling = useMemo(() => {
+    if (!meetings || !Array.isArray(meetings)) return [];
+
+    const byBranch: Record<string, {
+      branchId: string;
+      branchName: string;
+      completedMeetings: number;
+      totalRevenue: number;
+      meetings: typeof meetings;
+    }> = {};
+
+    meetings.forEach((meeting) => {
+      if (meeting.status !== 'completed') return;
+      const branchId = meeting.cycle?.branch?.id || 'unknown';
+      const branchName = meeting.cycle?.branch?.name || 'לא מוגדר';
+      
+      if (!byBranch[branchId]) {
+        byBranch[branchId] = {
+          branchId,
+          branchName,
+          completedMeetings: 0,
+          totalRevenue: 0,
+          meetings: [],
+        };
+      }
+      
+      byBranch[branchId].completedMeetings++;
+      byBranch[branchId].totalRevenue += Number(meeting.revenue || 0);
+      byBranch[branchId].meetings.push(meeting);
+    });
+
+    return Object.values(byBranch).sort((a, b) => b.totalRevenue - a.totalRevenue);
+  }, [meetings]);
+
+  const selectedBranch = useMemo(() => {
+    return branches?.find((b) => b.id === branchFilter);
+  }, [branches, branchFilter]);
+
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('he-IL', { day: 'numeric', month: 'short' });
+  };
+
+  const formatTime = (time: string) => {
+    if (time.includes('T')) {
+      const date = new Date(time);
+      const hours = date.getUTCHours().toString().padStart(2, '0');
+      const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+      return `${hours}:${minutes}`;
+    }
+    return time.substring(0, 5);
+  };
+
+  const exportBillingReport = () => {
+    if (!branchFilter || !selectedBranch) {
+      alert('יש לבחור סניף לפני הפקת דוח גבייה');
+      return;
+    }
+
+    const branchData = branchBilling.find((b) => b.branchId === branchFilter);
+    if (!branchData) return;
+
+    // Create CSV content
+    let csv = '\ufeff'; // BOM for Hebrew
+    csv += `דוח גבייה - ${selectedBranch.name}\n`;
+    csv += `תקופה: ${dateRange.from} עד ${dateRange.to}\n\n`;
+    csv += 'תאריך,שעה,מחזור,קורס,מדריך,סכום\n';
+
+    branchData.meetings.forEach((meeting) => {
+      const date = meeting.scheduledDate ? new Date(meeting.scheduledDate).toLocaleDateString('he-IL') : '';
+      const time = meeting.startTime ? formatTime(meeting.startTime) : '';
+      const cycleName = meeting.cycle?.name || '';
+      const courseName = meeting.cycle?.course?.name || '';
+      const instructorName = meeting.instructor?.name || '';
+      const revenue = meeting.revenue || 0;
+      csv += `${date},${time},"${cycleName}","${courseName}","${instructorName}",${revenue}\n`;
+    });
+
+    csv += `\nסה"כ מפגשים,${branchData.completedMeetings}\n`;
+    csv += `סה"כ לגבייה,₪${branchData.totalRevenue.toLocaleString()}\n`;
+
+    // Download
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `billing-${selectedBranch.name}-${dateRange.from}-${dateRange.to}.csv`;
+    link.click();
+  };
+
+  const isLoading = loadingMeetings || loadingCycles || loadingInstructors || loadingBranches;
+
+  if (isLoading) {
+    return <Loading size="lg" text="טוען דוחות..." />;
+  }
+
+  return (
+    <div className="flex-1 flex flex-col">
+      <PageHeader
+        title="דוחות"
+        subtitle="סיכום פעילות ונתונים כספיים"
+      />
+
+      <div className="flex-1 p-6 overflow-auto bg-gray-50">
+        {/* Filters */}
+        <div className="bg-white rounded-lg p-4 shadow mb-6">
+          <div className="flex flex-wrap items-center gap-4">
+            <Calendar className="text-gray-400" size={20} />
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600">מתאריך:</label>
+              <input
+                type="date"
+                value={dateRange.from}
+                onChange={(e) => setDateRange((d) => ({ ...d, from: e.target.value }))}
+                className="border rounded px-3 py-1.5 text-sm"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600">עד תאריך:</label>
+              <input
+                type="date"
+                value={dateRange.to}
+                onChange={(e) => setDateRange((d) => ({ ...d, to: e.target.value }))}
+                className="border rounded px-3 py-1.5 text-sm"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Building2 className="text-gray-400" size={18} />
+              <select
+                value={branchFilter}
+                onChange={(e) => setBranchFilter(e.target.value)}
+                className="border rounded px-3 py-1.5 text-sm min-w-[150px]"
+              >
+                <option value="">כל הסניפים</option>
+                {branches?.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-2 mb-6">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              activeTab === 'overview'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <BarChart3 size={18} className="inline ml-2" />
+            סיכום כללי
+          </button>
+          <button
+            onClick={() => setActiveTab('billing')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              activeTab === 'billing'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <FileText size={18} className="inline ml-2" />
+            גבייה לפי סניף
+          </button>
+        </div>
+
+        {activeTab === 'overview' && (
+          <>
+            {/* Stats Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+              <div className="bg-white rounded-lg p-6 shadow">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-500">סה"כ מפגשים</p>
+                    <p className="text-3xl font-bold text-gray-900">{stats.totalMeetings}</p>
+                    <p className="text-sm text-green-600">
+                      {stats.completedMeetings} הושלמו
+                    </p>
+                  </div>
+                  <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                    <Calendar className="text-blue-600" size={24} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg p-6 shadow">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-500">הכנסות</p>
+                    <p className="text-3xl font-bold text-gray-900">
+                      ₪{stats.totalRevenue.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                    <TrendingUp className="text-green-600" size={24} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg p-6 shadow">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-500">הוצאות</p>
+                    <p className="text-3xl font-bold text-gray-900">
+                      ₪{stats.totalCosts.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                    <DollarSign className="text-red-600" size={24} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg p-6 shadow">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-500">רווח</p>
+                    <p className={`text-3xl font-bold ${stats.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      ₪{stats.profit.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
+                    <BarChart3 className="text-purple-600" size={24} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white rounded-lg p-6 shadow">
+                <h3 className="text-lg font-semibold mb-4">מחזורים פעילים</h3>
+                <p className="text-4xl font-bold text-blue-600">
+                  {Array.isArray(cycles) ? cycles.length : 0}
+                </p>
+                <p className="text-sm text-gray-500 mt-2">מחזורים בסטטוס פעיל</p>
+              </div>
+
+              <div className="bg-white rounded-lg p-6 shadow">
+                <h3 className="text-lg font-semibold mb-4">מדריכים פעילים</h3>
+                <p className="text-4xl font-bold text-green-600">
+                  {Array.isArray(instructors) ? instructors.filter((i) => i.isActive).length : 0}
+                </p>
+                <p className="text-sm text-gray-500 mt-2">מדריכים זמינים להדרכה</p>
+              </div>
+            </div>
+          </>
+        )}
+
+        {activeTab === 'billing' && (
+          <div className="space-y-6">
+            {/* Branch Billing Summary */}
+            <div className="bg-white rounded-lg shadow overflow-hidden">
+              <div className="p-4 border-b flex items-center justify-between">
+                <h3 className="text-lg font-semibold">סיכום גבייה לפי סניף</h3>
+                {branchFilter && (
+                  <button
+                    onClick={exportBillingReport}
+                    className="btn btn-primary flex items-center gap-2"
+                  >
+                    <Download size={18} />
+                    הורד דוח גבייה
+                  </button>
+                )}
+              </div>
+              
+              {branchBilling.length > 0 ? (
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-right p-3 font-medium text-gray-600">סניף</th>
+                      <th className="text-right p-3 font-medium text-gray-600">מפגשים שהתקיימו</th>
+                      <th className="text-right p-3 font-medium text-gray-600">סכום לגבייה</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {branchBilling.map((branch) => (
+                      <tr
+                        key={branch.branchId}
+                        className={`border-t hover:bg-gray-50 ${
+                          branchFilter === branch.branchId ? 'bg-blue-50' : ''
+                        }`}
+                      >
+                        <td className="p-3 font-medium">{branch.branchName}</td>
+                        <td className="p-3">{branch.completedMeetings}</td>
+                        <td className="p-3 font-semibold text-green-600">
+                          ₪{branch.totalRevenue.toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-gray-100 font-bold">
+                    <tr>
+                      <td className="p-3">סה"כ</td>
+                      <td className="p-3">{branchBilling.reduce((sum, b) => sum + b.completedMeetings, 0)}</td>
+                      <td className="p-3 text-green-600">
+                        ₪{branchBilling.reduce((sum, b) => sum + b.totalRevenue, 0).toLocaleString()}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              ) : (
+                <div className="p-8 text-center text-gray-500">
+                  אין מפגשים שהתקיימו בתקופה הנבחרת
+                </div>
+              )}
+            </div>
+
+            {/* Detailed Branch Report */}
+            {branchFilter && (
+              <div className="bg-white rounded-lg shadow overflow-hidden">
+                <div className="p-4 border-b">
+                  <h3 className="text-lg font-semibold">
+                    פירוט מפגשים - {selectedBranch?.name}
+                  </h3>
+                </div>
+                
+                {branchBilling.find((b) => b.branchId === branchFilter)?.meetings.length ? (
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-right p-3 font-medium text-gray-600">תאריך</th>
+                        <th className="text-right p-3 font-medium text-gray-600">שעה</th>
+                        <th className="text-right p-3 font-medium text-gray-600">מחזור</th>
+                        <th className="text-right p-3 font-medium text-gray-600">קורס</th>
+                        <th className="text-right p-3 font-medium text-gray-600">מדריך</th>
+                        <th className="text-right p-3 font-medium text-gray-600">סכום</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {branchBilling
+                        .find((b) => b.branchId === branchFilter)
+                        ?.meetings.sort((a, b) => new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime())
+                        .map((meeting) => (
+                          <tr key={meeting.id} className="border-t hover:bg-gray-50">
+                            <td className="p-3">{formatDate(meeting.scheduledDate)}</td>
+                            <td className="p-3">{formatTime(meeting.startTime)}</td>
+                            <td className="p-3">{meeting.cycle?.name}</td>
+                            <td className="p-3">{meeting.cycle?.course?.name}</td>
+                            <td className="p-3">{meeting.instructor?.name}</td>
+                            <td className="p-3 font-medium">₪{Number(meeting.revenue || 0).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="p-8 text-center text-gray-500">
+                    אין מפגשים שהתקיימו בסניף זה בתקופה הנבחרת
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

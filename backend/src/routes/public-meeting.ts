@@ -126,17 +126,26 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
         revenue = Number(cycleData.meetingRevenue || 0);
       }
 
-      // Calculate instructor payment
+      // Calculate instructor payment based on activity type
+      // Priority: meeting.activityType > cycle.activityType > fallback to cycle.isOnline
+      const activityType = existingMeeting.activityType || cycleData.activityType || 
+        (cycleData.isOnline ? 'online' : (cycleData.type === 'private' ? 'private_lesson' : 'frontal'));
+      
       const instructor = existingMeeting.instructor;
       let instructorPayment = 0;
       if (instructor) {
         let hourlyRate = 0;
-        if (cycleData.type === 'private') {
-          hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
-        } else if (cycleData.isOnline) {
-          hourlyRate = Number(instructor.rateOnline || 0);
-        } else {
-          hourlyRate = Number(instructor.rateFrontal || 0);
+        switch (activityType) {
+          case 'online':
+            hourlyRate = Number(instructor.rateOnline || instructor.rateFrontal || 0);
+            break;
+          case 'private_lesson':
+            hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
+            break;
+          case 'frontal':
+          default:
+            hourlyRate = Number(instructor.rateFrontal || 0);
+            break;
         }
         
         const durationHours = cycleData.durationMinutes / 60;

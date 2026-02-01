@@ -127,6 +127,7 @@ export const createCycleSchema = z.object({
   maxStudents: z.number().int().positive().optional().nullable(),
   sendParentReminders: z.boolean().default(false),
   isOnline: z.boolean().default(false),
+  activityType: z.enum(['online', 'frontal', 'private_lesson']).default('frontal'),
   zoomHostId: z.string().optional().nullable(),
 });
 
@@ -158,6 +159,7 @@ export const createMeetingSchema = z.object({
   startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format'),
   endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format'),
   status: z.enum(['scheduled', 'completed', 'cancelled', 'postponed']).default('scheduled'),
+  activityType: z.enum(['online', 'frontal', 'private_lesson']).optional().nullable(),
   topic: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   zoomMeetingId: z.string().optional().nullable(),
@@ -170,6 +172,7 @@ export const updateMeetingSchema = z.object({
   topic: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   instructorId: z.string().uuid().optional(),
+  activityType: z.enum(['online', 'frontal', 'private_lesson']).optional().nullable(),
   revenue: z.number().optional(),
   instructorPayment: z.number().optional(),
   profit: z.number().optional(),

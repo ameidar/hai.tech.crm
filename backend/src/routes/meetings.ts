@@ -263,14 +263,23 @@ meetingsRouter.put('/:id', async (req, res, next) => {
           
           let instructorPayment = 0;
           if (instructor) {
-            // Determine rate based on cycle type
+            // Determine rate based on activity type
+            // Priority: meeting.activityType > cycle.activityType > fallback to cycle.isOnline
+            const activityType = data.activityType || existingMeeting.activityType || cycleData.activityType || 
+              (cycleData.isOnline ? 'online' : (cycleData.type === 'private' ? 'private_lesson' : 'frontal'));
+            
             let hourlyRate = 0;
-            if (cycleData.type === 'private') {
-              hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
-            } else if (cycleData.isOnline) {
-              hourlyRate = Number(instructor.rateOnline || 0);
-            } else {
-              hourlyRate = Number(instructor.rateFrontal || 0);
+            switch (activityType) {
+              case 'online':
+                hourlyRate = Number(instructor.rateOnline || instructor.rateFrontal || 0);
+                break;
+              case 'private_lesson':
+                hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
+                break;
+              case 'frontal':
+              default:
+                hourlyRate = Number(instructor.rateFrontal || 0);
+                break;
             }
             
             // Calculate duration from meeting's actual times, or fall back to cycle default

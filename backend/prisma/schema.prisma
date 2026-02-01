@@ -95,6 +95,12 @@ enum AttendanceStatus {
   late
 }
 
+enum ActivityType {
+  online
+  frontal
+  private_lesson @map("private")
+}
+
 // ===================
 // MODELS
 // ===================
@@ -260,9 +266,10 @@ model Cycle {
   meetingRevenue       Decimal?    @map("meeting_revenue") @db.Decimal(10, 2)
   studentCount         Int?        @map("student_count")
   maxStudents          Int?        @map("max_students")
-  sendParentReminders  Boolean     @default(false) @map("send_parent_reminders")
-  isOnline             Boolean     @default(false) @map("is_online")
-  zoomHostId           String?     @map("zoom_host_id")
+  sendParentReminders  Boolean      @default(false) @map("send_parent_reminders")
+  isOnline             Boolean      @default(false) @map("is_online")
+  activityType         ActivityType @default(frontal) @map("activity_type")
+  zoomHostId           String?      @map("zoom_host_id")
   completedMeetings    Int         @default(0) @map("completed_meetings")
   remainingMeetings    Int         @default(0) @map("remaining_meetings")
   status               CycleStatus @default(active)
@@ -318,6 +325,7 @@ model Meeting {
   revenue           Decimal       @default(0) @db.Decimal(10, 2)
   instructorPayment Decimal       @default(0) @map("instructor_payment") @db.Decimal(10, 2)
   profit            Decimal       @default(0) @db.Decimal(10, 2)
+  activityType      ActivityType? @map("activity_type")
   topic             String?
   notes             String?
   zoomMeetingId     String?       @map("zoom_meeting_id")

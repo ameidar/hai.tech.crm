@@ -372,6 +372,32 @@ export const useUpdateMeeting = () => {
   });
 };
 
+export const useDeleteMeeting = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      mutateData<{ success: boolean }, null>(`/meetings/${id}`, 'delete', null),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
+    },
+  });
+};
+
+export const useBulkDeleteMeetings = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      mutateData<{ success: boolean; deleted: number }, { ids: string[] }>('/meetings/bulk-delete', 'post', { ids }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
+    },
+  });
+};
+
 // ==================== Reports ====================
 export const useDailyReport = (date: string) => {
   return useQuery({

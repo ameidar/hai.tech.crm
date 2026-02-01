@@ -20,6 +20,7 @@ import {
   useCycleMeetings,
   useCycleRegistrations,
   useUpdateMeeting,
+  useBulkDeleteMeetings,
   useUpdateCycle,
   useStudents,
   useInstructors,
@@ -55,6 +56,7 @@ export default function CycleDetail() {
   const { data: allStudents } = useStudents();
   const { data: instructors } = useInstructors();
   const updateMeeting = useUpdateMeeting();
+  const bulkDeleteMeetings = useBulkDeleteMeetings();
   const updateCycle = useUpdateCycle();
   const createRegistration = useCreateRegistration();
   const updateRegistration = useUpdateRegistration();
@@ -102,6 +104,20 @@ export default function CycleDetail() {
     } catch (error) {
       console.error('Failed to bulk update meetings:', error);
       alert('שגיאה בעדכון הפגישות');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const count = selectedMeetingIds.size;
+    if (!window.confirm(`האם למחוק ${count} פגישות? פעולה זו לא ניתנת לביטול.`)) {
+      return;
+    }
+    try {
+      await bulkDeleteMeetings.mutateAsync(Array.from(selectedMeetingIds));
+      setSelectedMeetingIds(new Set());
+    } catch (error) {
+      console.error('Failed to bulk delete meetings:', error);
+      alert('שגיאה במחיקת הפגישות');
     }
   };
 
@@ -435,6 +451,14 @@ export default function CycleDetail() {
                     >
                       <Edit size={16} />
                       עריכה גורפת
+                    </button>
+                    <button
+                      onClick={handleBulkDelete}
+                      className="btn btn-danger text-sm"
+                      disabled={bulkDeleteMeetings.isPending}
+                    >
+                      <XCircle size={16} />
+                      {bulkDeleteMeetings.isPending ? 'מוחק...' : 'מחיקה גורפת'}
                     </button>
                     <button
                       onClick={() => setSelectedMeetingIds(new Set())}

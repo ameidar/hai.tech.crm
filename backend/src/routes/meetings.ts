@@ -494,3 +494,87 @@ meetingsRouter.get('/:id/attendance', async (req, res, next) => {
     next(error);
   }
 });
+
+// Delete a single meeting
+meetingsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+
+    const meeting = await prisma.meeting.findUnique({
+      where: { id },
+      select: { cycleId: true, status: true },
+    });
+
+    if (!meeting) {
+      throw new AppError(404, 'Meeting not found');
+    }
+
+    // If meeting was completed, decrement cycle counters
+    if (meeting.status === 'completed') {
+      const cycleData = await prisma.cycle.findUnique({
+        where: { id: meeting.cycleId },
+      });
+      
+      if (cycleData && cycleData.completedMeetings > 0) {
+        await prisma.cycle.update({
+          where: { id: meeting.cycleId },
+          data: {
+            completedMeetings: { decrement: 1 },
+            remainingMeetings: { increment: 1 },
+          },
+        });
+      }
+    }
+
+    await prisma.meeting.delete({ where: { id } });
+
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Bulk delete meetings
+meetingsRouter.post('/bulk-delete', managerOrAdmin, async (req, res, next) => {
+  try {
+    const { ids } = req.body;
+    
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new AppError(400, 'ids array is required');
+    }
+
+    // Get meetings to check their status and cycle
+    const meetings = await prisma.meeting.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, cycleId: true, status: true },
+    });
+
+    // Group completed meetings by cycle to update counters
+    const completedByCycle = meetings
+      .filter(m => m.status === 'completed')
+      .reduce((acc, m) => {
+        acc[m.cycleId] = (acc[m.cycleId] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+    // Update cycle counters
+    for (const [cycleId, count] of Object.entries(completedByCycle)) {
+      await prisma.cycle.update({
+        where: { id: cycleId },
+        data: {
+          completedMeetings: { decrement: count },
+          remainingMeetings: { increment: count },
+        },
+      });
+    }
+
+    // Delete all meetings
+    const result = await prisma.meeting.deleteMany({
+      where: { id: { in: ids } },
+    });
+
+    res.json({ success: true, deleted: result.count });
+  } catch (error) {
+    next(error);
+  }
+});

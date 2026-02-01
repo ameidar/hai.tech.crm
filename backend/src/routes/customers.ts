@@ -95,7 +95,7 @@ customersRouter.post('/', managerOrAdmin, async (req, res, next) => {
     const data = createCustomerSchema.parse(req.body);
 
     // Check if customer with this phone already exists
-    const existingCustomer = await prisma.customer.findUnique({
+    const existingByPhone = await prisma.customer.findUnique({
       where: { phone: data.phone },
       include: {
         _count: { select: { students: true } },
@@ -103,10 +103,27 @@ customersRouter.post('/', managerOrAdmin, async (req, res, next) => {
       },
     });
 
-    if (existingCustomer) {
-      throw new AppError(409, `לקוח עם מספר טלפון ${data.phone} כבר קיים: ${existingCustomer.name}`, {
-        existingCustomer,
+    if (existingByPhone) {
+      throw new AppError(409, `לקוח עם מספר טלפון ${data.phone} כבר קיים: ${existingByPhone.name}`, {
+        existingCustomer: existingByPhone,
       });
+    }
+
+    // Check if customer with this email already exists (only if email provided)
+    if (data.email) {
+      const existingByEmail = await prisma.customer.findUnique({
+        where: { email: data.email },
+        include: {
+          _count: { select: { students: true } },
+          students: { select: { id: true, name: true } },
+        },
+      });
+
+      if (existingByEmail) {
+        throw new AppError(409, `לקוח עם כתובת מייל ${data.email} כבר קיים: ${existingByEmail.name}`, {
+          existingCustomer: existingByEmail,
+        });
+      }
     }
 
     const customer = await prisma.customer.create({

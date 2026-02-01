@@ -130,7 +130,7 @@ model User {
 model Customer {
   id        String   @id @default(uuid())
   name      String
-  email     String?
+  email     String?  @unique
   phone     String   @unique
   address   String?
   city      String?

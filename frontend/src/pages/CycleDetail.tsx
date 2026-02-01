@@ -14,6 +14,7 @@ import {
   Plus,
   Edit,
   CreditCard,
+  RefreshCcw,
 } from 'lucide-react';
 import {
   useCycle,
@@ -21,6 +22,7 @@ import {
   useCycleRegistrations,
   useUpdateMeeting,
   useBulkDeleteMeetings,
+  useRecalculateMeeting,
   useUpdateCycle,
   useStudents,
   useInstructors,
@@ -57,6 +59,7 @@ export default function CycleDetail() {
   const { data: instructors } = useInstructors();
   const updateMeeting = useUpdateMeeting();
   const bulkDeleteMeetings = useBulkDeleteMeetings();
+  const recalculateMeeting = useRecalculateMeeting();
   const updateCycle = useUpdateCycle();
   const createRegistration = useCreateRegistration();
   const updateRegistration = useUpdateRegistration();
@@ -118,6 +121,16 @@ export default function CycleDetail() {
     } catch (error) {
       console.error('Failed to bulk delete meetings:', error);
       alert('שגיאה במחיקת הפגישות');
+    }
+  };
+
+  const handleRecalculate = async (meetingId: string) => {
+    try {
+      const updated = await recalculateMeeting.mutateAsync(meetingId);
+      setViewingMeeting(updated);
+    } catch (error) {
+      console.error('Failed to recalculate meeting:', error);
+      alert('שגיאה בחישוב מחדש');
     }
   };
 
@@ -611,19 +624,33 @@ export default function CycleDetail() {
             )}
 
             {/* Actions */}
-            <div className="flex justify-end gap-3 pt-4 border-t">
-              <button
-                onClick={() => setViewingMeeting(null)}
-                className="btn btn-secondary"
-              >
-                סגור
-              </button>
-              <button
-                onClick={() => { setViewingMeeting(null); setSelectedMeeting(viewingMeeting); }}
-                className="btn btn-primary"
-              >
-                עריכה
-              </button>
+            <div className="flex justify-between pt-4 border-t">
+              <div>
+                {viewingMeeting.status === 'completed' && (
+                  <button
+                    onClick={() => handleRecalculate(viewingMeeting.id)}
+                    className="btn btn-secondary flex items-center gap-2"
+                    disabled={recalculateMeeting.isPending}
+                  >
+                    <RefreshCcw size={16} className={recalculateMeeting.isPending ? 'animate-spin' : ''} />
+                    {recalculateMeeting.isPending ? 'מחשב...' : 'חשב מחדש'}
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setViewingMeeting(null)}
+                  className="btn btn-secondary"
+                >
+                  סגור
+                </button>
+                <button
+                  onClick={() => { setViewingMeeting(null); setSelectedMeeting(viewingMeeting); }}
+                  className="btn btn-primary"
+                >
+                  עריכה
+                </button>
+              </div>
             </div>
           </div>
         )}

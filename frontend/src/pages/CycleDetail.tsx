@@ -15,6 +15,10 @@ import {
   Edit,
   CreditCard,
   RefreshCcw,
+  ExternalLink,
+  User,
+  Phone,
+  Mail,
 } from 'lucide-react';
 import {
   useCycle,
@@ -49,6 +53,7 @@ export default function CycleDetail() {
   const [viewingMeeting, setViewingMeeting] = useState<Meeting | null>(null);
   const [showAddStudentModal, setShowAddStudentModal] = useState(false);
   const [editingRegistration, setEditingRegistration] = useState<Registration | null>(null);
+  const [viewingRegistration, setViewingRegistration] = useState<Registration | null>(null);
   const [showChangeInstructorModal, setShowChangeInstructorModal] = useState(false);
   const [selectedMeetingIds, setSelectedMeetingIds] = useState<Set<string>>(new Set());
   const [showBulkEditModal, setShowBulkEditModal] = useState(false);
@@ -419,9 +424,12 @@ export default function CycleDetail() {
                 <div className="divide-y">
                   {registrations.map((reg) => (
                     <div key={reg.id} className={`p-4 flex items-center justify-between ${reg.status === 'cancelled' ? 'bg-red-50 opacity-60' : ''}`}>
-                      <div>
+                      <div 
+                        className="cursor-pointer hover:bg-gray-50 rounded p-1 -m-1 transition-colors"
+                        onClick={() => setViewingRegistration(reg)}
+                      >
                         <div className="flex items-center gap-2">
-                          <p className={`font-medium ${reg.status === 'cancelled' ? 'line-through text-gray-400' : ''}`}>{reg.student?.name}</p>
+                          <p className={`font-medium text-blue-600 hover:text-blue-800 ${reg.status === 'cancelled' ? 'line-through text-gray-400' : ''}`}>{reg.student?.name}</p>
                           {reg.status === 'cancelled' && (
                             <span className="badge badge-danger text-xs">בוטל</span>
                           )}
@@ -804,6 +812,129 @@ export default function CycleDetail() {
           isLoading={updateMeeting.isPending}
           isRecalculating={bulkRecalculateMeetings.isPending}
         />
+      </Modal>
+
+      {/* Student Detail Modal */}
+      <Modal
+        isOpen={!!viewingRegistration}
+        onClose={() => setViewingRegistration(null)}
+        title="פרטי תלמיד"
+      >
+        {viewingRegistration && (
+          <div className="p-6 space-y-6">
+            {/* Student Info */}
+            <div className="bg-gray-50 rounded-lg p-4">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                  <User size={24} className="text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-lg">{viewingRegistration.student?.name}</h3>
+                  {viewingRegistration.student?.grade && (
+                    <p className="text-sm text-gray-500">כיתה: {viewingRegistration.student.grade}</p>
+                  )}
+                </div>
+              </div>
+              {viewingRegistration.student?.birthDate && (
+                <p className="text-sm text-gray-500">
+                  תאריך לידה: {new Date(viewingRegistration.student.birthDate).toLocaleDateString('he-IL')}
+                </p>
+              )}
+            </div>
+
+            {/* Parent/Customer Info */}
+            {viewingRegistration.student?.customer && (
+              <div className="border rounded-lg p-4">
+                <h4 className="font-medium text-gray-700 mb-3">פרטי הורה</h4>
+                <div className="space-y-2">
+                  <p className="font-medium">{viewingRegistration.student.customer.name}</p>
+                  {viewingRegistration.student.customer.phone && (
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <Phone size={14} />
+                      <a href={`tel:${viewingRegistration.student.customer.phone}`} className="hover:text-blue-600">
+                        {viewingRegistration.student.customer.phone}
+                      </a>
+                    </div>
+                  )}
+                  {viewingRegistration.student.customer.email && (
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <Mail size={14} />
+                      <a href={`mailto:${viewingRegistration.student.customer.email}`} className="hover:text-blue-600">
+                        {viewingRegistration.student.customer.email}
+                      </a>
+                    </div>
+                  )}
+                </div>
+                <Link
+                  to={`/customers/${viewingRegistration.student.customer.id}`}
+                  className="mt-3 inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800"
+                >
+                  <ExternalLink size={14} />
+                  עבור לדף הלקוח
+                </Link>
+              </div>
+            )}
+
+            {/* Registration Info */}
+            <div className="border rounded-lg p-4">
+              <h4 className="font-medium text-gray-700 mb-3">פרטי הרשמה</h4>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="text-gray-500">סטטוס</p>
+                  <span className={`badge ${
+                    viewingRegistration.status === 'active' ? 'badge-success' :
+                    viewingRegistration.status === 'cancelled' ? 'badge-danger' : 'badge-secondary'
+                  }`}>
+                    {viewingRegistration.status === 'active' ? 'פעיל' :
+                     viewingRegistration.status === 'cancelled' ? 'בוטל' :
+                     viewingRegistration.status === 'registered' ? 'נרשם' : viewingRegistration.status}
+                  </span>
+                </div>
+                {viewingRegistration.amount && (
+                  <div>
+                    <p className="text-gray-500">סכום</p>
+                    <p className="font-medium">₪{viewingRegistration.amount}</p>
+                  </div>
+                )}
+                {viewingRegistration.paymentStatus && (
+                  <div>
+                    <p className="text-gray-500">סטטוס תשלום</p>
+                    <span className={`badge ${
+                      viewingRegistration.paymentStatus === 'paid' ? 'badge-success' :
+                      viewingRegistration.paymentStatus === 'partial' ? 'badge-warning' : 'badge-danger'
+                    }`}>
+                      {paymentStatusHebrew[viewingRegistration.paymentStatus]}
+                    </span>
+                  </div>
+                )}
+                <div>
+                  <p className="text-gray-500">תאריך הרשמה</p>
+                  <p>{new Date(viewingRegistration.registrationDate).toLocaleDateString('he-IL')}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex justify-between pt-4 border-t">
+              <button
+                onClick={() => {
+                  setViewingRegistration(null);
+                  setEditingRegistration(viewingRegistration);
+                }}
+                className="btn btn-secondary flex items-center gap-2"
+              >
+                <Edit size={16} />
+                ערוך הרשמה
+              </button>
+              <button
+                onClick={() => setViewingRegistration(null)}
+                className="btn btn-primary"
+              >
+                סגור
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
     </>
   );

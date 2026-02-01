@@ -7,7 +7,8 @@ import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import { cycleStatusHebrew, cycleTypeHebrew, dayOfWeekHebrew } from '../types';
-import type { Cycle, CycleType, CycleStatus, DayOfWeek } from '../types';
+import type { Cycle, CycleType, CycleStatus, DayOfWeek, ActivityType } from '../types';
+import { activityTypeHebrew } from '../types';
 
 export default function Cycles() {
   const [showAddModal, setShowAddModal] = useState(false);
@@ -365,6 +366,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     maxStudents: 15,
     sendParentReminders: true,
     isOnline: false,
+    activityType: 'frontal' as ActivityType,
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -612,6 +614,26 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
           )}
         </div>
 
+        <div className="mt-4">
+          <label className="form-label">סוג פעילות *</label>
+          <select
+            value={formData.activityType}
+            onChange={(e) => {
+              const newActivityType = e.target.value as ActivityType;
+              setFormData({ 
+                ...formData, 
+                activityType: newActivityType,
+                isOnline: newActivityType === 'online'
+              });
+            }}
+            className="form-input w-48"
+          >
+            <option value="frontal">פרונטלי</option>
+            <option value="online">אונליין</option>
+            <option value="private_lesson">פרטי</option>
+          </select>
+        </div>
+
         <div className="flex items-center gap-6 mt-4">
           <label className="flex items-center gap-2">
             <input
@@ -621,16 +643,6 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
               className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
             <span className="text-sm text-gray-700">שלח תזכורות להורים</span>
-          </label>
-
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={formData.isOnline}
-              onChange={(e) => setFormData({ ...formData, isOnline: e.target.checked })}
-              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            <span className="text-sm text-gray-700">מחזור אונליין (Zoom)</span>
           </label>
         </div>
       </div>
@@ -684,6 +696,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     maxStudents: cycle.maxStudents || 15,
     sendParentReminders: cycle.sendParentReminders,
     isOnline: cycle.isOnline,
+    activityType: cycle.activityType || 'frontal',
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -710,6 +723,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
       maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
       sendParentReminders: formData.sendParentReminders,
       isOnline: formData.isOnline,
+      activityType: formData.activityType,
     });
   };
 
@@ -917,6 +931,26 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
           )}
         </div>
 
+        <div className="mt-4">
+          <label className="form-label">סוג פעילות *</label>
+          <select
+            value={formData.activityType}
+            onChange={(e) => {
+              const newActivityType = e.target.value as ActivityType;
+              setFormData({ 
+                ...formData, 
+                activityType: newActivityType,
+                isOnline: newActivityType === 'online'
+              });
+            }}
+            className="form-input w-48"
+          >
+            <option value="frontal">פרונטלי</option>
+            <option value="online">אונליין</option>
+            <option value="private_lesson">פרטי</option>
+          </select>
+        </div>
+
         <div className="flex items-center gap-6 mt-4">
           <label className="flex items-center gap-2">
             <input
@@ -926,16 +960,6 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
               className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
             <span className="text-sm text-gray-700">שלח תזכורות להורים</span>
-          </label>
-
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={formData.isOnline}
-              onChange={(e) => setFormData({ ...formData, isOnline: e.target.checked })}
-              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            <span className="text-sm text-gray-700">מחזור אונליין (Zoom)</span>
           </label>
         </div>
       </div>

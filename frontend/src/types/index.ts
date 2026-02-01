@@ -11,6 +11,7 @@ export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
 export type PaymentMethod = 'credit' | 'transfer' | 'cash';
 export type AttendanceStatus = 'present' | 'absent' | 'late';
 export type UserRole = 'admin' | 'manager' | 'instructor';
+export type ActivityType = 'online' | 'frontal' | 'private_lesson';
 
 // Entities
 export interface User {
@@ -140,6 +141,7 @@ export interface Cycle {
   maxStudents?: number;
   sendParentReminders: boolean;
   isOnline: boolean;
+  activityType: ActivityType;
   completedMeetings: number;
   remainingMeetings: number;
   status: CycleStatus;
@@ -168,6 +170,7 @@ export interface Meeting {
   revenue: number;
   instructorPayment: number;
   profit: number;
+  activityType?: ActivityType;
   topic?: string;
   notes?: string;
   zoomMeetingId?: string;
@@ -294,4 +297,10 @@ export const attendanceStatusHebrew: Record<AttendanceStatus, string> = {
   present: 'נוכח',
   absent: 'נעדר',
   late: 'מאחר',
+};
+
+export const activityTypeHebrew: Record<ActivityType, string> = {
+  online: 'אונליין',
+  frontal: 'פרונטלי',
+  private_lesson: 'פרטי',
 };

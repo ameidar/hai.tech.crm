@@ -633,6 +633,97 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
   }
 });
 
+// Bulk recalculate meetings
+meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) => {
+  try {
+    const { ids } = req.body;
+    
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new AppError(400, 'ids array is required');
+    }
+
+    let recalculated = 0;
+    
+    for (const id of ids) {
+      const meeting = await prisma.meeting.findUnique({
+        where: { id },
+        include: {
+          cycle: {
+            include: {
+              registrations: {
+                where: { status: { in: ['registered', 'active'] } },
+              },
+            },
+          },
+          instructor: true,
+        },
+      });
+
+      if (!meeting || meeting.status !== 'completed') {
+        continue;
+      }
+
+      const cycleData = meeting.cycle;
+
+      // Calculate revenue
+      let revenue = 0;
+      const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
+
+      if (cycleData.type === 'private') {
+        const totalRegistrationAmount = cycleData.registrations.reduce(
+          (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
+          0
+        );
+        revenue = Math.round(totalRegistrationAmount / cycleData.totalMeetings);
+      } else if (cycleData.type === 'institutional_per_child') {
+        const pricePerStudent = Number(cycleData.pricePerStudent || 0);
+        const studentCount = cycleData.studentCount || activeRegistrations.length;
+        revenue = Math.round(pricePerStudent * studentCount);
+      } else if (cycleData.type === 'institutional_fixed') {
+        revenue = Number(cycleData.meetingRevenue || 0);
+      }
+
+      // Calculate instructor payment
+      const activityType = meeting.activityType || cycleData.activityType ||
+        (cycleData.isOnline ? 'online' : (cycleData.type === 'private' ? 'private_lesson' : 'frontal'));
+
+      const instructor = meeting.instructor;
+      let instructorPayment = 0;
+      if (instructor) {
+        let hourlyRate = 0;
+        switch (activityType) {
+          case 'online':
+            hourlyRate = Number(instructor.rateOnline || instructor.rateFrontal || 0);
+            break;
+          case 'private_lesson':
+            hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
+            break;
+          case 'frontal':
+          default:
+            hourlyRate = Number(instructor.rateFrontal || 0);
+            break;
+        }
+
+        const durationHours = cycleData.durationMinutes / 60;
+        instructorPayment = Math.round(hourlyRate * durationHours);
+      }
+
+      const profit = revenue - instructorPayment;
+
+      await prisma.meeting.update({
+        where: { id },
+        data: { revenue, instructorPayment, profit },
+      });
+
+      recalculated++;
+    }
+
+    res.json({ success: true, recalculated });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Bulk delete meetings
 meetingsRouter.post('/bulk-delete', managerOrAdmin, async (req, res, next) => {
   try {

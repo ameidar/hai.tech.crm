@@ -398,6 +398,18 @@ export const useBulkDeleteMeetings = () => {
   });
 };
 
+export const useBulkRecalculateMeetings = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      mutateData<{ success: boolean; recalculated: number }, { ids: string[] }>('/meetings/bulk-recalculate', 'post', { ids }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
+    },
+  });
+};
+
 export const useRecalculateMeeting = () => {
   const queryClient = useQueryClient();
   return useMutation({

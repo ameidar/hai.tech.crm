@@ -22,6 +22,7 @@ import {
   useCycleRegistrations,
   useUpdateMeeting,
   useBulkDeleteMeetings,
+  useBulkRecalculateMeetings,
   useRecalculateMeeting,
   useUpdateCycle,
   useStudents,
@@ -59,6 +60,7 @@ export default function CycleDetail() {
   const { data: instructors } = useInstructors();
   const updateMeeting = useUpdateMeeting();
   const bulkDeleteMeetings = useBulkDeleteMeetings();
+  const bulkRecalculateMeetings = useBulkRecalculateMeetings();
   const recalculateMeeting = useRecalculateMeeting();
   const updateCycle = useUpdateCycle();
   const createRegistration = useCreateRegistration();
@@ -130,6 +132,18 @@ export default function CycleDetail() {
       setViewingMeeting(updated);
     } catch (error) {
       console.error('Failed to recalculate meeting:', error);
+      alert('שגיאה בחישוב מחדש');
+    }
+  };
+
+  const handleBulkRecalculate = async () => {
+    try {
+      const result = await bulkRecalculateMeetings.mutateAsync(Array.from(selectedMeetingIds));
+      alert(`חושבו מחדש ${result.recalculated} פגישות`);
+      setSelectedMeetingIds(new Set());
+      setShowBulkEditModal(false);
+    } catch (error) {
+      console.error('Failed to bulk recalculate meetings:', error);
       alert('שגיאה בחישוב מחדש');
     }
   };
@@ -785,8 +799,10 @@ export default function CycleDetail() {
         <BulkEditForm
           instructors={instructors || []}
           onSubmit={handleBulkUpdate}
+          onRecalculate={handleBulkRecalculate}
           onCancel={() => setShowBulkEditModal(false)}
           isLoading={updateMeeting.isPending}
+          isRecalculating={bulkRecalculateMeetings.isPending}
         />
       </Modal>
     </>
@@ -1077,11 +1093,13 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
 interface BulkEditFormProps {
   instructors: { id: string; name: string; isActive: boolean }[];
   onSubmit: (data: { instructorId?: string; status?: MeetingStatus }) => void;
+  onRecalculate: () => void;
   onCancel: () => void;
   isLoading?: boolean;
+  isRecalculating?: boolean;
 }
 
-function BulkEditForm({ instructors, onSubmit, onCancel, isLoading }: BulkEditFormProps) {
+function BulkEditForm({ instructors, onSubmit, onRecalculate, onCancel, isLoading, isRecalculating }: BulkEditFormProps) {
   const [updateInstructor, setUpdateInstructor] = useState(false);
   const [updateStatus, setUpdateStatus] = useState(false);
   const [instructorId, setInstructorId] = useState('');
@@ -1190,17 +1208,28 @@ function BulkEditForm({ instructors, onSubmit, onCancel, isLoading }: BulkEditFo
         )}
       </div>
 
-      <div className="flex justify-end gap-3 pt-4 border-t">
-        <button type="button" onClick={onCancel} className="btn btn-secondary">
-          ביטול
-        </button>
+      <div className="flex justify-between pt-4 border-t">
         <button
-          onClick={handleSubmit}
-          className="btn btn-primary"
-          disabled={isLoading || (!updateInstructor && !updateStatus)}
+          type="button"
+          onClick={onRecalculate}
+          className="btn btn-secondary flex items-center gap-2"
+          disabled={isRecalculating}
         >
-          {isLoading ? 'מעדכן...' : 'עדכן פגישות'}
+          <RefreshCcw size={16} className={isRecalculating ? 'animate-spin' : ''} />
+          {isRecalculating ? 'מחשב...' : 'חשב מחדש'}
         </button>
+        <div className="flex gap-3">
+          <button type="button" onClick={onCancel} className="btn btn-secondary">
+            ביטול
+          </button>
+          <button
+            onClick={handleSubmit}
+            className="btn btn-primary"
+            disabled={isLoading || (!updateInstructor && !updateStatus)}
+          >
+            {isLoading ? 'מעדכן...' : 'עדכן פגישות'}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -181,59 +181,67 @@ export default function Cycles() {
             </div>
 
             {/* Instructor filter */}
-            <select
-              value={instructorFilter}
-              onChange={(e) => setInstructorFilter(e.target.value)}
-              className="form-input w-36"
-            >
-              <option value="">כל המדריכים</option>
-              {instructors?.map((instructor) => (
-                <option key={instructor.id} value={instructor.id}>
-                  {instructor.name}
-                </option>
-              ))}
-            </select>
+            <div className="w-36">
+              <select
+                value={instructorFilter}
+                onChange={(e) => setInstructorFilter(e.target.value)}
+                className="form-input"
+              >
+                <option value="">כל המדריכים</option>
+                {instructors?.map((instructor) => (
+                  <option key={instructor.id} value={instructor.id}>
+                    {instructor.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             {/* Branch filter */}
-            <select
-              value={branchFilter}
-              onChange={(e) => setBranchFilter(e.target.value)}
-              className="form-input w-36"
-            >
-              <option value="">כל הסניפים</option>
-              {branches?.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
+            <div className="w-36">
+              <select
+                value={branchFilter}
+                onChange={(e) => setBranchFilter(e.target.value)}
+                className="form-input"
+              >
+                <option value="">כל הסניפים</option>
+                {branches?.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             {/* Day filter */}
-            <select
-              value={dayFilter}
-              onChange={(e) => setDayFilter(e.target.value as DayOfWeek | '')}
-              className="form-input w-32"
-            >
-              <option value="">כל הימים</option>
-              <option value="sunday">ראשון</option>
-              <option value="monday">שני</option>
-              <option value="tuesday">שלישי</option>
-              <option value="wednesday">רביעי</option>
-              <option value="thursday">חמישי</option>
-              <option value="friday">שישי</option>
-            </select>
+            <div className="w-28">
+              <select
+                value={dayFilter}
+                onChange={(e) => setDayFilter(e.target.value as DayOfWeek | '')}
+                className="form-input"
+              >
+                <option value="">כל הימים</option>
+                <option value="sunday">ראשון</option>
+                <option value="monday">שני</option>
+                <option value="tuesday">שלישי</option>
+                <option value="wednesday">רביעי</option>
+                <option value="thursday">חמישי</option>
+                <option value="friday">שישי</option>
+              </select>
+            </div>
 
             {/* Status filter */}
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as CycleStatus | '')}
-              className="form-input w-32"
-            >
-              <option value="">כל הסטטוסים</option>
-              <option value="active">פעיל</option>
-              <option value="completed">הושלם</option>
-              <option value="cancelled">בוטל</option>
-            </select>
+            <div className="w-32">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as CycleStatus | '')}
+                className="form-input"
+              >
+                <option value="">כל הסטטוסים</option>
+                <option value="active">פעיל</option>
+                <option value="completed">הושלם</option>
+                <option value="cancelled">בוטל</option>
+              </select>
+            </div>
 
             {/* View Selector */}
             <ViewSelector

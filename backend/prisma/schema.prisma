@@ -129,15 +129,17 @@ model User {
 }
 
 model Customer {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   name      String
-  email     String?  @unique
-  phone     String   @unique
+  email     String?   @unique
+  phone     String    @unique
   address   String?
   city      String?
   notes     String?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by")
 
   // Relations
   students Student[]
@@ -154,6 +156,8 @@ model Student {
   notes      String?
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
+  deletedBy  String?   @map("deleted_by")
 
   // Relations
   customer      Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
@@ -276,9 +280,11 @@ model Cycle {
   zoomHostId           String?      @map("zoom_host_id")
   completedMeetings    Int         @default(0) @map("completed_meetings")
   remainingMeetings    Int         @default(0) @map("remaining_meetings")
-  status               CycleStatus @default(active)
-  createdAt            DateTime    @default(now()) @map("created_at")
-  updatedAt            DateTime    @updatedAt @map("updated_at")
+  status               CycleStatus  @default(active)
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
+  deletedAt            DateTime?    @map("deleted_at")
+  deletedBy            String?      @map("deleted_by")
 
   // Relations
   course             Course              @relation(fields: [courseId], references: [id], onDelete: Restrict)
@@ -306,6 +312,8 @@ model Registration {
   notes              String?
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
+  deletedAt          DateTime?           @map("deleted_at")
+  deletedBy          String?             @map("deleted_by")
 
   // Relations
   student    Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
@@ -338,6 +346,8 @@ model Meeting {
   rescheduledToId   String?       @map("rescheduled_to_id")
   createdAt         DateTime      @default(now()) @map("created_at")
   updatedAt         DateTime      @updatedAt @map("updated_at")
+  deletedAt         DateTime?     @map("deleted_at")
+  deletedBy         String?       @map("deleted_by")
 
   // Relations
   cycle           Cycle        @relation(fields: [cycleId], references: [id], onDelete: Cascade)

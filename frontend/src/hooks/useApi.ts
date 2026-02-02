@@ -12,16 +12,24 @@ import type {
   DailySummary,
 } from '../types';
 
+// Pagination metadata
+interface PaginationMeta {
+  page: number;
+  limit: number;
+  total: number;
+  pages: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+}
+
 // API response wrapper type
 interface PaginatedResponse<T> {
   data: T;
-  pagination?: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-  };
+  pagination?: PaginationMeta;
 }
+
+// Export pagination types for components that need them
+export type { PaginationMeta, PaginatedResponse };
 
 // Generic fetch function - handles both paginated and direct responses
 const fetchData = async <T>(url: string): Promise<T> => {

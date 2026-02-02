@@ -2,8 +2,9 @@ import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { updateRegistrationSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
+import { updateRegistrationSchema, uuidSchema } from '../types/schemas.js';
 import { z } from 'zod';
+import { parsePaginationParams, paginatedResponse } from '../utils/pagination.js';
 
 export const registrationsRouter = Router();
 
@@ -12,7 +13,7 @@ registrationsRouter.use(authenticate);
 // List registrations
 registrationsRouter.get('/', async (req, res, next) => {
   try {
-    const { page, limit } = paginationSchema.parse(req.query);
+    const { page, limit, skip, take, sort, order } = parsePaginationParams(req.query);
     const status = req.query.status as string | undefined;
     const paymentStatus = req.query.paymentStatus as string | undefined;
     const cycleId = req.query.cycleId as string | undefined;
@@ -41,22 +42,14 @@ registrationsRouter.get('/', async (req, res, next) => {
             },
           },
         },
-        orderBy: { registrationDate: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
+        orderBy: { [sort || 'registrationDate']: order },
+        skip,
+        take,
       }),
       prisma.registration.count({ where }),
     ]);
 
-    res.json({
-      data: registrations,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
-    });
+    res.json(paginatedResponse(registrations, total, page, limit));
   } catch (error) {
     next(error);
   }

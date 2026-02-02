@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Plus, Building2, MapPin, Phone, Mail, RefreshCcw, FileText, Search } from 'lucide-react';
-import { useBranches, useCreateBranch } from '../hooks/useApi';
+import { Plus, Building2, MapPin, Phone, Mail, RefreshCcw, FileText, Search, Edit2 } from 'lucide-react';
+import { useBranches, useCreateBranch, useUpdateBranch } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
@@ -13,6 +13,7 @@ import type { Branch, BranchType } from '../types';
 export default function Branches() {
   const [searchParams] = useSearchParams();
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
   const [searchFilter, setSearchFilter] = useState('');
 
   const { data: branches, isLoading } = useBranches();
@@ -36,6 +37,7 @@ export default function Branches() {
     );
   });
   const createBranch = useCreateBranch();
+  const updateBranch = useUpdateBranch();
 
   const handleAddBranch = async (data: Partial<Branch>) => {
     try {
@@ -43,6 +45,16 @@ export default function Branches() {
       setShowAddModal(false);
     } catch (error) {
       console.error('Failed to create branch:', error);
+    }
+  };
+
+  const handleEditBranch = async (data: Partial<Branch>) => {
+    if (!editingBranch) return;
+    try {
+      await updateBranch.mutateAsync({ id: editingBranch.id, data });
+      setEditingBranch(null);
+    } catch (error) {
+      console.error('Failed to update branch:', error);
     }
   };
 
@@ -80,7 +92,7 @@ export default function Branches() {
         ) : filteredBranches && filteredBranches.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredBranches.map((branch) => (
-              <BranchCard key={branch.id} branch={branch} />
+              <BranchCard key={branch.id} branch={branch} onEdit={() => setEditingBranch(branch)} />
             ))}
           </div>
         ) : (
@@ -111,12 +123,29 @@ export default function Branches() {
           isLoading={createBranch.isPending}
         />
       </Modal>
+
+      {/* Edit Branch Modal */}
+      <Modal
+        isOpen={!!editingBranch}
+        onClose={() => setEditingBranch(null)}
+        title="עריכת סניף"
+        size="lg"
+      >
+        {editingBranch && (
+          <BranchForm
+            branch={editingBranch}
+            onSubmit={handleEditBranch}
+            onCancel={() => setEditingBranch(null)}
+            isLoading={updateBranch.isPending}
+          />
+        )}
+      </Modal>
     </>
   );
 }
 
 // Branch Card
-function BranchCard({ branch }: { branch: Branch }) {
+function BranchCard({ branch, onEdit }: { branch: Branch; onEdit: () => void }) {
   const typeColors: Record<BranchType, string> = {
     school: 'bg-blue-100 text-blue-700',
     community_center: 'bg-green-100 text-green-700',
@@ -134,9 +163,18 @@ function BranchCard({ branch }: { branch: Branch }) {
               {branchTypeHebrew[branch.type]}
             </span>
           </div>
-          <span className={`badge ${branch.isActive ? 'badge-success' : 'badge-gray'}`}>
-            {branch.isActive ? 'פעיל' : 'לא פעיל'}
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onEdit}
+              className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+              title="ערוך סניף"
+            >
+              <Edit2 size={16} />
+            </button>
+            <span className={`badge ${branch.isActive ? 'badge-success' : 'badge-gray'}`}>
+              {branch.isActive ? 'פעיל' : 'לא פעיל'}
+            </span>
+          </div>
         </div>
 
         <div className="space-y-2 text-sm mb-4">

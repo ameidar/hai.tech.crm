@@ -1,5 +1,15 @@
 import 'dotenv/config';
 
+// Validate required secrets at startup
+const requiredSecrets = ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'API_KEY'] as const;
+const missingSecrets = requiredSecrets.filter((key) => !process.env[key]);
+
+if (missingSecrets.length > 0) {
+  console.error('❌ Missing required environment variables:', missingSecrets.join(', '));
+  console.error('Please set these secrets before starting the application.');
+  process.exit(1);
+}
+
 export const config = {
   port: parseInt(process.env.PORT || '3001', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -7,11 +17,11 @@ export const config = {
   // Database
   databaseUrl: process.env.DATABASE_URL || '',
   
-  // JWT
+  // JWT - no fallbacks, validated above
   jwt: {
-    secret: process.env.JWT_SECRET || 'development-secret',
+    secret: process.env.JWT_SECRET!,
     expiresIn: process.env.JWT_EXPIRES_IN || '1d',
-    refreshSecret: process.env.JWT_REFRESH_SECRET || 'development-refresh-secret',
+    refreshSecret: process.env.JWT_REFRESH_SECRET!,
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
   },
   
@@ -25,7 +35,7 @@ export const config = {
     name: process.env.ADMIN_NAME || 'מנהל מערכת',
   },
   
-  // External integrations
-  apiKey: process.env.API_KEY || 'haitech-api-key-change-me',
+  // External integrations - no fallbacks for API_KEY, validated above
+  apiKey: process.env.API_KEY!,
   zoomWebhookUrl: process.env.ZOOM_WEBHOOK_URL || '',
 };

@@ -22,20 +22,54 @@ import { publicMeetingRouter } from './routes/public-meeting.js';
 
 const app = express();
 
-// Security middleware - relaxed for serving frontend
+// Security middleware with proper CSP
 app.use(helmet({
-  contentSecurityPolicy: false, // Allow inline scripts from Vite build
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"], // Required for Vite build
+      styleSrc: ["'self'", "'unsafe-inline'"], // Required for styled components
+      imgSrc: ["'self'", "data:", "https:"],
+      fontSrc: ["'self'", "https:", "data:"],
+      connectSrc: ["'self'", "https:"],
+      frameSrc: ["'none'"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      upgradeInsecureRequests: [],
+    },
+  },
 }));
 app.use(cors({
   origin: config.corsOrigins,
   credentials: true,
 }));
 
-// Rate limiting
+// Rate limiting with per-user tracking when authenticated
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10000, // limit each IP to 10000 requests per windowMs (increased for migration)
+  max: 1000, // limit each IP/user to 1000 requests per windowMs
   message: { error: 'Too many requests, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Use userId when available for more accurate rate limiting
+  keyGenerator: (req) => {
+    // Check for authenticated user in JWT
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.substring(7);
+        const jwt = require('jsonwebtoken');
+        const decoded = jwt.verify(token, config.jwt.secret) as { userId: string };
+        if (decoded.userId) {
+          return `user:${decoded.userId}`;
+        }
+      } catch {
+        // Token invalid or expired, fall back to IP
+      }
+    }
+    return req.ip || req.socket.remoteAddress || 'unknown';
+  },
 });
 app.use('/api', limiter);
 
@@ -43,13 +77,32 @@ app.use('/api', limiter);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Health check
-app.get('/api/health', (_req, res) => {
-  res.json({ 
-    status: 'ok', 
+// Health check with database connectivity test
+app.get('/api/health', async (_req, res) => {
+  const health: {
+    status: 'ok' | 'degraded' | 'error';
+    timestamp: string;
+    version: string;
+    database: 'connected' | 'disconnected';
+  } = {
+    status: 'ok',
     timestamp: new Date().toISOString(),
     version: '1.0.0',
-  });
+    database: 'disconnected',
+  };
+
+  try {
+    // Test database connectivity with a simple query
+    await prisma.$queryRaw`SELECT 1`;
+    health.database = 'connected';
+  } catch (error) {
+    health.status = 'degraded';
+    health.database = 'disconnected';
+    console.error('Health check: Database connection failed', error);
+  }
+
+  const statusCode = health.status === 'ok' ? 200 : 503;
+  res.status(statusCode).json(health);
 });
 
 // API Routes

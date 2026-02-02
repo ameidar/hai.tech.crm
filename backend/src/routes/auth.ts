@@ -62,9 +62,14 @@ authRouter.post('/login', async (req, res, next) => {
   }
 });
 
-// Register (admin only in production, open in development)
-authRouter.post('/register', async (req, res, next) => {
+// Register - admin only (requires authentication + admin role)
+authRouter.post('/register', authenticate, async (req, res, next) => {
   try {
+    // Check admin role
+    if (req.user!.role !== 'admin') {
+      throw new AppError(403, 'Only administrators can register new users');
+    }
+
     const data = registerSchema.parse(req.body);
 
     const existingUser = await prisma.user.findUnique({

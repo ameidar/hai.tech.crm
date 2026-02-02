@@ -41,13 +41,16 @@ customersRouter.get('/', async (req, res, next) => {
       prisma.customer.count({ where }),
     ]);
 
+    const totalPages = Math.ceil(total / limit);
     res.json({
       data: customers,
       pagination: {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit),
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
       },
     });
   } catch (error) {

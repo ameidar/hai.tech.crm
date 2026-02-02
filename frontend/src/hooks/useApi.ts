@@ -207,6 +207,18 @@ export const useCreateBranch = () => {
   });
 };
 
+export const useUpdateBranch = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<Branch> }) =>
+      mutateData<Branch, Partial<Branch>>(`/branches/${id}`, 'put', data),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['branches'] });
+      queryClient.invalidateQueries({ queryKey: ['branch', id] });
+    },
+  });
+};
+
 // ==================== Instructors ====================
 export const useInstructors = () => {
   return useQuery({
@@ -464,6 +476,23 @@ export const useBulkRecalculateMeetings = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['meetings'] });
       queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
+    },
+  });
+};
+
+export const useBulkUpdateMeetingStatus = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, status }: { ids: string[]; status: string }) =>
+      mutateData<{ success: boolean; updated: number; errors?: string[] }, { ids: string[]; status: string }>(
+        '/meetings/bulk-update-status',
+        'post',
+        { ids, status }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
     },
   });
 };

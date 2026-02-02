@@ -482,27 +482,32 @@ function buildWhereClause(filters: Array<{ field: string; operator: string; valu
         }
         break;
       case 'today':
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // Dates in DB are stored at 00:00 UTC for the date
+        // Use Israel time (+2 hours) to determine "today"
+        const nowIsrael = new Date(Date.now() + 2 * 60 * 60 * 1000); // Add 2 hours for Israel
+        const todayStr = nowIsrael.toISOString().split('T')[0]; // YYYY-MM-DD
+        const today = new Date(todayStr + 'T00:00:00.000Z');
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
         filterValue = { gte: today, lt: tomorrow };
         break;
       case 'thisWeek':
-        const startOfWeek = new Date();
+        const nowIsraelWeek = new Date(Date.now() + 2 * 60 * 60 * 1000);
+        const startOfWeek = new Date(nowIsraelWeek);
         startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
-        startOfWeek.setHours(0, 0, 0, 0);
-        const endOfWeek = new Date(startOfWeek);
-        endOfWeek.setDate(endOfWeek.getDate() + 7);
-        filterValue = { gte: startOfWeek, lt: endOfWeek };
+        const startOfWeekStr = startOfWeek.toISOString().split('T')[0];
+        const weekStart = new Date(startOfWeekStr + 'T00:00:00.000Z');
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekEnd.getDate() + 7);
+        filterValue = { gte: weekStart, lt: weekEnd };
         break;
       case 'thisMonth':
-        const startOfMonth = new Date();
-        startOfMonth.setDate(1);
-        startOfMonth.setHours(0, 0, 0, 0);
-        const endOfMonth = new Date(startOfMonth);
-        endOfMonth.setMonth(endOfMonth.getMonth() + 1);
-        filterValue = { gte: startOfMonth, lt: endOfMonth };
+        const nowIsraelMonth = new Date(Date.now() + 2 * 60 * 60 * 1000);
+        const monthStr = nowIsraelMonth.toISOString().slice(0, 7); // YYYY-MM
+        const monthStart = new Date(monthStr + '-01T00:00:00.000Z');
+        const monthEnd = new Date(monthStart);
+        monthEnd.setMonth(monthEnd.getMonth() + 1);
+        filterValue = { gte: monthStart, lt: monthEnd };
         break;
       default:
         continue;
@@ -669,7 +674,7 @@ viewsRouter.get('/fields/:entity', async (req, res, next) => {
     const entityFields: Record<string, Array<{ name: string; label: string; type: string }>> = {
       meetings: [
         { name: 'id', label: 'מזהה', type: 'string' },
-        { name: 'scheduledDate', label: 'תאריך', type: 'date' },
+        // scheduledDate removed - date is controlled by the date picker, not views
         { name: 'startTime', label: 'שעת התחלה', type: 'time' },
         { name: 'endTime', label: 'שעת סיום', type: 'time' },
         { name: 'status', label: 'סטטוס', type: 'enum' },

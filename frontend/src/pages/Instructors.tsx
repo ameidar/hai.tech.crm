@@ -203,7 +203,7 @@ function InstructorCard({ instructor, onEdit, onSendInvite, isInviteLoading }: I
                 </span>
                 {hasAccount && (
                   <span className="badge badge-blue" title="יש חשבון במערכת">
-                    <UserCheck size={12} className="ml-1" />
+                    <UserCheck size={12} className="me-1" />
                     מחובר
                   </span>
                 )}

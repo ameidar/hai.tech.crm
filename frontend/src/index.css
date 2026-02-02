@@ -5,6 +5,20 @@ html {
   direction: rtl;
 }
 
+/* Flip directional icons in RTL */
+[dir="rtl"] .rtl-flip {
+  transform: scaleX(-1);
+}
+
+/* Ensure logical properties for RTL compatibility */
+.text-start {
+  text-align: start;
+}
+
+.text-end {
+  text-align: end;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

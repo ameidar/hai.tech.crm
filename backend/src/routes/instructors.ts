@@ -3,7 +3,8 @@ import crypto from 'crypto';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { createInstructorSchema, updateInstructorSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
+import { createInstructorSchema, updateInstructorSchema, uuidSchema } from '../types/schemas.js';
+import { parsePaginationParams, paginatedResponse } from '../utils/pagination.js';
 
 export const instructorsRouter = Router();
 
@@ -12,7 +13,7 @@ instructorsRouter.use(authenticate);
 // List instructors
 instructorsRouter.get('/', async (req, res, next) => {
   try {
-    const { page, limit } = paginationSchema.parse(req.query);
+    const { page, limit, skip, take, sort, order } = parsePaginationParams(req.query);
     const search = req.query.search as string | undefined;
     const isActive = req.query.isActive === 'true' ? true : req.query.isActive === 'false' ? false : undefined;
 
@@ -38,22 +39,14 @@ instructorsRouter.get('/', async (req, res, next) => {
             } 
           },
         },
-        orderBy: { name: 'asc' },
-        skip: (page - 1) * limit,
-        take: limit,
+        orderBy: { [sort || 'name']: order === 'desc' ? 'desc' : 'asc' },
+        skip,
+        take,
       }),
       prisma.instructor.count({ where }),
     ]);
 
-    res.json({
-      data: instructors,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
-    });
+    res.json(paginatedResponse(instructors, total, page, limit));
   } catch (error) {
     next(error);
   }

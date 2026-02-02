@@ -125,7 +125,7 @@ export default function Meetings() {
           </button>
 
           {stats && stats.total > 0 && (
-            <div className="flex items-center gap-4 mr-auto text-sm">
+            <div className="flex items-center gap-4 ms-auto text-sm">
               <span className="flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-green-500" />
                 {stats.completed} הושלמו
@@ -205,7 +205,7 @@ export default function Meetings() {
               {stats && stats.total > 0 && (
                 <tfoot>
                   <tr className="bg-gray-50 font-medium">
-                    <td colSpan={6} className="text-left">סה"כ</td>
+                    <td colSpan={6} className="text-start">סה"כ</td>
                     <td className="text-green-600">
                       {meetings
                         .filter((m) => m.status === 'completed')

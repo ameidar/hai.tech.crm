@@ -391,6 +391,19 @@ meetingsRouter.put('/:id', async (req, res, next) => {
       },
     });
 
+    // Audit log for status changes
+    if (data.status && data.status !== existingMeeting.status) {
+      await logAudit({
+        userId: req.user?.userId,
+        action: 'UPDATE',
+        entity: 'Meeting',
+        entityId: meeting.id,
+        oldValue: { status: existingMeeting.status },
+        newValue: { status: data.status },
+        req,
+      });
+    }
+
     res.json(meeting);
   } catch (error) {
     next(error);
@@ -441,6 +454,17 @@ meetingsRouter.post('/:id/postpone', managerOrAdmin, async (req, res, next) => {
         statusUpdatedById: req.user!.userId,
         rescheduledToId: newMeeting.id,
       },
+    });
+
+    // Audit log for postponement
+    await logAudit({
+      userId: req.user?.userId,
+      action: 'UPDATE',
+      entity: 'Meeting',
+      entityId: id,
+      oldValue: { status: existingMeeting.status },
+      newValue: { status: 'postponed', rescheduledToId: newMeeting.id },
+      req,
     });
 
     res.json({

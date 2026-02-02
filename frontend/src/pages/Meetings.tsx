@@ -9,11 +9,12 @@ import {
   XCircle,
   AlertCircle,
 } from 'lucide-react';
-import { useMeetings, useRecalculateMeeting } from '../hooks/useApi';
+import { useMeetings, useRecalculateMeeting, useViewData } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import MeetingDetailModal from '../components/MeetingDetailModal';
+import ViewSelector from '../components/ViewSelector';
 import { meetingStatusHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
@@ -22,9 +23,17 @@ export default function Meetings() {
     return new Date().toISOString().split('T')[0];
   });
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'date' | 'view'>('date');
 
   const { data: meetings, isLoading } = useMeetings({ date: selectedDate });
+  const { data: viewData, isLoading: viewLoading } = useViewData(activeViewId);
   const recalculateMeeting = useRecalculateMeeting();
+
+  const handleApplyView = (filters: any[], columns: string[], sortBy?: string, sortOrder?: string) => {
+    // This is called when a view is selected from ViewSelector
+    // The actual data fetching happens through useViewData
+  };
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('he-IL', {
@@ -123,6 +132,14 @@ export default function Meetings() {
           >
             היום
           </button>
+
+          {/* View Selector */}
+          <div className="me-auto">
+            <ViewSelector
+              entity="meetings"
+              onApplyView={handleApplyView}
+            />
+          </div>
 
           {stats && stats.total > 0 && (
             <div className="flex items-center gap-4 ms-auto text-sm">

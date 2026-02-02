@@ -574,3 +574,19 @@ export const useDeleteAttendance = () => {
     },
   });
 };
+
+// ==================== Views ====================
+
+export const useViewData = (viewId: string | null, page: number = 1, limit: number = 50) => {
+  return useQuery({
+    queryKey: ['view-data', viewId, page, limit],
+    queryFn: async () => {
+      const response = await api.post(`/views/${viewId}/apply?page=${page}&limit=${limit}`);
+      return response.data;
+    },
+    enabled: !!viewId,
+  });
+};
+
+// Re-export api for direct use in components
+export { api };

@@ -38,4 +38,12 @@ export const config = {
   // External integrations - no fallbacks for API_KEY, validated above
   apiKey: process.env.API_KEY!,
   zoomWebhookUrl: process.env.ZOOM_WEBHOOK_URL || '',
+  
+  // Gmail SMTP
+  gmailUser: process.env.GMAIL_USER || '',
+  gmailAppPassword: process.env.GMAIL_APP_PASSWORD || '',
+  
+  // Green API (WhatsApp)
+  greenApiInstanceId: process.env.GREEN_API_INSTANCE_ID || '',
+  greenApiToken: process.env.GREEN_API_TOKEN || '',
 };

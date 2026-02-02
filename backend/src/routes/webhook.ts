@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { config } from '../config.js';
+import { sendWelcomeNotifications } from '../services/notifications.js';
 
 export const webhookRouter = Router();
 
@@ -229,6 +230,13 @@ webhookRouter.post('/leads', async (req, res, next) => {
         students: true,
       },
     });
+
+    // Send welcome notifications (async, don't block response)
+    sendWelcomeNotifications({
+      name: customer.name,
+      phone: customer.phone,
+      email: customer.email,
+    }).catch(err => console.error('[WEBHOOK] Failed to send welcome notifications:', err));
 
     res.status(201).json({
       success: true,

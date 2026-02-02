@@ -7,6 +7,7 @@ import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import { categoryHebrew } from '../types';
+import ViewSelector from '../components/ViewSelector';
 import type { Course, CourseCategory } from '../types';
 
 export default function Courses() {
@@ -70,9 +71,9 @@ export default function Courses() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
-        {/* Search */}
-        <div className="mb-4">
-          <div className="relative max-w-md">
+        {/* Search & Views */}
+        <div className="mb-4 flex gap-4 items-center">
+          <div className="relative flex-1 max-w-md">
             <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
@@ -82,6 +83,7 @@ export default function Courses() {
               className="form-input pr-10 w-full"
             />
           </div>
+          <ViewSelector entity="courses" onApplyView={() => {}} />
         </div>
 
         {isLoading ? (

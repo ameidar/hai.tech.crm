@@ -258,47 +258,63 @@ viewsRouter.post('/:id/apply', async (req, res, next) => {
   }
 });
 
+// Helper to set nested value in object
+function setNestedValue(obj: any, path: string, value: any) {
+  const parts = path.split('.');
+  let current = obj;
+  
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (!current[parts[i]]) {
+      current[parts[i]] = {};
+    }
+    current = current[parts[i]];
+  }
+  
+  current[parts[parts.length - 1]] = value;
+}
+
 // Helper to build Prisma where clause from filters
 function buildWhereClause(filters: Array<{ field: string; operator: string; value?: any }>) {
   const where: any = {};
 
   for (const filter of filters) {
     const { field, operator, value } = filter;
+    let filterValue: any;
 
     switch (operator) {
       case 'equals':
-        where[field] = value;
+        filterValue = value;
         break;
       case 'contains':
-        where[field] = { contains: value, mode: 'insensitive' };
+        filterValue = { contains: value, mode: 'insensitive' };
         break;
       case 'gt':
-        where[field] = { gt: value };
+        filterValue = { gt: value };
         break;
       case 'gte':
-        where[field] = { gte: value };
+        filterValue = { gte: value };
         break;
       case 'lt':
-        where[field] = { lt: value };
+        filterValue = { lt: value };
         break;
       case 'lte':
-        where[field] = { lte: value };
+        filterValue = { lte: value };
         break;
       case 'in':
-        where[field] = { in: value };
+        filterValue = { in: value };
         break;
       case 'notIn':
-        where[field] = { notIn: value };
+        filterValue = { notIn: value };
         break;
       case 'isNull':
-        where[field] = null;
+        filterValue = null;
         break;
       case 'isNotNull':
-        where[field] = { not: null };
+        filterValue = { not: null };
         break;
       case 'between':
         if (Array.isArray(value) && value.length === 2) {
-          where[field] = { gte: value[0], lte: value[1] };
+          filterValue = { gte: value[0], lte: value[1] };
         }
         break;
       case 'today':
@@ -306,7 +322,7 @@ function buildWhereClause(filters: Array<{ field: string; operator: string; valu
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
-        where[field] = { gte: today, lt: tomorrow };
+        filterValue = { gte: today, lt: tomorrow };
         break;
       case 'thisWeek':
         const startOfWeek = new Date();
@@ -314,7 +330,7 @@ function buildWhereClause(filters: Array<{ field: string; operator: string; valu
         startOfWeek.setHours(0, 0, 0, 0);
         const endOfWeek = new Date(startOfWeek);
         endOfWeek.setDate(endOfWeek.getDate() + 7);
-        where[field] = { gte: startOfWeek, lt: endOfWeek };
+        filterValue = { gte: startOfWeek, lt: endOfWeek };
         break;
       case 'thisMonth':
         const startOfMonth = new Date();
@@ -322,8 +338,17 @@ function buildWhereClause(filters: Array<{ field: string; operator: string; valu
         startOfMonth.setHours(0, 0, 0, 0);
         const endOfMonth = new Date(startOfMonth);
         endOfMonth.setMonth(endOfMonth.getMonth() + 1);
-        where[field] = { gte: startOfMonth, lt: endOfMonth };
+        filterValue = { gte: startOfMonth, lt: endOfMonth };
         break;
+      default:
+        continue;
+    }
+
+    // Support nested fields like "cycle.branchId"
+    if (field.includes('.')) {
+      setNestedValue(where, field, filterValue);
+    } else {
+      where[field] = filterValue;
     }
   }
 
@@ -348,7 +373,14 @@ async function getEntityData(
     meetings: {
       model: prisma.meeting,
       defaultInclude: {
-        cycle: { select: { id: true, name: true } },
+        cycle: { 
+          select: { 
+            id: true, 
+            name: true,
+            branch: { select: { id: true, name: true } },
+            course: { select: { id: true, name: true } },
+          } 
+        },
         instructor: { select: { id: true, name: true } },
       },
     },
@@ -455,6 +487,8 @@ viewsRouter.get('/fields/:entity', async (req, res, next) => {
         { name: 'notes', label: 'הערות', type: 'string' },
         { name: 'cycleId', label: 'מחזור', type: 'relation' },
         { name: 'instructorId', label: 'מדריך', type: 'relation' },
+        { name: 'cycle.branchId', label: 'סניף', type: 'relation' },
+        { name: 'cycle.courseId', label: 'קורס', type: 'relation' },
       ],
       cycles: [
         { name: 'id', label: 'מזהה', type: 'string' },

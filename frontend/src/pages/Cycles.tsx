@@ -6,6 +6,7 @@ import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
+import ViewSelector from '../components/ViewSelector';
 import { cycleStatusHebrew, cycleTypeHebrew, dayOfWeekHebrew } from '../types';
 import type { Cycle, CycleType, CycleStatus, DayOfWeek, ActivityType } from '../types';
 import { activityTypeHebrew } from '../types';
@@ -224,6 +225,12 @@ export default function Cycles() {
               <option value="completed">הושלם</option>
               <option value="cancelled">בוטל</option>
             </select>
+
+            {/* View Selector */}
+            <ViewSelector
+              entity="cycles"
+              onApplyView={() => {}}
+            />
 
             {/* Clear filters button */}
             {hasActiveFilters && (

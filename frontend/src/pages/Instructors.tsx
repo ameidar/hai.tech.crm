@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search } from 'lucide-react';
 import { useInstructors, useCreateInstructor, useUpdateInstructor, useSendInstructorInvite } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
-import Loading from '../components/ui/Loading';
+import { SkeletonCardGrid } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import ViewSelector from '../components/ViewSelector';
@@ -98,7 +98,7 @@ export default function Instructors() {
         </div>
 
         {isLoading ? (
-          <Loading size="lg" text="טוען מדריכים..." />
+          <SkeletonCardGrid count={6} />
         ) : filteredInstructors && filteredInstructors.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredInstructors.map((instructor) => (
@@ -113,9 +113,9 @@ export default function Instructors() {
           </div>
         ) : (
           <EmptyState
-            icon={<UserCheck size={64} />}
+            icon={<UserCheck size={40} />}
             title="אין מדריכים"
-            description="עדיין לא נוספו מדריכים למערכת"
+            description="עדיין לא נוספו מדריכים למערכת. הוסף מדריכים כדי לשייך אותם למחזורים!"
             action={
               <button onClick={() => setShowAddModal(true)} className="btn btn-primary">
                 <Plus size={18} />
@@ -188,23 +188,23 @@ function InstructorCard({ instructor, onEdit, onSendInvite, isInviteLoading }: I
   const hasAccount = !!instructor.userId;
 
   return (
-    <div className="card hover:shadow-md transition-shadow">
+    <div className="group bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-lg hover:border-gray-200 transition-all duration-200 hover:-translate-y-0.5">
       <div className="p-6">
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-              <span className="text-lg font-bold text-blue-600">
+            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-sm">
+              <span className="text-lg font-bold text-white">
                 {instructor.name.charAt(0)}
               </span>
             </div>
             <div>
-              <h3 className="font-semibold text-gray-900">{instructor.name}</h3>
-              <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">{instructor.name}</h3>
+              <div className="flex items-center gap-2 mt-1">
                 <span className={`badge ${instructor.isActive ? 'badge-success' : 'badge-gray'}`}>
                   {instructor.isActive ? 'פעיל' : 'לא פעיל'}
                 </span>
                 {hasAccount && (
-                  <span className="badge badge-blue" title="יש חשבון במערכת">
+                  <span className="badge badge-info" title="יש חשבון במערכת">
                     <UserCheck size={12} className="me-1" />
                     מחובר
                   </span>
@@ -214,44 +214,48 @@ function InstructorCard({ instructor, onEdit, onSendInvite, isInviteLoading }: I
           </div>
         </div>
 
-        <div className="space-y-2 text-sm mb-4">
-          <p className="flex items-center gap-2 text-gray-600">
-            <Phone size={14} />
-            <span dir="ltr">{instructor.phone}</span>
+        <div className="space-y-2.5 text-sm mb-4">
+          <p className="flex items-center gap-2.5 text-gray-600">
+            <div className="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center">
+              <Phone size={14} className="text-gray-500" />
+            </div>
+            <span dir="ltr" className="text-gray-700">{instructor.phone}</span>
           </p>
-          <p className="flex items-center gap-2 text-gray-600">
-            <Mail size={14} />
-            <span dir="ltr" className="truncate">{instructor.email}</span>
+          <p className="flex items-center gap-2.5 text-gray-600">
+            <div className="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center">
+              <Mail size={14} className="text-gray-500" />
+            </div>
+            <span dir="ltr" className="truncate text-gray-700">{instructor.email}</span>
           </p>
         </div>
 
         {/* Rates */}
-        <div className="grid grid-cols-4 gap-2 mb-4 p-3 bg-gray-50 rounded-lg text-center">
-          <div>
-            <p className="text-xs text-gray-500">פרונטלי</p>
-            <p className="font-medium text-gray-900">{instructor.rateFrontal != null ? `₪${instructor.rateFrontal}` : '-'}</p>
+        <div className="grid grid-cols-4 gap-2 mb-4 p-3 bg-gradient-to-br from-gray-50 to-gray-100/50 rounded-xl text-center border border-gray-100">
+          <div className="p-1">
+            <p className="text-xs text-gray-500 mb-0.5">פרונטלי</p>
+            <p className="font-semibold text-gray-900">{instructor.rateFrontal != null ? `₪${instructor.rateFrontal}` : '-'}</p>
           </div>
-          <div>
-            <p className="text-xs text-gray-500">אונליין</p>
-            <p className="font-medium text-gray-900">{instructor.rateOnline != null ? `₪${instructor.rateOnline}` : '-'}</p>
+          <div className="p-1">
+            <p className="text-xs text-gray-500 mb-0.5">אונליין</p>
+            <p className="font-semibold text-gray-900">{instructor.rateOnline != null ? `₪${instructor.rateOnline}` : '-'}</p>
           </div>
-          <div>
-            <p className="text-xs text-gray-500">פרטי</p>
-            <p className="font-medium text-gray-900">{instructor.ratePrivate != null ? `₪${instructor.ratePrivate}` : '-'}</p>
+          <div className="p-1">
+            <p className="text-xs text-gray-500 mb-0.5">פרטי</p>
+            <p className="font-semibold text-gray-900">{instructor.ratePrivate != null ? `₪${instructor.ratePrivate}` : '-'}</p>
           </div>
-          <div>
-            <p className="text-xs text-gray-500">הכנה</p>
-            <p className="font-medium text-gray-900">{instructor.ratePreparation != null ? `₪${instructor.ratePreparation}` : '-'}</p>
+          <div className="p-1">
+            <p className="text-xs text-gray-500 mb-0.5">הכנה</p>
+            <p className="font-semibold text-gray-900">{instructor.ratePreparation != null ? `₪${instructor.ratePreparation}` : '-'}</p>
           </div>
         </div>
 
-        <div className="flex items-center justify-between pt-4 border-t text-sm">
+        <div className="flex items-center justify-between pt-4 border-t border-gray-100 text-sm">
           <div className="flex items-center gap-4 text-gray-500">
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1.5 hover:text-gray-700 transition-colors">
               <RefreshCcw size={14} />
               {instructor._count?.cycles || 0} מחזורים
             </span>
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1.5 hover:text-gray-700 transition-colors">
               <Calendar size={14} />
               {instructor._count?.meetings || 0} פגישות
             </span>
@@ -261,7 +265,7 @@ function InstructorCard({ instructor, onEdit, onSendInvite, isInviteLoading }: I
               <button
                 onClick={onSendInvite}
                 disabled={isInviteLoading}
-                className="text-green-600 hover:text-green-700 flex items-center gap-1"
+                className="text-green-600 hover:text-green-700 flex items-center gap-1.5 font-medium transition-colors"
                 title="שלח הזמנה"
               >
                 <Send size={14} />
@@ -270,7 +274,7 @@ function InstructorCard({ instructor, onEdit, onSendInvite, isInviteLoading }: I
             )}
             <button
               onClick={onEdit}
-              className="text-blue-600 hover:underline"
+              className="text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors"
             >
               עריכה
             </button>

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Phone, Mail, MapPin, Users } from 'lucide-react';
-import { useCustomers, useCreateCustomer } from '../hooks/useApi';
+import { Plus, Search, Phone, Mail, MapPin, Users, Trash2 } from 'lucide-react';
+import { useCustomers, useCreateCustomer, useDeleteCustomer } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
@@ -15,6 +15,18 @@ export default function Customers() {
 
   const { data: customers, isLoading } = useCustomers({ search });
   const createCustomer = useCreateCustomer();
+  const deleteCustomer = useDeleteCustomer();
+
+  const handleDeleteCustomer = async (id: string) => {
+    if (confirm('האם למחוק את הלקוח? פעולה זו לא ניתנת לביטול.')) {
+      try {
+        await deleteCustomer.mutateAsync(id);
+      } catch (error) {
+        console.error('Failed to delete customer:', error);
+        alert('שגיאה במחיקת הלקוח');
+      }
+    }
+  };
 
   const handleAddCustomer = async (data: Partial<Customer>) => {
     try {
@@ -63,7 +75,7 @@ export default function Customers() {
         ) : customers && customers.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {customers.map((customer) => (
-              <CustomerCard key={customer.id} customer={customer} />
+              <CustomerCard key={customer.id} customer={customer} onDelete={handleDeleteCustomer} />
             ))}
           </div>
         ) : (
@@ -98,10 +110,10 @@ export default function Customers() {
 }
 
 // Customer Card Component
-function CustomerCard({ customer }: { customer: Customer }) {
+function CustomerCard({ customer, onDelete }: { customer: Customer; onDelete: (id: string) => void }) {
   return (
-    <Link to={`/customers/${customer.id}`} className="card hover:shadow-md transition-shadow">
-      <div className="p-6">
+    <div className="card hover:shadow-md transition-shadow relative">
+      <Link to={`/customers/${customer.id}`} className="block p-6">
         <div className="flex items-start justify-between mb-4">
           <div>
             <h3 className="font-semibold text-gray-900 text-lg">{customer.name}</h3>
@@ -128,8 +140,18 @@ function CustomerCard({ customer }: { customer: Customer }) {
             <span dir="ltr" className="truncate">{customer.email}</span>
           </p>
         </div>
-      </div>
-    </Link>
+      </Link>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete(customer.id);
+        }}
+        className="absolute top-3 left-3 p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+        title="מחק לקוח"
+      >
+        <Trash2 size={16} />
+      </button>
+    </div>
   );
 }
 

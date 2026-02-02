@@ -86,6 +86,16 @@ export const useUpdateCustomer = () => {
   });
 };
 
+export const useDeleteCustomer = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/customers/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+    },
+  });
+};
+
 // ==================== Students ====================
 export const useStudents = (customerId?: string) => {
   const url = customerId ? `/customers/${customerId}/students` : '/students';
@@ -349,6 +359,18 @@ export const useUpdateRegistration = () => {
   return useMutation({
     mutationFn: ({ registrationId, cycleId, data }: { registrationId: string; cycleId: string; data: Partial<Registration> }) =>
       mutateData<Registration, Partial<Registration>>(`/registrations/${registrationId}`, 'put', data),
+    onSuccess: (_, { cycleId }) => {
+      queryClient.invalidateQueries({ queryKey: ['cycle-registrations', cycleId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
+    },
+  });
+};
+
+export const useDeleteRegistration = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ registrationId, cycleId }: { registrationId: string; cycleId: string }) => 
+      api.delete(`/registrations/${registrationId}`),
     onSuccess: (_, { cycleId }) => {
       queryClient.invalidateQueries({ queryKey: ['cycle-registrations', cycleId] });
       queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });

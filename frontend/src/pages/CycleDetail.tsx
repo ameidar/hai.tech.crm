@@ -21,6 +21,7 @@ import {
   Phone,
   Mail,
   ClipboardList,
+  Trash2,
 } from 'lucide-react';
 import {
   useCycle,
@@ -37,6 +38,7 @@ import {
   useBranches,
   useCreateRegistration,
   useUpdateRegistration,
+  useDeleteRegistration,
 } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -81,6 +83,18 @@ export default function CycleDetail() {
   const updateCycle = useUpdateCycle();
   const createRegistration = useCreateRegistration();
   const updateRegistration = useUpdateRegistration();
+  const deleteRegistration = useDeleteRegistration();
+
+  const handleDeleteRegistration = async (registrationId: string) => {
+    if (confirm('האם למחוק את ההרשמה? פעולה זו לא ניתנת לביטול.')) {
+      try {
+        await deleteRegistration.mutateAsync({ registrationId, cycleId: id! });
+      } catch (error) {
+        console.error('Failed to delete registration:', error);
+        alert('שגיאה במחיקת ההרשמה');
+      }
+    }
+  };
 
   const handleUpdateCycle = async (data: Partial<Cycle>) => {
     try {
@@ -510,6 +524,13 @@ export default function CycleDetail() {
                           title="עדכון הרשמה"
                         >
                           <CreditCard size={18} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteRegistration(reg.id)}
+                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="מחק הרשמה"
+                        >
+                          <Trash2 size={18} />
                         </button>
                       </div>
                     </div>

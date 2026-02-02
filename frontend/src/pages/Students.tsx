@@ -6,6 +6,7 @@ import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
+import ViewSelector from '../components/ViewSelector';
 import type { Student, Cycle, Registration, PaymentStatus, PaymentMethod } from '../types';
 import { paymentStatusHebrew } from '../types';
 
@@ -76,9 +77,9 @@ export default function Students() {
       />
 
       <div className="flex-1 p-6 overflow-auto bg-gray-50">
-        {/* Search */}
-        <div className="bg-white rounded-lg p-4 shadow mb-6">
-          <div className="relative">
+        {/* Search & Views */}
+        <div className="bg-white rounded-lg p-4 shadow mb-6 flex gap-4 items-center">
+          <div className="relative flex-1">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
             <input
               type="text"
@@ -88,6 +89,7 @@ export default function Students() {
               className="w-full pr-10 pl-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
+          <ViewSelector entity="students" onApplyView={() => {}} />
         </div>
 
         {/* Students List */}

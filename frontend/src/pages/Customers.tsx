@@ -6,6 +6,7 @@ import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
+import ViewSelector from '../components/ViewSelector';
 import type { Customer } from '../types';
 
 export default function Customers() {
@@ -38,9 +39,9 @@ export default function Customers() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
-        {/* Search */}
-        <div className="mb-6">
-          <div className="relative max-w-md">
+        {/* Search & Views */}
+        <div className="mb-6 flex gap-4 items-center">
+          <div className="relative flex-1 max-w-md">
             <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
@@ -50,6 +51,10 @@ export default function Customers() {
               className="form-input pr-10"
             />
           </div>
+          <ViewSelector
+            entity="customers"
+            onApplyView={() => {}}
+          />
         </div>
 
         {/* Content */}

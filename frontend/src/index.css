@@ -92,7 +92,7 @@ tr:hover td {
 
 /* Fix select dropdown z-index and visibility */
 select.form-input {
-  @apply bg-white cursor-pointer appearance-none;
+  @apply bg-white cursor-pointer;
   background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
   background-position: left 0.5rem center;
   background-repeat: no-repeat;
@@ -100,10 +100,24 @@ select.form-input {
   padding-left: 2.5rem;
   position: relative;
   z-index: 10;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
 }
 
+/* Native select option styling - limited browser support but helps */
 select.form-input option {
-  @apply bg-white text-gray-900 py-2;
+  background-color: white !important;
+  color: #111827 !important;
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+select.form-input option:hover,
+select.form-input option:focus,
+select.form-input option:checked {
+  background-color: #3b82f6 !important;
+  color: white !important;
 }
 
 .form-label {

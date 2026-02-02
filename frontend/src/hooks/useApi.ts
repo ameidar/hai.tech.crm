@@ -577,11 +577,18 @@ export const useDeleteAttendance = () => {
 
 // ==================== Views ====================
 
-export const useViewData = (viewId: string | null, page: number = 1, limit: number = 50) => {
+export const useViewData = (
+  viewId: string | null, 
+  additionalFilters: Array<{ field: string; operator: string; value?: any }> = [],
+  page: number = 1, 
+  limit: number = 50
+) => {
   return useQuery({
-    queryKey: ['view-data', viewId, page, limit],
+    queryKey: ['view-data', viewId, JSON.stringify(additionalFilters), page, limit],
     queryFn: async () => {
-      const response = await api.post(`/views/${viewId}/apply?page=${page}&limit=${limit}`);
+      const response = await api.post(`/views/${viewId}/apply?page=${page}&limit=${limit}`, {
+        additionalFilters,
+      });
       return response.data;
     },
     enabled: !!viewId,

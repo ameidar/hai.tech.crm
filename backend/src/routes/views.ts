@@ -223,6 +223,7 @@ viewsRouter.delete('/:id', async (req, res, next) => {
 viewsRouter.post('/:id/apply', async (req, res, next) => {
   try {
     const { page = 1, limit = 50 } = req.query;
+    const { additionalFilters = [] } = req.body || {};
 
     const view = await prisma.savedView.findUnique({
       where: { id: req.params.id },
@@ -237,11 +238,13 @@ viewsRouter.post('/:id/apply', async (req, res, next) => {
       throw new AppError(403, 'Access denied');
     }
 
-    // Build Prisma where clause from filters
+    // Build Prisma where clause from view filters + additional filters
     const rawFilters = view.filters as Array<{ field: string; operator: string; value?: any }>;
-    const filters = await resolveRelationFilters(rawFilters);
+    const allFilters = [...rawFilters, ...additionalFilters];
+    const filters = await resolveRelationFilters(allFilters);
     const where = buildWhereClause(filters);
     console.log('[VIEW APPLY] Raw filters:', JSON.stringify(rawFilters));
+    console.log('[VIEW APPLY] Additional filters:', JSON.stringify(additionalFilters));
     console.log('[VIEW APPLY] Resolved filters:', JSON.stringify(filters));
     console.log('[VIEW APPLY] Where clause:', JSON.stringify(where));
 

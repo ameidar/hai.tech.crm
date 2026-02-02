@@ -512,7 +512,13 @@ function buildWhereClause(filters: Array<{ field: string; operator: string; valu
     if (field.includes('.')) {
       setNestedValue(where, field, filterValue);
     } else {
-      where[field] = filterValue;
+      // Merge with existing filter on the same field if it exists
+      // This handles cases like scheduledDate: { gte: ..., lt: ... }
+      if (where[field] && typeof where[field] === 'object' && typeof filterValue === 'object') {
+        where[field] = { ...where[field], ...filterValue };
+      } else {
+        where[field] = filterValue;
+      }
     }
   }
 

@@ -47,13 +47,16 @@ branchesRouter.get('/', async (req, res, next) => {
       prisma.branch.count({ where }),
     ]);
 
+    const totalPages = Math.ceil(total / limit);
     res.json({
       data: branches,
       pagination: {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit),
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
       },
     });
   } catch (error) {

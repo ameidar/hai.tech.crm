@@ -13,7 +13,7 @@ export interface PaginationMeta {
   page: number;
   limit: number;
   total: number;
-  pages: number;
+  totalPages: number;
   hasNext: boolean;
   hasPrev: boolean;
 }
@@ -30,7 +30,7 @@ export function parsePaginationParams(query: any): PaginationParams {
 }
 
 export function paginatedResponse<T>(data: T[], total: number, page: number, limit: number) {
-  const pages = Math.ceil(total / limit);
+  const totalPages = Math.ceil(total / limit);
   
   return {
     data,
@@ -38,8 +38,8 @@ export function paginatedResponse<T>(data: T[], total: number, page: number, lim
       page,
       limit,
       total,
-      pages,
-      hasNext: page < pages,
+      totalPages,
+      hasNext: page < totalPages,
       hasPrev: page > 1,
     } as PaginationMeta,
   };

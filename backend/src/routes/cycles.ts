@@ -179,13 +179,16 @@ cyclesRouter.get('/', async (req, res, next) => {
       prisma.cycle.count({ where }),
     ]);
 
+    const totalPages = Math.ceil(total / limit);
     res.json({
       data: cycles,
       pagination: {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit),
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
       },
     });
   } catch (error) {

@@ -184,7 +184,7 @@ export default function Cycles() {
             <select
               value={instructorFilter}
               onChange={(e) => setInstructorFilter(e.target.value)}
-              className="form-input w-48"
+              className="form-input w-36"
             >
               <option value="">כל המדריכים</option>
               {instructors?.map((instructor) => (
@@ -198,7 +198,7 @@ export default function Cycles() {
             <select
               value={branchFilter}
               onChange={(e) => setBranchFilter(e.target.value)}
-              className="form-input w-48"
+              className="form-input w-36"
             >
               <option value="">כל הסניפים</option>
               {branches?.map((branch) => (
@@ -212,7 +212,7 @@ export default function Cycles() {
             <select
               value={dayFilter}
               onChange={(e) => setDayFilter(e.target.value as DayOfWeek | '')}
-              className="form-input w-40"
+              className="form-input w-32"
             >
               <option value="">כל הימים</option>
               <option value="sunday">ראשון</option>
@@ -227,7 +227,7 @@ export default function Cycles() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as CycleStatus | '')}
-              className="form-input w-40"
+              className="form-input w-32"
             >
               <option value="">כל הסטטוסים</option>
               <option value="active">פעיל</option>
@@ -805,7 +805,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
                 isOnline: newActivityType === 'online'
               });
             }}
-            className="form-input w-48"
+            className="form-input w-36"
           >
             <option value="frontal">פרונטלי</option>
             <option value="online">אונליין</option>
@@ -1129,7 +1129,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
                 isOnline: newActivityType === 'online'
               });
             }}
-            className="form-input w-48"
+            className="form-input w-36"
           >
             <option value="frontal">פרונטלי</option>
             <option value="online">אונליין</option>

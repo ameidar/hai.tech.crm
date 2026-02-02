@@ -3,6 +3,7 @@ import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createCustomerSchema, updateCustomerSchema, createStudentSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
+import { logAudit } from '../utils/audit.js';
 
 export const customersRouter = Router();
 
@@ -140,6 +141,16 @@ customersRouter.post('/', managerOrAdmin, async (req, res, next) => {
       },
     });
 
+    // Audit log
+    await logAudit({
+      userId: req.user?.userId,
+      action: 'CREATE',
+      entity: 'Customer',
+      entityId: customer.id,
+      newValue: { name: customer.name, phone: customer.phone, email: customer.email },
+      req,
+    });
+
     res.status(201).json(customer);
   } catch (error) {
     next(error);
@@ -152,12 +163,26 @@ customersRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     const id = uuidSchema.parse(req.params.id);
     const data = updateCustomerSchema.parse(req.body);
 
+    // Get old value for audit
+    const oldCustomer = await prisma.customer.findUnique({ where: { id } });
+
     const customer = await prisma.customer.update({
       where: { id },
       data,
       include: {
         _count: { select: { students: true } },
       },
+    });
+
+    // Audit log
+    await logAudit({
+      userId: req.user?.userId,
+      action: 'UPDATE',
+      entity: 'Customer',
+      entityId: customer.id,
+      oldValue: oldCustomer ? { name: oldCustomer.name, phone: oldCustomer.phone, email: oldCustomer.email } : undefined,
+      newValue: { name: customer.name, phone: customer.phone, email: customer.email },
+      req,
     });
 
     res.json(customer);
@@ -171,9 +196,24 @@ customersRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
+    // Get old value for audit
+    const oldCustomer = await prisma.customer.findUnique({ where: { id } });
+
     await prisma.customer.delete({
       where: { id },
     });
+
+    // Audit log
+    if (oldCustomer) {
+      await logAudit({
+        userId: req.user?.userId,
+        action: 'DELETE',
+        entity: 'Customer',
+        entityId: id,
+        oldValue: { name: oldCustomer.name, phone: oldCustomer.phone, email: oldCustomer.email },
+        req,
+      });
+    }
 
     res.status(204).send();
   } catch (error) {

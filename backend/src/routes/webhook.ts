@@ -144,6 +144,111 @@ webhookRouter.get('/cycles/:id/meetings', async (req, res, next) => {
   }
 });
 
+// Create a lead/customer from external website
+// POST /api/webhook/leads
+webhookRouter.post('/leads', async (req, res, next) => {
+  try {
+    const { 
+      name, 
+      phone, 
+      email, 
+      city,
+      notes,
+      source = 'website',
+      students // Optional: array of { name, birthDate?, grade? }
+    } = req.body;
+
+    if (!name) {
+      throw new AppError(400, 'name is required');
+    }
+
+    if (!phone && !email) {
+      throw new AppError(400, 'Either phone or email is required');
+    }
+
+    // Check if customer already exists by phone or email
+    let existingCustomer = null;
+    if (phone) {
+      existingCustomer = await prisma.customer.findFirst({
+        where: { phone },
+      });
+    }
+    if (!existingCustomer && email) {
+      existingCustomer = await prisma.customer.findFirst({
+        where: { email },
+      });
+    }
+
+    if (existingCustomer) {
+      // Update existing customer with any new info
+      const customer = await prisma.customer.update({
+        where: { id: existingCustomer.id },
+        data: {
+          notes: existingCustomer.notes 
+            ? `${existingCustomer.notes}\n---\n[${new Date().toISOString()}] ${source}: ${notes || 'פנייה חדשה'}`
+            : `[${new Date().toISOString()}] ${source}: ${notes || 'פנייה חדשה'}`,
+        },
+        include: {
+          students: true,
+        },
+      });
+
+      res.json({
+        success: true,
+        isNew: false,
+        customer: {
+          id: customer.id,
+          name: customer.name,
+          phone: customer.phone,
+          email: customer.email,
+        },
+        message: 'Customer already exists, notes updated',
+      });
+      return;
+    }
+
+    // Create new customer
+    const customer = await prisma.customer.create({
+      data: {
+        name,
+        phone: phone || null,
+        email: email || null,
+        city: city || null,
+        notes: notes ? `[${new Date().toISOString()}] ${source}: ${notes}` : `[${new Date().toISOString()}] ${source}: ליד חדש`,
+        students: students && Array.isArray(students) && students.length > 0 
+          ? {
+              create: students.map((s: { name: string; birthDate?: string; grade?: string }) => ({
+                name: s.name,
+                birthDate: s.birthDate ? new Date(s.birthDate) : null,
+                grade: s.grade || null,
+              })),
+            }
+          : undefined,
+      },
+      include: {
+        students: true,
+      },
+    });
+
+    res.status(201).json({
+      success: true,
+      isNew: true,
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        phone: customer.phone,
+        email: customer.email,
+        students: customer.students.map(s => ({
+          id: s.id,
+          name: s.name,
+        })),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Generic meeting update
 // PATCH /api/webhook/meetings/:id
 webhookRouter.patch('/meetings/:id', async (req, res, next) => {

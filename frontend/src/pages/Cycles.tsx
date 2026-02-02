@@ -54,7 +54,7 @@ export default function Cycles() {
   const updateCycle = useUpdateCycle();
   const deleteCycle = useDeleteCycle();
   const bulkUpdateCycles = useBulkUpdateCycles();
-  const { data: viewData, isLoading: viewLoading } = useViewData(activeViewId);
+  const { data: viewData, isLoading: viewLoading } = useViewData(activeViewId, []);
 
   // Determine which data to display based on view mode
   const displayCycles = viewMode === 'view' && viewData?.data 

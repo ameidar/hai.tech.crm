@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Calendar,
@@ -27,7 +27,20 @@ export default function Meetings() {
   const [viewMode, setViewMode] = useState<'date' | 'view'>('date');
 
   const { data: meetings, isLoading } = useMeetings({ date: selectedDate });
-  const { data: viewData, isLoading: viewLoading } = useViewData(activeViewId);
+  
+  // Build date filter for view data - filter by selectedDate
+  const dateFilter = useMemo(() => {
+    const date = new Date(selectedDate);
+    date.setHours(0, 0, 0, 0);
+    const nextDay = new Date(date);
+    nextDay.setDate(nextDay.getDate() + 1);
+    return [
+      { field: 'scheduledDate', operator: 'gte', value: date.toISOString() },
+      { field: 'scheduledDate', operator: 'lt', value: nextDay.toISOString() },
+    ];
+  }, [selectedDate]);
+  
+  const { data: viewData, isLoading: viewLoading } = useViewData(activeViewId, dateFilter);
   const recalculateMeeting = useRecalculateMeeting();
 
   // Determine which data to display based on view mode

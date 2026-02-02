@@ -382,3 +382,22 @@ model Attendance {
   @@unique([meetingId, studentId])
   @@map("attendance")
 }
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  userName  String?  @map("user_name")
+  action    String   // CREATE, UPDATE, DELETE
+  entity    String   // Customer, Cycle, Meeting, etc.
+  entityId  String   @map("entity_id")
+  oldValue  Json?    @map("old_value")
+  newValue  Json?    @map("new_value")
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

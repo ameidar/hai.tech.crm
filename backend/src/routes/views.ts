@@ -273,13 +273,37 @@ function setNestedValue(obj: any, path: string, value: any) {
   current[parts[parts.length - 1]] = value;
 }
 
+// Map relation ID fields to their name paths for text filtering
+const RELATION_FIELD_MAP: Record<string, string> = {
+  'branchId': 'branch.name',
+  'courseId': 'course.name',
+  'instructorId': 'instructor.name',
+  'cycleId': 'cycle.name',
+  'customerId': 'customer.name',
+  'studentId': 'student.name',
+  'cycle.branchId': 'cycle.branch.name',
+  'cycle.courseId': 'cycle.course.name',
+  'cycle.instructorId': 'cycle.instructor.name',
+};
+
+// Check if value looks like a UUID
+function isUUID(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
 // Helper to build Prisma where clause from filters
 function buildWhereClause(filters: Array<{ field: string; operator: string; value?: any }>) {
   const where: any = {};
 
   for (const filter of filters) {
-    const { field, operator, value } = filter;
+    let { field, operator, value } = filter;
     let filterValue: any;
+
+    // Convert relation ID fields to name paths for text filtering
+    // Only do this if the value is not a UUID (i.e., user entered text like "אורט")
+    if (RELATION_FIELD_MAP[field] && typeof value === 'string' && !isUUID(value)) {
+      field = RELATION_FIELD_MAP[field];
+    }
 
     switch (operator) {
       case 'equals':

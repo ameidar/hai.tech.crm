@@ -238,8 +238,12 @@ viewsRouter.post('/:id/apply', async (req, res, next) => {
     }
 
     // Build Prisma where clause from filters
-    const filters = view.filters as Array<{ field: string; operator: string; value?: any }>;
+    const rawFilters = view.filters as Array<{ field: string; operator: string; value?: any }>;
+    const filters = await resolveRelationFilters(rawFilters);
     const where = buildWhereClause(filters);
+    console.log('[VIEW APPLY] Raw filters:', JSON.stringify(rawFilters));
+    console.log('[VIEW APPLY] Resolved filters:', JSON.stringify(filters));
+    console.log('[VIEW APPLY] Where clause:', JSON.stringify(where));
 
     // Get data based on entity
     const result = await getEntityData(
@@ -273,22 +277,161 @@ function setNestedValue(obj: any, path: string, value: any) {
   current[parts[parts.length - 1]] = value;
 }
 
-// Map relation ID fields to their name paths for text filtering
-const RELATION_FIELD_MAP: Record<string, string> = {
-  'branchId': 'branch.name',
-  'courseId': 'course.name',
-  'instructorId': 'instructor.name',
-  'cycleId': 'cycle.name',
-  'customerId': 'customer.name',
-  'studentId': 'student.name',
-  'cycle.branchId': 'cycle.branch.name',
-  'cycle.courseId': 'cycle.course.name',
-  'cycle.instructorId': 'cycle.instructor.name',
-};
-
 // Check if value looks like a UUID
 function isUUID(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+// Resolve relation field text values to actual IDs
+async function resolveRelationFilters(filters: Array<{ field: string; operator: string; value?: any }>) {
+  const resolvedFilters = [];
+  
+  for (const filter of filters) {
+    let { field, operator, value } = filter;
+    
+    // Skip if value is already a UUID or if operator doesn't use value
+    if (!value || typeof value !== 'string' || isUUID(value) || ['isNull', 'isNotNull', 'today', 'thisWeek', 'thisMonth'].includes(operator)) {
+      resolvedFilters.push(filter);
+      continue;
+    }
+    
+    // Handle relation fields by looking up matching IDs
+    if (field === 'branchId') {
+      const branches = await prisma.branch.findMany({
+        where: { name: operator === 'contains' ? { contains: value, mode: 'insensitive' } : value },
+        select: { id: true },
+      });
+      const ids = branches.map(b => b.id);
+      if (ids.length > 0) {
+        resolvedFilters.push({ field: 'branchId', operator: 'in', value: ids });
+      } else {
+        resolvedFilters.push({ field: 'id', operator: 'equals', value: 'no-match' });
+      }
+    } else if (field === 'cycle.branchId') {
+      // For nested relation (cycle.branchId), find cycles with matching branches, then filter by cycleId
+      const branches = await prisma.branch.findMany({
+        where: { name: operator === 'contains' ? { contains: value, mode: 'insensitive' } : value },
+        select: { id: true },
+      });
+      const branchIds = branches.map(b => b.id);
+      if (branchIds.length > 0) {
+        const cycles = await prisma.cycle.findMany({
+          where: { branchId: { in: branchIds } },
+          select: { id: true },
+        });
+        const cycleIds = cycles.map(c => c.id);
+        if (cycleIds.length > 0) {
+          resolvedFilters.push({ field: 'cycleId', operator: 'in', value: cycleIds });
+        } else {
+          resolvedFilters.push({ field: 'id', operator: 'equals', value: 'no-match' });
+        }
+      } else {
+        resolvedFilters.push({ field: 'id', operator: 'equals', value: 'no-match' });
+      }
+    } else if (field === 'courseId') {
+      const courses = await prisma.course.findMany({
+        where: { name: operator === 'contains' ? { contains: value, mode: 'insensitive' } : value },
+        select: { id: true },
+      });
+      const ids = courses.map(c => c.id);
+      if (ids.length > 0) {
+        resolvedFilters.push({ field: 'courseId', operator: 'in', value: ids });
+      } else {
+        resolvedFilters.push({ field: 'id', operator: 'equals', value: 'no-match' });
+      }
+    } else if (field === 'cycle.courseId') {
+      // For nested relation (cycle.courseId), find cycles with matching courses, then filter by cycleId
+      const courses = await prisma.course.findMany({
+        where: { name: operator === 'contains' ? { contains: value, mode: 'insensitive' } : value },
+        select: { id: true },
+      });
+      const courseIds = courses.map(c => c.id);
+      if (courseIds.length > 0) {
+        const cycles = await prisma.cycle.findMany({
+          where: { courseId: { in: courseIds } },
+          select: { id: true },
+        });
+        const cycleIds = cycles.map(c => c.id);
+        if (cycleIds.length > 0) {
+          resolvedFilters.push({ field: 'cycleId', operator: 'in', value: cycleIds });
+        } else {
+          resolvedFilters.push({ field: 'id', operator: 'equals', value: 'no-match' });
+        }
+      } else {
+        resolvedFilters.push({ field: 'id', operator: 'equals', value: 'no-match' });
+      }
+    } else if (field === 'instructorId') {
+      const instructors = await prisma.instructor.findMany({
+        where: { name: operator === 'contains' ? { contains: value, mode: 'insensitive' } : value },
+        select: { id: true },
+      });
+      const ids = instructors.map(i => i.id);
+      if (ids.length > 0) {
+        resolvedFilters.push({ field: 'instructorId', operator: 'in', value: ids });
+      } else {
+        resolvedFilters.push({ field: 'id', operator: 'equals', value: 'no-match' });
+      }
+    } else if (field === 'cycle.instructorId') {
+      // For nested relation (cycle.instructorId), find cycles with matching instructors, then filter by cycleId
+      const instructors = await prisma.instructor.findMany({
+        where: { name: operator === 'contains' ? { contains: value, mode: 'insensitive' } : value },
+        select: { id: true },
+      });
+      const instructorIds = instructors.map(i => i.id);
+      if (instructorIds.length > 0) {
+        const cycles = await prisma.cycle.findMany({
+          where: { instructorId: { in: instructorIds } },
+          select: { id: true },
+        });
+        const cycleIds = cycles.map(c => c.id);
+        if (cycleIds.length > 0) {
+          resolvedFilters.push({ field: 'cycleId', operator: 'in', value: cycleIds });
+        } else {
+          resolvedFilters.push({ field: 'id', operator: 'equals', value: 'no-match' });
+        }
+      } else {
+        resolvedFilters.push({ field: 'id', operator: 'equals', value: 'no-match' });
+      }
+    } else if (field === 'cycleId') {
+      const cycles = await prisma.cycle.findMany({
+        where: { name: operator === 'contains' ? { contains: value, mode: 'insensitive' } : value },
+        select: { id: true },
+      });
+      const ids = cycles.map(c => c.id);
+      if (ids.length > 0) {
+        resolvedFilters.push({ field: 'cycleId', operator: 'in', value: ids });
+      } else {
+        resolvedFilters.push({ field: 'id', operator: 'equals', value: 'no-match' });
+      }
+    } else if (field === 'customerId') {
+      const customers = await prisma.customer.findMany({
+        where: { name: operator === 'contains' ? { contains: value, mode: 'insensitive' } : value },
+        select: { id: true },
+      });
+      const ids = customers.map(c => c.id);
+      if (ids.length > 0) {
+        resolvedFilters.push({ field: 'customerId', operator: 'in', value: ids });
+      } else {
+        resolvedFilters.push({ field: 'id', operator: 'equals', value: 'no-match' });
+      }
+    } else if (field === 'studentId') {
+      const students = await prisma.student.findMany({
+        where: { name: operator === 'contains' ? { contains: value, mode: 'insensitive' } : value },
+        select: { id: true },
+      });
+      const ids = students.map(s => s.id);
+      if (ids.length > 0) {
+        resolvedFilters.push({ field: 'studentId', operator: 'in', value: ids });
+      } else {
+        resolvedFilters.push({ field: 'id', operator: 'equals', value: 'no-match' });
+      }
+    } else {
+      // Not a relation field, keep as-is
+      resolvedFilters.push(filter);
+    }
+  }
+  
+  return resolvedFilters;
 }
 
 // Helper to build Prisma where clause from filters
@@ -296,14 +439,8 @@ function buildWhereClause(filters: Array<{ field: string; operator: string; valu
   const where: any = {};
 
   for (const filter of filters) {
-    let { field, operator, value } = filter;
+    const { field, operator, value } = filter;
     let filterValue: any;
-
-    // Convert relation ID fields to name paths for text filtering
-    // Only do this if the value is not a UUID (i.e., user entered text like "אורט")
-    if (RELATION_FIELD_MAP[field] && typeof value === 'string' && !isUUID(value)) {
-      field = RELATION_FIELD_MAP[field];
-    }
 
     switch (operator) {
       case 'equals':
@@ -390,7 +527,24 @@ async function getEntityData(
   limit: number = 50
 ) {
   const skip = (page - 1) * limit;
-  const orderBy = sortBy ? { [sortBy]: sortOrder || 'desc' } : undefined;
+  
+  // Build orderBy - handle nested fields like "cycle.branchId"
+  let orderBy: any = undefined;
+  if (sortBy) {
+    if (sortBy.includes('.')) {
+      // Nested field - convert "cycle.branchId" to { cycle: { branchId: 'desc' } }
+      const parts = sortBy.split('.');
+      orderBy = {};
+      let current = orderBy;
+      for (let i = 0; i < parts.length - 1; i++) {
+        current[parts[i]] = {};
+        current = current[parts[i]];
+      }
+      current[parts[parts.length - 1]] = sortOrder || 'desc';
+    } else {
+      orderBy = { [sortBy]: sortOrder || 'desc' };
+    }
+  }
 
   // Map entity to Prisma model and includes
   const entityConfig: Record<string, { model: any; defaultInclude: any }> = {
@@ -460,16 +614,22 @@ async function getEntityData(
     throw new AppError(400, `Invalid entity: ${entity}`);
   }
 
-  const [data, total] = await Promise.all([
-    config.model.findMany({
-      where,
-      include: config.defaultInclude,
-      orderBy,
-      skip,
-      take: limit,
-    }),
-    config.model.count({ where }),
-  ]);
+  let data, total;
+  try {
+    [data, total] = await Promise.all([
+      config.model.findMany({
+        where,
+        include: config.defaultInclude,
+        orderBy,
+        skip,
+        take: limit,
+      }),
+      config.model.count({ where }),
+    ]);
+  } catch (error) {
+    console.error('[VIEW APPLY ERROR]', error);
+    throw error;
+  }
 
   const totalPages = Math.ceil(total / limit);
 

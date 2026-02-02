@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square } from 'lucide-react';
-import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles } from '../hooks/useApi';
+import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useViewData } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
@@ -23,6 +23,8 @@ export default function Cycles() {
   const [dayFilter, setDayFilter] = useState<DayOfWeek | ''>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'filters' | 'view'>('filters');
 
   // Initialize filters from URL params
   useEffect(() => {
@@ -52,6 +54,13 @@ export default function Cycles() {
   const updateCycle = useUpdateCycle();
   const deleteCycle = useDeleteCycle();
   const bulkUpdateCycles = useBulkUpdateCycles();
+  const { data: viewData, isLoading: viewLoading } = useViewData(activeViewId);
+
+  // Determine which data to display based on view mode
+  const displayCycles = viewMode === 'view' && viewData?.data 
+    ? viewData.data as Cycle[]
+    : cycles || [];
+  const displayLoading = viewMode === 'view' ? viewLoading : isLoading;
 
   // Selection helpers
   const toggleCycle = (id: string) => {
@@ -67,11 +76,11 @@ export default function Cycles() {
   };
 
   const toggleAll = () => {
-    if (!cycles) return;
-    if (selectedCycles.size === cycles.length) {
+    if (!displayCycles || displayCycles.length === 0) return;
+    if (selectedCycles.size === displayCycles.length) {
       setSelectedCycles(new Set());
     } else {
-      setSelectedCycles(new Set(cycles.map(c => c.id)));
+      setSelectedCycles(new Set(displayCycles.map(c => c.id)));
     }
   };
 
@@ -146,7 +155,7 @@ export default function Cycles() {
     <>
       <PageHeader
         title="מחזורים"
-        subtitle={`${cycles?.length || 0} מחזורים`}
+        subtitle={`${displayCycles?.length || 0} מחזורים`}
         actions={
           <button onClick={() => setShowAddModal(true)} className="btn btn-primary">
             <Plus size={18} />
@@ -230,6 +239,14 @@ export default function Cycles() {
             <ViewSelector
               entity="cycles"
               onApplyView={() => {}}
+              onViewSelect={(viewId) => {
+                setActiveViewId(viewId);
+                if (viewId) {
+                  setViewMode('view');
+                } else {
+                  setViewMode('filters');
+                }
+              }}
             />
 
             {/* Clear filters button */}
@@ -272,9 +289,9 @@ export default function Cycles() {
           </div>
         )}
 
-        {isLoading ? (
+        {displayLoading ? (
           <Loading size="lg" text="טוען מחזורים..." />
-        ) : cycles && cycles.length > 0 ? (
+        ) : displayCycles && displayCycles.length > 0 ? (
           <div className="card overflow-hidden">
             <table>
               <thead>
@@ -283,9 +300,9 @@ export default function Cycles() {
                     <button
                       onClick={toggleAll}
                       className="p-1 hover:bg-gray-100 rounded transition-colors"
-                      title={selectedCycles.size === cycles.length ? 'בטל הכל' : 'בחר הכל'}
+                      title={selectedCycles.size === displayCycles.length ? 'בטל הכל' : 'בחר הכל'}
                     >
-                      {selectedCycles.size === cycles.length ? (
+                      {selectedCycles.size === displayCycles.length ? (
                         <CheckSquare size={18} className="text-blue-600" />
                       ) : selectedCycles.size > 0 ? (
                         <CheckSquare size={18} className="text-blue-400" />
@@ -307,7 +324,7 @@ export default function Cycles() {
                 </tr>
               </thead>
               <tbody>
-                {cycles.map((cycle) => (
+                {displayCycles.map((cycle) => (
                   <tr key={cycle.id} className={selectedCycles.has(cycle.id) ? 'bg-blue-50' : ''}>
                     <td>
                       <button

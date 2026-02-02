@@ -1,11 +1,12 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square } from 'lucide-react';
-import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles } from '../hooks/useApi';
+import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useViewData } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
+import ViewSelector from '../components/ViewSelector';
 import { cycleStatusHebrew, cycleTypeHebrew, dayOfWeekHebrew } from '../types';
 import type { Cycle, CycleType, CycleStatus, DayOfWeek, ActivityType } from '../types';
 import { activityTypeHebrew } from '../types';
@@ -22,6 +23,8 @@ export default function Cycles() {
   const [dayFilter, setDayFilter] = useState<DayOfWeek | ''>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'filters' | 'view'>('filters');
 
   // Initialize filters from URL params
   useEffect(() => {
@@ -51,6 +54,13 @@ export default function Cycles() {
   const updateCycle = useUpdateCycle();
   const deleteCycle = useDeleteCycle();
   const bulkUpdateCycles = useBulkUpdateCycles();
+  const { data: viewData, isLoading: viewLoading } = useViewData(activeViewId, []);
+
+  // Determine which data to display based on view mode
+  const displayCycles = viewMode === 'view' && viewData?.data 
+    ? viewData.data as Cycle[]
+    : cycles || [];
+  const displayLoading = viewMode === 'view' ? viewLoading : isLoading;
 
   // Selection helpers
   const toggleCycle = (id: string) => {
@@ -66,11 +76,11 @@ export default function Cycles() {
   };
 
   const toggleAll = () => {
-    if (!cycles) return;
-    if (selectedCycles.size === cycles.length) {
+    if (!displayCycles || displayCycles.length === 0) return;
+    if (selectedCycles.size === displayCycles.length) {
       setSelectedCycles(new Set());
     } else {
-      setSelectedCycles(new Set(cycles.map(c => c.id)));
+      setSelectedCycles(new Set(displayCycles.map(c => c.id)));
     }
   };
 
@@ -145,7 +155,7 @@ export default function Cycles() {
     <>
       <PageHeader
         title="מחזורים"
-        subtitle={`${cycles?.length || 0} מחזורים`}
+        subtitle={`${displayCycles?.length || 0} מחזורים`}
         actions={
           <button onClick={() => setShowAddModal(true)} className="btn btn-primary">
             <Plus size={18} />
@@ -171,59 +181,81 @@ export default function Cycles() {
             </div>
 
             {/* Instructor filter */}
-            <select
-              value={instructorFilter}
-              onChange={(e) => setInstructorFilter(e.target.value)}
-              className="form-input w-48"
-            >
-              <option value="">כל המדריכים</option>
-              {instructors?.map((instructor) => (
-                <option key={instructor.id} value={instructor.id}>
-                  {instructor.name}
-                </option>
-              ))}
-            </select>
+            <div className="w-36">
+              <select
+                value={instructorFilter}
+                onChange={(e) => setInstructorFilter(e.target.value)}
+                className="form-input"
+              >
+                <option value="">כל המדריכים</option>
+                {instructors?.map((instructor) => (
+                  <option key={instructor.id} value={instructor.id}>
+                    {instructor.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             {/* Branch filter */}
-            <select
-              value={branchFilter}
-              onChange={(e) => setBranchFilter(e.target.value)}
-              className="form-input w-48"
-            >
-              <option value="">כל הסניפים</option>
-              {branches?.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
+            <div className="w-36">
+              <select
+                value={branchFilter}
+                onChange={(e) => setBranchFilter(e.target.value)}
+                className="form-input"
+              >
+                <option value="">כל הסניפים</option>
+                {branches?.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             {/* Day filter */}
-            <select
-              value={dayFilter}
-              onChange={(e) => setDayFilter(e.target.value as DayOfWeek | '')}
-              className="form-input w-40"
-            >
-              <option value="">כל הימים</option>
-              <option value="sunday">ראשון</option>
-              <option value="monday">שני</option>
-              <option value="tuesday">שלישי</option>
-              <option value="wednesday">רביעי</option>
-              <option value="thursday">חמישי</option>
-              <option value="friday">שישי</option>
-            </select>
+            <div className="w-28">
+              <select
+                value={dayFilter}
+                onChange={(e) => setDayFilter(e.target.value as DayOfWeek | '')}
+                className="form-input"
+              >
+                <option value="">כל הימים</option>
+                <option value="sunday">ראשון</option>
+                <option value="monday">שני</option>
+                <option value="tuesday">שלישי</option>
+                <option value="wednesday">רביעי</option>
+                <option value="thursday">חמישי</option>
+                <option value="friday">שישי</option>
+              </select>
+            </div>
 
             {/* Status filter */}
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as CycleStatus | '')}
-              className="form-input w-40"
-            >
-              <option value="">כל הסטטוסים</option>
-              <option value="active">פעיל</option>
-              <option value="completed">הושלם</option>
-              <option value="cancelled">בוטל</option>
-            </select>
+            <div className="w-32">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as CycleStatus | '')}
+                className="form-input"
+              >
+                <option value="">כל הסטטוסים</option>
+                <option value="active">פעיל</option>
+                <option value="completed">הושלם</option>
+                <option value="cancelled">בוטל</option>
+              </select>
+            </div>
+
+            {/* View Selector */}
+            <ViewSelector
+              entity="cycles"
+              onApplyView={() => {}}
+              onViewSelect={(viewId) => {
+                setActiveViewId(viewId);
+                if (viewId) {
+                  setViewMode('view');
+                } else {
+                  setViewMode('filters');
+                }
+              }}
+            />
 
             {/* Clear filters button */}
             {hasActiveFilters && (
@@ -265,9 +297,9 @@ export default function Cycles() {
           </div>
         )}
 
-        {isLoading ? (
+        {displayLoading ? (
           <Loading size="lg" text="טוען מחזורים..." />
-        ) : cycles && cycles.length > 0 ? (
+        ) : displayCycles && displayCycles.length > 0 ? (
           <div className="card overflow-hidden">
             <table>
               <thead>
@@ -276,9 +308,9 @@ export default function Cycles() {
                     <button
                       onClick={toggleAll}
                       className="p-1 hover:bg-gray-100 rounded transition-colors"
-                      title={selectedCycles.size === cycles.length ? 'בטל הכל' : 'בחר הכל'}
+                      title={selectedCycles.size === displayCycles.length ? 'בטל הכל' : 'בחר הכל'}
                     >
-                      {selectedCycles.size === cycles.length ? (
+                      {selectedCycles.size === displayCycles.length ? (
                         <CheckSquare size={18} className="text-blue-600" />
                       ) : selectedCycles.size > 0 ? (
                         <CheckSquare size={18} className="text-blue-400" />
@@ -300,7 +332,7 @@ export default function Cycles() {
                 </tr>
               </thead>
               <tbody>
-                {cycles.map((cycle) => (
+                {displayCycles.map((cycle) => (
                   <tr key={cycle.id} className={selectedCycles.has(cycle.id) ? 'bg-blue-50' : ''}>
                     <td>
                       <button
@@ -781,7 +813,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
                 isOnline: newActivityType === 'online'
               });
             }}
-            className="form-input w-48"
+            className="form-input w-36"
           >
             <option value="frontal">פרונטלי</option>
             <option value="online">אונליין</option>
@@ -1105,7 +1137,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
                 isOnline: newActivityType === 'online'
               });
             }}
-            className="form-input w-48"
+            className="form-input w-36"
           >
             <option value="frontal">פרונטלי</option>
             <option value="online">אונליין</option>

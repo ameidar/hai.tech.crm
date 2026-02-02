@@ -124,6 +124,7 @@ model User {
   instructor       Instructor?
   meetingUpdates   Meeting[]    @relation("MeetingStatusUpdater")
   attendanceRecords Attendance[]
+  savedViews       SavedView[]
 
   @@map("users")
 }
@@ -400,4 +401,26 @@ model AuditLog {
   @@index([userId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+model SavedView {
+  id          String   @id @default(uuid())
+  name        String
+  entity      String   // meetings, cycles, customers, students, courses, branches, instructors, registrations
+  filters     Json     // Array of filter conditions
+  columns     Json     // Array of column names to display
+  sortBy      String?  @map("sort_by")
+  sortOrder   String?  @map("sort_order") // asc, desc
+  isDefault   Boolean  @default(false) @map("is_default")
+  isPublic    Boolean  @default(false) @map("is_public") // Shared with all users
+  createdById String   @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([entity])
+  @@index([createdById])
+  @@map("saved_views")
 }

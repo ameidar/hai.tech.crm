@@ -86,6 +86,16 @@ export const useUpdateCustomer = () => {
   });
 };
 
+export const useDeleteCustomer = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/customers/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+    },
+  });
+};
+
 // ==================== Students ====================
 export const useStudents = (customerId?: string) => {
   const url = customerId ? `/customers/${customerId}/students` : '/students';
@@ -193,6 +203,18 @@ export const useCreateBranch = () => {
     mutationFn: (data: Partial<Branch>) => mutateData<Branch, Partial<Branch>>('/branches', 'post', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['branches'] });
+    },
+  });
+};
+
+export const useUpdateBranch = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<Branch> }) =>
+      mutateData<Branch, Partial<Branch>>(`/branches/${id}`, 'put', data),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['branches'] });
+      queryClient.invalidateQueries({ queryKey: ['branch', id] });
     },
   });
 };
@@ -356,6 +378,18 @@ export const useUpdateRegistration = () => {
   });
 };
 
+export const useDeleteRegistration = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ registrationId, cycleId }: { registrationId: string; cycleId: string }) => 
+      api.delete(`/registrations/${registrationId}`),
+    onSuccess: (_, { cycleId }) => {
+      queryClient.invalidateQueries({ queryKey: ['cycle-registrations', cycleId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
+    },
+  });
+};
+
 // ==================== Meetings ====================
 export const useMeetings = (params?: { date?: string; from?: string; to?: string; instructorId?: string; branchId?: string }) => {
   const searchParams = new URLSearchParams();
@@ -442,6 +476,23 @@ export const useBulkRecalculateMeetings = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['meetings'] });
       queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
+    },
+  });
+};
+
+export const useBulkUpdateMeetingStatus = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, status }: { ids: string[]; status: string }) =>
+      mutateData<{ success: boolean; updated: number; errors?: string[] }, { ids: string[]; status: string }>(
+        '/meetings/bulk-update-status',
+        'post',
+        { ids, status }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
     },
   });
 };
@@ -574,3 +625,26 @@ export const useDeleteAttendance = () => {
     },
   });
 };
+
+// ==================== Views ====================
+
+export const useViewData = (
+  viewId: string | null, 
+  additionalFilters: Array<{ field: string; operator: string; value?: any }> = [],
+  page: number = 1, 
+  limit: number = 50
+) => {
+  return useQuery({
+    queryKey: ['view-data', viewId, JSON.stringify(additionalFilters), page, limit],
+    queryFn: async () => {
+      const response = await api.post(`/views/${viewId}/apply?page=${page}&limit=${limit}`, {
+        additionalFilters,
+      });
+      return response.data;
+    },
+    enabled: !!viewId,
+  });
+};
+
+// Re-export api for direct use in components
+export { api };

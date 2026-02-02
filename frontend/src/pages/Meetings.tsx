@@ -1,19 +1,19 @@
-import { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Calendar,
   ChevronLeft,
   ChevronRight,
-  Clock,
-  CheckCircle,
-  XCircle,
-  AlertCircle,
+  CheckSquare,
+  Square,
+  X,
 } from 'lucide-react';
-import { useMeetings, useRecalculateMeeting } from '../hooks/useApi';
+import { useMeetings, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import MeetingDetailModal from '../components/MeetingDetailModal';
+import ViewSelector from '../components/ViewSelector';
 import { meetingStatusHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
@@ -22,9 +22,135 @@ export default function Meetings() {
     return new Date().toISOString().split('T')[0];
   });
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'date' | 'view'>('date');
+  const [viewColumns, setViewColumns] = useState<string[]>([]);
+  
+  // Bulk selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkStatus, setBulkStatus] = useState<string>('');
+  
+  // Column definitions for meetings
+  const allColumns: Record<string, { label: string; render: (m: Meeting) => React.ReactNode }> = {
+    scheduledDate: {
+      label: 'תאריך',
+      render: (m) => m.scheduledDate ? new Date(m.scheduledDate).toLocaleDateString('he-IL') : '-'
+    },
+    startTime: {
+      label: 'שעה',
+      render: (m) => `${formatTime(m.startTime)} - ${formatTime(m.endTime)}`
+    },
+    'cycle.name': {
+      label: 'מחזור',
+      render: (m) => m.cycle?.name ? (
+        <Link to={`/cycles/${m.cycleId}`} className="text-blue-600 hover:underline" onClick={(e) => e.stopPropagation()}>
+          {m.cycle.name}
+        </Link>
+      ) : '-'
+    },
+    'cycle.course.name': {
+      label: 'קורס',
+      render: (m) => m.cycle?.course?.name || '-'
+    },
+    'cycle.branch.name': {
+      label: 'סניף',
+      render: (m) => m.cycle?.branch?.name || '-'
+    },
+    'instructor.name': {
+      label: 'מדריך',
+      render: (m) => m.instructor?.name || '-'
+    },
+    status: {
+      label: 'סטטוס',
+      render: (m) => (
+        <span className={`badge ${getStatusBadgeClass(m.status)}`}>
+          {meetingStatusHebrew[m.status]}
+        </span>
+      )
+    },
+    revenue: {
+      label: 'הכנסה',
+      render: (m) => m.status === 'completed' 
+        ? <span className="text-green-600">{(m.revenue || 0).toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}</span>
+        : '-'
+    },
+    instructorPayment: {
+      label: 'עלות',
+      render: (m) => m.status === 'completed'
+        ? <span className="text-red-600">{(m.instructorPayment || 0).toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}</span>
+        : '-'
+    },
+    profit: {
+      label: 'רווח',
+      render: (m) => m.status === 'completed'
+        ? <span className={m.profit >= 0 ? 'text-green-600' : 'text-red-600'}>{(m.profit || 0).toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}</span>
+        : '-'
+    },
+    subject: {
+      label: 'נושא',
+      render: (m) => (m as any).subject || '-'
+    },
+    notes: {
+      label: 'הערות',
+      render: (m) => (m as any).notes || '-'
+    }
+  };
+  
+  // Default columns when no view is selected
+  const defaultColumns = ['scheduledDate', 'startTime', 'cycle.name', 'cycle.course.name', 'cycle.branch.name', 'instructor.name', 'status', 'revenue', 'instructorPayment', 'profit'];
+  
+  // Get active columns (from view or default)
+  const activeColumns = viewMode === 'view' && viewColumns.length > 0 ? viewColumns : defaultColumns;
 
-  const { data: meetings, isLoading } = useMeetings({ date: selectedDate });
+  const { data: meetings, isLoading, refetch } = useMeetings({ date: selectedDate });
+  
+  // Build date filter for view data - filter by selectedDate
+  // Use UTC midnight directly since DB stores dates at 00:00:00 UTC
+  const dateFilter = useMemo(() => {
+    // selectedDate is "YYYY-MM-DD", create UTC dates directly
+    const startUTC = new Date(selectedDate + 'T00:00:00.000Z');
+    const endUTC = new Date(startUTC);
+    endUTC.setUTCDate(endUTC.getUTCDate() + 1);
+    return [
+      { field: 'scheduledDate', operator: 'gte', value: startUTC.toISOString() },
+      { field: 'scheduledDate', operator: 'lt', value: endUTC.toISOString() },
+    ];
+  }, [selectedDate]);
+  
+  const { data: viewData, isLoading: viewLoading } = useViewData(activeViewId, dateFilter);
   const recalculateMeeting = useRecalculateMeeting();
+  const bulkUpdateStatus = useBulkUpdateMeetingStatus();
+
+  // Determine which data to display based on view mode
+  const displayMeetings = viewMode === 'view' && viewData?.data 
+    ? viewData.data as Meeting[]
+    : meetings || [];
+  const displayLoading = viewMode === 'view' ? viewLoading : isLoading;
+
+  const handleApplyView = (filters: any[], columns: string[], sortBy?: string, sortOrder?: string) => {
+    // Store columns from view to use in table rendering
+    setViewColumns(columns || []);
+    
+    // If view has a date filter with 'equals' operator, sync the date picker
+    const dateFilter = filters?.find(f => f.field === 'date' && f.operator === 'equals' && f.value);
+    if (dateFilter) {
+      // Parse the date value (could be YYYY-MM-DD or D.M.YYYY format)
+      let dateStr = dateFilter.value;
+      if (dateStr.includes('.')) {
+        // Convert D.M.YYYY to YYYY-MM-DD
+        const parts = dateStr.split('.');
+        if (parts.length === 3) {
+          const day = parts[0].padStart(2, '0');
+          const month = parts[1].padStart(2, '0');
+          const year = parts[2].length === 2 ? '20' + parts[2] : parts[2];
+          dateStr = `${year}-${month}-${day}`;
+        }
+      }
+      if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        setSelectedDate(dateStr);
+      }
+    }
+  };
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('he-IL', {
@@ -50,6 +176,7 @@ export default function Meetings() {
     const date = new Date(selectedDate);
     date.setDate(date.getDate() + days);
     setSelectedDate(date.toISOString().split('T')[0]);
+    setSelectedIds(new Set()); // Clear selection on date change
   };
 
   const getStatusBadgeClass = (status: MeetingStatus) => {
@@ -77,14 +204,70 @@ export default function Meetings() {
     }
   };
 
-  const stats = meetings
+  // Bulk selection handlers
+  const toggleSelect = (id: string) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === displayMeetings.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(displayMeetings.map(m => m.id)));
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setBulkStatus('');
+  };
+
+  const handleBulkStatusUpdate = async () => {
+    if (!bulkStatus || selectedIds.size === 0) return;
+    
+    if (!confirm(`לעדכן ${selectedIds.size} פגישות לסטטוס "${meetingStatusHebrew[bulkStatus as MeetingStatus]}"?`)) {
+      return;
+    }
+
+    try {
+      const result = await bulkUpdateStatus.mutateAsync({
+        ids: Array.from(selectedIds),
+        status: bulkStatus,
+      });
+      
+      if (result.updated > 0) {
+        alert(`עודכנו ${result.updated} פגישות בהצלחה!`);
+        clearSelection();
+        refetch();
+      }
+      
+      if (result.errors && result.errors.length > 0) {
+        console.error('Bulk update errors:', result.errors);
+        alert(`${result.errors.length} פגישות נכשלו בעדכון`);
+      }
+    } catch (error) {
+      console.error('Failed to bulk update:', error);
+      alert('שגיאה בעדכון גורף');
+    }
+  };
+
+  const stats = displayMeetings.length > 0
     ? {
-        total: meetings.length,
-        completed: meetings.filter((m) => m.status === 'completed').length,
-        pending: meetings.filter((m) => m.status === 'scheduled').length,
-        cancelled: meetings.filter((m) => m.status === 'cancelled').length,
+        total: displayMeetings.length,
+        completed: displayMeetings.filter((m) => m.status === 'completed').length,
+        pending: displayMeetings.filter((m) => m.status === 'scheduled').length,
+        cancelled: displayMeetings.filter((m) => m.status === 'cancelled').length,
       }
     : null;
+
+  const allSelected = displayMeetings.length > 0 && selectedIds.size === displayMeetings.length;
+  const someSelected = selectedIds.size > 0;
 
   return (
     <>
@@ -94,6 +277,43 @@ export default function Meetings() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
+        {/* Bulk Actions Bar */}
+        {someSelected && (
+          <div className="mb-4 p-4 bg-blue-600 text-white rounded-lg flex items-center gap-4 flex-wrap animate-in slide-in-from-top">
+            <span className="font-semibold bg-white/20 px-3 py-1 rounded-full">
+              {selectedIds.size} נבחרו
+            </span>
+            
+            <select
+              value={bulkStatus}
+              onChange={(e) => setBulkStatus(e.target.value)}
+              className="px-3 py-2 rounded-lg bg-white/20 border-0 text-white focus:ring-2 focus:ring-white/50"
+            >
+              <option value="">-- בחר סטטוס --</option>
+              <option value="completed">התקיימה ✓</option>
+              <option value="scheduled">מתוכננת 📅</option>
+              <option value="cancelled">בוטלה ✗</option>
+              <option value="postponed">נדחתה</option>
+            </select>
+            
+            <button
+              onClick={handleBulkStatusUpdate}
+              disabled={!bulkStatus || bulkUpdateStatus.isPending}
+              className="px-4 py-2 bg-green-500 hover:bg-green-600 disabled:opacity-50 rounded-lg font-medium transition-colors"
+            >
+              {bulkUpdateStatus.isPending ? 'מעדכן...' : '🔄 עדכן סטטוס'}
+            </button>
+            
+            <button
+              onClick={clearSelection}
+              className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors flex items-center gap-1"
+            >
+              <X size={16} />
+              ביטול
+            </button>
+          </div>
+        )}
+
         {/* Date Navigation */}
         <div className="mb-6 flex items-center gap-4">
           <div className="flex items-center gap-2 bg-white rounded-lg border p-1">
@@ -106,7 +326,10 @@ export default function Meetings() {
             <input
               type="date"
               value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
+              onChange={(e) => {
+                setSelectedDate(e.target.value);
+                setSelectedIds(new Set());
+              }}
               className="px-3 py-2 border-0 focus:ring-0"
             />
             <button
@@ -118,11 +341,32 @@ export default function Meetings() {
           </div>
 
           <button
-            onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}
+            onClick={() => {
+              setSelectedDate(new Date().toISOString().split('T')[0]);
+              setSelectedIds(new Set());
+            }}
             className="btn btn-secondary"
           >
             היום
           </button>
+
+          {/* View Selector */}
+          <div className="me-auto">
+            <ViewSelector
+              entity="meetings"
+              onApplyView={handleApplyView}
+              onViewSelect={(viewId) => {
+                setActiveViewId(viewId);
+                if (viewId) {
+                  setViewMode('view');
+                } else {
+                  setViewMode('date');
+                  setViewColumns([]); // Reset columns when no view selected
+                }
+                setSelectedIds(new Set());
+              }}
+            />
+          </div>
 
           {stats && stats.total > 0 && (
             <div className="flex items-center gap-4 ms-auto text-sm">
@@ -143,87 +387,114 @@ export default function Meetings() {
         </div>
 
         {/* Meetings List */}
-        {isLoading ? (
+        {displayLoading ? (
           <Loading size="lg" text="טוען פגישות..." />
-        ) : meetings && meetings.length > 0 ? (
+        ) : displayMeetings && displayMeetings.length > 0 ? (
           <div className="card overflow-hidden">
             <table>
               <thead>
                 <tr>
-                  <th>שעה</th>
-                  <th>מחזור</th>
-                  <th>קורס</th>
-                  <th>סניף</th>
-                  <th>מדריך</th>
-                  <th>סטטוס</th>
-                  <th>הכנסה</th>
-                  <th>עלות</th>
-                  <th>רווח</th>
+                  <th className="w-12">
+                    <button
+                      onClick={toggleSelectAll}
+                      className="p-1 hover:bg-gray-200 rounded transition-colors"
+                      title={allSelected ? 'בטל בחירת הכל' : 'בחר הכל'}
+                    >
+                      {allSelected ? (
+                        <CheckSquare size={20} className="text-blue-600" />
+                      ) : (
+                        <Square size={20} className="text-gray-400" />
+                      )}
+                    </button>
+                  </th>
+                  {activeColumns.filter(col => allColumns[col]).map(col => (
+                    <th key={col}>{allColumns[col].label}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {meetings
-                  .sort((a, b) => a.startTime.localeCompare(b.startTime))
-                  .map((meeting) => (
-                    <tr 
-                      key={meeting.id}
-                      onClick={() => setSelectedMeeting(meeting)}
-                      className="cursor-pointer hover:bg-blue-50 transition-colors"
-                    >
-                      <td className="font-medium">
-                        {formatTime(meeting.startTime)} - {formatTime(meeting.endTime)}
-                      </td>
-                      <td>
-                        <Link
-                          to={`/cycles/${meeting.cycleId}`}
-                          className="text-blue-600 hover:underline"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {meeting.cycle?.name || '-'}
-                        </Link>
-                      </td>
-                      <td>{meeting.cycle?.course?.name || '-'}</td>
-                      <td>{meeting.cycle?.branch?.name || '-'}</td>
-                      <td>{meeting.instructor?.name || '-'}</td>
-                      <td>
-                        <span className={`badge ${getStatusBadgeClass(meeting.status)}`}>
-                          {meetingStatusHebrew[meeting.status]}
-                        </span>
-                      </td>
-                      <td className="text-green-600">
-                        {meeting.status === 'completed' ? (meeting.revenue || 0).toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 }) : '-'}
-                      </td>
-                      <td className="text-red-600">
-                        {meeting.status === 'completed' ? (meeting.instructorPayment || 0).toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 }) : '-'}
-                      </td>
-                      <td className={meeting.profit >= 0 ? 'text-green-600' : 'text-red-600'}>
-                        {meeting.status === 'completed' ? (meeting.profit || 0).toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 }) : '-'}
-                      </td>
-                    </tr>
-                  ))}
+                {displayMeetings
+                  .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''))
+                  .map((meeting) => {
+                    const isSelected = selectedIds.has(meeting.id);
+                    return (
+                      <tr 
+                        key={meeting.id}
+                        className={`cursor-pointer transition-colors ${
+                          isSelected 
+                            ? 'bg-blue-50 hover:bg-blue-100' 
+                            : 'hover:bg-gray-50'
+                        }`}
+                      >
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => toggleSelect(meeting.id)}
+                            className="p-1 hover:bg-gray-200 rounded transition-colors"
+                          >
+                            {isSelected ? (
+                              <CheckSquare size={20} className="text-blue-600" />
+                            ) : (
+                              <Square size={20} className="text-gray-400" />
+                            )}
+                          </button>
+                        </td>
+                        {activeColumns.filter(col => allColumns[col]).map(col => (
+                          <td key={col} onClick={() => setSelectedMeeting(meeting)}>
+                            {allColumns[col].render(meeting)}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
               </tbody>
-              {stats && stats.total > 0 && (
+              {displayMeetings && displayMeetings.length > 0 && (
                 <tfoot>
                   <tr className="bg-gray-50 font-medium">
-                    <td colSpan={6} className="text-start">סה"כ</td>
-                    <td className="text-green-600">
-                      {meetings
-                        .filter((m) => m.status === 'completed')
-                        .reduce((sum, m) => sum + Number(m.revenue || 0), 0)
-                        .toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}
-                    </td>
-                    <td className="text-red-600">
-                      {meetings
-                        .filter((m) => m.status === 'completed')
-                        .reduce((sum, m) => sum + Number(m.instructorPayment || 0), 0)
-                        .toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}
-                    </td>
-                    <td className="text-green-600">
-                      {meetings
-                        .filter((m) => m.status === 'completed')
-                        .reduce((sum, m) => sum + Number(m.profit || 0), 0)
-                        .toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}
-                    </td>
+                    <td></td>
+                    {activeColumns.filter(col => allColumns[col]).map((col, idx, arr) => {
+                      const financialCols = ['revenue', 'instructorPayment', 'profit'];
+                      const firstFinancialIdx = arr.findIndex(c => financialCols.includes(c));
+                      
+                      if (idx === 0) {
+                        // First column shows total label
+                        const colSpan = firstFinancialIdx > 0 ? firstFinancialIdx : arr.length;
+                        return <td key={col} colSpan={colSpan} className="text-start">סה"כ ({displayMeetings.length} פגישות)</td>;
+                      }
+                      
+                      if (idx < firstFinancialIdx) return null; // Skip middle columns (covered by colspan)
+                      
+                      if (col === 'revenue') {
+                        return (
+                          <td key={col} className="text-green-600">
+                            {displayMeetings
+                              .filter((m) => m.status === 'completed')
+                              .reduce((sum, m) => sum + Number(m.revenue || 0), 0)
+                              .toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}
+                          </td>
+                        );
+                      }
+                      if (col === 'instructorPayment') {
+                        return (
+                          <td key={col} className="text-red-600">
+                            {displayMeetings
+                              .filter((m) => m.status === 'completed')
+                              .reduce((sum, m) => sum + Number(m.instructorPayment || 0), 0)
+                              .toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}
+                          </td>
+                        );
+                      }
+                      if (col === 'profit') {
+                        return (
+                          <td key={col} className="text-green-600">
+                            {displayMeetings
+                              .filter((m) => m.status === 'completed')
+                              .reduce((sum, m) => sum + Number(m.profit || 0), 0)
+                              .toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}
+                          </td>
+                        );
+                      }
+                      return <td key={col}></td>;
+                    })}
                   </tr>
                 </tfoot>
               )}

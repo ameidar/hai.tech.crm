@@ -20,6 +20,7 @@ import { attendanceRouter } from './routes/attendance.js';
 import { webhookRouter } from './routes/webhook.js';
 import { publicMeetingRouter } from './routes/public-meeting.js';
 import { auditRouter } from './routes/audit.js';
+import { viewsRouter } from './routes/views.js';
 
 const app = express();
 
@@ -29,7 +30,7 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'"], // Required for Vite build
-      styleSrc: ["'self'", "'unsafe-inline'"], // Required for styled components
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"], // Required for styled components + Google Fonts
       imgSrc: ["'self'", "data:", "https:"],
       fontSrc: ["'self'", "https:", "data:"],
       connectSrc: ["'self'", "https:"],
@@ -41,9 +42,20 @@ app.use(helmet({
     },
   },
 }));
+// Permissive CORS for webhook routes (API key protected)
+app.use('/api/webhook', cors({
+  origin: '*',
+  credentials: false,
+  allowedHeaders: ['Content-Type', 'X-API-Key'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+}));
+
+// Regular CORS for other routes
 app.use(cors({
   origin: config.corsOrigins,
   credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 }));
 
 // Rate limiting with per-user tracking when authenticated
@@ -120,6 +132,7 @@ app.use('/api/meetings', meetingsRouter);
 app.use('/api/registrations', registrationsRouter);
 app.use('/api/attendance', attendanceRouter);
 app.use('/api/audit', auditRouter);
+app.use('/api/views', viewsRouter);
 app.use('/api/webhook', webhookRouter);
 
 // Error handling for API routes

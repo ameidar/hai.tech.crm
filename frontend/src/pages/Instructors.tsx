@@ -6,6 +6,7 @@ import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
+import ViewSelector from '../components/ViewSelector';
 import type { Instructor } from '../types';
 
 export default function Instructors() {
@@ -81,9 +82,9 @@ export default function Instructors() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
-        {/* Search */}
-        <div className="mb-4">
-          <div className="relative max-w-md">
+        {/* Search & Views */}
+        <div className="mb-4 flex gap-4 items-center">
+          <div className="relative flex-1 max-w-md">
             <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
@@ -93,6 +94,7 @@ export default function Instructors() {
               className="form-input pr-10 w-full"
             />
           </div>
+          <ViewSelector entity="instructors" onApplyView={() => {}} />
         </div>
 
         {isLoading ? (

@@ -20,6 +20,7 @@ import { attendanceRouter } from './routes/attendance.js';
 import { webhookRouter } from './routes/webhook.js';
 import { publicMeetingRouter } from './routes/public-meeting.js';
 import { auditRouter } from './routes/audit.js';
+import { viewsRouter } from './routes/views.js';
 
 const app = express();
 
@@ -120,6 +121,7 @@ app.use('/api/meetings', meetingsRouter);
 app.use('/api/registrations', registrationsRouter);
 app.use('/api/attendance', attendanceRouter);
 app.use('/api/audit', auditRouter);
+app.use('/api/views', viewsRouter);
 app.use('/api/webhook', webhookRouter);
 
 // Error handling for API routes

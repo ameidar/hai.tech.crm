@@ -121,10 +121,10 @@ export const createCycleSchema = z.object({
   endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format'),
   durationMinutes: z.number().int().positive(),
   totalMeetings: z.number().int().positive(),
-  pricePerStudent: z.number().positive().optional().nullable(),
-  meetingRevenue: z.number().positive().optional().nullable(),
-  studentCount: z.number().int().positive().optional().nullable(),
-  maxStudents: z.number().int().positive().optional().nullable(),
+  pricePerStudent: z.number().nonnegative().optional().nullable(),
+  meetingRevenue: z.number().nonnegative().optional().nullable(),
+  studentCount: z.number().int().nonnegative().optional().nullable(),
+  maxStudents: z.number().int().nonnegative().optional().nullable(),
   sendParentReminders: z.boolean().default(false),
   isOnline: z.boolean().default(false),
   activityType: z.enum(['online', 'frontal', 'private_lesson']).default('frontal'),
@@ -176,6 +176,9 @@ export const updateMeetingSchema = z.object({
   revenue: z.number().optional(),
   instructorPayment: z.number().optional(),
   profit: z.number().optional(),
+  scheduledDate: z.string().optional(),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format').optional(),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format').optional(),
 });
 
 export const postponeMeetingSchema = z.object({
@@ -206,6 +209,23 @@ export const bulkAttendanceSchema = z.object({
   })),
 });
 
+// Bulk update cycles schema
+export const bulkUpdateCyclesSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1, 'At least one cycle ID is required'),
+  data: z.object({
+    status: z.enum(['active', 'completed', 'cancelled']).optional(),
+    instructorId: z.string().min(1).optional(),
+    meetingRevenue: z.number().positive().optional().nullable(),
+    pricePerStudent: z.number().positive().optional().nullable(),
+    studentCount: z.number().int().positive().optional().nullable(),
+    sendParentReminders: z.boolean().optional(),
+    activityType: z.enum(['online', 'frontal', 'private_lesson']).optional(),
+  }).refine(
+    (data) => Object.keys(data).some(k => data[k as keyof typeof data] !== undefined),
+    { message: 'At least one field to update is required' }
+  ),
+});
+
 // Export types
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RegisterInput = z.infer<typeof registerSchema>;
@@ -227,3 +247,4 @@ export type CreateMeetingInput = z.infer<typeof createMeetingSchema>;
 export type UpdateMeetingInput = z.infer<typeof updateMeetingSchema>;
 export type CreateAttendanceInput = z.infer<typeof createAttendanceSchema>;
 export type BulkAttendanceInput = z.infer<typeof bulkAttendanceSchema>;
+export type BulkUpdateCyclesInput = z.infer<typeof bulkUpdateCyclesSchema>;

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { createCycleSchema, updateCycleSchema, createRegistrationSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
+import { createCycleSchema, updateCycleSchema, createRegistrationSchema, paginationSchema, uuidSchema, bulkUpdateCyclesSchema } from '../types/schemas.js';
 import { fetchHolidays, dayNameToNumber, calculateCycleEndDate } from '../utils/holidays.js';
 import { config } from '../config.js';
 
@@ -347,6 +347,12 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
       }
     }
 
+    // Check if we need to regenerate meetings
+    const regenerateMeetings = (req.body as any).regenerateMeetings === true;
+    
+    // Remove regenerateMeetings from updateData as it's not a Cycle field
+    delete updateData.regenerateMeetings;
+
     const cycle = await prisma.cycle.update({
       where: { id },
       data: updateData,
@@ -356,6 +362,33 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
         instructor: { select: { id: true, name: true } },
       },
     });
+
+    // If regenerateMeetings flag is set, delete all non-completed meetings and regenerate
+    if (regenerateMeetings) {
+      // Delete only scheduled/postponed meetings (not completed or cancelled)
+      await prisma.meeting.deleteMany({
+        where: {
+          cycleId: id,
+          status: { in: ['scheduled', 'postponed'] },
+        },
+      });
+
+      // Reset cycle counters
+      const completedCount = await prisma.meeting.count({
+        where: { cycleId: id, status: 'completed' },
+      });
+      
+      await prisma.cycle.update({
+        where: { id },
+        data: {
+          completedMeetings: completedCount,
+          remainingMeetings: cycle.totalMeetings - completedCount,
+        },
+      });
+
+      // Regenerate meetings from new start date
+      await generateMeetingsForCycle(id);
+    }
 
     res.json(cycle);
   } catch (error) {
@@ -373,6 +406,45 @@ cyclesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
     });
 
     res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Bulk update cycles
+cyclesRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
+  try {
+    const { ids, data } = bulkUpdateCyclesSchema.parse(req.body);
+
+    // Build update data, filtering out undefined values
+    const updateData: Record<string, any> = {};
+    
+    if (data.status !== undefined) updateData.status = data.status;
+    if (data.instructorId !== undefined) updateData.instructorId = data.instructorId;
+    if (data.meetingRevenue !== undefined) updateData.meetingRevenue = data.meetingRevenue;
+    if (data.pricePerStudent !== undefined) updateData.pricePerStudent = data.pricePerStudent;
+    if (data.studentCount !== undefined) updateData.studentCount = data.studentCount;
+    if (data.sendParentReminders !== undefined) updateData.sendParentReminders = data.sendParentReminders;
+    if (data.activityType !== undefined) {
+      updateData.activityType = data.activityType;
+      updateData.isOnline = data.activityType === 'online';
+    }
+
+    // Update all cycles in a transaction
+    const results = await prisma.$transaction(
+      ids.map(id => 
+        prisma.cycle.update({
+          where: { id },
+          data: updateData,
+          select: { id: true, name: true },
+        })
+      )
+    );
+
+    res.json({
+      message: `עודכנו ${results.length} מחזורים בהצלחה`,
+      updated: results,
+    });
   } catch (error) {
     next(error);
   }

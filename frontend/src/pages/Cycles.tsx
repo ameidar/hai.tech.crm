@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
-import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X } from 'lucide-react';
-import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle } from '../hooks/useApi';
+import { useState, useMemo, useEffect } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square } from 'lucide-react';
+import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
@@ -11,14 +11,25 @@ import type { Cycle, CycleType, CycleStatus, DayOfWeek, ActivityType } from '../
 import { activityTypeHebrew } from '../types';
 
 export default function Cycles() {
+  const [searchParams] = useSearchParams();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingCycle, setEditingCycle] = useState<Cycle | null>(null);
+  const [showBulkEditModal, setShowBulkEditModal] = useState(false);
+  const [selectedCycles, setSelectedCycles] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<CycleStatus | ''>('');
   const [instructorFilter, setInstructorFilter] = useState('');
   const [branchFilter, setBranchFilter] = useState('');
   const [dayFilter, setDayFilter] = useState<DayOfWeek | ''>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  // Initialize filters from URL params
+  useEffect(() => {
+    const branchId = searchParams.get('branchId');
+    const instructorId = searchParams.get('instructorId');
+    if (branchId) setBranchFilter(branchId);
+    if (instructorId) setInstructorFilter(instructorId);
+  }, [searchParams]);
 
   // Debounce search
   useMemo(() => {
@@ -39,6 +50,43 @@ export default function Cycles() {
   const createCycle = useCreateCycle();
   const updateCycle = useUpdateCycle();
   const deleteCycle = useDeleteCycle();
+  const bulkUpdateCycles = useBulkUpdateCycles();
+
+  // Selection helpers
+  const toggleCycle = (id: string) => {
+    setSelectedCycles(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleAll = () => {
+    if (!cycles) return;
+    if (selectedCycles.size === cycles.length) {
+      setSelectedCycles(new Set());
+    } else {
+      setSelectedCycles(new Set(cycles.map(c => c.id)));
+    }
+  };
+
+  const handleBulkUpdate = async (data: Partial<Cycle>) => {
+    try {
+      await bulkUpdateCycles.mutateAsync({
+        ids: Array.from(selectedCycles),
+        data,
+      });
+      setSelectedCycles(new Set());
+      setShowBulkEditModal(false);
+    } catch (error) {
+      console.error('Failed to bulk update cycles:', error);
+      alert('שגיאה בעדכון המחזורים');
+    }
+  };
 
   const clearFilters = () => {
     setStatusFilter('');
@@ -190,6 +238,33 @@ export default function Cycles() {
           </div>
         </div>
 
+        {/* Bulk Actions Bar */}
+        {selectedCycles.size > 0 && (
+          <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <CheckSquare size={20} className="text-blue-600" />
+              <span className="font-medium text-blue-900">
+                {selectedCycles.size} מחזורים נבחרו
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowBulkEditModal(true)}
+                className="btn btn-primary flex items-center gap-2"
+              >
+                <Edit size={16} />
+                עריכה גורפת
+              </button>
+              <button
+                onClick={() => setSelectedCycles(new Set())}
+                className="btn btn-secondary"
+              >
+                בטל בחירה
+              </button>
+            </div>
+          </div>
+        )}
+
         {isLoading ? (
           <Loading size="lg" text="טוען מחזורים..." />
         ) : cycles && cycles.length > 0 ? (
@@ -197,10 +272,26 @@ export default function Cycles() {
             <table>
               <thead>
                 <tr>
+                  <th className="w-12">
+                    <button
+                      onClick={toggleAll}
+                      className="p-1 hover:bg-gray-100 rounded transition-colors"
+                      title={selectedCycles.size === cycles.length ? 'בטל הכל' : 'בחר הכל'}
+                    >
+                      {selectedCycles.size === cycles.length ? (
+                        <CheckSquare size={18} className="text-blue-600" />
+                      ) : selectedCycles.size > 0 ? (
+                        <CheckSquare size={18} className="text-blue-400" />
+                      ) : (
+                        <Square size={18} className="text-gray-400" />
+                      )}
+                    </button>
+                  </th>
                   <th>שם המחזור</th>
                   <th>קורס</th>
                   <th>סניף</th>
                   <th>מדריך</th>
+                  <th>תאריך התחלה</th>
                   <th>יום ושעה</th>
                   <th>סוג</th>
                   <th>התקדמות</th>
@@ -210,7 +301,19 @@ export default function Cycles() {
               </thead>
               <tbody>
                 {cycles.map((cycle) => (
-                  <tr key={cycle.id}>
+                  <tr key={cycle.id} className={selectedCycles.has(cycle.id) ? 'bg-blue-50' : ''}>
+                    <td>
+                      <button
+                        onClick={() => toggleCycle(cycle.id)}
+                        className="p-1 hover:bg-gray-100 rounded transition-colors"
+                      >
+                        {selectedCycles.has(cycle.id) ? (
+                          <CheckSquare size={18} className="text-blue-600" />
+                        ) : (
+                          <Square size={18} className="text-gray-400" />
+                        )}
+                      </button>
+                    </td>
                     <td>
                       <Link
                         to={`/cycles/${cycle.id}`}
@@ -219,9 +322,39 @@ export default function Cycles() {
                         {cycle.name}
                       </Link>
                     </td>
-                    <td>{cycle.course?.name || '-'}</td>
-                    <td>{cycle.branch?.name || '-'}</td>
-                    <td>{cycle.instructor?.name || '-'}</td>
+                    <td>
+                      {cycle.course ? (
+                        <Link
+                          to={`/courses?search=${encodeURIComponent(cycle.course.name)}`}
+                          className="text-blue-600 hover:underline"
+                        >
+                          {cycle.course.name}
+                        </Link>
+                      ) : '-'}
+                    </td>
+                    <td>
+                      {cycle.branch ? (
+                        <Link
+                          to={`/branches?search=${encodeURIComponent(cycle.branch.name)}`}
+                          className="text-blue-600 hover:underline"
+                        >
+                          {cycle.branch.name}
+                        </Link>
+                      ) : '-'}
+                    </td>
+                    <td>
+                      {cycle.instructor ? (
+                        <Link
+                          to={`/instructors?search=${encodeURIComponent(cycle.instructor.name)}`}
+                          className="text-blue-600 hover:underline"
+                        >
+                          {cycle.instructor.name}
+                        </Link>
+                      ) : '-'}
+                    </td>
+                    <td className="text-gray-600">
+                      {new Date(cycle.startDate).toLocaleDateString('he-IL')}
+                    </td>
                     <td>
                       <div className="flex items-center gap-1">
                         <Clock size={14} className="text-gray-400" />
@@ -332,6 +465,22 @@ export default function Cycles() {
           />
         )}
       </Modal>
+
+      {/* Bulk Edit Modal */}
+      <Modal
+        isOpen={showBulkEditModal}
+        onClose={() => setShowBulkEditModal(false)}
+        title={`עריכה גורפת - ${selectedCycles.size} מחזורים`}
+        size="lg"
+      >
+        <BulkEditForm
+          selectedCount={selectedCycles.size}
+          instructors={instructors || []}
+          onSubmit={handleBulkUpdate}
+          onCancel={() => setShowBulkEditModal(false)}
+          isLoading={bulkUpdateCycles.isPending}
+        />
+      </Modal>
     </>
   );
 }
@@ -376,9 +525,15 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     const studentCountValue = Number(formData.studentCount);
     const maxStudentsValue = Number(formData.maxStudents);
     
+    // Calculate duration from start/end times
+    const [startHour, startMin] = formData.startTime.split(':').map(Number);
+    const [endHour, endMin] = formData.endTime.split(':').map(Number);
+    const calculatedDuration = (endHour * 60 + endMin) - (startHour * 60 + startMin);
+    const durationMinutes = calculatedDuration > 0 ? calculatedDuration : Number(formData.durationMinutes);
+    
     const submitData: any = {
       ...formData,
-      durationMinutes: Number(formData.durationMinutes),
+      durationMinutes,
       totalMeetings: Number(formData.totalMeetings),
       pricePerStudent: (formData.type === 'private' || formData.type === 'institutional_per_child') && priceValue > 0 ? priceValue : undefined,
       meetingRevenue: formData.type === 'institutional_fixed' && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
@@ -706,6 +861,12 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     const studentCountValue = Number(formData.studentCount);
     const maxStudentsValue = Number(formData.maxStudents);
     
+    // Calculate duration from start/end times
+    const [startHour, startMin] = formData.startTime.split(':').map(Number);
+    const [endHour, endMin] = formData.endTime.split(':').map(Number);
+    const calculatedDuration = (endHour * 60 + endMin) - (startHour * 60 + startMin);
+    const durationMinutes = calculatedDuration > 0 ? calculatedDuration : 60; // default to 60 if invalid
+    
     onSubmit({
       name: formData.name,
       courseId: formData.courseId,
@@ -716,6 +877,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
       dayOfWeek: formData.dayOfWeek,
       startTime: formData.startTime,
       endTime: formData.endTime,
+      durationMinutes,
       totalMeetings: Number(formData.totalMeetings),
       pricePerStudent: (formData.type === 'private' || formData.type === 'institutional_per_child') && priceValue > 0 ? priceValue : undefined,
       meetingRevenue: formData.type === 'institutional_fixed' && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
@@ -970,6 +1132,270 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
         </button>
         <button type="submit" className="btn btn-primary" disabled={isLoading}>
           {isLoading ? 'שומר...' : 'שמור שינויים'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// Bulk Edit Form
+interface BulkEditFormProps {
+  selectedCount: number;
+  instructors: { id: string; name: string }[];
+  onSubmit: (data: Partial<Cycle>) => void;
+  onCancel: () => void;
+  isLoading?: boolean;
+}
+
+function BulkEditForm({ selectedCount, instructors, onSubmit, onCancel, isLoading }: BulkEditFormProps) {
+  const [formData, setFormData] = useState<{
+    status?: CycleStatus;
+    instructorId?: string;
+    meetingRevenue?: number;
+    pricePerStudent?: number;
+    studentCount?: number;
+    sendParentReminders?: boolean;
+    activityType?: ActivityType;
+  }>({});
+
+  const [enabledFields, setEnabledFields] = useState<Set<string>>(new Set());
+
+  const toggleField = (field: string) => {
+    setEnabledFields(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(field)) {
+        newSet.delete(field);
+        // Also clear the value
+        setFormData(f => {
+          const newData = { ...f };
+          delete newData[field as keyof typeof f];
+          return newData;
+        });
+      } else {
+        newSet.add(field);
+      }
+      return newSet;
+    });
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Only submit fields that are enabled
+    const dataToSubmit: Partial<Cycle> = {};
+    if (enabledFields.has('status') && formData.status) {
+      dataToSubmit.status = formData.status;
+    }
+    if (enabledFields.has('instructorId') && formData.instructorId) {
+      dataToSubmit.instructorId = formData.instructorId;
+    }
+    if (enabledFields.has('meetingRevenue') && formData.meetingRevenue !== undefined) {
+      dataToSubmit.meetingRevenue = formData.meetingRevenue;
+    }
+    if (enabledFields.has('pricePerStudent') && formData.pricePerStudent !== undefined) {
+      dataToSubmit.pricePerStudent = formData.pricePerStudent;
+    }
+    if (enabledFields.has('studentCount') && formData.studentCount !== undefined) {
+      dataToSubmit.studentCount = formData.studentCount;
+    }
+    if (enabledFields.has('sendParentReminders') && formData.sendParentReminders !== undefined) {
+      dataToSubmit.sendParentReminders = formData.sendParentReminders;
+    }
+    if (enabledFields.has('activityType') && formData.activityType) {
+      dataToSubmit.activityType = formData.activityType;
+    }
+
+    if (Object.keys(dataToSubmit).length === 0) {
+      alert('יש לבחור לפחות שדה אחד לעדכון');
+      return;
+    }
+
+    onSubmit(dataToSubmit);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      <p className="text-gray-600 mb-4">
+        בחר את השדות שברצונך לעדכן. רק שדות מסומנים יעודכנו ב-{selectedCount} מחזורים.
+      </p>
+
+      <div className="space-y-4">
+        {/* Status */}
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={enabledFields.has('status')}
+            onChange={() => toggleField('status')}
+            className="mt-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1">
+            <label className="form-label">סטטוס</label>
+            <select
+              value={formData.status || ''}
+              onChange={(e) => setFormData({ ...formData, status: e.target.value as CycleStatus })}
+              className="form-input"
+              disabled={!enabledFields.has('status')}
+            >
+              <option value="">בחר סטטוס</option>
+              <option value="active">פעיל</option>
+              <option value="completed">הושלם</option>
+              <option value="cancelled">בוטל</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Instructor */}
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={enabledFields.has('instructorId')}
+            onChange={() => toggleField('instructorId')}
+            className="mt-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1">
+            <label className="form-label">מדריך</label>
+            <select
+              value={formData.instructorId || ''}
+              onChange={(e) => setFormData({ ...formData, instructorId: e.target.value })}
+              className="form-input"
+              disabled={!enabledFields.has('instructorId')}
+            >
+              <option value="">בחר מדריך</option>
+              {instructors.map((instructor) => (
+                <option key={instructor.id} value={instructor.id}>
+                  {instructor.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Meeting Revenue (for institutional_fixed) */}
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={enabledFields.has('meetingRevenue')}
+            onChange={() => toggleField('meetingRevenue')}
+            className="mt-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1">
+            <label className="form-label">הכנסה למפגש (מוסדי - סכום קבוע)</label>
+            <div className="relative">
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+              <input
+                type="number"
+                value={formData.meetingRevenue || ''}
+                onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
+                className="form-input pr-8"
+                min="0"
+                disabled={!enabledFields.has('meetingRevenue')}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Price Per Student */}
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={enabledFields.has('pricePerStudent')}
+            onChange={() => toggleField('pricePerStudent')}
+            className="mt-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1">
+            <label className="form-label">מחיר לתלמיד (פרטי / מוסדי פר ילד)</label>
+            <div className="relative">
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+              <input
+                type="number"
+                value={formData.pricePerStudent || ''}
+                onChange={(e) => setFormData({ ...formData, pricePerStudent: Number(e.target.value) })}
+                className="form-input pr-8"
+                min="0"
+                disabled={!enabledFields.has('pricePerStudent')}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Student Count */}
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={enabledFields.has('studentCount')}
+            onChange={() => toggleField('studentCount')}
+            className="mt-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1">
+            <label className="form-label">מספר תלמידים (מוסדי פר ילד)</label>
+            <input
+              type="number"
+              value={formData.studentCount || ''}
+              onChange={(e) => setFormData({ ...formData, studentCount: Number(e.target.value) })}
+              className="form-input"
+              min="0"
+              disabled={!enabledFields.has('studentCount')}
+            />
+          </div>
+        </div>
+
+        {/* Activity Type */}
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={enabledFields.has('activityType')}
+            onChange={() => toggleField('activityType')}
+            className="mt-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1">
+            <label className="form-label">סוג פעילות</label>
+            <select
+              value={formData.activityType || ''}
+              onChange={(e) => setFormData({ ...formData, activityType: e.target.value as ActivityType })}
+              className="form-input"
+              disabled={!enabledFields.has('activityType')}
+            >
+              <option value="">בחר סוג</option>
+              <option value="frontal">פרונטלי</option>
+              <option value="online">אונליין</option>
+              <option value="private_lesson">פרטי</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Send Parent Reminders */}
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={enabledFields.has('sendParentReminders')}
+            onChange={() => toggleField('sendParentReminders')}
+            className="mt-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={formData.sendParentReminders ?? false}
+                onChange={(e) => setFormData({ ...formData, sendParentReminders: e.target.checked })}
+                disabled={!enabledFields.has('sendParentReminders')}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-700">שלח תזכורות להורים</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-3 pt-4 border-t">
+        <button type="button" onClick={onCancel} className="btn btn-secondary">
+          ביטול
+        </button>
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={isLoading || enabledFields.size === 0}
+        >
+          {isLoading ? 'מעדכן...' : `עדכן ${selectedCount} מחזורים`}
         </button>
       </div>
     </form>

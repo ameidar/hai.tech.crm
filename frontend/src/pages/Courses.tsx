@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Plus, BookOpen, RefreshCcw } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Plus, BookOpen, RefreshCcw, Search } from 'lucide-react';
 import { useCourses, useCreateCourse, useUpdateCourse } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -9,10 +10,30 @@ import { categoryHebrew } from '../types';
 import type { Course, CourseCategory } from '../types';
 
 export default function Courses() {
+  const [searchParams] = useSearchParams();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
+  const [searchFilter, setSearchFilter] = useState('');
 
   const { data: courses, isLoading } = useCourses();
+
+  // Initialize search from URL params
+  useEffect(() => {
+    const search = searchParams.get('search');
+    if (search) {
+      setSearchFilter(search);
+    }
+  }, [searchParams]);
+
+  // Filter courses
+  const filteredCourses = courses?.filter((course) => {
+    if (!searchFilter) return true;
+    const searchLower = searchFilter.toLowerCase();
+    return (
+      course.name.toLowerCase().includes(searchLower) ||
+      course.description?.toLowerCase().includes(searchLower)
+    );
+  });
   const createCourse = useCreateCourse();
   const updateCourse = useUpdateCourse();
 
@@ -49,11 +70,25 @@ export default function Courses() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
+        {/* Search */}
+        <div className="mb-4">
+          <div className="relative max-w-md">
+            <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={searchFilter}
+              onChange={(e) => setSearchFilter(e.target.value)}
+              placeholder="חיפוש קורס..."
+              className="form-input pr-10 w-full"
+            />
+          </div>
+        </div>
+
         {isLoading ? (
           <Loading size="lg" text="טוען קורסים..." />
-        ) : courses && courses.length > 0 ? (
+        ) : filteredCourses && filteredCourses.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {courses.map((course) => (
+            {filteredCourses.map((course) => (
               <CourseCard
                 key={course.id}
                 course={course}

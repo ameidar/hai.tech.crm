@@ -9,10 +9,11 @@ import {
   XCircle,
   AlertCircle,
 } from 'lucide-react';
-import { useMeetings } from '../hooks/useApi';
+import { useMeetings, useRecalculateMeeting } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
+import MeetingDetailModal from '../components/MeetingDetailModal';
 import { meetingStatusHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
@@ -20,8 +21,10 @@ export default function Meetings() {
   const [selectedDate, setSelectedDate] = useState(() => {
     return new Date().toISOString().split('T')[0];
   });
+  const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
 
   const { data: meetings, isLoading } = useMeetings({ date: selectedDate });
+  const recalculateMeeting = useRecalculateMeeting();
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('he-IL', {
@@ -34,15 +37,12 @@ export default function Meetings() {
 
   const formatTime = (time: string) => {
     if (!time) return '--:--';
-    // Handle ISO datetime string (e.g., "1970-01-01T14:30:00.000Z")
     if (time.includes('T')) {
-      // Extract UTC time directly without timezone conversion
       const date = new Date(time);
       const hours = date.getUTCHours().toString().padStart(2, '0');
       const minutes = date.getUTCMinutes().toString().padStart(2, '0');
       return `${hours}:${minutes}`;
     }
-    // Handle time string (e.g., "14:30:00")
     return time.substring(0, 5);
   };
 
@@ -50,19 +50,6 @@ export default function Meetings() {
     const date = new Date(selectedDate);
     date.setDate(date.getDate() + days);
     setSelectedDate(date.toISOString().split('T')[0]);
-  };
-
-  const getStatusIcon = (status: MeetingStatus) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle className="text-green-500" size={18} />;
-      case 'cancelled':
-        return <XCircle className="text-red-500" size={18} />;
-      case 'postponed':
-        return <AlertCircle className="text-yellow-500" size={18} />;
-      default:
-        return <Clock className="text-blue-500" size={18} />;
-    }
   };
 
   const getStatusBadgeClass = (status: MeetingStatus) => {
@@ -75,6 +62,18 @@ export default function Meetings() {
         return 'badge-warning';
       default:
         return 'badge-info';
+    }
+  };
+
+  const handleRecalculate = async (meetingId: string) => {
+    try {
+      const result = await recalculateMeeting.mutateAsync(meetingId);
+      if (selectedMeeting) {
+        setSelectedMeeting({ ...selectedMeeting, ...result });
+      }
+    } catch (error) {
+      console.error('Failed to recalculate meeting:', error);
+      alert('שגיאה בחישוב מחדש');
     }
   };
 
@@ -166,7 +165,11 @@ export default function Meetings() {
                 {meetings
                   .sort((a, b) => a.startTime.localeCompare(b.startTime))
                   .map((meeting) => (
-                    <tr key={meeting.id}>
+                    <tr 
+                      key={meeting.id}
+                      onClick={() => setSelectedMeeting(meeting)}
+                      className="cursor-pointer hover:bg-blue-50 transition-colors"
+                    >
                       <td className="font-medium">
                         {formatTime(meeting.startTime)} - {formatTime(meeting.endTime)}
                       </td>
@@ -174,6 +177,7 @@ export default function Meetings() {
                         <Link
                           to={`/cycles/${meeting.cycleId}`}
                           className="text-blue-600 hover:underline"
+                          onClick={(e) => e.stopPropagation()}
                         >
                           {meeting.cycle?.name || '-'}
                         </Link>
@@ -233,6 +237,14 @@ export default function Meetings() {
           />
         )}
       </div>
+
+      {/* Meeting Detail Modal */}
+      <MeetingDetailModal
+        meeting={selectedMeeting}
+        onClose={() => setSelectedMeeting(null)}
+        onRecalculate={handleRecalculate}
+        isRecalculating={recalculateMeeting.isPending}
+      />
     </>
   );
 }

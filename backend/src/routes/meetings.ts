@@ -216,6 +216,17 @@ meetingsRouter.put('/:id', async (req, res, next) => {
 
     const updateData: any = { ...data };
     
+    // Handle date and time updates
+    if (data.scheduledDate) {
+      updateData.scheduledDate = new Date(data.scheduledDate);
+    }
+    if (data.startTime) {
+      updateData.startTime = new Date(`1970-01-01T${data.startTime}:00Z`);
+    }
+    if (data.endTime) {
+      updateData.endTime = new Date(`1970-01-01T${data.endTime}:00Z`);
+    }
+    
     // Track status change
     if (data.status && data.status !== existingMeeting.status) {
       updateData.statusUpdatedAt = new Date();
@@ -602,7 +613,19 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
           break;
       }
 
-      const durationHours = cycleData.durationMinutes / 60;
+      // Calculate duration from actual meeting times, or fall back to cycle default
+      let durationMinutes = cycleData.durationMinutes;
+      if (meeting.startTime && meeting.endTime) {
+        const startMs = meeting.startTime.getTime();
+        const endMs = meeting.endTime.getTime();
+        const calculatedMinutes = (endMs - startMs) / (1000 * 60);
+        // Only use calculated if it's positive and reasonable (< 24 hours)
+        if (calculatedMinutes > 0 && calculatedMinutes < 1440) {
+          durationMinutes = calculatedMinutes;
+        }
+      }
+      
+      const durationHours = durationMinutes / 60;
       instructorPayment = Math.round(hourlyRate * durationHours);
     }
 
@@ -704,7 +727,19 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
             break;
         }
 
-        const durationHours = cycleData.durationMinutes / 60;
+        // Calculate duration from actual meeting times, or fall back to cycle default
+        let durationMinutes = cycleData.durationMinutes;
+        if (meeting.startTime && meeting.endTime) {
+          const startMs = meeting.startTime.getTime();
+          const endMs = meeting.endTime.getTime();
+          const calculatedMinutes = (endMs - startMs) / (1000 * 60);
+          // Only use calculated if it's positive and reasonable (< 24 hours)
+          if (calculatedMinutes > 0 && calculatedMinutes < 1440) {
+            durationMinutes = calculatedMinutes;
+          }
+        }
+        
+        const durationHours = durationMinutes / 60;
         instructorPayment = Math.round(hourlyRate * durationHours);
       }
 

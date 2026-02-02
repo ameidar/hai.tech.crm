@@ -194,6 +194,7 @@ export default function CustomerDetail() {
                       <th>שם</th>
                       <th>תאריך לידה</th>
                       <th>כיתה</th>
+                      <th>מחזור</th>
                       <th>הערות</th>
                       <th>פעולות</th>
                     </tr>
@@ -208,6 +209,23 @@ export default function CustomerDetail() {
                             : '-'}
                         </td>
                         <td>{student.grade || '-'}</td>
+                        <td>
+                          {student.registrations && student.registrations.length > 0 ? (
+                            <div className="flex flex-col gap-1">
+                              {student.registrations.map((reg: any) => (
+                                <Link
+                                  key={reg.id}
+                                  to={`/cycles/${reg.cycle?.id}`}
+                                  className="text-blue-600 hover:text-blue-800 hover:underline text-sm"
+                                >
+                                  {reg.cycle?.name || 'מחזור'}
+                                </Link>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </td>
                         <td className="text-gray-500">{student.notes || '-'}</td>
                         <td>
                           <div className="flex items-center gap-1">

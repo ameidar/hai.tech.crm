@@ -16,6 +16,7 @@ export default function Reports() {
   });
   const [branchFilter, setBranchFilter] = useState('');
   const [activeTab, setActiveTab] = useState<'overview' | 'billing'>('overview');
+  const [detailBranchId, setDetailBranchId] = useState<string | null>(null);
 
   const { data: branches, isLoading: loadingBranches } = useBranches();
   const { data: meetings, isLoading: loadingMeetings } = useMeetings({
@@ -92,6 +93,14 @@ export default function Reports() {
     return branches?.find((b) => b.id === branchFilter);
   }, [branches, branchFilter]);
 
+  const detailBranch = useMemo(() => {
+    return branches?.find((b) => b.id === detailBranchId);
+  }, [branches, detailBranchId]);
+
+  const detailBranchData = useMemo(() => {
+    return branchBilling.find((b) => b.branchId === detailBranchId);
+  }, [branchBilling, detailBranchId]);
+
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString('he-IL', { day: 'numeric', month: 'short' });
@@ -107,18 +116,21 @@ export default function Reports() {
     return time.substring(0, 5);
   };
 
-  const exportBillingReport = () => {
-    if (!branchFilter || !selectedBranch) {
+  const exportBillingReport = (branchId?: string) => {
+    const targetBranchId = branchId || branchFilter || detailBranchId;
+    const targetBranch = branches?.find((b) => b.id === targetBranchId);
+    
+    if (!targetBranchId || !targetBranch) {
       alert('יש לבחור סניף לפני הפקת דוח גבייה');
       return;
     }
 
-    const branchData = branchBilling.find((b) => b.branchId === branchFilter);
+    const branchData = branchBilling.find((b) => b.branchId === targetBranchId);
     if (!branchData) return;
 
     // Create CSV content
     let csv = '\ufeff'; // BOM for Hebrew
-    csv += `דוח גבייה - ${selectedBranch.name}\n`;
+    csv += `דוח גבייה - ${targetBranch.name}\n`;
     csv += `תקופה: ${dateRange.from} עד ${dateRange.to}\n\n`;
     csv += 'תאריך,שעה,מחזור,קורס,מדריך,סכום\n';
 
@@ -139,7 +151,7 @@ export default function Reports() {
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `billing-${selectedBranch.name}-${dateRange.from}-${dateRange.to}.csv`;
+    link.download = `billing-${targetBranch.name}-${dateRange.from}-${dateRange.to}.csv`;
     link.click();
   };
 
@@ -310,17 +322,8 @@ export default function Reports() {
           <div className="space-y-6">
             {/* Branch Billing Summary */}
             <div className="bg-white rounded-lg shadow overflow-hidden">
-              <div className="p-4 border-b flex items-center justify-between">
+              <div className="p-4 border-b">
                 <h3 className="text-lg font-semibold">סיכום גבייה לפי סניף</h3>
-                {branchFilter && (
-                  <button
-                    onClick={exportBillingReport}
-                    className="btn btn-primary flex items-center gap-2"
-                  >
-                    <Download size={18} />
-                    הורד דוח גבייה
-                  </button>
-                )}
               </div>
               
               {branchBilling.length > 0 ? (
@@ -337,11 +340,19 @@ export default function Reports() {
                       <tr
                         key={branch.branchId}
                         className={`border-t hover:bg-gray-50 ${
-                          branchFilter === branch.branchId ? 'bg-blue-50' : ''
+                          detailBranchId === branch.branchId ? 'bg-blue-50' : ''
                         }`}
                       >
                         <td className="p-3 font-medium">{branch.branchName}</td>
-                        <td className="p-3">{branch.completedMeetings}</td>
+                        <td className="p-3">
+                          <button
+                            onClick={() => setDetailBranchId(detailBranchId === branch.branchId ? null : branch.branchId)}
+                            className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
+                            title="לחץ לצפייה בפירוט המפגשים"
+                          >
+                            {branch.completedMeetings}
+                          </button>
+                        </td>
                         <td className="p-3 font-semibold text-green-600">
                           ₪{branch.totalRevenue.toLocaleString()}
                         </td>
@@ -366,15 +377,30 @@ export default function Reports() {
             </div>
 
             {/* Detailed Branch Report */}
-            {branchFilter && (
+            {detailBranchId && detailBranchData && (
               <div className="bg-white rounded-lg shadow overflow-hidden">
-                <div className="p-4 border-b">
+                <div className="p-4 border-b flex items-center justify-between">
                   <h3 className="text-lg font-semibold">
-                    פירוט מפגשים - {selectedBranch?.name}
+                    פירוט מפגשים - {detailBranch?.name}
                   </h3>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => exportBillingReport(detailBranchId!)}
+                      className="btn btn-primary flex items-center gap-2 text-sm"
+                    >
+                      <Download size={16} />
+                      הורד דוח
+                    </button>
+                    <button
+                      onClick={() => setDetailBranchId(null)}
+                      className="text-gray-400 hover:text-gray-600 text-xl font-light"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
                 
-                {branchBilling.find((b) => b.branchId === branchFilter)?.meetings.length ? (
+                {detailBranchData.meetings.length ? (
                   <table className="w-full">
                     <thead className="bg-gray-50">
                       <tr>
@@ -387,9 +413,8 @@ export default function Reports() {
                       </tr>
                     </thead>
                     <tbody>
-                      {branchBilling
-                        .find((b) => b.branchId === branchFilter)
-                        ?.meetings.sort((a, b) => new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime())
+                      {detailBranchData.meetings
+                        .sort((a, b) => new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime())
                         .map((meeting) => (
                           <tr key={meeting.id} className="border-t hover:bg-gray-50">
                             <td className="p-3">{formatDate(meeting.scheduledDate)}</td>

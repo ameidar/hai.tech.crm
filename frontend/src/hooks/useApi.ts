@@ -291,6 +291,21 @@ export const useDeleteCycle = () => {
   });
 };
 
+export const useBulkUpdateCycles = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { ids: string[]; data: Partial<Cycle> }) =>
+      mutateData<{ message: string; updated: { id: string; name: string }[] }, { ids: string[]; data: Partial<Cycle> }>(
+        '/cycles/bulk-update',
+        'post',
+        payload
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
+    },
+  });
+};
+
 // ==================== Cycle Meetings ====================
 export const useCycleMeetings = (cycleId: string) => {
   return useQuery({
@@ -398,6 +413,19 @@ export const useBulkDeleteMeetings = () => {
   });
 };
 
+export const useRecalculateMeeting = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      mutateData<Meeting, object>(`/meetings/${id}/recalculate`, 'post', {}),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ['meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['meeting', id] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
+    },
+  });
+};
+
 export const useBulkRecalculateMeetings = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -406,21 +434,6 @@ export const useBulkRecalculateMeetings = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['meetings'] });
       queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
-    },
-  });
-};
-
-export const useRecalculateMeeting = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) =>
-      mutateData<Meeting, object>(`/meetings/${id}/recalculate`, 'post', {}),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['meetings'] });
-      queryClient.invalidateQueries({ queryKey: ['meeting', data.id] });
-      if (data.cycleId) {
-        queryClient.invalidateQueries({ queryKey: ['cycle-meetings', data.cycleId] });
-      }
     },
   });
 };
@@ -439,5 +452,117 @@ export const useMonthlyReport = (month: string) => {
     queryKey: ['monthly-report', month],
     queryFn: () => fetchData<any>(`/reports/monthly?month=${month}`),
     enabled: !!month,
+  });
+};
+
+// ==================== Attendance ====================
+export interface AttendanceRecord {
+  registrationId: string | null;
+  studentId: string | null;
+  studentName: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  grade: string | null;
+  status: 'present' | 'absent' | 'late' | null;
+  isTrial: boolean;
+  notes: string | null;
+  attendanceId: string | null;
+}
+
+export interface AttendanceData {
+  meetingId: string;
+  cycleName: string;
+  scheduledDate: string;
+  attendance: AttendanceRecord[];
+  stats: {
+    total: number;
+    present: number;
+    absent: number;
+    late: number;
+    notMarked: number;
+    trials: number;
+  };
+}
+
+export interface StudentSearchResult {
+  id: string;
+  name: string;
+  grade: string | null;
+  customerName: string;
+  customerPhone: string;
+}
+
+export const useMeetingAttendance = (meetingId: string | undefined) => {
+  return useQuery({
+    queryKey: ['attendance', meetingId],
+    queryFn: () => fetchData<AttendanceData>(`/attendance/meeting/${meetingId}`),
+    enabled: !!meetingId,
+  });
+};
+
+export const useRecordAttendance = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      meetingId,
+      data,
+    }: {
+      meetingId: string;
+      data: {
+        registrationId?: string;
+        studentId?: string;
+        guestName?: string;
+        status: 'present' | 'absent' | 'late';
+        isTrial?: boolean;
+        notes?: string;
+      };
+    }) => mutateData<any, any>(`/attendance/meeting/${meetingId}`, 'post', data),
+    onSuccess: (_, { meetingId }) => {
+      queryClient.invalidateQueries({ queryKey: ['attendance', meetingId] });
+    },
+  });
+};
+
+export const useBulkRecordAttendance = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      meetingId,
+      attendance,
+    }: {
+      meetingId: string;
+      attendance: Array<{
+        registrationId?: string;
+        studentId?: string;
+        guestName?: string;
+        status: 'present' | 'absent' | 'late';
+        isTrial?: boolean;
+        notes?: string;
+      }>;
+    }) => mutateData<any, any>(`/attendance/meeting/${meetingId}/bulk`, 'put', { attendance }),
+    onSuccess: (_, { meetingId }) => {
+      queryClient.invalidateQueries({ queryKey: ['attendance', meetingId] });
+    },
+  });
+};
+
+export const useSearchStudentsForAttendance = (meetingId: string | undefined, search: string) => {
+  return useQuery({
+    queryKey: ['attendance-search', meetingId, search],
+    queryFn: () =>
+      fetchData<StudentSearchResult[]>(
+        `/attendance/meeting/${meetingId}/search-students?search=${encodeURIComponent(search)}`
+      ),
+    enabled: !!meetingId && search.length >= 2,
+  });
+};
+
+export const useDeleteAttendance = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => mutateData<void, void>(`/attendance/${id}`, 'delete'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['attendance'] });
+    },
   });
 };

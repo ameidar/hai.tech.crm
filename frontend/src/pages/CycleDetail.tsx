@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import {
   ArrowRight,
   Calendar,
@@ -19,6 +20,7 @@ import {
   User,
   Phone,
   Mail,
+  ClipboardList,
 } from 'lucide-react';
 import {
   useCycle,
@@ -31,6 +33,8 @@ import {
   useUpdateCycle,
   useStudents,
   useInstructors,
+  useCourses,
+  useBranches,
   useCreateRegistration,
   useUpdateRegistration,
 } from '../hooks/useApi';
@@ -38,17 +42,20 @@ import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
+import AttendanceModal from '../components/AttendanceModal';
 import {
   cycleStatusHebrew,
   cycleTypeHebrew,
   dayOfWeekHebrew,
   meetingStatusHebrew,
 } from '../types';
-import type { Meeting, MeetingStatus, Registration, RegistrationStatus, PaymentStatus, PaymentMethod, ActivityType } from '../types';
+import type { Meeting, MeetingStatus, Registration, RegistrationStatus, PaymentStatus, PaymentMethod, ActivityType, Cycle, Course, Branch, Instructor, CycleStatus, CycleType, DayOfWeek } from '../types';
 import { paymentStatusHebrew, activityTypeHebrew } from '../types';
 
 export default function CycleDetail() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [viewingMeeting, setViewingMeeting] = useState<Meeting | null>(null);
   const [showAddStudentModal, setShowAddStudentModal] = useState(false);
@@ -57,12 +64,16 @@ export default function CycleDetail() {
   const [showChangeInstructorModal, setShowChangeInstructorModal] = useState(false);
   const [selectedMeetingIds, setSelectedMeetingIds] = useState<Set<string>>(new Set());
   const [showBulkEditModal, setShowBulkEditModal] = useState(false);
+  const [attendanceMeeting, setAttendanceMeeting] = useState<Meeting | null>(null);
+  const [showEditCycleModal, setShowEditCycleModal] = useState(false);
 
   const { data: cycle, isLoading } = useCycle(id!);
   const { data: meetings } = useCycleMeetings(id!);
   const { data: registrations } = useCycleRegistrations(id!);
   const { data: allStudents } = useStudents();
   const { data: instructors } = useInstructors();
+  const { data: courses } = useCourses();
+  const { data: branches } = useBranches();
   const updateMeeting = useUpdateMeeting();
   const bulkDeleteMeetings = useBulkDeleteMeetings();
   const bulkRecalculateMeetings = useBulkRecalculateMeetings();
@@ -70,6 +81,16 @@ export default function CycleDetail() {
   const updateCycle = useUpdateCycle();
   const createRegistration = useCreateRegistration();
   const updateRegistration = useUpdateRegistration();
+
+  const handleUpdateCycle = async (data: Partial<Cycle>) => {
+    try {
+      await updateCycle.mutateAsync({ id: id!, data });
+      setShowEditCycleModal(false);
+    } catch (error) {
+      console.error('Failed to update cycle:', error);
+      alert('שגיאה בעדכון המחזור');
+    }
+  };
 
   const handleChangeCycleInstructor = async (newInstructorId: string) => {
     try {
@@ -237,7 +258,7 @@ export default function CycleDetail() {
     }
   };
 
-  const handleUpdateMeetingData = async (meetingId: string, data: { status?: MeetingStatus; instructorId?: string; topic?: string; notes?: string }) => {
+  const handleUpdateMeetingData = async (meetingId: string, data: { status?: MeetingStatus; instructorId?: string; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; activityType?: ActivityType }) => {
     try {
       await updateMeeting.mutateAsync({
         id: meetingId,
@@ -286,8 +307,15 @@ export default function CycleDetail() {
           <div className="space-y-6">
             {/* Details Card */}
             <div className="card">
-              <div className="card-header">
+              <div className="card-header flex items-center justify-between">
                 <h2 className="font-semibold">פרטי המחזור</h2>
+                <button
+                  onClick={() => setShowEditCycleModal(true)}
+                  className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                  title="עריכה"
+                >
+                  <Edit size={16} />
+                </button>
               </div>
               <div className="card-body space-y-4">
                 <div className="flex items-center gap-3">
@@ -354,6 +382,32 @@ export default function CycleDetail() {
                     {cycleStatusHebrew[cycle.status]}
                   </span>
                 </div>
+
+                {/* Revenue per meeting */}
+                {(cycle.type === 'institutional_fixed' || cycle.type === 'institutional_per_child') && (
+                  <div className="pt-3 mt-3 border-t">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-500">הכנסה למפגש:</span>
+                      <span className="font-semibold text-green-600">
+                        {cycle.type === 'institutional_fixed' 
+                          ? `₪${Number(cycle.meetingRevenue || 0).toLocaleString()}`
+                          : `₪${Number(cycle.pricePerStudent || 0).toLocaleString()} × ${cycle.studentCount || registrations?.length || 0} תלמידים`
+                        }
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {cycle.type === 'private' && cycle.pricePerStudent && (
+                  <div className="pt-3 mt-3 border-t">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-500">מחיר לתלמיד:</span>
+                      <span className="font-semibold text-green-600">
+                        ₪{Number(cycle.pricePerStudent).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -558,12 +612,21 @@ export default function CycleDetail() {
                               {meeting.topic || '-'}
                             </td>
                             <td>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setSelectedMeeting(meeting); }}
-                                className="text-blue-600 hover:underline text-sm"
-                              >
-                                עדכון
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setAttendanceMeeting(meeting); }}
+                                  className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                                  title="נוכחות"
+                                >
+                                  <ClipboardList size={16} />
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setSelectedMeeting(meeting); }}
+                                  className="text-blue-600 hover:underline text-sm"
+                                >
+                                  עדכון
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -622,8 +685,8 @@ export default function CycleDetail() {
               )}
             </div>
 
-            {/* Financial Info */}
-            {viewingMeeting.status === 'completed' && (
+            {/* Financial Info - Admin only */}
+            {isAdmin && viewingMeeting.status === 'completed' && (
               <div className="border-t pt-4">
                 <h4 className="font-medium text-gray-700 mb-4">נתונים כספיים</h4>
                 <div className="grid grid-cols-3 gap-4 text-center">
@@ -648,7 +711,7 @@ export default function CycleDetail() {
             {/* Actions */}
             <div className="flex justify-between pt-4 border-t">
               <div>
-                {viewingMeeting.status === 'completed' && (
+                {isAdmin && viewingMeeting.status === 'completed' && (
                   <button
                     onClick={() => handleRecalculate(viewingMeeting.id)}
                     className="btn btn-secondary flex items-center gap-2"
@@ -693,6 +756,7 @@ export default function CycleDetail() {
             onUpdate={(data) => handleUpdateMeetingData(selectedMeeting.id, data)}
             onCancel={() => setSelectedMeeting(null)}
             isLoading={updateMeeting.isPending}
+            isAdmin={isAdmin}
           />
         )}
       </Modal>
@@ -936,6 +1000,37 @@ export default function CycleDetail() {
           </div>
         )}
       </Modal>
+
+      {/* Attendance Modal */}
+      {attendanceMeeting && cycle && (
+        <AttendanceModal
+          meetingId={attendanceMeeting.id}
+          meetingDate={attendanceMeeting.scheduledDate}
+          cycleName={cycle.name}
+          isOpen={!!attendanceMeeting}
+          onClose={() => setAttendanceMeeting(null)}
+        />
+      )}
+
+      {/* Edit Cycle Modal */}
+      <Modal
+        isOpen={showEditCycleModal}
+        onClose={() => setShowEditCycleModal(false)}
+        title="עריכת פרטי מחזור"
+        size="lg"
+      >
+        {cycle && (
+          <CycleQuickEditForm
+            cycle={cycle}
+            courses={courses || []}
+            branches={branches || []}
+            instructors={instructors || []}
+            onSubmit={handleUpdateCycle}
+            onCancel={() => setShowEditCycleModal(false)}
+            isLoading={updateCycle.isPending}
+          />
+        )}
+      </Modal>
     </>
   );
 }
@@ -1074,19 +1169,41 @@ interface MeetingUpdateFormProps {
   instructors: { id: string; name: string; isActive: boolean }[];
   defaultInstructorId?: string;
   defaultActivityType?: ActivityType;
-  onUpdate: (data: { status?: MeetingStatus; instructorId?: string; activityType?: ActivityType; topic?: string; notes?: string }) => void;
+  onUpdate: (data: { status?: MeetingStatus; instructorId?: string; activityType?: ActivityType; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string }) => void;
   onCancel: () => void;
   isLoading?: boolean;
+  isAdmin?: boolean;
 }
 
-function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultActivityType, onUpdate, onCancel, isLoading }: MeetingUpdateFormProps) {
+function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultActivityType, onUpdate, onCancel, isLoading, isAdmin = false }: MeetingUpdateFormProps) {
+  const formatTimeForInput = (time: string | Date | undefined): string => {
+    if (!time) return '16:00';
+    if (typeof time === 'string') {
+      if (time.includes('T')) {
+        const date = new Date(time);
+        return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}`;
+      }
+      return time.substring(0, 5);
+    }
+    const date = new Date(time);
+    return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}`;
+  };
+
+  const formatDateForInput = (dateStr: string): string => {
+    const date = new Date(dateStr);
+    return date.toISOString().split('T')[0];
+  };
+
   const [status, setStatus] = useState(meeting.status);
   const [instructorId, setInstructorId] = useState(meeting.instructor?.id || defaultInstructorId || '');
   const [activityType, setActivityType] = useState<ActivityType>(meeting.activityType || defaultActivityType || 'frontal');
   const [topic, setTopic] = useState(meeting.topic || '');
   const [notes, setNotes] = useState(meeting.notes || '');
+  const [scheduledDate, setScheduledDate] = useState(formatDateForInput(meeting.scheduledDate));
+  const [startTime, setStartTime] = useState(formatTimeForInput(meeting.startTime));
+  const [endTime, setEndTime] = useState(formatTimeForInput(meeting.endTime));
 
-  const formatDate = (dateStr: string) => {
+  const formatDateDisplay = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('he-IL', {
       weekday: 'long',
       day: 'numeric',
@@ -1095,36 +1212,82 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
   };
 
   const handleSubmit = () => {
+    const originalDate = formatDateForInput(meeting.scheduledDate);
+    const originalStart = formatTimeForInput(meeting.startTime);
+    const originalEnd = formatTimeForInput(meeting.endTime);
+
     onUpdate({
       status,
       instructorId: instructorId !== (meeting.instructor?.id || defaultInstructorId) ? instructorId : undefined,
       activityType: activityType !== (meeting.activityType || defaultActivityType) ? activityType : undefined,
       topic: topic || undefined,
       notes: notes || undefined,
+      scheduledDate: scheduledDate !== originalDate ? scheduledDate : undefined,
+      startTime: startTime !== originalStart ? startTime : undefined,
+      endTime: endTime !== originalEnd ? endTime : undefined,
     });
   };
 
   return (
     <div className="p-6 space-y-4">
-      <div className="bg-gray-50 rounded-lg p-4">
-        <p className="text-sm text-gray-500">תאריך המפגש</p>
-        <p className="font-medium">{formatDate(meeting.scheduledDate)}</p>
-      </div>
+      {/* Date and Time Section - Admin only */}
+      {isAdmin && (
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="form-label">תאריך</label>
+            <input
+              type="date"
+              value={scheduledDate}
+              onChange={(e) => setScheduledDate(e.target.value)}
+              className="form-input"
+            />
+          </div>
+          <div>
+            <label className="form-label">שעת התחלה</label>
+            <input
+              type="time"
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+              className="form-input"
+            />
+          </div>
+          <div>
+            <label className="form-label">שעת סיום</label>
+            <input
+              type="time"
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
+              className="form-input"
+            />
+          </div>
+        </div>
+      )}
+      
+      {/* Display date for instructors (read-only) */}
+      {!isAdmin && (
+        <div className="bg-gray-50 rounded-lg p-4">
+          <p className="text-sm text-gray-500">תאריך המפגש</p>
+          <p className="font-medium">{formatDateDisplay(meeting.scheduledDate)}</p>
+        </div>
+      )}
 
-      <div>
-        <label className="form-label">מדריך</label>
-        <select
-          value={instructorId}
-          onChange={(e) => setInstructorId(e.target.value)}
-          className="form-input"
-        >
-          {instructors.filter(i => i.isActive).map((instructor) => (
-            <option key={instructor.id} value={instructor.id}>
-              {instructor.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* Instructor dropdown - Admin only */}
+      {isAdmin && (
+        <div>
+          <label className="form-label">מדריך</label>
+          <select
+            value={instructorId}
+            onChange={(e) => setInstructorId(e.target.value)}
+            className="form-input"
+          >
+            {instructors.filter(i => i.isActive).map((instructor) => (
+              <option key={instructor.id} value={instructor.id}>
+                {instructor.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div>
         <label className="form-label">סטטוס</label>
@@ -1363,5 +1526,308 @@ function BulkEditForm({ instructors, onSubmit, onRecalculate, onCancel, isLoadin
         </div>
       </div>
     </div>
+  );
+}
+
+// Cycle Quick Edit Form
+interface CycleQuickEditFormProps {
+  cycle: Cycle;
+  courses: Course[];
+  branches: Branch[];
+  instructors: Instructor[];
+  onSubmit: (data: Partial<Cycle>) => void;
+  onCancel: () => void;
+  isLoading?: boolean;
+}
+
+function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, onCancel, isLoading }: CycleQuickEditFormProps) {
+  const formatDateForInput = (date: string | Date | undefined): string => {
+    if (!date) return '';
+    const d = new Date(date);
+    return d.toISOString().split('T')[0];
+  };
+
+  const [formData, setFormData] = useState({
+    name: cycle.name,
+    courseId: cycle.courseId || cycle.course?.id || '',
+    branchId: cycle.branchId || cycle.branch?.id || '',
+    instructorId: cycle.instructorId || cycle.instructor?.id || '',
+    type: cycle.type,
+    status: cycle.status,
+    startDate: formatDateForInput(cycle.startDate),
+    dayOfWeek: cycle.dayOfWeek,
+    startTime: cycle.startTime ? formatTimeForInput(cycle.startTime) : '16:00',
+    endTime: cycle.endTime ? formatTimeForInput(cycle.endTime) : '17:00',
+    totalMeetings: cycle.totalMeetings,
+    pricePerStudent: cycle.pricePerStudent || 0,
+    meetingRevenue: cycle.meetingRevenue || 0,
+    maxStudents: cycle.maxStudents || 15,
+    activityType: cycle.activityType || 'frontal',
+  });
+  
+  const [regenerateMeetings, setRegenerateMeetings] = useState(false);
+  const originalStartDate = formatDateForInput(cycle.startDate);
+
+  function formatTimeForInput(time: string | Date): string {
+    if (!time) return '16:00';
+    if (typeof time === 'string') {
+      if (time.includes('T')) {
+        const date = new Date(time);
+        return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}`;
+      }
+      return time.substring(0, 5);
+    }
+    const date = new Date(time);
+    return `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}`;
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Calculate duration from times
+    const [startHour, startMin] = formData.startTime.split(':').map(Number);
+    const [endHour, endMin] = formData.endTime.split(':').map(Number);
+    const durationMinutes = (endHour * 60 + endMin) - (startHour * 60 + startMin);
+
+    // Check if start date changed - if so, ask to regenerate meetings
+    const startDateChanged = formData.startDate !== originalStartDate;
+    const shouldRegenerate = startDateChanged && regenerateMeetings;
+
+    onSubmit({
+      name: formData.name,
+      courseId: formData.courseId,
+      branchId: formData.branchId,
+      instructorId: formData.instructorId,
+      type: formData.type as CycleType,
+      status: formData.status as CycleStatus,
+      startDate: formData.startDate,
+      dayOfWeek: formData.dayOfWeek as DayOfWeek,
+      startTime: formData.startTime,
+      endTime: formData.endTime,
+      durationMinutes: durationMinutes > 0 ? durationMinutes : 60,
+      totalMeetings: Number(formData.totalMeetings),
+      pricePerStudent: formData.type === 'private' ? Number(formData.pricePerStudent) : undefined,
+      meetingRevenue: formData.type === 'institutional_fixed' ? Number(formData.meetingRevenue) : undefined,
+      maxStudents: Number(formData.maxStudents),
+      activityType: formData.activityType as ActivityType,
+      regenerateMeetings: shouldRegenerate,
+    } as any);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="col-span-2">
+          <label className="form-label">שם המחזור</label>
+          <input
+            type="text"
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            className="form-input"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="form-label">קורס</label>
+          <select
+            value={formData.courseId}
+            onChange={(e) => setFormData({ ...formData, courseId: e.target.value })}
+            className="form-input"
+          >
+            <option value="">בחר קורס</option>
+            {courses.map((course) => (
+              <option key={course.id} value={course.id}>{course.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="form-label">סניף</label>
+          <select
+            value={formData.branchId}
+            onChange={(e) => setFormData({ ...formData, branchId: e.target.value })}
+            className="form-input"
+          >
+            <option value="">בחר סניף</option>
+            {branches.map((branch) => (
+              <option key={branch.id} value={branch.id}>{branch.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="form-label">מדריך</label>
+          <select
+            value={formData.instructorId}
+            onChange={(e) => setFormData({ ...formData, instructorId: e.target.value })}
+            className="form-input"
+          >
+            <option value="">בחר מדריך</option>
+            {instructors.filter(i => i.isActive).map((instructor) => (
+              <option key={instructor.id} value={instructor.id}>{instructor.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="form-label">סוג מחזור</label>
+          <select
+            value={formData.type}
+            onChange={(e) => setFormData({ ...formData, type: e.target.value as CycleType })}
+            className="form-input"
+          >
+            <option value="private">פרטי</option>
+            <option value="institutional_per_child">מוסדי (לפי ילד)</option>
+            <option value="institutional_fixed">מוסדי (סכום קבוע)</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="form-label">סטטוס</label>
+          <select
+            value={formData.status}
+            onChange={(e) => setFormData({ ...formData, status: e.target.value as CycleStatus })}
+            className="form-input"
+          >
+            <option value="active">פעיל</option>
+            <option value="completed">הושלם</option>
+            <option value="cancelled">בוטל</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="form-label">תאריך התחלה</label>
+          <input
+            type="date"
+            value={formData.startDate}
+            onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+            className="form-input"
+          />
+        </div>
+
+        {formData.startDate !== originalStartDate && (
+          <div className="col-span-2 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={regenerateMeetings}
+                onChange={(e) => setRegenerateMeetings(e.target.checked)}
+                className="rounded border-gray-300 text-blue-600"
+              />
+              <span className="text-sm text-yellow-800">
+                <strong>שים לב:</strong> שינית את תאריך ההתחלה. סמן כדי ליצור מחדש את כל המפגשים מהתאריך החדש.
+              </span>
+            </label>
+          </div>
+        )}
+
+        <div>
+          <label className="form-label">יום בשבוע</label>
+          <select
+            value={formData.dayOfWeek}
+            onChange={(e) => setFormData({ ...formData, dayOfWeek: e.target.value as DayOfWeek })}
+            className="form-input"
+          >
+            <option value="sunday">ראשון</option>
+            <option value="monday">שני</option>
+            <option value="tuesday">שלישי</option>
+            <option value="wednesday">רביעי</option>
+            <option value="thursday">חמישי</option>
+            <option value="friday">שישי</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="form-label">שעת התחלה</label>
+          <input
+            type="time"
+            value={formData.startTime}
+            onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
+            className="form-input"
+          />
+        </div>
+
+        <div>
+          <label className="form-label">שעת סיום</label>
+          <input
+            type="time"
+            value={formData.endTime}
+            onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
+            className="form-input"
+          />
+        </div>
+
+        <div>
+          <label className="form-label">סה"כ מפגשים</label>
+          <input
+            type="number"
+            value={formData.totalMeetings}
+            onChange={(e) => setFormData({ ...formData, totalMeetings: Number(e.target.value) })}
+            className="form-input"
+            min="1"
+          />
+        </div>
+
+        {formData.type === 'private' && (
+          <div>
+            <label className="form-label">מחיר לתלמיד (₪)</label>
+            <input
+              type="number"
+              value={formData.pricePerStudent}
+              onChange={(e) => setFormData({ ...formData, pricePerStudent: Number(e.target.value) })}
+              className="form-input"
+              min="0"
+            />
+          </div>
+        )}
+
+        {formData.type === 'institutional_fixed' && (
+          <div>
+            <label className="form-label">הכנסה לפגישה (₪)</label>
+            <input
+              type="number"
+              value={formData.meetingRevenue}
+              onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
+              className="form-input"
+              min="0"
+            />
+          </div>
+        )}
+
+        <div>
+          <label className="form-label">מקסימום תלמידים</label>
+          <input
+            type="number"
+            value={formData.maxStudents}
+            onChange={(e) => setFormData({ ...formData, maxStudents: Number(e.target.value) })}
+            className="form-input"
+            min="1"
+          />
+        </div>
+
+        <div>
+          <label className="form-label">סוג פעילות</label>
+          <select
+            value={formData.activityType}
+            onChange={(e) => setFormData({ ...formData, activityType: e.target.value as ActivityType })}
+            className="form-input"
+          >
+            <option value="frontal">פרונטלי</option>
+            <option value="online">אונליין</option>
+            <option value="private_lesson">שיעור פרטי</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-3 pt-4 border-t">
+        <button type="button" onClick={onCancel} className="btn btn-secondary">
+          ביטול
+        </button>
+        <button type="submit" className="btn btn-primary" disabled={isLoading}>
+          {isLoading ? 'שומר...' : 'שמור'}
+        </button>
+      </div>
+    </form>
   );
 }

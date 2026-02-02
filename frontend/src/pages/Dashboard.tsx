@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Calendar,
@@ -11,19 +11,22 @@ import {
   TrendingUp,
   TrendingDown,
 } from 'lucide-react';
-import { useMeetings, useCycles, useCustomers, useInstructors } from '../hooks/useApi';
+import { useMeetings, useCycles, useCustomers, useInstructors, useRecalculateMeeting } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
+import MeetingDetailModal from '../components/MeetingDetailModal';
 import { meetingStatusHebrew, dayOfWeekHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
 export default function Dashboard() {
   const today = new Date().toISOString().split('T')[0];
+  const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
 
   const { data: todayMeetings, isLoading: loadingMeetings } = useMeetings({ date: today });
   const { data: cycles, isLoading: loadingCycles } = useCycles({ status: 'active' });
   const { data: customers, isLoading: loadingCustomers } = useCustomers();
   const { data: instructors, isLoading: loadingInstructors } = useInstructors();
+  const recalculateMeeting = useRecalculateMeeting();
 
   const stats = useMemo(() => {
     if (!todayMeetings) return null;
@@ -51,19 +54,6 @@ export default function Dashboard() {
 
   const isLoading = loadingMeetings || loadingCycles || loadingCustomers || loadingInstructors;
 
-  const getStatusIcon = (status: MeetingStatus) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle className="text-green-500" size={18} />;
-      case 'cancelled':
-        return <XCircle className="text-red-500" size={18} />;
-      case 'postponed':
-        return <AlertCircle className="text-yellow-500" size={18} />;
-      default:
-        return <Clock className="text-blue-500" size={18} />;
-    }
-  };
-
   const getStatusBadgeClass = (status: MeetingStatus) => {
     switch (status) {
       case 'completed':
@@ -78,7 +68,6 @@ export default function Dashboard() {
   };
 
   const formatTime = (time: string) => {
-    // Handle ISO date format (1970-01-01T16:00:00.000Z) or simple time (16:00)
     if (time.includes('T')) {
       const date = new Date(time);
       const hours = date.getUTCHours().toString().padStart(2, '0');
@@ -96,6 +85,18 @@ export default function Dashboard() {
       month: 'long',
       day: 'numeric',
     });
+  };
+
+  const handleRecalculate = async (meetingId: string) => {
+    try {
+      const result = await recalculateMeeting.mutateAsync(meetingId);
+      if (selectedMeeting) {
+        setSelectedMeeting({ ...selectedMeeting, ...result });
+      }
+    } catch (error) {
+      console.error('Failed to recalculate meeting:', error);
+      alert('שגיאה בחישוב מחדש');
+    }
   };
 
   return (
@@ -220,14 +221,17 @@ export default function Dashboard() {
                         <th>מדריך</th>
                         <th>סניף</th>
                         <th>סטטוס</th>
-                        <th>פעולות</th>
                       </tr>
                     </thead>
                     <tbody>
                       {todayMeetings
                         .sort((a, b) => a.startTime.localeCompare(b.startTime))
                         .map((meeting) => (
-                          <tr key={meeting.id}>
+                          <tr 
+                            key={meeting.id}
+                            onClick={() => setSelectedMeeting(meeting)}
+                            className="cursor-pointer hover:bg-blue-50 transition-colors"
+                          >
                             <td className="font-medium">
                               {formatTime(meeting.startTime)} - {formatTime(meeting.endTime)}
                             </td>
@@ -235,6 +239,7 @@ export default function Dashboard() {
                               <Link
                                 to={`/cycles/${meeting.cycleId}`}
                                 className="text-blue-600 hover:underline"
+                                onClick={(e) => e.stopPropagation()}
                               >
                                 {meeting.cycle?.name || '-'}
                               </Link>
@@ -245,14 +250,6 @@ export default function Dashboard() {
                               <span className={`badge ${getStatusBadgeClass(meeting.status)}`}>
                                 {meetingStatusHebrew[meeting.status]}
                               </span>
-                            </td>
-                            <td>
-                              <Link
-                                to={`/meetings/${meeting.id}`}
-                                className="text-blue-600 hover:underline text-sm"
-                              >
-                                צפייה
-                              </Link>
                             </td>
                           </tr>
                         ))}
@@ -333,6 +330,14 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* Meeting Detail Modal */}
+      <MeetingDetailModal
+        meeting={selectedMeeting}
+        onClose={() => setSelectedMeeting(null)}
+        onRecalculate={handleRecalculate}
+        isRecalculating={recalculateMeeting.isPending}
+      />
     </>
   );
 }

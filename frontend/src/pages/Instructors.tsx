@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search } from 'lucide-react';
 import { useInstructors, useCreateInstructor, useUpdateInstructor, useSendInstructorInvite } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -8,11 +9,32 @@ import Modal from '../components/ui/Modal';
 import type { Instructor } from '../types';
 
 export default function Instructors() {
+  const [searchParams] = useSearchParams();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingInstructor, setEditingInstructor] = useState<Instructor | null>(null);
   const [inviteModal, setInviteModal] = useState<{ instructor: Instructor; url: string } | null>(null);
+  const [searchFilter, setSearchFilter] = useState('');
 
   const { data: instructors, isLoading } = useInstructors();
+
+  // Initialize search from URL params
+  useEffect(() => {
+    const search = searchParams.get('search');
+    if (search) {
+      setSearchFilter(search);
+    }
+  }, [searchParams]);
+
+  // Filter instructors
+  const filteredInstructors = instructors?.filter((instructor) => {
+    if (!searchFilter) return true;
+    const searchLower = searchFilter.toLowerCase();
+    return (
+      instructor.name.toLowerCase().includes(searchLower) ||
+      instructor.phone?.includes(searchFilter) ||
+      instructor.email?.toLowerCase().includes(searchLower)
+    );
+  });
   const createInstructor = useCreateInstructor();
   const updateInstructor = useUpdateInstructor();
   const sendInvite = useSendInstructorInvite();
@@ -59,11 +81,25 @@ export default function Instructors() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
+        {/* Search */}
+        <div className="mb-4">
+          <div className="relative max-w-md">
+            <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={searchFilter}
+              onChange={(e) => setSearchFilter(e.target.value)}
+              placeholder="חיפוש מדריך..."
+              className="form-input pr-10 w-full"
+            />
+          </div>
+        </div>
+
         {isLoading ? (
           <Loading size="lg" text="טוען מדריכים..." />
-        ) : instructors && instructors.length > 0 ? (
+        ) : filteredInstructors && filteredInstructors.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {instructors.map((instructor) => (
+            {filteredInstructors.map((instructor) => (
               <InstructorCard
                 key={instructor.id}
                 instructor={instructor}

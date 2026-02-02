@@ -193,6 +193,7 @@ customersRouter.get('/:id/students', async (req, res, next) => {
           include: {
             cycle: {
               select: {
+                id: true,
                 name: true,
                 status: true,
               },

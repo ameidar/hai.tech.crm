@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Plus, Building2, MapPin, Phone, Mail, RefreshCcw, FileText } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useSearchParams, Link } from 'react-router-dom';
+import { Plus, Building2, MapPin, Phone, Mail, RefreshCcw, FileText, Search } from 'lucide-react';
 import { useBranches, useCreateBranch } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -9,9 +10,30 @@ import { branchTypeHebrew } from '../types';
 import type { Branch, BranchType } from '../types';
 
 export default function Branches() {
+  const [searchParams] = useSearchParams();
   const [showAddModal, setShowAddModal] = useState(false);
+  const [searchFilter, setSearchFilter] = useState('');
 
   const { data: branches, isLoading } = useBranches();
+
+  // Initialize search from URL params
+  useEffect(() => {
+    const search = searchParams.get('search');
+    if (search) {
+      setSearchFilter(search);
+    }
+  }, [searchParams]);
+
+  // Filter branches
+  const filteredBranches = branches?.filter((branch) => {
+    if (!searchFilter) return true;
+    const searchLower = searchFilter.toLowerCase();
+    return (
+      branch.name.toLowerCase().includes(searchLower) ||
+      branch.city?.toLowerCase().includes(searchLower) ||
+      branch.address?.toLowerCase().includes(searchLower)
+    );
+  });
   const createBranch = useCreateBranch();
 
   const handleAddBranch = async (data: Partial<Branch>) => {
@@ -37,11 +59,25 @@ export default function Branches() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
+        {/* Search */}
+        <div className="mb-4">
+          <div className="relative max-w-md">
+            <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={searchFilter}
+              onChange={(e) => setSearchFilter(e.target.value)}
+              placeholder="חיפוש סניף..."
+              className="form-input pr-10 w-full"
+            />
+          </div>
+        </div>
+
         {isLoading ? (
           <Loading size="lg" text="טוען סניפים..." />
-        ) : branches && branches.length > 0 ? (
+        ) : filteredBranches && filteredBranches.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {branches.map((branch) => (
+            {filteredBranches.map((branch) => (
               <BranchCard key={branch.id} branch={branch} />
             ))}
           </div>
@@ -128,10 +164,13 @@ function BranchCard({ branch }: { branch: Branch }) {
 
         <div className="flex items-center justify-between pt-4 border-t text-sm">
           <div className="flex items-center gap-4 text-gray-500">
-            <span className="flex items-center gap-1">
+            <Link 
+              to={`/cycles?branchId=${branch.id}`}
+              className="flex items-center gap-1 hover:text-blue-600 transition-colors"
+            >
               <RefreshCcw size={14} />
               {branch._count?.cycles || 0} מחזורים
-            </span>
+            </Link>
             <span className="flex items-center gap-1">
               <FileText size={14} />
               {branch._count?.institutionalOrders || 0} הזמנות

@@ -30,6 +30,12 @@ export default function Meetings() {
   const { data: viewData, isLoading: viewLoading } = useViewData(activeViewId);
   const recalculateMeeting = useRecalculateMeeting();
 
+  // Determine which data to display based on view mode
+  const displayMeetings = viewMode === 'view' && viewData?.data 
+    ? viewData.data as Meeting[]
+    : meetings || [];
+  const displayLoading = viewMode === 'view' ? viewLoading : isLoading;
+
   const handleApplyView = (filters: any[], columns: string[], sortBy?: string, sortOrder?: string) => {
     // This is called when a view is selected from ViewSelector
     // The actual data fetching happens through useViewData
@@ -86,12 +92,12 @@ export default function Meetings() {
     }
   };
 
-  const stats = meetings
+  const stats = displayMeetings.length > 0
     ? {
-        total: meetings.length,
-        completed: meetings.filter((m) => m.status === 'completed').length,
-        pending: meetings.filter((m) => m.status === 'scheduled').length,
-        cancelled: meetings.filter((m) => m.status === 'cancelled').length,
+        total: displayMeetings.length,
+        completed: displayMeetings.filter((m) => m.status === 'completed').length,
+        pending: displayMeetings.filter((m) => m.status === 'scheduled').length,
+        cancelled: displayMeetings.filter((m) => m.status === 'cancelled').length,
       }
     : null;
 
@@ -138,6 +144,14 @@ export default function Meetings() {
             <ViewSelector
               entity="meetings"
               onApplyView={handleApplyView}
+              onViewSelect={(viewId) => {
+                setActiveViewId(viewId);
+                if (viewId) {
+                  setViewMode('view');
+                } else {
+                  setViewMode('date');
+                }
+              }}
             />
           </div>
 
@@ -160,9 +174,9 @@ export default function Meetings() {
         </div>
 
         {/* Meetings List */}
-        {isLoading ? (
+        {displayLoading ? (
           <Loading size="lg" text="טוען פגישות..." />
-        ) : meetings && meetings.length > 0 ? (
+        ) : displayMeetings && displayMeetings.length > 0 ? (
           <div className="card overflow-hidden">
             <table>
               <thead>
@@ -179,8 +193,8 @@ export default function Meetings() {
                 </tr>
               </thead>
               <tbody>
-                {meetings
-                  .sort((a, b) => a.startTime.localeCompare(b.startTime))
+                {displayMeetings
+                  .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''))
                   .map((meeting) => (
                     <tr 
                       key={meeting.id}
@@ -219,24 +233,24 @@ export default function Meetings() {
                     </tr>
                   ))}
               </tbody>
-              {stats && stats.total > 0 && (
+              {displayMeetings && displayMeetings.length > 0 && (
                 <tfoot>
                   <tr className="bg-gray-50 font-medium">
                     <td colSpan={6} className="text-start">סה"כ</td>
                     <td className="text-green-600">
-                      {meetings
+                      {displayMeetings
                         .filter((m) => m.status === 'completed')
                         .reduce((sum, m) => sum + Number(m.revenue || 0), 0)
                         .toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}
                     </td>
                     <td className="text-red-600">
-                      {meetings
+                      {displayMeetings
                         .filter((m) => m.status === 'completed')
                         .reduce((sum, m) => sum + Number(m.instructorPayment || 0), 0)
                         .toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}
                     </td>
                     <td className="text-green-600">
-                      {meetings
+                      {displayMeetings
                         .filter((m) => m.status === 'completed')
                         .reduce((sum, m) => sum + Number(m.profit || 0), 0)
                         .toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}

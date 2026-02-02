@@ -25,6 +25,7 @@ interface Field {
 interface ViewSelectorProps {
   entity: string;
   onApplyView: (filters: any[], columns: string[], sortBy?: string, sortOrder?: string) => void;
+  onViewSelect?: (viewId: string | null) => void;
   currentFilters?: any[];
 }
 
@@ -42,7 +43,7 @@ const OPERATORS = [
   { value: 'thisMonth', label: 'החודש' },
 ];
 
-export default function ViewSelector({ entity, onApplyView, currentFilters }: ViewSelectorProps) {
+export default function ViewSelector({ entity, onApplyView, onViewSelect, currentFilters }: ViewSelectorProps) {
   const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -121,12 +122,14 @@ export default function ViewSelector({ entity, onApplyView, currentFilters }: Vi
   const applyView = (view: SavedView) => {
     setSelectedViewId(view.id);
     onApplyView(view.filters, view.columns, view.sortBy, view.sortOrder);
+    onViewSelect?.(view.id);
     setIsOpen(false);
   };
 
   const clearView = () => {
     setSelectedViewId(null);
     onApplyView([], fields.map(f => f.name));
+    onViewSelect?.(null);
   };
 
   const startEditing = (view?: SavedView) => {

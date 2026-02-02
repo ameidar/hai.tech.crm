@@ -30,7 +30,7 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'"], // Required for Vite build
-      styleSrc: ["'self'", "'unsafe-inline'"], // Required for styled components
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"], // Required for styled components + Google Fonts
       imgSrc: ["'self'", "data:", "https:"],
       fontSrc: ["'self'", "https:", "data:"],
       connectSrc: ["'self'", "https:"],

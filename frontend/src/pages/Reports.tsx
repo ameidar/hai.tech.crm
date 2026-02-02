@@ -219,7 +219,7 @@ export default function Reports() {
                 : 'bg-white text-gray-600 hover:bg-gray-100'
             }`}
           >
-            <BarChart3 size={18} className="inline ml-2" />
+            <BarChart3 size={18} className="inline me-2" />
             סיכום כללי
           </button>
           <button
@@ -230,7 +230,7 @@ export default function Reports() {
                 : 'bg-white text-gray-600 hover:bg-gray-100'
             }`}
           >
-            <FileText size={18} className="inline ml-2" />
+            <FileText size={18} className="inline me-2" />
             גבייה לפי סניף
           </button>
         </div>

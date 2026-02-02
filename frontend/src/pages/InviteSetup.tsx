@@ -139,7 +139,7 @@ export default function InviteSetup() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              <Mail size={16} className="inline ml-1" />
+              <Mail size={16} className="inline me-1" />
               אימייל
             </label>
             <input
@@ -154,7 +154,7 @@ export default function InviteSetup() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              <Lock size={16} className="inline ml-1" />
+              <Lock size={16} className="inline me-1" />
               סיסמה
             </label>
             <input
@@ -170,7 +170,7 @@ export default function InviteSetup() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              <Lock size={16} className="inline ml-1" />
+              <Lock size={16} className="inline me-1" />
               אימות סיסמה
             </label>
             <input

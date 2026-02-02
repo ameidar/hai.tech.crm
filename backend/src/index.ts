@@ -42,9 +42,20 @@ app.use(helmet({
     },
   },
 }));
+// Permissive CORS for webhook routes (API key protected)
+app.use('/api/webhook', cors({
+  origin: '*',
+  credentials: false,
+  allowedHeaders: ['Content-Type', 'X-API-Key'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+}));
+
+// Regular CORS for other routes
 app.use(cors({
   origin: config.corsOrigins,
   credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 }));
 
 // Rate limiting with per-user tracking when authenticated

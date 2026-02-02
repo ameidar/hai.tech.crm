@@ -124,13 +124,16 @@ meetingsRouter.get('/', async (req, res, next) => {
       prisma.meeting.count({ where }),
     ]);
 
+    const totalPages = Math.ceil(total / limit);
     res.json({
       data: meetings,
       pagination: {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit),
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
       },
     });
   } catch (error) {

@@ -210,15 +210,29 @@ router.post('/', async (req: Request, res: Response) => {
           });
         }
         
-        // Fallback: if no date match, try just by meeting ID (shouldn't happen often)
+        // Fallback: if no date available, DON'T update all meetings blindly
+        // Only update if there's a single meeting, otherwise save as unmatched
         if (updated.count === 0 && !meetingDate) {
-          updated = await prisma.meeting.updateMany({
+          // Check if there's only one meeting with this ID (single occurrence)
+          const meetingsWithId = await prisma.meeting.findMany({
             where: { zoomMeetingId: meetingId },
-            data: {
-              zoomRecordingUrl: recordingUrl,
-              zoomRecordingPassword: recordingPassword || null
-            }
+            include: { instructor: true, cycle: true }
           });
+          
+          if (meetingsWithId.length === 1) {
+            // Only one meeting - safe to update
+            updated = await prisma.meeting.updateMany({
+              where: { zoomMeetingId: meetingId },
+              data: {
+                zoomRecordingUrl: recordingUrl,
+                zoomRecordingPassword: recordingPassword || null
+              }
+            });
+            meeting = meetingsWithId[0];
+          } else if (meetingsWithId.length > 1) {
+            // Multiple meetings - can't determine which one, will be saved as unmatched
+            console.log(`[Zoom Webhook] Multiple meetings (${meetingsWithId.length}) with same ID but no date to match - saving as unmatched`);
+          }
         }
         
         console.log(`[Zoom Webhook] Updated ${updated.count} meetings with recording URL`);

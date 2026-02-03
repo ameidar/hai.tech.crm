@@ -17,6 +17,7 @@ import Reports from './pages/Reports';
 import InstructorDashboard from './pages/InstructorDashboard';
 import InviteSetup from './pages/InviteSetup';
 import MeetingStatus from './pages/MeetingStatus';
+import AuditLog from './pages/AuditLog';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -81,6 +82,7 @@ function AppRoutes() {
         <Route path="cycles/:id" element={<CycleDetail />} />
         <Route path="meetings" element={<Meetings />} />
         <Route path="reports" element={<Reports />} />
+        <Route path="audit" element={<AuditLog />} />
         <Route path="instructor" element={<InstructorDashboard />} />
       </Route>
     </Routes>

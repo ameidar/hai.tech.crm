@@ -20,6 +20,7 @@ export default function Cycles() {
   const [statusFilter, setStatusFilter] = useState<CycleStatus | ''>('');
   const [instructorFilter, setInstructorFilter] = useState('');
   const [branchFilter, setBranchFilter] = useState('');
+  const [courseFilter, setCourseFilter] = useState('');
   const [dayFilter, setDayFilter] = useState<DayOfWeek | ''>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -30,8 +31,10 @@ export default function Cycles() {
   useEffect(() => {
     const branchId = searchParams.get('branchId');
     const instructorId = searchParams.get('instructorId');
+    const courseId = searchParams.get('courseId');
     if (branchId) setBranchFilter(branchId);
     if (instructorId) setInstructorFilter(instructorId);
+    if (courseId) setCourseFilter(courseId);
   }, [searchParams]);
 
   // Debounce search
@@ -44,6 +47,7 @@ export default function Cycles() {
     status: statusFilter || undefined,
     instructorId: instructorFilter || undefined,
     branchId: branchFilter || undefined,
+    courseId: courseFilter || undefined,
     dayOfWeek: dayFilter || undefined,
     search: debouncedSearch || undefined,
   });
@@ -102,11 +106,12 @@ export default function Cycles() {
     setStatusFilter('');
     setInstructorFilter('');
     setBranchFilter('');
+    setCourseFilter('');
     setDayFilter('');
     setSearchQuery('');
   };
 
-  const hasActiveFilters = statusFilter || instructorFilter || branchFilter || dayFilter || searchQuery;
+  const hasActiveFilters = statusFilter || instructorFilter || branchFilter || courseFilter || dayFilter || searchQuery;
 
   const handleDeleteCycle = async (id: string, name: string) => {
     if (window.confirm(`האם למחוק את המחזור "${name}"? פעולה זו תמחק גם את כל הפגישות הקשורות.`)) {
@@ -207,6 +212,22 @@ export default function Cycles() {
                 {branches?.map((branch) => (
                   <option key={branch.id} value={branch.id}>
                     {branch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Course filter */}
+            <div className="w-36">
+              <select
+                value={courseFilter}
+                onChange={(e) => setCourseFilter(e.target.value)}
+                className="form-input"
+              >
+                <option value="">כל הקורסים</option>
+                {courses?.map((course) => (
+                  <option key={course.id} value={course.id}>
+                    {course.name}
                   </option>
                 ))}
               </select>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search } from 'lucide-react';
 import { useInstructors, useCreateInstructor, useUpdateInstructor, useSendInstructorInvite } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
@@ -251,14 +251,20 @@ function InstructorCard({ instructor, onEdit, onSendInvite, isInviteLoading }: I
 
         <div className="flex items-center justify-between pt-4 border-t border-gray-100 text-sm">
           <div className="flex items-center gap-4 text-gray-500">
-            <span className="flex items-center gap-1.5 hover:text-gray-700 transition-colors">
-              <RefreshCcw size={14} />
-              {instructor._count?.cycles || 0} מחזורים
-            </span>
-            <span className="flex items-center gap-1.5 hover:text-gray-700 transition-colors">
-              <Calendar size={14} />
-              {instructor._count?.meetings || 0} פגישות
-            </span>
+            <Link 
+              to={`/cycles?instructorId=${instructor.id}`}
+              className="flex items-center gap-1.5 hover:text-blue-600 transition-colors group"
+            >
+              <RefreshCcw size={14} className="group-hover:text-blue-600" />
+              <span className="group-hover:underline">{instructor._count?.cycles || 0} מחזורים</span>
+            </Link>
+            <Link 
+              to={`/meetings?instructorId=${instructor.id}`}
+              className="flex items-center gap-1.5 hover:text-blue-600 transition-colors group"
+            >
+              <Calendar size={14} className="group-hover:text-blue-600" />
+              <span className="group-hover:underline">{instructor._count?.meetings || 0} פגישות</span>
+            </Link>
           </div>
           <div className="flex items-center gap-3">
             {!hasAccount && (

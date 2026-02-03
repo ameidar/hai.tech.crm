@@ -279,6 +279,7 @@ model Cycle {
   isOnline             Boolean      @default(false) @map("is_online")
   activityType         ActivityType @default(frontal) @map("activity_type")
   zoomHostId           String?      @map("zoom_host_id")
+  zoomHostEmail        String?      @map("zoom_host_email")
   zoomMeetingId        String?      @map("zoom_meeting_id")
   zoomJoinUrl          String?      @map("zoom_join_url")
   zoomHostKey          String?      @map("zoom_host_key")

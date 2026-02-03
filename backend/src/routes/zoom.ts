@@ -150,6 +150,7 @@ router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
       where: { id: cycleId },
       data: {
         zoomHostId: hostUser.id,
+        zoomHostEmail: hostUser.email,
         zoomMeetingId: String(meeting.id),
         zoomJoinUrl: meeting.join_url,
         zoomHostKey: meeting.host_key || null,
@@ -226,6 +227,7 @@ router.delete('/cycles/:cycleId/meeting', async (req: Request, res: Response) =>
       where: { id: cycleId },
       data: {
         zoomHostId: null,
+        zoomHostEmail: null,
         zoomMeetingId: null,
         zoomJoinUrl: null,
         zoomHostKey: null,
@@ -267,6 +269,7 @@ router.get('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
         name: true,
         activityType: true,
         zoomHostId: true,
+        zoomHostEmail: true,
         zoomMeetingId: true,
         zoomJoinUrl: true,
         zoomHostKey: true,
@@ -294,7 +297,8 @@ router.get('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
       zoomMeetingId: cycle.zoomMeetingId,
       zoomJoinUrl: cycle.zoomJoinUrl,
       zoomHostKey: cycle.zoomHostKey,
-      zoomPassword: cycle.zoomPassword
+      zoomPassword: cycle.zoomPassword,
+      zoomHostEmail: cycle.zoomHostEmail
     });
   } catch (error: any) {
     console.error('Failed to get Zoom meeting:', error);

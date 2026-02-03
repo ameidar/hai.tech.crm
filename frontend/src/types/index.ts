@@ -179,6 +179,8 @@ export interface Meeting {
   zoomPassword?: string;
   zoomHostKey?: string;
   zoomHostEmail?: string;
+  zoomRecordingUrl?: string;
+  zoomRecordingPassword?: string;
   rescheduledToId?: string;
   createdAt: string;
   cycle?: Cycle;

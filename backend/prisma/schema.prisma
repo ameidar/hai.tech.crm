@@ -352,6 +352,8 @@ model Meeting {
   zoomPassword      String?       @map("zoom_password")
   zoomHostKey       String?       @map("zoom_host_key")
   zoomHostEmail     String?       @map("zoom_host_email")
+  zoomRecordingUrl  String?       @map("zoom_recording_url")
+  zoomRecordingPassword String?   @map("zoom_recording_password")
   rescheduledToId   String?       @map("rescheduled_to_id")
   createdAt         DateTime      @default(now()) @map("created_at")
   updatedAt         DateTime      @updatedAt @map("updated_at")

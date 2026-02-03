@@ -990,6 +990,24 @@ export default function CycleDetail() {
                       <span className="text-sm">{viewingMeeting.zoomHostEmail}</span>
                     </div>
                   )}
+                  
+                  {/* Recording */}
+                  {viewingMeeting.zoomRecordingUrl && (
+                    <div className="col-span-2 flex items-center justify-between p-3 bg-red-50 rounded-lg">
+                      <span className="text-sm text-gray-600 flex items-center gap-1">
+                        🎥 הקלטה
+                      </span>
+                      <a
+                        href={viewingMeeting.zoomRecordingUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-secondary text-sm py-1"
+                      >
+                        <ExternalLink size={14} />
+                        צפה בהקלטה
+                      </a>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

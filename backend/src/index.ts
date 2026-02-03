@@ -23,6 +23,7 @@ import { auditRouter } from './routes/audit.js';
 import { viewsRouter } from './routes/views.js';
 import { communicationRouter } from './routes/communication.js';
 import zoomRouter from './routes/zoom.js';
+import zoomWebhookRouter from './routes/zoom-webhook.js';
 
 const app = express();
 
@@ -138,6 +139,7 @@ app.use('/api/views', viewsRouter);
 app.use('/api/webhook', webhookRouter);
 app.use('/api/communication', communicationRouter);
 app.use('/api/zoom', zoomRouter);
+app.use('/api/zoom-webhook', zoomWebhookRouter);
 
 // Error handling for API routes
 app.use('/api', errorHandler);

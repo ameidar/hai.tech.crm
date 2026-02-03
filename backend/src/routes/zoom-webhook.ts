@@ -158,8 +158,11 @@ router.post('/', async (req: Request, res: Response) => {
       const recordingPassword = payload?.object?.password;
       
       if (recordingUrl) {
-        // Get recording start time to match the correct meeting
-        const recordingStart = payload?.object?.recording_start;
+        // Get recording/meeting start time to match the correct meeting
+        // Try multiple sources: object.start_time, recording_files[0].recording_start
+        const recordingStart = payload?.object?.start_time 
+          || payload?.object?.recording_start
+          || recordingFiles?.[0]?.recording_start;
         let meetingDate: Date | null = null;
         
         if (recordingStart) {

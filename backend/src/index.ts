@@ -22,6 +22,7 @@ import { publicMeetingRouter } from './routes/public-meeting.js';
 import { auditRouter } from './routes/audit.js';
 import { viewsRouter } from './routes/views.js';
 import { communicationRouter } from './routes/communication.js';
+import zoomRouter from './routes/zoom.js';
 
 const app = express();
 
@@ -136,6 +137,7 @@ app.use('/api/audit', auditRouter);
 app.use('/api/views', viewsRouter);
 app.use('/api/webhook', webhookRouter);
 app.use('/api/communication', communicationRouter);
+app.use('/api/zoom', zoomRouter);
 
 // Error handling for API routes
 app.use('/api', errorHandler);

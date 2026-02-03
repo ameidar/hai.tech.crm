@@ -683,5 +683,66 @@ export const useSendEmail = () => {
   });
 };
 
+// ==================== Zoom ====================
+
+interface ZoomMeeting {
+  hasMeeting: boolean;
+  canCreate?: boolean;
+  meetingExists?: boolean;
+  zoomMeetingId?: string;
+  zoomJoinUrl?: string;
+  zoomHostKey?: string;
+  zoomPassword?: string;
+}
+
+interface ZoomCreateResponse {
+  success: boolean;
+  cycle: {
+    id: string;
+    name: string;
+    zoomMeetingId: string;
+    zoomJoinUrl: string;
+    zoomHostKey: string | null;
+    zoomPassword: string;
+  };
+  hostUser: {
+    id: string;
+    email: string;
+    name: string;
+  };
+}
+
+export const useZoomMeeting = (cycleId: string) => {
+  return useQuery({
+    queryKey: ['zoom-meeting', cycleId],
+    queryFn: () => fetchData<ZoomMeeting>(`/zoom/cycles/${cycleId}/meeting`),
+    enabled: !!cycleId,
+  });
+};
+
+export const useCreateZoomMeeting = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (cycleId: string) =>
+      mutateData<ZoomCreateResponse, undefined>(`/zoom/cycles/${cycleId}/meeting`, 'post'),
+    onSuccess: (_, cycleId) => {
+      queryClient.invalidateQueries({ queryKey: ['zoom-meeting', cycleId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
+    },
+  });
+};
+
+export const useDeleteZoomMeeting = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (cycleId: string) =>
+      api.delete(`/zoom/cycles/${cycleId}/meeting`),
+    onSuccess: (_, cycleId) => {
+      queryClient.invalidateQueries({ queryKey: ['zoom-meeting', cycleId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
+    },
+  });
+};
+
 // Re-export api for direct use in components
 export { api };

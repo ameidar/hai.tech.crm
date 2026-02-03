@@ -272,6 +272,7 @@ export async function createCycleMeeting(params: {
   dayOfWeek: number; // 1=Sunday, 7=Saturday
   startTime: string; // HH:MM format (Israel local time)
   durationMinutes: number;
+  totalOccurrences?: number; // Override calculated occurrences
 }): Promise<{ meeting: ZoomMeeting; hostUser: ZoomUser } | null> {
   // Build the first meeting datetime
   // startTime is in Israel local time (HH:MM), we need to create a proper datetime
@@ -336,6 +337,7 @@ export async function createCycleMeeting(params: {
   // Calculate number of occurrences
   const msPerWeek = 7 * 24 * 60 * 60 * 1000;
   const totalWeeks = Math.ceil((params.endDate.getTime() - params.startDate.getTime()) / msPerWeek);
+  const occurrences = params.totalOccurrences || totalWeeks + 1;
   
   // Create recurring meeting
   // Add 10 minutes to duration to cover the early start
@@ -348,7 +350,7 @@ export async function createCycleMeeting(params: {
       type: 2, // Weekly
       repeat_interval: 1,
       weekly_days: String(params.dayOfWeek),
-      end_times: Math.min(totalWeeks + 1, 50) // Max 50 occurrences
+      end_times: Math.min(occurrences, 50) // Max 50 occurrences
     }
   });
 

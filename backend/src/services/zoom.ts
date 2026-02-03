@@ -275,7 +275,14 @@ export async function createCycleMeeting(params: {
 }): Promise<{ meeting: ZoomMeeting; hostUser: ZoomUser } | null> {
   // Build the first meeting datetime
   // startTime is in Israel local time (HH:MM), we need to create a proper datetime
-  const [hours, minutes] = params.startTime.split(':').map(Number);
+  // Start Zoom meeting 10 minutes early to allow participants to join before the lesson
+  let [hours, minutes] = params.startTime.split(':').map(Number);
+  minutes -= 10;
+  if (minutes < 0) {
+    minutes += 60;
+    hours -= 1;
+    if (hours < 0) hours = 23;
+  }
   
   // Create date string in ISO format for Israel timezone
   const startDateStr = params.startDate.toISOString().split('T')[0];
@@ -331,10 +338,11 @@ export async function createCycleMeeting(params: {
   const totalWeeks = Math.ceil((params.endDate.getTime() - params.startDate.getTime()) / msPerWeek);
   
   // Create recurring meeting
+  // Add 10 minutes to duration to cover the early start
   const meeting = await createMeeting(availableUser.id, {
     topic: params.cycleName,
     startTime: firstMeeting,
-    duration: params.durationMinutes,
+    duration: params.durationMinutes + 10,
     timezone: 'Asia/Jerusalem',
     recurrence: {
       type: 2, // Weekly

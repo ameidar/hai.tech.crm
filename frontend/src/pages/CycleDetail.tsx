@@ -607,6 +607,28 @@ export default function CycleDetail() {
                         </div>
                       )}
 
+                      {/* Host Email */}
+                      {zoomMeeting.zoomHostEmail && (
+                        <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
+                          <div className="flex items-center gap-2">
+                            <Mail size={16} className="text-purple-600" />
+                            <span className="text-sm">חשבון Zoom</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm">{zoomMeeting.zoomHostEmail}</span>
+                            <button
+                              onClick={() => copyToClipboard(zoomMeeting.zoomHostEmail!, 'hostEmail')}
+                              className={`p-1.5 rounded transition-colors ${
+                                copiedField === 'hostEmail' ? 'bg-green-100 text-green-600' : 'hover:bg-purple-100 text-purple-600'
+                              }`}
+                              title="העתק"
+                            >
+                              {copiedField === 'hostEmail' ? <CheckCircle size={16} /> : <Copy size={16} />}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Host Key */}
                       {zoomMeeting.zoomHostKey && (
                         <div className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg">
@@ -885,6 +907,45 @@ export default function CycleDetail() {
                 </div>
               )}
             </div>
+
+            {/* Zoom Info */}
+            {viewingMeeting.zoomJoinUrl && (
+              <div className="border-t pt-4">
+                <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
+                  <Video size={18} className="text-blue-600" />
+                  פרטי Zoom
+                </h4>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                    <span className="text-sm">לינק לכניסה</span>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={viewingMeeting.zoomJoinUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800"
+                      >
+                        <ExternalLink size={16} />
+                      </a>
+                      <button
+                        onClick={() => copyToClipboard(viewingMeeting.zoomJoinUrl!, 'meetingZoomUrl')}
+                        className={`p-1.5 rounded transition-colors ${
+                          copiedField === 'meetingZoomUrl' ? 'bg-green-100 text-green-600' : 'hover:bg-blue-100 text-blue-600'
+                        }`}
+                      >
+                        {copiedField === 'meetingZoomUrl' ? <CheckCircle size={16} /> : <Copy size={16} />}
+                      </button>
+                    </div>
+                  </div>
+                  {viewingMeeting.zoomMeetingId && (
+                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <span className="text-sm">Meeting ID</span>
+                      <span className="font-mono text-sm">{viewingMeeting.zoomMeetingId}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Financial Info - Admin only */}
             {isAdmin && viewingMeeting.status === 'completed' && (

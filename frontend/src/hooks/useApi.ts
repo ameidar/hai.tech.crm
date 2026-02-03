@@ -693,6 +693,7 @@ interface ZoomMeeting {
   zoomJoinUrl?: string;
   zoomHostKey?: string;
   zoomPassword?: string;
+  zoomHostEmail?: string;
 }
 
 interface ZoomCreateResponse {

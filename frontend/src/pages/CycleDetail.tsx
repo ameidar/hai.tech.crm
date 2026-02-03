@@ -1013,36 +1013,88 @@ export default function CycleDetail() {
           <>
             {/* Zoom Info in Edit Modal */}
             {selectedMeeting.zoomJoinUrl && (
-              <div className="px-6 py-4 bg-blue-50 border-b">
+              <div className="px-6 py-4 bg-blue-50 border-b space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Video size={18} className="text-blue-600" />
-                    <span className="font-medium">Zoom</span>
+                    <span className="font-medium">פרטי Zoom</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <a
-                      href={selectedMeeting.zoomJoinUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:text-blue-800 flex items-center gap-1 text-sm"
-                    >
-                      <ExternalLink size={14} />
-                      פתח לינק
-                    </a>
+                  <a
+                    href={selectedMeeting.zoomJoinUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-primary text-sm py-1.5"
+                  >
+                    <ExternalLink size={14} />
+                    פתח Zoom
+                  </a>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  {/* Join URL */}
+                  <div className="col-span-2 flex items-center justify-between p-2 bg-white rounded">
+                    <span className="text-gray-600">לינק:</span>
                     <button
                       onClick={() => copyToClipboard(selectedMeeting.zoomJoinUrl!, 'editZoomUrl')}
-                      className={`p-1.5 rounded transition-colors ${
-                        copiedField === 'editZoomUrl' ? 'bg-green-100 text-green-600' : 'hover:bg-blue-100 text-blue-600'
+                      className={`flex items-center gap-1 px-2 py-1 rounded ${
+                        copiedField === 'editZoomUrl' ? 'bg-green-100 text-green-600' : 'hover:bg-gray-100 text-blue-600'
                       }`}
-                      title="העתק לינק"
                     >
                       {copiedField === 'editZoomUrl' ? <CheckCircle size={14} /> : <Copy size={14} />}
+                      {copiedField === 'editZoomUrl' ? 'הועתק!' : 'העתק'}
                     </button>
                   </div>
+                  
+                  {/* Meeting ID */}
+                  <div className="flex items-center justify-between p-2 bg-white rounded">
+                    <span className="text-gray-600">Meeting ID:</span>
+                    <span className="font-mono">{selectedMeeting.zoomMeetingId}</span>
+                  </div>
+                  
+                  {/* Password */}
+                  {selectedMeeting.zoomPassword && (
+                    <div className="flex items-center justify-between p-2 bg-white rounded">
+                      <span className="text-gray-600">סיסמה:</span>
+                      <div className="flex items-center gap-1">
+                        <span className="font-mono">{selectedMeeting.zoomPassword}</span>
+                        <button
+                          onClick={() => copyToClipboard(selectedMeeting.zoomPassword!, 'editZoomPass')}
+                          className={`p-1 rounded ${
+                            copiedField === 'editZoomPass' ? 'text-green-600' : 'text-gray-400 hover:text-blue-600'
+                          }`}
+                        >
+                          {copiedField === 'editZoomPass' ? <CheckCircle size={12} /> : <Copy size={12} />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Host Key */}
+                  {selectedMeeting.zoomHostKey && (
+                    <div className="flex items-center justify-between p-2 bg-yellow-50 rounded">
+                      <span className="text-gray-600">קוד מארח:</span>
+                      <div className="flex items-center gap-1">
+                        <span className="font-mono font-bold">{selectedMeeting.zoomHostKey}</span>
+                        <button
+                          onClick={() => copyToClipboard(selectedMeeting.zoomHostKey!, 'editZoomHost')}
+                          className={`p-1 rounded ${
+                            copiedField === 'editZoomHost' ? 'text-green-600' : 'text-gray-400 hover:text-yellow-600'
+                          }`}
+                        >
+                          {copiedField === 'editZoomHost' ? <CheckCircle size={12} /> : <Copy size={12} />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Host Email */}
+                  {selectedMeeting.zoomHostEmail && (
+                    <div className="col-span-2 flex items-center justify-between p-2 bg-white rounded">
+                      <span className="text-gray-600">חשבון Zoom:</span>
+                      <span className="text-sm">{selectedMeeting.zoomHostEmail}</span>
+                    </div>
+                  )}
                 </div>
-                {selectedMeeting.zoomMeetingId && (
-                  <p className="text-xs text-gray-500 mt-1">Meeting ID: {selectedMeeting.zoomMeetingId}</p>
-                )}
               </div>
             )}
           <MeetingUpdateForm

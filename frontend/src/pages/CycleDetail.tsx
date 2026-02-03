@@ -911,36 +911,83 @@ export default function CycleDetail() {
             {/* Zoom Info */}
             {viewingMeeting.zoomJoinUrl && (
               <div className="border-t pt-4">
-                <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
-                  <Video size={18} className="text-blue-600" />
-                  פרטי Zoom
-                </h4>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
-                    <span className="text-sm">לינק לכניסה</span>
-                    <div className="flex items-center gap-2">
-                      <a
-                        href={viewingMeeting.zoomJoinUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800"
-                      >
-                        <ExternalLink size={16} />
-                      </a>
-                      <button
-                        onClick={() => copyToClipboard(viewingMeeting.zoomJoinUrl!, 'meetingZoomUrl')}
-                        className={`p-1.5 rounded transition-colors ${
-                          copiedField === 'meetingZoomUrl' ? 'bg-green-100 text-green-600' : 'hover:bg-blue-100 text-blue-600'
-                        }`}
-                      >
-                        {copiedField === 'meetingZoomUrl' ? <CheckCircle size={16} /> : <Copy size={16} />}
-                      </button>
-                    </div>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-medium text-gray-700 flex items-center gap-2">
+                    <Video size={18} className="text-blue-600" />
+                    פרטי Zoom
+                  </h4>
+                  <a
+                    href={viewingMeeting.zoomJoinUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-primary text-sm py-1.5"
+                  >
+                    <ExternalLink size={14} />
+                    פתח Zoom
+                  </a>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {/* Join URL */}
+                  <div className="col-span-2 flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                    <span className="text-sm text-gray-600">לינק לכניסה</span>
+                    <button
+                      onClick={() => copyToClipboard(viewingMeeting.zoomJoinUrl!, 'meetingZoomUrl')}
+                      className={`flex items-center gap-1 px-2 py-1 rounded text-sm ${
+                        copiedField === 'meetingZoomUrl' ? 'bg-green-100 text-green-600' : 'hover:bg-blue-100 text-blue-600'
+                      }`}
+                    >
+                      {copiedField === 'meetingZoomUrl' ? <CheckCircle size={14} /> : <Copy size={14} />}
+                      {copiedField === 'meetingZoomUrl' ? 'הועתק!' : 'העתק לינק'}
+                    </button>
                   </div>
-                  {viewingMeeting.zoomMeetingId && (
+                  
+                  {/* Meeting ID */}
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <span className="text-sm text-gray-600">Meeting ID</span>
+                    <span className="font-mono text-sm">{viewingMeeting.zoomMeetingId}</span>
+                  </div>
+                  
+                  {/* Password */}
+                  {viewingMeeting.zoomPassword && (
                     <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <span className="text-sm">Meeting ID</span>
-                      <span className="font-mono text-sm">{viewingMeeting.zoomMeetingId}</span>
+                      <span className="text-sm text-gray-600">סיסמה</span>
+                      <div className="flex items-center gap-1">
+                        <span className="font-mono text-sm">{viewingMeeting.zoomPassword}</span>
+                        <button
+                          onClick={() => copyToClipboard(viewingMeeting.zoomPassword!, 'viewZoomPass')}
+                          className={`p-1 rounded ${
+                            copiedField === 'viewZoomPass' ? 'text-green-600' : 'text-gray-400 hover:text-blue-600'
+                          }`}
+                        >
+                          {copiedField === 'viewZoomPass' ? <CheckCircle size={12} /> : <Copy size={12} />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Host Key */}
+                  {viewingMeeting.zoomHostKey && (
+                    <div className="col-span-2 flex items-center justify-between p-3 bg-yellow-50 rounded-lg">
+                      <span className="text-sm text-gray-600">קוד מארח (Claim Host)</span>
+                      <div className="flex items-center gap-1">
+                        <span className="font-mono font-bold">{viewingMeeting.zoomHostKey}</span>
+                        <button
+                          onClick={() => copyToClipboard(viewingMeeting.zoomHostKey!, 'viewZoomHost')}
+                          className={`p-1 rounded ${
+                            copiedField === 'viewZoomHost' ? 'text-green-600' : 'text-gray-400 hover:text-yellow-600'
+                          }`}
+                        >
+                          {copiedField === 'viewZoomHost' ? <CheckCircle size={12} /> : <Copy size={12} />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Host Email */}
+                  {viewingMeeting.zoomHostEmail && (
+                    <div className="col-span-2 flex items-center justify-between p-3 bg-purple-50 rounded-lg">
+                      <span className="text-sm text-gray-600">חשבון Zoom</span>
+                      <span className="text-sm">{viewingMeeting.zoomHostEmail}</span>
                     </div>
                   )}
                 </div>

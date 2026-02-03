@@ -1010,6 +1010,41 @@ export default function CycleDetail() {
         title="עדכון מפגש"
       >
         {selectedMeeting && (
+          <>
+            {/* Zoom Info in Edit Modal */}
+            {selectedMeeting.zoomJoinUrl && (
+              <div className="px-6 py-4 bg-blue-50 border-b">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Video size={18} className="text-blue-600" />
+                    <span className="font-medium">Zoom</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={selectedMeeting.zoomJoinUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:text-blue-800 flex items-center gap-1 text-sm"
+                    >
+                      <ExternalLink size={14} />
+                      פתח לינק
+                    </a>
+                    <button
+                      onClick={() => copyToClipboard(selectedMeeting.zoomJoinUrl!, 'editZoomUrl')}
+                      className={`p-1.5 rounded transition-colors ${
+                        copiedField === 'editZoomUrl' ? 'bg-green-100 text-green-600' : 'hover:bg-blue-100 text-blue-600'
+                      }`}
+                      title="העתק לינק"
+                    >
+                      {copiedField === 'editZoomUrl' ? <CheckCircle size={14} /> : <Copy size={14} />}
+                    </button>
+                  </div>
+                </div>
+                {selectedMeeting.zoomMeetingId && (
+                  <p className="text-xs text-gray-500 mt-1">Meeting ID: {selectedMeeting.zoomMeetingId}</p>
+                )}
+              </div>
+            )}
           <MeetingUpdateForm
             meeting={selectedMeeting}
             instructors={instructors || []}
@@ -1020,6 +1055,7 @@ export default function CycleDetail() {
             isLoading={updateMeeting.isPending}
             isAdmin={isAdmin}
           />
+          </>
         )}
       </Modal>
 

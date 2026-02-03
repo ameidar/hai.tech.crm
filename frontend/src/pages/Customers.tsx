@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Plus, Search, Phone, Mail, MapPin, Users, Trash2 } from 'lucide-react';
 import { useCustomers, useCreateCustomer, useDeleteCustomer } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
-import Loading from '../components/ui/Loading';
+import { SkeletonCardGrid } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import ViewSelector from '../components/ViewSelector';
@@ -71,7 +71,7 @@ export default function Customers() {
 
         {/* Content */}
         {isLoading ? (
-          <Loading size="lg" text="טוען לקוחות..." />
+          <SkeletonCardGrid count={6} />
         ) : customers && customers.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {customers.map((customer) => (
@@ -80,9 +80,9 @@ export default function Customers() {
           </div>
         ) : (
           <EmptyState
-            icon={<Users size={64} />}
+            icon={<Users size={40} />}
             title="אין לקוחות"
-            description="עדיין לא נוספו לקוחות למערכת"
+            description="עדיין לא נוספו לקוחות למערכת. התחל להוסיף לקוחות כדי לנהל אותם!"
             action={
               <button onClick={() => setShowAddModal(true)} className="btn btn-primary">
                 <Plus size={18} />
@@ -112,41 +112,57 @@ export default function Customers() {
 // Customer Card Component
 function CustomerCard({ customer, onDelete }: { customer: Customer; onDelete: (id: string) => void }) {
   return (
-    <div className="card hover:shadow-md transition-shadow relative">
+    <div className="group relative bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-lg hover:border-gray-200 transition-all duration-200 hover:-translate-y-0.5">
       <Link to={`/customers/${customer.id}`} className="block p-6">
         <div className="flex items-start justify-between mb-4">
-          <div>
-            <h3 className="font-semibold text-gray-900 text-lg">{customer.name}</h3>
-            {customer.city && (
-              <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
-                <MapPin size={14} />
-                {customer.city}
-              </p>
-            )}
+          <div className="flex items-center gap-3">
+            {/* Avatar */}
+            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-sm">
+              <span className="text-lg font-bold text-white">
+                {customer.name.charAt(0)}
+              </span>
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 text-lg group-hover:text-blue-600 transition-colors">
+                {customer.name}
+              </h3>
+              {customer.city && (
+                <p className="text-sm text-gray-500 flex items-center gap-1 mt-0.5">
+                  <MapPin size={13} className="text-gray-400" />
+                  {customer.city}
+                </p>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-1 text-blue-600 bg-blue-50 px-2 py-1 rounded-full text-sm">
+          <div className="flex items-center gap-1.5 text-blue-600 bg-blue-50 border border-blue-100 px-2.5 py-1 rounded-full text-sm font-medium">
             <Users size={14} />
             <span>{customer._count?.students || 0}</span>
           </div>
         </div>
 
-        <div className="space-y-2 text-sm">
-          <p className="flex items-center gap-2 text-gray-600">
-            <Phone size={14} />
-            <span dir="ltr">{customer.phone}</span>
+        <div className="space-y-2.5 text-sm">
+          <p className="flex items-center gap-2.5 text-gray-600">
+            <div className="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center">
+              <Phone size={14} className="text-gray-500" />
+            </div>
+            <span dir="ltr" className="text-gray-700">{customer.phone}</span>
           </p>
-          <p className="flex items-center gap-2 text-gray-600">
-            <Mail size={14} />
-            <span dir="ltr" className="truncate">{customer.email}</span>
+          <p className="flex items-center gap-2.5 text-gray-600">
+            <div className="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center">
+              <Mail size={14} className="text-gray-500" />
+            </div>
+            <span dir="ltr" className="truncate text-gray-700">{customer.email}</span>
           </p>
         </div>
       </Link>
+      
+      {/* Delete button - appears on hover */}
       <button
         onClick={(e) => {
           e.stopPropagation();
           onDelete(customer.id);
         }}
-        className="absolute top-3 left-3 p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+        className="absolute top-3 left-3 p-2 text-gray-300 opacity-0 group-hover:opacity-100 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
         title="מחק לקוח"
       >
         <Trash2 size={16} />

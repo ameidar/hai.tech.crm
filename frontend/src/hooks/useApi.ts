@@ -265,10 +265,11 @@ export const useSendInstructorInvite = () => {
 };
 
 // ==================== Cycles ====================
-export const useCycles = (params?: { branchId?: string; instructorId?: string; status?: string; dayOfWeek?: string; search?: string; limit?: number }) => {
+export const useCycles = (params?: { branchId?: string; instructorId?: string; courseId?: string; status?: string; dayOfWeek?: string; search?: string; limit?: number }) => {
   const searchParams = new URLSearchParams();
   if (params?.branchId) searchParams.append('branchId', params.branchId);
   if (params?.instructorId) searchParams.append('instructorId', params.instructorId);
+  if (params?.courseId) searchParams.append('courseId', params.courseId);
   if (params?.status) searchParams.append('status', params.status);
   if (params?.dayOfWeek) searchParams.append('dayOfWeek', params.dayOfWeek);
   searchParams.append('limit', String(params?.limit || 100));
@@ -643,6 +644,42 @@ export const useViewData = (
       return response.data;
     },
     enabled: !!viewId,
+  });
+};
+
+// ==================== Communication ====================
+
+export const useSendWhatsApp = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ phone, message, customerId, customerName }: { phone: string; message: string; customerId?: string; customerName?: string }) =>
+      mutateData<{ success: boolean }, { phone: string; message: string; customerId?: string; customerName?: string }>(
+        '/communication/whatsapp',
+        'post',
+        { phone, message, customerId, customerName }
+      ),
+    onSuccess: (_, { customerId }) => {
+      if (customerId) {
+        queryClient.invalidateQueries({ queryKey: ['communication-history', customerId] });
+      }
+    },
+  });
+};
+
+export const useSendEmail = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ to, subject, body, customerId, customerName }: { to: string; subject: string; body: string; customerId?: string; customerName?: string }) =>
+      mutateData<{ success: boolean }, { to: string; subject: string; body: string; customerId?: string; customerName?: string }>(
+        '/communication/email',
+        'post',
+        { to, subject, body, customerId, customerName }
+      ),
+    onSuccess: (_, { customerId }) => {
+      if (customerId) {
+        queryClient.invalidateQueries({ queryKey: ['communication-history', customerId] });
+      }
+    },
   });
 };
 

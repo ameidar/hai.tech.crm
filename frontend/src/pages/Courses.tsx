@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { Plus, BookOpen, RefreshCcw, Search } from 'lucide-react';
 import { useCourses, useCreateCourse, useUpdateCourse } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
@@ -185,10 +185,13 @@ function CourseCard({ course, onEdit }: CourseCardProps) {
         )}
 
         <div className="flex items-center justify-between pt-4 border-t">
-          <div className="flex items-center gap-1 text-gray-500 text-sm">
-            <RefreshCcw size={14} />
-            <span>{course._count?.cycles || 0} מחזורים</span>
-          </div>
+          <Link 
+            to={`/cycles?courseId=${course.id}`}
+            className="flex items-center gap-1 text-gray-500 hover:text-blue-600 text-sm transition-colors group"
+          >
+            <RefreshCcw size={14} className="group-hover:text-blue-600" />
+            <span className="group-hover:underline">{course._count?.cycles || 0} מחזורים</span>
+          </Link>
           <button
             onClick={onEdit}
             className="text-blue-600 hover:underline text-sm"

@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square } from 'lucide-react';
 import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useViewData } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
-import Loading from '../components/ui/Loading';
+import Loading, { SkeletonTable } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import ViewSelector from '../components/ViewSelector';
@@ -20,6 +20,7 @@ export default function Cycles() {
   const [statusFilter, setStatusFilter] = useState<CycleStatus | ''>('');
   const [instructorFilter, setInstructorFilter] = useState('');
   const [branchFilter, setBranchFilter] = useState('');
+  const [courseFilter, setCourseFilter] = useState('');
   const [dayFilter, setDayFilter] = useState<DayOfWeek | ''>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -30,8 +31,10 @@ export default function Cycles() {
   useEffect(() => {
     const branchId = searchParams.get('branchId');
     const instructorId = searchParams.get('instructorId');
+    const courseId = searchParams.get('courseId');
     if (branchId) setBranchFilter(branchId);
     if (instructorId) setInstructorFilter(instructorId);
+    if (courseId) setCourseFilter(courseId);
   }, [searchParams]);
 
   // Debounce search
@@ -44,6 +47,7 @@ export default function Cycles() {
     status: statusFilter || undefined,
     instructorId: instructorFilter || undefined,
     branchId: branchFilter || undefined,
+    courseId: courseFilter || undefined,
     dayOfWeek: dayFilter || undefined,
     search: debouncedSearch || undefined,
   });
@@ -102,11 +106,12 @@ export default function Cycles() {
     setStatusFilter('');
     setInstructorFilter('');
     setBranchFilter('');
+    setCourseFilter('');
     setDayFilter('');
     setSearchQuery('');
   };
 
-  const hasActiveFilters = statusFilter || instructorFilter || branchFilter || dayFilter || searchQuery;
+  const hasActiveFilters = statusFilter || instructorFilter || branchFilter || courseFilter || dayFilter || searchQuery;
 
   const handleDeleteCycle = async (id: string, name: string) => {
     if (window.confirm(`האם למחוק את המחזור "${name}"? פעולה זו תמחק גם את כל הפגישות הקשורות.`)) {
@@ -212,6 +217,22 @@ export default function Cycles() {
               </select>
             </div>
 
+            {/* Course filter */}
+            <div className="w-36">
+              <select
+                value={courseFilter}
+                onChange={(e) => setCourseFilter(e.target.value)}
+                className="form-input"
+              >
+                <option value="">כל הקורסים</option>
+                {courses?.map((course) => (
+                  <option key={course.id} value={course.id}>
+                    {course.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* Day filter */}
             <div className="w-28">
               <select
@@ -298,159 +319,167 @@ export default function Cycles() {
         )}
 
         {displayLoading ? (
-          <Loading size="lg" text="טוען מחזורים..." />
+          <SkeletonTable rows={8} columns={11} />
         ) : displayCycles && displayCycles.length > 0 ? (
-          <div className="card overflow-hidden">
-            <table>
-              <thead>
-                <tr>
-                  <th className="w-12">
-                    <button
-                      onClick={toggleAll}
-                      className="p-1 hover:bg-gray-100 rounded transition-colors"
-                      title={selectedCycles.size === displayCycles.length ? 'בטל הכל' : 'בחר הכל'}
-                    >
-                      {selectedCycles.size === displayCycles.length ? (
-                        <CheckSquare size={18} className="text-blue-600" />
-                      ) : selectedCycles.size > 0 ? (
-                        <CheckSquare size={18} className="text-blue-400" />
-                      ) : (
-                        <Square size={18} className="text-gray-400" />
-                      )}
-                    </button>
-                  </th>
-                  <th>שם המחזור</th>
-                  <th>קורס</th>
-                  <th>סניף</th>
-                  <th>מדריך</th>
-                  <th>תאריך התחלה</th>
-                  <th>יום ושעה</th>
-                  <th>סוג</th>
-                  <th>התקדמות</th>
-                  <th>סטטוס</th>
-                  <th>פעולות</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayCycles.map((cycle) => (
-                  <tr key={cycle.id} className={selectedCycles.has(cycle.id) ? 'bg-blue-50' : ''}>
-                    <td>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th className="w-12">
                       <button
-                        onClick={() => toggleCycle(cycle.id)}
-                        className="p-1 hover:bg-gray-100 rounded transition-colors"
+                        onClick={toggleAll}
+                        className="p-1 hover:bg-gray-200 rounded transition-colors"
+                        title={selectedCycles.size === displayCycles.length ? 'בטל הכל' : 'בחר הכל'}
                       >
-                        {selectedCycles.has(cycle.id) ? (
+                        {selectedCycles.size === displayCycles.length ? (
                           <CheckSquare size={18} className="text-blue-600" />
+                        ) : selectedCycles.size > 0 ? (
+                          <CheckSquare size={18} className="text-blue-400" />
                         ) : (
                           <Square size={18} className="text-gray-400" />
                         )}
                       </button>
-                    </td>
-                    <td>
-                      <Link
-                        to={`/cycles/${cycle.id}`}
-                        className="text-blue-600 hover:underline font-medium"
-                      >
-                        {cycle.name}
-                      </Link>
-                    </td>
-                    <td>
-                      {cycle.course ? (
-                        <Link
-                          to={`/courses?search=${encodeURIComponent(cycle.course.name)}`}
-                          className="text-blue-600 hover:underline"
-                        >
-                          {cycle.course.name}
-                        </Link>
-                      ) : '-'}
-                    </td>
-                    <td>
-                      {cycle.branch ? (
-                        <Link
-                          to={`/branches?search=${encodeURIComponent(cycle.branch.name)}`}
-                          className="text-blue-600 hover:underline"
-                        >
-                          {cycle.branch.name}
-                        </Link>
-                      ) : '-'}
-                    </td>
-                    <td>
-                      {cycle.instructor ? (
-                        <Link
-                          to={`/instructors?search=${encodeURIComponent(cycle.instructor.name)}`}
-                          className="text-blue-600 hover:underline"
-                        >
-                          {cycle.instructor.name}
-                        </Link>
-                      ) : '-'}
-                    </td>
-                    <td className="text-gray-600">
-                      {new Date(cycle.startDate).toLocaleDateString('he-IL')}
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-1">
-                        <Clock size={14} className="text-gray-400" />
-                        <span>
-                          {dayOfWeekHebrew[cycle.dayOfWeek]} {formatTime(cycle.startTime)}
-                        </span>
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`badge ${cycle.type === 'private' ? 'badge-warning' : 'badge-info'}`}>
-                        {cycleTypeHebrew[cycle.type]}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-blue-600 rounded-full"
-                            style={{
-                              width: `${(cycle.completedMeetings / cycle.totalMeetings) * 100}%`,
-                            }}
-                          />
-                        </div>
-                        <span className="text-sm text-gray-500">
-                          {cycle.completedMeetings}/{cycle.totalMeetings}
-                        </span>
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`badge ${
-                        cycle.status === 'active' ? 'badge-success' :
-                        cycle.status === 'completed' ? 'badge-info' : 'badge-danger'
-                      }`}>
-                        {cycleStatusHebrew[cycle.status]}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => setEditingCycle(cycle)}
-                          className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="עריכה"
-                        >
-                          <Edit size={16} />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteCycle(cycle.id, cycle.name)}
-                          className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                          title="מחיקה"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </td>
+                    </th>
+                    <th>שם המחזור</th>
+                    <th>קורס</th>
+                    <th>סניף</th>
+                    <th>מדריך</th>
+                    <th>תאריך התחלה</th>
+                    <th>יום ושעה</th>
+                    <th>סוג</th>
+                    <th>התקדמות</th>
+                    <th>סטטוס</th>
+                    <th>פעולות</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {displayCycles.map((cycle, index) => (
+                    <tr 
+                      key={cycle.id} 
+                      className={`
+                        ${selectedCycles.has(cycle.id) ? 'bg-blue-50 hover:bg-blue-100' : ''}
+                        transition-colors duration-150
+                      `}
+                    >
+                      <td>
+                        <button
+                          onClick={() => toggleCycle(cycle.id)}
+                          className="p-1 hover:bg-gray-100 rounded transition-colors"
+                        >
+                          {selectedCycles.has(cycle.id) ? (
+                            <CheckSquare size={18} className="text-blue-600" />
+                          ) : (
+                            <Square size={18} className="text-gray-400 hover:text-gray-600" />
+                          )}
+                        </button>
+                      </td>
+                      <td>
+                        <Link
+                          to={`/cycles/${cycle.id}`}
+                          className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
+                        >
+                          {cycle.name}
+                        </Link>
+                      </td>
+                      <td>
+                        {cycle.course ? (
+                          <Link
+                            to={`/courses?search=${encodeURIComponent(cycle.course.name)}`}
+                            className="text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            {cycle.course.name}
+                          </Link>
+                        ) : <span className="text-gray-400">-</span>}
+                      </td>
+                      <td>
+                        {cycle.branch ? (
+                          <Link
+                            to={`/branches?search=${encodeURIComponent(cycle.branch.name)}`}
+                            className="text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            {cycle.branch.name}
+                          </Link>
+                        ) : <span className="text-gray-400">-</span>}
+                      </td>
+                      <td>
+                        {cycle.instructor ? (
+                          <Link
+                            to={`/instructors?search=${encodeURIComponent(cycle.instructor.name)}`}
+                            className="text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            {cycle.instructor.name}
+                          </Link>
+                        ) : <span className="text-gray-400">-</span>}
+                      </td>
+                      <td className="text-gray-600">
+                        {new Date(cycle.startDate).toLocaleDateString('he-IL')}
+                      </td>
+                      <td>
+                        <div className="flex items-center gap-1.5 text-gray-700">
+                          <Clock size={14} className="text-gray-400" />
+                          <span>
+                            {dayOfWeekHebrew[cycle.dayOfWeek]} {formatTime(cycle.startTime)}
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`badge ${cycle.type === 'private' ? 'badge-warning' : 'badge-info'}`}>
+                          {cycleTypeHebrew[cycle.type]}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="flex items-center gap-2">
+                          <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300"
+                              style={{
+                                width: `${(cycle.completedMeetings / cycle.totalMeetings) * 100}%`,
+                              }}
+                            />
+                          </div>
+                          <span className="text-sm text-gray-500 tabular-nums">
+                            {cycle.completedMeetings}/{cycle.totalMeetings}
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`badge ${
+                          cycle.status === 'active' ? 'badge-success' :
+                          cycle.status === 'completed' ? 'badge-info' : 'badge-danger'
+                        }`}>
+                          {cycleStatusHebrew[cycle.status]}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setEditingCycle(cycle)}
+                            className="icon-btn icon-btn-primary"
+                            title="עריכה"
+                          >
+                            <Edit size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteCycle(cycle.id, cycle.name)}
+                            className="icon-btn icon-btn-danger"
+                            title="מחיקה"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : (
           <EmptyState
-            icon={<RefreshCcw size={64} />}
+            icon={<RefreshCcw size={40} />}
             title="אין מחזורים"
-            description="עדיין לא נוספו מחזורים למערכת"
+            description="עדיין לא נוספו מחזורים למערכת. צור מחזור חדש כדי להתחיל!"
             action={
               <button onClick={() => setShowAddModal(true)} className="btn btn-primary">
                 <Plus size={18} />

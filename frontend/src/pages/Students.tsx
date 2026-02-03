@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Search, User, GraduationCap, Plus, CreditCard, BookOpen } from 'lucide-react';
 import { useStudents, useCycles, useCreateRegistration, useUpdateRegistration } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
-import Loading from '../components/ui/Loading';
+import { SkeletonTable } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import ViewSelector from '../components/ViewSelector';
@@ -66,7 +66,20 @@ export default function Students() {
   };
 
   if (isLoading) {
-    return <Loading size="lg" text="טוען תלמידים..." />;
+    return (
+      <div className="flex-1 flex flex-col">
+        <PageHeader
+          title="תלמידים"
+          subtitle="טוען..."
+        />
+        <div className="flex-1 p-6 overflow-auto bg-gray-50">
+          <div className="bg-white rounded-lg p-4 shadow mb-6">
+            <div className="h-10 w-80 bg-gray-200 rounded-lg animate-pulse" />
+          </div>
+          <SkeletonTable rows={8} columns={5} />
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -94,92 +107,96 @@ export default function Students() {
 
         {/* Students List */}
         {filteredStudents.length > 0 ? (
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-right text-sm font-semibold text-gray-900">שם התלמיד</th>
-                  <th className="px-6 py-3 text-right text-sm font-semibold text-gray-900">לקוח (הורה)</th>
-                  <th className="px-6 py-3 text-right text-sm font-semibold text-gray-900">כיתה</th>
-                  <th className="px-6 py-3 text-right text-sm font-semibold text-gray-900">הרשמות</th>
-                  <th className="px-6 py-3 text-right text-sm font-semibold text-gray-900">פעולות</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {filteredStudents.map((student) => (
-                  <tr key={student.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                          <GraduationCap size={20} className="text-blue-600" />
-                        </div>
-                        <span className="font-medium text-gray-900">{student.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      {student.customer ? (
-                        <Link
-                          to={`/customers/${student.customer.id}`}
-                          className="text-blue-600 hover:underline"
-                        >
-                          {student.customer.name}
-                        </Link>
-                      ) : (
-                        '-'
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-gray-600">{student.grade || '-'}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-wrap gap-1">
-                        {student.registrations && student.registrations.length > 0 ? (
-                          student.registrations.map((reg) => (
-                            <button
-                              key={reg.id}
-                              onClick={() => setEditPayment({ student, registration: reg })}
-                              className={`px-2 py-1 rounded-full text-xs flex items-center gap-1 transition-colors ${
-                                reg.paymentStatus === 'paid' ? 'bg-green-100 text-green-700 hover:bg-green-200' :
-                                reg.paymentStatus === 'partial' ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' :
-                                'bg-red-100 text-red-700 hover:bg-red-200'
-                              }`}
-                              title={`${reg.cycle?.name || 'מחזור'} - לחץ לעדכון תשלום`}
-                            >
-                              <CreditCard size={12} />
-                              {reg.cycle?.course?.name?.substring(0, 10) || 'מחזור'}
-                            </button>
-                          ))
-                        ) : (
-                          <span className="text-gray-400 text-sm">אין הרשמות</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setRegisterStudent(student)}
-                          className="text-green-600 hover:text-green-700 flex items-center gap-1 text-sm"
-                          title="הרשם למחזור"
-                        >
-                          <Plus size={16} />
-                          הרשמה
-                        </button>
-                        <Link
-                          to={`/customers/${student.customerId}`}
-                          className="text-blue-600 hover:underline text-sm"
-                        >
-                          פרטים
-                        </Link>
-                      </div>
-                    </td>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>שם התלמיד</th>
+                    <th>לקוח (הורה)</th>
+                    <th>כיתה</th>
+                    <th>הרשמות</th>
+                    <th>פעולות</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filteredStudents.map((student) => (
+                    <tr key={student.id} className="group">
+                      <td>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-gradient-to-br from-blue-100 to-blue-200 rounded-full flex items-center justify-center shadow-sm group-hover:shadow transition-shadow">
+                            <GraduationCap size={20} className="text-blue-600" />
+                          </div>
+                          <span className="font-medium text-gray-900">{student.name}</span>
+                        </div>
+                      </td>
+                      <td>
+                        {student.customer ? (
+                          <Link
+                            to={`/customers/${student.customer.id}`}
+                            className="text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            {student.customer.name}
+                          </Link>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+                      <td className="text-gray-600">{student.grade || <span className="text-gray-400">-</span>}</td>
+                      <td>
+                        <div className="flex flex-wrap gap-1.5">
+                          {student.registrations && student.registrations.length > 0 ? (
+                            student.registrations.map((reg) => (
+                              <button
+                                key={reg.id}
+                                onClick={() => setEditPayment({ student, registration: reg })}
+                                className={`px-2.5 py-1 rounded-full text-xs font-medium flex items-center gap-1.5 transition-all duration-200 border ${
+                                  reg.paymentStatus === 'paid' 
+                                    ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100 hover:border-green-300' 
+                                    : reg.paymentStatus === 'partial' 
+                                    ? 'bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100 hover:border-yellow-300' 
+                                    : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100 hover:border-red-300'
+                                }`}
+                                title={`${reg.cycle?.name || 'מחזור'} - לחץ לעדכון תשלום`}
+                              >
+                                <CreditCard size={12} />
+                                {reg.cycle?.course?.name?.substring(0, 10) || 'מחזור'}
+                              </button>
+                            ))
+                          ) : (
+                            <span className="text-gray-400 text-sm italic">אין הרשמות</span>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => setRegisterStudent(student)}
+                            className="inline-flex items-center gap-1.5 text-green-600 hover:text-green-700 text-sm font-medium transition-colors"
+                            title="הרשם למחזור"
+                          >
+                            <Plus size={16} />
+                            הרשמה
+                          </button>
+                          <Link
+                            to={`/customers/${student.customerId}`}
+                            className="text-blue-600 hover:text-blue-800 hover:underline text-sm"
+                          >
+                            פרטים
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : (
           <EmptyState
-            icon={<User size={48} className="text-gray-300" />}
+            icon={<User size={40} />}
             title="לא נמצאו תלמידים"
-            description={search ? 'נסה לחפש במונחים אחרים' : 'התחל להוסיף תלמידים דרך דף הלקוחות'}
+            description={search ? `לא נמצאו תוצאות עבור "${search}"` : 'התחל להוסיף תלמידים דרך דף הלקוחות'}
           />
         )}
       </div>

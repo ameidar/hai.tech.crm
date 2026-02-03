@@ -11,6 +11,7 @@ import {
   RefreshCcw,
   Calendar,
   BarChart3,
+  FileText,
   LogOut,
   Menu,
   X,
@@ -28,6 +29,7 @@ const adminNavItems = [
   { path: '/cycles', icon: RefreshCcw, label: 'מחזורים' },
   { path: '/meetings', icon: Calendar, label: 'פגישות' },
   { path: '/reports', icon: BarChart3, label: 'דוחות' },
+  { path: '/audit', icon: FileText, label: 'יומן פעילות' },
 ];
 
 // Instructor-only navigation

@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Calendar,
   ChevronLeft,
@@ -18,6 +18,7 @@ import { meetingStatusHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
 export default function Meetings() {
+  const [searchParams] = useSearchParams();
   const [selectedDate, setSelectedDate] = useState(() => {
     return new Date().toISOString().split('T')[0];
   });
@@ -25,10 +26,19 @@ export default function Meetings() {
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'date' | 'view'>('date');
   const [viewColumns, setViewColumns] = useState<string[]>([]);
+  const [instructorFilter, setInstructorFilter] = useState('');
   
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkStatus, setBulkStatus] = useState<string>('');
+
+  // Initialize filter from URL params
+  useEffect(() => {
+    const instructorId = searchParams.get('instructorId');
+    if (instructorId) {
+      setInstructorFilter(instructorId);
+    }
+  }, [searchParams]);
   
   // Column definitions for meetings
   const allColumns: Record<string, { label: string; render: (m: Meeting) => React.ReactNode }> = {
@@ -102,7 +112,10 @@ export default function Meetings() {
   // Get active columns (from view or default)
   const activeColumns = viewMode === 'view' && viewColumns.length > 0 ? viewColumns : defaultColumns;
 
-  const { data: meetings, isLoading, refetch } = useMeetings({ date: selectedDate });
+  const { data: meetings, isLoading, refetch } = useMeetings({ 
+    date: instructorFilter ? undefined : selectedDate,  // When filtering by instructor, show all dates
+    instructorId: instructorFilter || undefined,
+  });
   
   // Build date filter for view data - filter by selectedDate
   // Use UTC midnight directly since DB stores dates at 00:00:00 UTC

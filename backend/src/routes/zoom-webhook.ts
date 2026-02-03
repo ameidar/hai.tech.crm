@@ -1,11 +1,56 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
+import nodemailer from 'nodemailer';
 
 const router = Router();
 const prisma = new PrismaClient();
 
 const ZOOM_SECRET_TOKEN = process.env.ZOOM_SECRET_TOKEN;
+const GMAIL_USER = process.env.GMAIL_USER;
+const GMAIL_PASS = process.env.GMAIL_PASS;
+
+// Email transporter
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: GMAIL_USER,
+    pass: GMAIL_PASS
+  }
+});
+
+async function sendUnmatchedRecordingEmail(recording: {
+  meetingId: string;
+  topic: string;
+  recordingUrl: string;
+  hostEmail: string;
+  startTime: string;
+}) {
+  try {
+    await transporter.sendMail({
+      from: GMAIL_USER,
+      to: 'ami@hai.tech',
+      subject: `⚠️ הקלטת Zoom לא מזוהה: ${recording.topic}`,
+      html: `
+        <div dir="rtl" style="font-family: Arial, sans-serif;">
+          <h2>הקלטת Zoom לא התאימה לאף מחזור במערכת</h2>
+          <table style="border-collapse: collapse;">
+            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>נושא:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${recording.topic}</td></tr>
+            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Meeting ID:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${recording.meetingId}</td></tr>
+            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>מארח:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${recording.hostEmail}</td></tr>
+            <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>זמן:</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${recording.startTime}</td></tr>
+          </table>
+          <p style="margin-top: 20px;">
+            <a href="${recording.recordingUrl}" style="background: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">צפה בהקלטה</a>
+          </p>
+        </div>
+      `
+    });
+    console.log('[Zoom Webhook] Sent unmatched recording email');
+  } catch (error) {
+    console.error('[Zoom Webhook] Failed to send email:', error);
+  }
+}
 
 /**
  * POST /api/zoom-webhook
@@ -71,6 +116,32 @@ router.post('/', async (req: Request, res: Response) => {
         });
         
         console.log(`[Zoom Webhook] Updated ${updated.count} meetings with recording URL`);
+        
+        // If no meetings matched, save to unmatched_recordings and send email
+        if (updated.count === 0) {
+          const topic = payload?.object?.topic || 'Unknown';
+          const hostEmail = payload?.object?.host_email || '';
+          const startTime = payload?.object?.recording_start || '';
+          const endTime = payload?.object?.recording_end || '';
+          
+          // Save to unmatched_recordings table
+          await prisma.$executeRaw`
+            INSERT INTO unmatched_recordings 
+            (zoom_meeting_id, zoom_meeting_topic, recording_url, recording_password, recording_start, recording_end, host_email, raw_payload)
+            VALUES (${meetingId}, ${topic}, ${recordingUrl}, ${recordingPassword || null}, ${startTime ? new Date(startTime) : null}, ${endTime ? new Date(endTime) : null}, ${hostEmail}, ${JSON.stringify(payload)}::jsonb)
+          `;
+          
+          console.log('[Zoom Webhook] Saved unmatched recording to database');
+          
+          // Send notification email
+          await sendUnmatchedRecordingEmail({
+            meetingId,
+            topic,
+            recordingUrl,
+            hostEmail,
+            startTime
+          });
+        }
       }
     }
     

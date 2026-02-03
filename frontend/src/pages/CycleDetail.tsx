@@ -22,6 +22,11 @@ import {
   Mail,
   ClipboardList,
   Trash2,
+  Video,
+  Copy,
+  Link as LinkIcon,
+  Key,
+  Lock,
 } from 'lucide-react';
 import {
   useCycle,
@@ -39,6 +44,9 @@ import {
   useCreateRegistration,
   useUpdateRegistration,
   useDeleteRegistration,
+  useZoomMeeting,
+  useCreateZoomMeeting,
+  useDeleteZoomMeeting,
 } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -84,6 +92,37 @@ export default function CycleDetail() {
   const createRegistration = useCreateRegistration();
   const updateRegistration = useUpdateRegistration();
   const deleteRegistration = useDeleteRegistration();
+  const { data: zoomMeeting, isLoading: zoomLoading } = useZoomMeeting(id!);
+  const createZoomMeeting = useCreateZoomMeeting();
+  const deleteZoomMeeting = useDeleteZoomMeeting();
+
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const copyToClipboard = (text: string, field: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+
+  const handleCreateZoomMeeting = async () => {
+    try {
+      await createZoomMeeting.mutateAsync(id!);
+    } catch (error: any) {
+      console.error('Failed to create Zoom meeting:', error);
+      alert(error.response?.data?.error || 'שגיאה ביצירת פגישת Zoom');
+    }
+  };
+
+  const handleDeleteZoomMeeting = async () => {
+    if (confirm('האם למחוק את פגישת הזום? פעולה זו לא ניתנת לביטול.')) {
+      try {
+        await deleteZoomMeeting.mutateAsync(id!);
+      } catch (error) {
+        console.error('Failed to delete Zoom meeting:', error);
+        alert('שגיאה במחיקת פגישת Zoom');
+      }
+    }
+  };
 
   const handleDeleteRegistration = async (registrationId: string) => {
     if (confirm('האם למחוק את ההרשמה? פעולה זו לא ניתנת לביטול.')) {
@@ -475,6 +514,147 @@ export default function CycleDetail() {
                 })()}
               </div>
             </div>
+
+            {/* Zoom Card - Only for online cycles */}
+            {cycle.activityType === 'online' && (
+              <div className="card">
+                <div className="card-header flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Video size={18} className="text-blue-600" />
+                    <h2 className="font-semibold">Zoom</h2>
+                  </div>
+                  {zoomMeeting?.hasMeeting && (
+                    <button
+                      onClick={handleDeleteZoomMeeting}
+                      className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      title="מחק פגישת Zoom"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                </div>
+                <div className="card-body">
+                  {zoomLoading ? (
+                    <div className="text-center py-4 text-gray-500">טוען...</div>
+                  ) : zoomMeeting?.hasMeeting ? (
+                    <div className="space-y-3">
+                      {/* Join URL */}
+                      <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <LinkIcon size={16} className="text-blue-600" />
+                          <span className="text-sm font-medium">לינק לכניסה</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <a
+                            href={zoomMeeting.zoomJoinUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:text-blue-800 text-sm"
+                          >
+                            <ExternalLink size={16} />
+                          </a>
+                          <button
+                            onClick={() => copyToClipboard(zoomMeeting.zoomJoinUrl!, 'joinUrl')}
+                            className={`p-1.5 rounded transition-colors ${
+                              copiedField === 'joinUrl' ? 'bg-green-100 text-green-600' : 'hover:bg-blue-100 text-blue-600'
+                            }`}
+                            title="העתק לינק"
+                          >
+                            {copiedField === 'joinUrl' ? <CheckCircle size={16} /> : <Copy size={16} />}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Meeting ID */}
+                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <Video size={16} className="text-gray-600" />
+                          <span className="text-sm">Meeting ID</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-sm">{zoomMeeting.zoomMeetingId}</span>
+                          <button
+                            onClick={() => copyToClipboard(zoomMeeting.zoomMeetingId!, 'meetingId')}
+                            className={`p-1.5 rounded transition-colors ${
+                              copiedField === 'meetingId' ? 'bg-green-100 text-green-600' : 'hover:bg-gray-200 text-gray-600'
+                            }`}
+                            title="העתק"
+                          >
+                            {copiedField === 'meetingId' ? <CheckCircle size={16} /> : <Copy size={16} />}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Password */}
+                      {zoomMeeting.zoomPassword && (
+                        <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                          <div className="flex items-center gap-2">
+                            <Lock size={16} className="text-gray-600" />
+                            <span className="text-sm">סיסמה</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-sm">{zoomMeeting.zoomPassword}</span>
+                            <button
+                              onClick={() => copyToClipboard(zoomMeeting.zoomPassword!, 'password')}
+                              className={`p-1.5 rounded transition-colors ${
+                                copiedField === 'password' ? 'bg-green-100 text-green-600' : 'hover:bg-gray-200 text-gray-600'
+                              }`}
+                              title="העתק"
+                            >
+                              {copiedField === 'password' ? <CheckCircle size={16} /> : <Copy size={16} />}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Host Key */}
+                      {zoomMeeting.zoomHostKey && (
+                        <div className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg">
+                          <div className="flex items-center gap-2">
+                            <Key size={16} className="text-yellow-600" />
+                            <span className="text-sm font-medium">קוד מארח (Claim Host)</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-sm font-bold">{zoomMeeting.zoomHostKey}</span>
+                            <button
+                              onClick={() => copyToClipboard(zoomMeeting.zoomHostKey!, 'hostKey')}
+                              className={`p-1.5 rounded transition-colors ${
+                                copiedField === 'hostKey' ? 'bg-green-100 text-green-600' : 'hover:bg-yellow-100 text-yellow-600'
+                              }`}
+                              title="העתק"
+                            >
+                              {copiedField === 'hostKey' ? <CheckCircle size={16} /> : <Copy size={16} />}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center py-4">
+                      <Video size={48} className="mx-auto mb-4 text-gray-300" />
+                      <p className="text-gray-500 mb-4">לא הוגדרה פגישת Zoom למחזור זה</p>
+                      <button
+                        onClick={handleCreateZoomMeeting}
+                        disabled={createZoomMeeting.isPending}
+                        className="btn btn-primary"
+                      >
+                        {createZoomMeeting.isPending ? (
+                          <>
+                            <RefreshCcw size={16} className="animate-spin" />
+                            יוצר פגישה...
+                          </>
+                        ) : (
+                          <>
+                            <Video size={16} />
+                            צור פגישת Zoom
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Registrations */}
             <div className="card">

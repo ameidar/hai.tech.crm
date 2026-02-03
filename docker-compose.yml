@@ -46,6 +46,10 @@ services:
       GREEN_API_TOKEN: ${GREEN_API_TOKEN}
       GMAIL_USER: info@hai.tech
       GMAIL_PASS: ${GMAIL_PASS}
+      ZOOM_ACCOUNT_ID: ${ZOOM_ACCOUNT_ID}
+      ZOOM_CLIENT_ID: ${ZOOM_CLIENT_ID}
+      ZOOM_CLIENT_SECRET: ${ZOOM_CLIENT_SECRET}
+      ZOOM_SECRET_TOKEN: ${ZOOM_SECRET_TOKEN}
     ports:
       - "3001:3001"
     healthcheck:

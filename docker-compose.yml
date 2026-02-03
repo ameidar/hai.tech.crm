@@ -50,6 +50,7 @@ services:
       ZOOM_CLIENT_ID: ${ZOOM_CLIENT_ID}
       ZOOM_CLIENT_SECRET: ${ZOOM_CLIENT_SECRET}
       ZOOM_SECRET_TOKEN: ${ZOOM_SECRET_TOKEN}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
     ports:
       - "3001:3001"
     healthcheck:

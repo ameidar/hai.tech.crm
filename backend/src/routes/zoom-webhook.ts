@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import nodemailer from 'nodemailer';
+import { processRecording } from '../services/transcription';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -24,19 +25,34 @@ function formatPhoneForWhatsApp(phone: string): string {
   return cleaned + '@c.us';
 }
 
-async function sendWhatsAppToInstructor(phone: string, instructorName: string, topic: string, recordingUrl: string) {
+async function sendWhatsAppToInstructor(
+  phone: string, 
+  instructorName: string, 
+  topic: string, 
+  recordingUrl: string,
+  lessonSummary?: string
+) {
   if (!GREEN_API_INSTANCE_ID || !GREEN_API_TOKEN) {
     console.log('[Zoom Webhook] WhatsApp not configured, skipping');
     return;
   }
   
   try {
-    const message = `שלום ${instructorName} 👋
+    let message = `שלום ${instructorName} 👋
 
 ההקלטה של השיעור "${topic}" מוכנה!
 
 🎥 לצפייה בהקלטה:
-${recordingUrl}
+${recordingUrl}`;
+
+    if (lessonSummary) {
+      message += `
+
+📝 סיכום השיעור:
+${lessonSummary}`;
+    }
+
+    message += `
 
 בהצלחה! 🌟`;
 
@@ -59,6 +75,63 @@ ${recordingUrl}
     }
   } catch (error) {
     console.error('[Zoom Webhook] WhatsApp error:', error);
+  }
+}
+
+/**
+ * Process transcription in background - don't block webhook response
+ */
+async function processTranscriptionInBackground(
+  meetingId: string,
+  audioUrl: string,
+  topic: string,
+  recordingUrl: string,
+  instructorPhone: string | null,
+  instructorName: string
+) {
+  console.log(`[Transcription] Starting background processing for meeting ${meetingId}`);
+  
+  try {
+    // Process recording: transcribe + summarize
+    const { transcript, summary } = await processRecording(audioUrl, topic);
+    
+    // Update meeting with transcript and summary
+    await prisma.meeting.update({
+      where: { id: meetingId },
+      data: {
+        lessonTranscript: transcript,
+        lessonSummary: summary
+      }
+    });
+    
+    console.log(`[Transcription] Saved transcript and summary for meeting ${meetingId}`);
+    
+    // Send WhatsApp to instructor with recording + summary
+    if (instructorPhone) {
+      await sendWhatsAppToInstructor(
+        instructorPhone,
+        instructorName,
+        topic,
+        recordingUrl,
+        summary
+      );
+    }
+  } catch (error) {
+    console.error(`[Transcription] Error processing meeting ${meetingId}:`, error);
+    
+    // Still send WhatsApp with just the recording link
+    if (instructorPhone) {
+      try {
+        await sendWhatsAppToInstructor(
+          instructorPhone,
+          instructorName,
+          topic,
+          recordingUrl
+        );
+      } catch (e) {
+        console.error('[Transcription] Failed to send fallback WhatsApp:', e);
+      }
+    }
   }
 }
 
@@ -240,15 +313,34 @@ router.post('/', async (req: Request, res: Response) => {
         
         console.log(`[Zoom Webhook] Updated ${updated.count} meetings with recording URL`);
         
-        // If meeting matched, send WhatsApp to instructor
-        if (updated.count > 0 && meeting?.instructor?.phone) {
+        // If meeting matched, process transcription in background and send WhatsApp
+        if (updated.count > 0 && meeting) {
           const topic = payload?.object?.topic || meeting.cycle?.name || 'השיעור';
-          await sendWhatsAppToInstructor(
-            meeting.instructor.phone,
-            meeting.instructor.name,
-            topic,
-            recordingUrl
-          );
+          
+          // Find the audio file URL (M4A is smaller than MP4)
+          const audioFile = recordingFiles.find((f: any) => f.file_type === 'M4A') 
+            || recordingFiles.find((f: any) => f.file_type === 'MP4');
+          const audioUrl = audioFile?.download_url;
+          
+          // Process transcription in background (don't await - don't block webhook)
+          if (audioUrl && process.env.OPENAI_API_KEY) {
+            processTranscriptionInBackground(
+              meeting.id,
+              audioUrl,
+              topic,
+              recordingUrl,
+              meeting.instructor?.phone || null,
+              meeting.instructor?.name || 'המדריך'
+            );
+          } else if (meeting.instructor?.phone) {
+            // No audio URL or no OpenAI key - just send recording link
+            await sendWhatsAppToInstructor(
+              meeting.instructor.phone,
+              meeting.instructor.name,
+              topic,
+              recordingUrl
+            );
+          }
         }
         
         // If no meetings matched, save to unmatched_recordings and send email

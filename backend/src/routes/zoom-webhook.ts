@@ -9,6 +9,58 @@ const prisma = new PrismaClient();
 const ZOOM_SECRET_TOKEN = process.env.ZOOM_SECRET_TOKEN;
 const GMAIL_USER = process.env.GMAIL_USER;
 const GMAIL_PASS = process.env.GMAIL_PASS;
+const GREEN_API_INSTANCE_ID = process.env.GREEN_API_INSTANCE_ID;
+const GREEN_API_TOKEN = process.env.GREEN_API_TOKEN;
+
+// Format phone number for Green API (Israel format)
+function formatPhoneForWhatsApp(phone: string): string {
+  let cleaned = phone.replace(/\D/g, '');
+  if (cleaned.startsWith('0')) {
+    cleaned = '972' + cleaned.substring(1);
+  }
+  if (!cleaned.startsWith('972')) {
+    cleaned = '972' + cleaned;
+  }
+  return cleaned + '@c.us';
+}
+
+async function sendWhatsAppToInstructor(phone: string, instructorName: string, topic: string, recordingUrl: string) {
+  if (!GREEN_API_INSTANCE_ID || !GREEN_API_TOKEN) {
+    console.log('[Zoom Webhook] WhatsApp not configured, skipping');
+    return;
+  }
+  
+  try {
+    const message = `שלום ${instructorName} 👋
+
+ההקלטה של השיעור "${topic}" מוכנה!
+
+🎥 לצפייה בהקלטה:
+${recordingUrl}
+
+בהצלחה! 🌟`;
+
+    const response = await fetch(
+      `https://api.green-api.com/waInstance${GREEN_API_INSTANCE_ID}/sendMessage/${GREEN_API_TOKEN}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chatId: formatPhoneForWhatsApp(phone),
+          message
+        })
+      }
+    );
+    
+    if (response.ok) {
+      console.log(`[Zoom Webhook] Sent WhatsApp to instructor ${instructorName}`);
+    } else {
+      console.error('[Zoom Webhook] WhatsApp send failed:', await response.text());
+    }
+  } catch (error) {
+    console.error('[Zoom Webhook] WhatsApp error:', error);
+  }
+}
 
 // Email transporter
 const transporter = nodemailer.createTransport({
@@ -116,6 +168,28 @@ router.post('/', async (req: Request, res: Response) => {
         });
         
         console.log(`[Zoom Webhook] Updated ${updated.count} meetings with recording URL`);
+        
+        // If meetings matched, send WhatsApp to instructor
+        if (updated.count > 0) {
+          // Get the meeting with instructor details
+          const meeting = await prisma.meeting.findFirst({
+            where: { zoomMeetingId: meetingId },
+            include: { 
+              instructor: true,
+              cycle: true
+            }
+          });
+          
+          if (meeting?.instructor?.phone) {
+            const topic = payload?.object?.topic || meeting.cycle?.name || 'השיעור';
+            await sendWhatsAppToInstructor(
+              meeting.instructor.phone,
+              meeting.instructor.name,
+              topic,
+              recordingUrl
+            );
+          }
+        }
         
         // If no meetings matched, save to unmatched_recordings and send email
         if (updated.count === 0) {

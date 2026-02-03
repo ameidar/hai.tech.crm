@@ -96,18 +96,45 @@ router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
       });
     }
 
+    // Get actual meetings for this cycle (scheduled only, not cancelled)
+    const meetings = await prisma.meeting.findMany({
+      where: { 
+        cycleId,
+        status: { in: ['scheduled', 'completed'] },
+        deletedAt: null
+      },
+      orderBy: { scheduledDate: 'asc' }
+    });
+
+    if (meetings.length === 0) {
+      return res.status(400).json({ 
+        error: 'No meetings found for this cycle' 
+      });
+    }
+
+    // Get first and last meeting dates
+    const firstMeeting = meetings[0];
+    const lastMeeting = meetings[meetings.length - 1];
+
     // Format start time from Time field
     const startTimeDate = new Date(cycle.startTime);
     const startTimeStr = `${startTimeDate.getUTCHours().toString().padStart(2, '0')}:${startTimeDate.getUTCMinutes().toString().padStart(2, '0')}`;
 
-    // Create the meeting
+    // Calculate number of weeks between first and last meeting
+    const firstDate = new Date(firstMeeting.scheduledDate);
+    const lastDate = new Date(lastMeeting.scheduledDate);
+    const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+    const weeksCount = Math.ceil((lastDate.getTime() - firstDate.getTime()) / msPerWeek) + 1;
+
+    // Create the meeting using actual meeting dates
     const result = await zoomService.createCycleMeeting({
       cycleName: `${cycle.course.name} - ${cycle.name}`,
-      startDate: new Date(cycle.startDate),
-      endDate: new Date(cycle.endDate),
+      startDate: firstDate,
+      endDate: lastDate,
       dayOfWeek: dayOfWeekToZoom[cycle.dayOfWeek],
       startTime: startTimeStr,
-      durationMinutes: cycle.durationMinutes
+      durationMinutes: cycle.durationMinutes,
+      totalOccurrences: Math.max(weeksCount, meetings.length)
     });
 
     if (!result) {
@@ -127,6 +154,15 @@ router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
         zoomJoinUrl: meeting.join_url,
         zoomHostKey: meeting.host_key || null,
         zoomPassword: meeting.password
+      }
+    });
+
+    // Update all meetings with the Zoom URL so it's accessible from each meeting
+    await prisma.meeting.updateMany({
+      where: { cycleId, deletedAt: null },
+      data: {
+        zoomMeetingId: String(meeting.id),
+        zoomJoinUrl: meeting.join_url
       }
     });
 
@@ -194,6 +230,15 @@ router.delete('/cycles/:cycleId/meeting', async (req: Request, res: Response) =>
         zoomJoinUrl: null,
         zoomHostKey: null,
         zoomPassword: null
+      }
+    });
+
+    // Clear Zoom fields from all meetings
+    await prisma.meeting.updateMany({
+      where: { cycleId },
+      data: {
+        zoomMeetingId: null,
+        zoomJoinUrl: null
       }
     });
 

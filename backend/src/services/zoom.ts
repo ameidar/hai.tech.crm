@@ -197,10 +197,22 @@ export async function createMeeting(
   hostId: string, 
   params: CreateMeetingParams
 ): Promise<ZoomMeeting & { host_key?: string }> {
+  // Format start_time for Zoom - when timezone is specified, send local time without Z suffix
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const d = params.startTime;
+  const localTimeStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+  
+  console.log('[Zoom] Creating meeting with startTime:', {
+    inputDate: d.toISOString(),
+    formattedLocalTime: localTimeStr,
+    timezone: params.timezone || 'Asia/Jerusalem',
+    duration: params.duration,
+  });
+  
   const meetingData: any = {
     topic: params.topic,
     type: params.recurrence ? 8 : 2, // 8 = recurring with fixed time, 2 = scheduled
-    start_time: params.startTime.toISOString(),
+    start_time: localTimeStr,
     duration: params.duration,
     timezone: params.timezone || 'Asia/Jerusalem',
     settings: {
@@ -216,8 +228,12 @@ export async function createMeeting(
   if (params.recurrence) {
     meetingData.recurrence = params.recurrence;
   }
+  
+  console.log('[Zoom] Full meeting data being sent:', JSON.stringify(meetingData, null, 2));
 
   const meeting = await zoomRequest<ZoomMeeting>('POST', `/users/${hostId}/meetings`, meetingData);
+  
+  console.log('[Zoom] Meeting created response:', JSON.stringify(meeting, null, 2));
   
   // Get host key
   const hostKey = await getUserHostKey(hostId);
@@ -254,13 +270,55 @@ export async function createCycleMeeting(params: {
   startDate: Date;
   endDate: Date;
   dayOfWeek: number; // 1=Sunday, 7=Saturday
-  startTime: string; // HH:MM format
+  startTime: string; // HH:MM format (Israel local time)
   durationMinutes: number;
 }): Promise<{ meeting: ZoomMeeting; hostUser: ZoomUser } | null> {
   // Build the first meeting datetime
+  // startTime is in Israel local time (HH:MM), we need to create a proper datetime
   const [hours, minutes] = params.startTime.split(':').map(Number);
-  const firstMeeting = new Date(params.startDate);
-  firstMeeting.setHours(hours, minutes, 0, 0);
+  
+  // Create date string in ISO format for Israel timezone
+  const startDateStr = params.startDate.toISOString().split('T')[0];
+  const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00`;
+  
+  // Find the next occurrence of the weekday from today (or startDate if in the future)
+  const now = new Date();
+  let baseDate = params.startDate > now ? params.startDate : now;
+  
+  // Convert Zoom day of week (1=Sun, 2=Mon, ..., 7=Sat) to JS day of week (0=Sun, 1=Mon, ..., 6=Sat)
+  const targetDowJs = params.dayOfWeek === 1 ? 0 : params.dayOfWeek - 1;
+  const currentDow = baseDate.getDay();
+  
+  // Calculate days until next occurrence
+  let daysUntilNext = (targetDowJs - currentDow + 7) % 7;
+  // If it's today and time hasn't passed, use today; otherwise next week
+  if (daysUntilNext === 0) {
+    const todayMeeting = new Date(baseDate);
+    todayMeeting.setHours(hours, minutes, 0, 0);
+    if (todayMeeting <= now) {
+      daysUntilNext = 7; // Next week
+    }
+  }
+  
+  // Calculate the first meeting date
+  const firstMeetingDate = new Date(baseDate);
+  firstMeetingDate.setDate(firstMeetingDate.getDate() + daysUntilNext);
+  const firstMeetingDateStr = `${firstMeetingDate.getFullYear()}-${(firstMeetingDate.getMonth() + 1).toString().padStart(2, '0')}-${firstMeetingDate.getDate().toString().padStart(2, '0')}`;
+  
+  // Create the firstMeeting datetime
+  const firstMeeting = new Date(`${firstMeetingDateStr}T${timeStr}`);
+  
+  console.log('[Zoom] createCycleMeeting:', {
+    startTime: params.startTime,
+    originalStartDate: startDateStr,
+    calculatedFirstMeetingDate: firstMeetingDateStr,
+    timeStr,
+    zoomDayOfWeek: params.dayOfWeek,
+    targetDowJs: targetDowJs,
+    currentDow,
+    daysUntilNext,
+    firstMeetingISO: firstMeeting.toISOString(),
+  });
   
   // Find available user
   const availableUser = await findAvailableUser(firstMeeting, params.durationMinutes);

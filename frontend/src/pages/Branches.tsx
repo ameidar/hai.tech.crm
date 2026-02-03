@@ -3,7 +3,7 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { Plus, Building2, MapPin, Phone, Mail, RefreshCcw, FileText, Search, Edit2 } from 'lucide-react';
 import { useBranches, useCreateBranch, useUpdateBranch } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
-import Loading from '../components/ui/Loading';
+import { SkeletonCardGrid } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import { branchTypeHebrew } from '../types';
@@ -88,7 +88,7 @@ export default function Branches() {
         </div>
 
         {isLoading ? (
-          <Loading size="lg" text="טוען סניפים..." />
+          <SkeletonCardGrid count={6} />
         ) : filteredBranches && filteredBranches.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredBranches.map((branch) => (
@@ -97,9 +97,9 @@ export default function Branches() {
           </div>
         ) : (
           <EmptyState
-            icon={<Building2 size={64} />}
+            icon={<Building2 size={40} />}
             title="אין סניפים"
-            description="עדיין לא נוספו סניפים למערכת"
+            description="עדיין לא נוספו סניפים למערכת. הוסף סניפים כדי לארגן את הפעילויות!"
             action={
               <button onClick={() => setShowAddModal(true)} className="btn btn-primary">
                 <Plus size={18} />
@@ -147,26 +147,38 @@ export default function Branches() {
 // Branch Card
 function BranchCard({ branch, onEdit }: { branch: Branch; onEdit: () => void }) {
   const typeColors: Record<BranchType, string> = {
-    school: 'bg-blue-100 text-blue-700',
-    community_center: 'bg-green-100 text-green-700',
-    frontal: 'bg-purple-100 text-purple-700',
-    online: 'bg-orange-100 text-orange-700',
+    school: 'bg-blue-50 text-blue-700 border-blue-200',
+    community_center: 'bg-green-50 text-green-700 border-green-200',
+    frontal: 'bg-purple-50 text-purple-700 border-purple-200',
+    online: 'bg-orange-50 text-orange-700 border-orange-200',
+  };
+
+  const typeIcons: Record<BranchType, string> = {
+    school: 'from-blue-500 to-blue-600',
+    community_center: 'from-green-500 to-green-600',
+    frontal: 'from-purple-500 to-purple-600',
+    online: 'from-orange-500 to-orange-600',
   };
 
   return (
-    <div className="card hover:shadow-md transition-shadow">
+    <div className="group bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-lg hover:border-gray-200 transition-all duration-200 hover:-translate-y-0.5">
       <div className="p-6">
         <div className="flex items-start justify-between mb-4">
-          <div>
-            <h3 className="font-semibold text-gray-900 text-lg">{branch.name}</h3>
-            <span className={`inline-block mt-2 px-2 py-1 rounded-full text-xs font-medium ${typeColors[branch.type]}`}>
-              {branchTypeHebrew[branch.type]}
-            </span>
+          <div className="flex items-center gap-3">
+            <div className={`w-12 h-12 bg-gradient-to-br ${typeIcons[branch.type]} rounded-xl flex items-center justify-center shadow-sm`}>
+              <Building2 size={20} className="text-white" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 text-lg group-hover:text-blue-600 transition-colors">{branch.name}</h3>
+              <span className={`inline-block mt-1 px-2.5 py-0.5 rounded-full text-xs font-medium border ${typeColors[branch.type]}`}>
+                {branchTypeHebrew[branch.type]}
+              </span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={onEdit}
-              className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+              className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200"
               title="ערוך סניף"
             >
               <Edit2 size={16} />
@@ -177,11 +189,13 @@ function BranchCard({ branch, onEdit }: { branch: Branch; onEdit: () => void }) 
           </div>
         </div>
 
-        <div className="space-y-2 text-sm mb-4">
+        <div className="space-y-2.5 text-sm mb-4">
           {(branch.address || branch.city) && (
-            <p className="flex items-center gap-2 text-gray-600">
-              <MapPin size={14} />
-              <span>
+            <p className="flex items-center gap-2.5 text-gray-600">
+              <div className="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center">
+                <MapPin size={14} className="text-gray-500" />
+              </div>
+              <span className="text-gray-700">
                 {branch.address}
                 {branch.address && branch.city && ', '}
                 {branch.city}
@@ -189,29 +203,33 @@ function BranchCard({ branch, onEdit }: { branch: Branch; onEdit: () => void }) 
             </p>
           )}
           {branch.contactPhone && (
-            <p className="flex items-center gap-2 text-gray-600">
-              <Phone size={14} />
-              <span dir="ltr">{branch.contactPhone}</span>
+            <p className="flex items-center gap-2.5 text-gray-600">
+              <div className="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center">
+                <Phone size={14} className="text-gray-500" />
+              </div>
+              <span dir="ltr" className="text-gray-700">{branch.contactPhone}</span>
             </p>
           )}
           {branch.contactEmail && (
-            <p className="flex items-center gap-2 text-gray-600">
-              <Mail size={14} />
-              <span dir="ltr" className="truncate">{branch.contactEmail}</span>
+            <p className="flex items-center gap-2.5 text-gray-600">
+              <div className="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center">
+                <Mail size={14} className="text-gray-500" />
+              </div>
+              <span dir="ltr" className="truncate text-gray-700">{branch.contactEmail}</span>
             </p>
           )}
         </div>
 
-        <div className="flex items-center justify-between pt-4 border-t text-sm">
+        <div className="flex items-center justify-between pt-4 border-t border-gray-100 text-sm">
           <div className="flex items-center gap-4 text-gray-500">
             <Link 
               to={`/cycles?branchId=${branch.id}`}
-              className="flex items-center gap-1 hover:text-blue-600 transition-colors"
+              className="flex items-center gap-1.5 hover:text-blue-600 transition-colors font-medium"
             >
               <RefreshCcw size={14} />
               {branch._count?.cycles || 0} מחזורים
             </Link>
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1.5">
               <FileText size={14} />
               {branch._count?.institutionalOrders || 0} הזמנות
             </span>

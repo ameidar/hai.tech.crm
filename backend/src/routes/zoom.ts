@@ -158,12 +158,15 @@ router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
       }
     });
 
-    // Update all meetings with the Zoom URL so it's accessible from each meeting
+    // Update all meetings with the Zoom details so they're accessible from each meeting
     await prisma.meeting.updateMany({
       where: { cycleId, deletedAt: null },
       data: {
         zoomMeetingId: String(meeting.id),
-        zoomJoinUrl: meeting.join_url
+        zoomJoinUrl: meeting.join_url,
+        zoomPassword: meeting.password,
+        zoomHostKey: meeting.host_key || null,
+        zoomHostEmail: hostUser.email
       }
     });
 
@@ -240,7 +243,10 @@ router.delete('/cycles/:cycleId/meeting', async (req: Request, res: Response) =>
       where: { cycleId },
       data: {
         zoomMeetingId: null,
-        zoomJoinUrl: null
+        zoomJoinUrl: null,
+        zoomPassword: null,
+        zoomHostKey: null,
+        zoomHostEmail: null
       }
     });
 

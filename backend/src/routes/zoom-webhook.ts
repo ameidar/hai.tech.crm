@@ -158,37 +158,80 @@ router.post('/', async (req: Request, res: Response) => {
       const recordingPassword = payload?.object?.password;
       
       if (recordingUrl) {
-        // Update all meetings with this Zoom meeting ID
-        const updated = await prisma.meeting.updateMany({
-          where: { zoomMeetingId: meetingId },
-          data: {
-            zoomRecordingUrl: recordingUrl,
-            zoomRecordingPassword: recordingPassword || null
-          }
-        });
+        // Get recording start time to match the correct meeting
+        const recordingStart = payload?.object?.recording_start;
+        let meetingDate: Date | null = null;
         
-        console.log(`[Zoom Webhook] Updated ${updated.count} meetings with recording URL`);
+        if (recordingStart) {
+          meetingDate = new Date(recordingStart);
+          meetingDate.setHours(0, 0, 0, 0); // Get just the date part
+        }
         
-        // If meetings matched, send WhatsApp to instructor
-        if (updated.count > 0) {
-          // Get the meeting with instructor details
-          const meeting = await prisma.meeting.findFirst({
-            where: { zoomMeetingId: meetingId },
+        console.log(`[Zoom Webhook] Looking for meeting with ID ${meetingId} on date ${meetingDate?.toISOString()}`);
+        
+        // Find the specific meeting by Zoom ID and date
+        let updated = { count: 0 };
+        let meeting = null;
+        
+        if (meetingDate) {
+          // Get start and end of the recording day
+          const dayStart = new Date(meetingDate);
+          const dayEnd = new Date(meetingDate);
+          dayEnd.setDate(dayEnd.getDate() + 1);
+          
+          // Update the specific meeting on that date
+          updated = await prisma.meeting.updateMany({
+            where: { 
+              zoomMeetingId: meetingId,
+              scheduledDate: {
+                gte: dayStart,
+                lt: dayEnd
+              }
+            },
+            data: {
+              zoomRecordingUrl: recordingUrl,
+              zoomRecordingPassword: recordingPassword || null
+            }
+          });
+          
+          // Get the meeting for WhatsApp notification
+          meeting = await prisma.meeting.findFirst({
+            where: { 
+              zoomMeetingId: meetingId,
+              scheduledDate: {
+                gte: dayStart,
+                lt: dayEnd
+              }
+            },
             include: { 
               instructor: true,
               cycle: true
             }
           });
-          
-          if (meeting?.instructor?.phone) {
-            const topic = payload?.object?.topic || meeting.cycle?.name || 'השיעור';
-            await sendWhatsAppToInstructor(
-              meeting.instructor.phone,
-              meeting.instructor.name,
-              topic,
-              recordingUrl
-            );
-          }
+        }
+        
+        // Fallback: if no date match, try just by meeting ID (shouldn't happen often)
+        if (updated.count === 0 && !meetingDate) {
+          updated = await prisma.meeting.updateMany({
+            where: { zoomMeetingId: meetingId },
+            data: {
+              zoomRecordingUrl: recordingUrl,
+              zoomRecordingPassword: recordingPassword || null
+            }
+          });
+        }
+        
+        console.log(`[Zoom Webhook] Updated ${updated.count} meetings with recording URL`);
+        
+        // If meeting matched, send WhatsApp to instructor
+        if (updated.count > 0 && meeting?.instructor?.phone) {
+          const topic = payload?.object?.topic || meeting.cycle?.name || 'השיעור';
+          await sendWhatsAppToInstructor(
+            meeting.instructor.phone,
+            meeting.instructor.name,
+            topic,
+            recordingUrl
+          );
         }
         
         // If no meetings matched, save to unmatched_recordings and send email

@@ -16,6 +16,7 @@ import Meetings from './pages/Meetings';
 import Reports from './pages/Reports';
 import InstructorDashboard from './pages/InstructorDashboard';
 import InviteSetup from './pages/InviteSetup';
+import ResetPassword from './pages/ResetPassword';
 import MeetingStatus from './pages/MeetingStatus';
 import AuditLog from './pages/AuditLog';
 
@@ -62,6 +63,7 @@ function AppRoutes() {
         element={isAuthenticated ? <Navigate to={getDefaultRoute()} replace /> : <Login />}
       />
       <Route path="/invite/:token" element={<InviteSetup />} />
+      <Route path="/reset-password/:token" element={<ResetPassword />} />
       <Route path="/m/:meetingId/:token" element={<MeetingStatus />} />
       <Route
         path="/"

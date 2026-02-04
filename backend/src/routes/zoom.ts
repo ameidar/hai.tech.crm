@@ -238,7 +238,7 @@ router.delete('/cycles/:cycleId/meeting', async (req: Request, res: Response) =>
       }
     });
 
-    // Clear Zoom fields from all meetings
+    // Clear Zoom fields and recording data from all meetings
     await prisma.meeting.updateMany({
       where: { cycleId },
       data: {
@@ -246,7 +246,11 @@ router.delete('/cycles/:cycleId/meeting', async (req: Request, res: Response) =>
         zoomJoinUrl: null,
         zoomPassword: null,
         zoomHostKey: null,
-        zoomHostEmail: null
+        zoomHostEmail: null,
+        zoomRecordingUrl: null,
+        zoomRecordingPassword: null,
+        lessonTranscript: null,
+        lessonSummary: null
       }
     });
 

@@ -300,7 +300,8 @@ cyclesRouter.post('/', managerOrAdmin, async (req, res, next) => {
         studentCount: data.studentCount,
         maxStudents: data.maxStudents,
         sendParentReminders: data.sendParentReminders,
-        isOnline: data.isOnline,
+        isOnline: data.activityType === 'online',
+        activityType: data.activityType,
         zoomHostId: data.zoomHostId,
         remainingMeetings: data.totalMeetings,
       },
@@ -436,17 +437,6 @@ cyclesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
         .map(m => m.zoomMeetingId!)
     )];
 
-    // Delete Zoom meetings
-    for (const zoomMeetingId of zoomMeetingIds) {
-      try {
-        await zoomService.deleteMeeting(zoomMeetingId);
-        console.log(`[Cycle Delete] Deleted Zoom meeting ${zoomMeetingId}`);
-      } catch (error: any) {
-        // Log but don't fail - Zoom meeting might already be deleted
-        console.error(`[Cycle Delete] Failed to delete Zoom meeting ${zoomMeetingId}:`, error.message);
-      }
-    }
-
     // Create audit log entry
     await prisma.auditLog.create({
       data: {
@@ -479,6 +469,22 @@ cyclesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
     });
 
     console.log(`[Cycle Delete] Deleted cycle ${cycle.name} (${id}) with ${cycle.meetings.length} meetings`);
+
+    // Delete Zoom meetings in background (fire and forget)
+    if (zoomMeetingIds.length > 0) {
+      setImmediate(async () => {
+        for (const zoomMeetingId of zoomMeetingIds) {
+          try {
+            await zoomService.deleteMeeting(zoomMeetingId);
+            console.log(`[Cycle Delete] Deleted Zoom meeting ${zoomMeetingId}`);
+          } catch (error: any) {
+            // Log but don't fail - Zoom meeting might already be deleted
+            console.error(`[Cycle Delete] Failed to delete Zoom meeting ${zoomMeetingId}:`, error.message);
+          }
+        }
+        console.log(`[Cycle Delete] Finished background cleanup of ${zoomMeetingIds.length} Zoom meetings`);
+      });
+    }
 
     res.status(204).send();
   } catch (error) {

@@ -175,25 +175,55 @@ export async function isUserAvailable(
   durationMinutes: number
 ): Promise<boolean> {
   const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
+  const requestedDayOfWeek = startTime.getDay(); // 0=Sunday, 6=Saturday
   
-  // Get meetings for that day
-  const from = new Date(startTime);
-  from.setHours(0, 0, 0, 0);
-  const to = new Date(startTime);
-  to.setHours(23, 59, 59, 999);
+  // Get all meetings for this user (not just for the specific day)
+  // We need to check recurring meetings that might occur on the same day of week
+  const meetings = await getUserMeetings(userId);
   
-  const meetings = await getUserMeetings(userId, from, to);
+  console.log(`[Zoom] Checking availability for user ${userId} at ${startTime.toISOString()} (${durationMinutes} min)`);
+  console.log(`[Zoom] Found ${meetings.length} meetings to check`);
   
   for (const meeting of meetings) {
     const meetingStart = new Date(meeting.start_time);
-    const meetingEnd = new Date(meetingStart.getTime() + meeting.duration * 60000);
+    const meetingDuration = meeting.duration;
     
-    // Check for overlap
-    if (startTime < meetingEnd && endTime > meetingStart) {
-      return false;
+    // For recurring meetings (type 8), check if this day of week would conflict
+    if (meeting.type === 8) {
+      const meetingDayOfWeek = meetingStart.getDay();
+      
+      // If meeting is on a different day of week, no conflict
+      if (meetingDayOfWeek !== requestedDayOfWeek) {
+        continue;
+      }
+      
+      // Same day of week - check time overlap
+      // Create times on the same date to compare properly
+      const meetingTimeMinutes = meetingStart.getUTCHours() * 60 + meetingStart.getUTCMinutes();
+      const meetingEndTimeMinutes = meetingTimeMinutes + meetingDuration;
+      
+      const requestedTimeMinutes = startTime.getHours() * 60 + startTime.getMinutes();
+      const requestedEndTimeMinutes = requestedTimeMinutes + durationMinutes;
+      
+      // Check for time overlap
+      if (requestedTimeMinutes < meetingEndTimeMinutes && requestedEndTimeMinutes > meetingTimeMinutes) {
+        console.log(`[Zoom] CONFLICT: Recurring meeting "${meeting.topic}" on same day of week with overlapping time`);
+        console.log(`[Zoom]   Existing: ${meetingTimeMinutes} - ${meetingEndTimeMinutes} min`);
+        console.log(`[Zoom]   Requested: ${requestedTimeMinutes} - ${requestedEndTimeMinutes} min`);
+        return false;
+      }
+    } else {
+      // For non-recurring meetings, check exact date/time overlap
+      const meetingEnd = new Date(meetingStart.getTime() + meetingDuration * 60000);
+      
+      if (startTime < meetingEnd && endTime > meetingStart) {
+        console.log(`[Zoom] CONFLICT: Non-recurring meeting "${meeting.topic}" overlaps`);
+        return false;
+      }
     }
   }
   
+  console.log(`[Zoom] User ${userId} is AVAILABLE`);
   return true;
 }
 
@@ -206,17 +236,27 @@ export async function findAvailableUser(
 ): Promise<ZoomUser | null> {
   const users = await getUsers();
   
+  console.log(`[Zoom] Finding available user for ${startTime.toISOString()} (${durationMinutes} min)`);
+  console.log(`[Zoom] Checking ${users.length} users...`);
+  
   for (const user of users) {
-    if (user.status !== 'active') continue;
+    if (user.status !== 'active') {
+      console.log(`[Zoom] Skipping inactive user: ${user.email}`);
+      continue;
+    }
     
+    console.log(`[Zoom] Checking user: ${user.email}`);
     const available = await isUserAvailable(user.id, startTime, durationMinutes);
     if (available) {
+      console.log(`[Zoom] FOUND available user: ${user.email}`);
       // Get host key for this user
       const hostKey = await getUserHostKey(user.id);
       return { ...user, host_key: hostKey || undefined };
     }
+    console.log(`[Zoom] User ${user.email} is NOT available`);
   }
   
+  console.log(`[Zoom] NO available users found!`);
   return null;
 }
 

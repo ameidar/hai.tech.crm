@@ -108,14 +108,43 @@ export async function getUsers(): Promise<ZoomUser[]> {
   return response.users;
 }
 
+// Local host key mapping (Zoom API requires admin scope to read host keys)
+const HOST_KEYS: Record<string, string> = {
+  'hila@hai.tech': '576706',
+  'alonad78@gmail.com': '161988',
+  'shaul@hai.tech': '152303',
+  'inna_grois@yahoo.com': '983810',
+  'innagrois@gmail.com': '184874',
+  'inna@hai.tech': '740578',
+  'info@hai.tech': '296693',
+  'hai.tech.teacher@gmail.com': '982294',
+};
+
 /**
- * Get user's host key
+ * Get user's host key - uses local lookup since Zoom API requires admin scope
  */
 export async function getUserHostKey(userId: string): Promise<string | null> {
+  console.log(`[Zoom] getUserHostKey called for userId: ${userId}`);
   try {
-    const response = await zoomRequest<{ host_key: string }>('GET', `/users/${userId}`);
-    console.log(`[Zoom] Got host key for ${userId}: ${response.host_key}`);
-    return response.host_key || null;
+    // First get the user's email
+    const user = await zoomRequest<{ email: string; host_key?: string }>('GET', `/users/${userId}`);
+    console.log(`[Zoom] User email for ${userId}: ${user.email}`);
+    
+    // Check local mapping first (Zoom API often doesn't return host_key without admin scope)
+    const localHostKey = HOST_KEYS[user.email.toLowerCase()];
+    if (localHostKey) {
+      console.log(`[Zoom] Found host key in local mapping for ${user.email}: ${localHostKey}`);
+      return localHostKey;
+    }
+    
+    // Fall back to API response if available
+    if (user.host_key) {
+      console.log(`[Zoom] Got host key from API for ${userId}: ${user.host_key}`);
+      return user.host_key;
+    }
+    
+    console.log(`[Zoom] No host key found for ${user.email}`);
+    return null;
   } catch (error: any) {
     console.error(`[Zoom] Failed to get host key for user ${userId}:`, error.message);
     return null;
@@ -241,7 +270,9 @@ export async function createMeeting(
   console.log('[Zoom] Meeting created response:', JSON.stringify(meeting, null, 2));
   
   // Get host key
+  console.log('[Zoom] About to fetch host key for hostId:', hostId);
   const hostKey = await getUserHostKey(hostId);
+  console.log('[Zoom] Fetched host key:', hostKey);
   
   return { ...meeting, host_key: hostKey || undefined };
 }

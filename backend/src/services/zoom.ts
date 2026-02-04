@@ -337,6 +337,24 @@ export async function deleteMeeting(meetingId: string | number): Promise<void> {
 }
 
 /**
+ * Delete all cloud recordings for a meeting
+ */
+export async function deleteRecordings(meetingId: string | number): Promise<void> {
+  try {
+    // Delete all recordings for this meeting
+    await zoomRequest('DELETE', `/meetings/${meetingId}/recordings`);
+    console.log(`[Zoom] Deleted cloud recordings for meeting ${meetingId}`);
+  } catch (error: any) {
+    // Ignore 404 (no recordings) or other errors - recordings might not exist
+    if (error.response?.status === 404) {
+      console.log(`[Zoom] No recordings found for meeting ${meetingId}`);
+    } else {
+      console.error(`[Zoom] Failed to delete recordings for meeting ${meetingId}:`, error.message);
+    }
+  }
+}
+
+/**
  * Get meeting details
  */
 export async function getMeeting(meetingId: string | number): Promise<ZoomMeeting | null> {
@@ -459,6 +477,7 @@ export const zoomService = {
   findAvailableUser,
   createMeeting,
   deleteMeeting,
+  deleteRecordings,
   getMeeting,
   createCycleMeeting
 };

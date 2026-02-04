@@ -287,6 +287,7 @@ export const useCycle = (id: string) => {
     queryKey: ['cycle', id],
     queryFn: () => fetchData<Cycle>(`/cycles/${id}`),
     enabled: !!id,
+    refetchInterval: 30000, // Auto-refresh every 30 seconds
   });
 };
 
@@ -343,6 +344,7 @@ export const useCycleMeetings = (cycleId: string) => {
     queryKey: ['cycle-meetings', cycleId],
     queryFn: () => fetchData<Meeting[]>(`/cycles/${cycleId}/meetings`),
     enabled: !!cycleId,
+    refetchInterval: 30000, // Auto-refresh every 30 seconds
   });
 };
 
@@ -718,6 +720,7 @@ export const useZoomMeeting = (cycleId: string) => {
     queryKey: ['zoom-meeting', cycleId],
     queryFn: () => fetchData<ZoomMeeting>(`/zoom/cycles/${cycleId}/meeting`),
     enabled: !!cycleId,
+    refetchInterval: 30000, // Auto-refresh every 30 seconds
   });
 };
 

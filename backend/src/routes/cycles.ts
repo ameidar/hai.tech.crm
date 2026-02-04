@@ -5,6 +5,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createCycleSchema, updateCycleSchema, createRegistrationSchema, paginationSchema, uuidSchema, bulkUpdateCyclesSchema } from '../types/schemas.js';
 import { fetchHolidays, dayNameToNumber, calculateCycleEndDate } from '../utils/holidays.js';
 import { config } from '../config.js';
+import { zoomService } from '../services/zoom.js';
 
 // Trigger Zoom webhook when online cycle is created
 async function triggerZoomWebhook(cycleId: string) {
@@ -403,10 +404,81 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
 cyclesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
+    const userId = req.user?.userId;
+    const userName = req.user?.email;
 
+    // Get cycle with meetings before deletion for audit
+    const cycle = await prisma.cycle.findUnique({
+      where: { id },
+      include: {
+        meetings: {
+          select: {
+            id: true,
+            zoomMeetingId: true,
+            scheduledDate: true,
+            status: true,
+          }
+        },
+        course: { select: { name: true } },
+        instructor: { select: { name: true } },
+        branch: { select: { name: true } },
+      }
+    });
+
+    if (!cycle) {
+      throw new AppError(404, 'Cycle not found');
+    }
+
+    // Get unique Zoom meeting IDs to delete
+    const zoomMeetingIds = [...new Set(
+      cycle.meetings
+        .filter(m => m.zoomMeetingId)
+        .map(m => m.zoomMeetingId!)
+    )];
+
+    // Delete Zoom meetings
+    for (const zoomMeetingId of zoomMeetingIds) {
+      try {
+        await zoomService.deleteMeeting(zoomMeetingId);
+        console.log(`[Cycle Delete] Deleted Zoom meeting ${zoomMeetingId}`);
+      } catch (error: any) {
+        // Log but don't fail - Zoom meeting might already be deleted
+        console.error(`[Cycle Delete] Failed to delete Zoom meeting ${zoomMeetingId}:`, error.message);
+      }
+    }
+
+    // Create audit log entry
+    await prisma.auditLog.create({
+      data: {
+        userId,
+        userName,
+        action: 'DELETE',
+        entity: 'Cycle',
+        entityId: id,
+        oldValue: {
+          name: cycle.name,
+          courseName: cycle.course?.name,
+          instructorName: cycle.instructor?.name,
+          branchName: cycle.branch?.name,
+          meetingCount: cycle.meetings.length,
+          zoomMeetingIds,
+          meetings: cycle.meetings.map(m => ({
+            date: m.scheduledDate,
+            status: m.status,
+            zoomMeetingId: m.zoomMeetingId
+          }))
+        },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      }
+    });
+
+    // Delete the cycle (cascade will delete meetings)
     await prisma.cycle.delete({
       where: { id },
     });
+
+    console.log(`[Cycle Delete] Deleted cycle ${cycle.name} (${id}) with ${cycle.meetings.length} meetings`);
 
     res.status(204).send();
   } catch (error) {

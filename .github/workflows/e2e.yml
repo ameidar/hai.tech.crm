@@ -81,7 +81,7 @@ jobs:
         run: npm run build
         working-directory: ./frontend
         env:
-          VITE_API_URL: http://localhost:3000
+          VITE_API_URL: http://localhost:3000/api
 
       - name: Start backend
         run: |
@@ -219,7 +219,7 @@ jobs:
         run: npm run build
         working-directory: ./frontend
         env:
-          VITE_API_URL: http://localhost:3000
+          VITE_API_URL: http://localhost:3000/api
 
       - name: Start backend
         run: npm start &

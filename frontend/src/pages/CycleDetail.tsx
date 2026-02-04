@@ -1415,7 +1415,8 @@ export default function CycleDetail() {
             onSubmit={handleUpdateCycle}
             onCancel={() => setShowEditCycleModal(false)}
             isLoading={updateCycle.isPending}
-            hasZoom={zoomMeeting?.hasMeeting || false}
+            hasZoom={zoomMeeting?.hasMeeting === true}
+            zoomLoading={zoomLoading}
           />
         )}
       </Modal>
@@ -1927,9 +1928,12 @@ interface CycleQuickEditFormProps {
   onCancel: () => void;
   isLoading?: boolean;
   hasZoom?: boolean;
+  zoomLoading?: boolean;
 }
 
-function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, onCancel, isLoading, hasZoom }: CycleQuickEditFormProps) {
+function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, onCancel, isLoading, hasZoom, zoomLoading }: CycleQuickEditFormProps) {
+  // Disable schedule fields if has zoom OR if zoom is still loading (for online cycles)
+  const scheduleFieldsLocked = hasZoom || (cycle.activityType === 'online' && zoomLoading);
   const formatDateForInput = (date: string | Date | undefined): string => {
     if (!date) return '';
     const d = new Date(date);
@@ -1987,8 +1991,8 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     const [endHour, endMin] = formData.endTime.split(':').map(Number);
     const durationMinutes = (endHour * 60 + endMin) - (startHour * 60 + startMin);
 
-    // If has Zoom and schedule changed, prevent submit
-    if (hasZoom && scheduleChanged) {
+    // If schedule fields are locked and schedule changed, prevent submit
+    if (scheduleFieldsLocked && scheduleChanged) {
       alert('לא ניתן לשנות ימים ושעות כשיש פגישת זום. יש למחוק את הזום קודם.');
       return;
     }
@@ -2100,18 +2104,18 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
         </div>
 
         <div>
-          <label className="form-label">תאריך התחלה {hasZoom && <span className="text-red-500 text-xs">(נעול - יש זום)</span>}</label>
+          <label className="form-label">תאריך התחלה {scheduleFieldsLocked && <span className="text-red-500 text-xs">(נעול - יש זום)</span>}</label>
           <input
             type="date"
             value={formData.startDate}
             onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-            className={`form-input ${hasZoom ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-            disabled={hasZoom}
+            className={`form-input ${scheduleFieldsLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+            disabled={scheduleFieldsLocked}
           />
         </div>
 
         {/* Warning when has Zoom and trying to change schedule */}
-        {hasZoom && scheduleChanged && (
+        {scheduleFieldsLocked && scheduleChanged && (
           <div className="col-span-2 bg-red-50 border border-red-200 rounded-lg p-3">
             <span className="text-sm text-red-800">
               <strong>⚠️ לא ניתן לשנות ימים ושעות כשיש פגישת זום.</strong><br />
@@ -2121,7 +2125,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
         )}
 
         {/* Regenerate meetings option when schedule changes (only if no Zoom) */}
-        {!hasZoom && scheduleChanged && (
+        {!scheduleFieldsLocked && scheduleChanged && (
           <div className="col-span-2 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -2138,12 +2142,12 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
         )}
 
         <div>
-          <label className="form-label">יום בשבוע {hasZoom && <span className="text-red-500 text-xs">(נעול - יש זום)</span>}</label>
+          <label className="form-label">יום בשבוע {scheduleFieldsLocked && <span className="text-red-500 text-xs">(נעול - יש זום)</span>}</label>
           <select
             value={formData.dayOfWeek}
             onChange={(e) => setFormData({ ...formData, dayOfWeek: e.target.value as DayOfWeek })}
-            className={`form-input ${hasZoom ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-            disabled={hasZoom}
+            className={`form-input ${scheduleFieldsLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+            disabled={scheduleFieldsLocked}
           >
             <option value="sunday">ראשון</option>
             <option value="monday">שני</option>
@@ -2155,24 +2159,24 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
         </div>
 
         <div>
-          <label className="form-label">שעת התחלה {hasZoom && <span className="text-red-500 text-xs">(נעול - יש זום)</span>}</label>
+          <label className="form-label">שעת התחלה {scheduleFieldsLocked && <span className="text-red-500 text-xs">(נעול - יש זום)</span>}</label>
           <input
             type="time"
             value={formData.startTime}
             onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
-            className={`form-input ${hasZoom ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-            disabled={hasZoom}
+            className={`form-input ${scheduleFieldsLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+            disabled={scheduleFieldsLocked}
           />
         </div>
 
         <div>
-          <label className="form-label">שעת סיום {hasZoom && <span className="text-red-500 text-xs">(נעול - יש זום)</span>}</label>
+          <label className="form-label">שעת סיום {scheduleFieldsLocked && <span className="text-red-500 text-xs">(נעול - יש זום)</span>}</label>
           <input
             type="time"
             value={formData.endTime}
             onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
-            className={`form-input ${hasZoom ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-            disabled={hasZoom}
+            className={`form-input ${scheduleFieldsLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+            disabled={scheduleFieldsLocked}
           />
         </div>
 

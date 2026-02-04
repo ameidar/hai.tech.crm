@@ -80,8 +80,8 @@ jobs:
         run: |
           echo "=== Checking tables ==="
           PGPASSWORD=haitech_pass psql -h localhost -U haitech -d haitech_crm -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';" || true
-          echo "=== Checking users ==="
-          PGPASSWORD=haitech_pass psql -h localhost -U haitech -d haitech_crm -c 'SELECT id, email, name, role, "isActive" FROM "User";' || true
+          echo "=== Checking users table ==="
+          PGPASSWORD=haitech_pass psql -h localhost -U haitech -d haitech_crm -c 'SELECT id, email, name, role, is_active FROM users;' || true
         env:
           DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
 

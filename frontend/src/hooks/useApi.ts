@@ -264,6 +264,13 @@ export const useSendInstructorInvite = () => {
   });
 };
 
+export const useResetInstructorPassword = () => {
+  return useMutation({
+    mutationFn: (instructorId: string) =>
+      mutateData<{ resetUrl: string; expiresAt: string }, undefined>(`/instructors/${instructorId}/reset-password`, 'post'),
+  });
+};
+
 // ==================== Cycles ====================
 export const useCycles = (params?: { branchId?: string; instructorId?: string; courseId?: string; status?: string; dayOfWeek?: string; search?: string; limit?: number }) => {
   const searchParams = new URLSearchParams();

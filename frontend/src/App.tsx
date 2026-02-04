@@ -16,6 +16,7 @@ import Meetings from './pages/Meetings';
 import Reports from './pages/Reports';
 import InstructorDashboard from './pages/InstructorDashboard';
 import InviteSetup from './pages/InviteSetup';
+import ResetPassword from './pages/ResetPassword';
 import MeetingStatus from './pages/MeetingStatus';
 import AuditLog from './pages/AuditLog';
 

@@ -68,8 +68,20 @@ jobs:
           DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
 
       - name: Seed database
-        run: npx prisma db seed
+        run: |
+          echo "=== Running seed ==="
+          npx prisma db seed
+          echo "=== Seed output complete ==="
         working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
+
+      - name: Verify seed data
+        run: |
+          echo "=== Checking tables ==="
+          PGPASSWORD=haitech_pass psql -h localhost -U haitech -d haitech_crm -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';" || true
+          echo "=== Checking users ==="
+          PGPASSWORD=haitech_pass psql -h localhost -U haitech -d haitech_crm -c 'SELECT id, email, name, role, "isActive" FROM "User";' || true
         env:
           DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
 
@@ -134,15 +146,11 @@ jobs:
           # Extra settling time for app initialization
           sleep 3
           
-          # Debug: Check if admin user exists in DB
-          echo "=== Checking database for admin user ==="
-          PGPASSWORD=haitech_pass psql -h localhost -U haitech -d haitech_crm -c "SELECT id, email, name, role FROM \"User\" WHERE email = 'admin@haitech.co.il';" || true
-          
           # Debug: Test login API directly
           echo "=== Testing login API ==="
-          curl -v -X POST http://localhost:3000/api/auth/login \
+          curl -s -X POST http://localhost:3000/api/auth/login \
             -H "Content-Type: application/json" \
-            -d '{"email":"admin@haitech.co.il","password":"admin123"}' 2>&1 || true
+            -d '{"email":"admin@haitech.co.il","password":"admin123"}' | head -200
 
       - name: Run smoke tests
         run: npx playwright test --grep @smoke

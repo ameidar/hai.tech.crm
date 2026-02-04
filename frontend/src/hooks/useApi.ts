@@ -264,6 +264,13 @@ export const useSendInstructorInvite = () => {
   });
 };
 
+export const useResetInstructorPassword = () => {
+  return useMutation({
+    mutationFn: (instructorId: string) =>
+      mutateData<{ resetUrl: string; expiresAt: string }, undefined>(`/instructors/${instructorId}/reset-password`, 'post'),
+  });
+};
+
 // ==================== Cycles ====================
 export const useCycles = (params?: { branchId?: string; instructorId?: string; courseId?: string; status?: string; dayOfWeek?: string; search?: string; limit?: number }) => {
   const searchParams = new URLSearchParams();
@@ -287,6 +294,7 @@ export const useCycle = (id: string) => {
     queryKey: ['cycle', id],
     queryFn: () => fetchData<Cycle>(`/cycles/${id}`),
     enabled: !!id,
+    refetchInterval: 30000, // Auto-refresh every 30 seconds
   });
 };
 
@@ -343,6 +351,7 @@ export const useCycleMeetings = (cycleId: string) => {
     queryKey: ['cycle-meetings', cycleId],
     queryFn: () => fetchData<Meeting[]>(`/cycles/${cycleId}/meetings`),
     enabled: !!cycleId,
+    refetchInterval: 30000, // Auto-refresh every 30 seconds
   });
 };
 
@@ -718,6 +727,7 @@ export const useZoomMeeting = (cycleId: string) => {
     queryKey: ['zoom-meeting', cycleId],
     queryFn: () => fetchData<ZoomMeeting>(`/zoom/cycles/${cycleId}/meeting`),
     enabled: !!cycleId,
+    refetchInterval: 30000, // Auto-refresh every 30 seconds
   });
 };
 
@@ -729,6 +739,7 @@ export const useCreateZoomMeeting = () => {
     onSuccess: (_, cycleId) => {
       queryClient.invalidateQueries({ queryKey: ['zoom-meeting', cycleId] });
       queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings', cycleId] });
     },
   });
 };
@@ -741,6 +752,7 @@ export const useDeleteZoomMeeting = () => {
     onSuccess: (_, cycleId) => {
       queryClient.invalidateQueries({ queryKey: ['zoom-meeting', cycleId] });
       queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings', cycleId] });
     },
   });
 };

@@ -215,6 +215,13 @@ router.delete('/cycles/:cycleId/meeting', async (req: Request, res: Response) =>
       return res.status(400).json({ error: 'Cycle has no Zoom meeting' });
     }
 
+    // Delete cloud recordings first (must be done before deleting the meeting)
+    try {
+      await zoomService.deleteRecordings(cycle.zoomMeetingId);
+    } catch (error: any) {
+      console.log(`[Zoom] Could not delete recordings: ${error.message}`);
+    }
+
     // Delete meeting from Zoom
     try {
       await zoomService.deleteMeeting(cycle.zoomMeetingId);
@@ -238,7 +245,7 @@ router.delete('/cycles/:cycleId/meeting', async (req: Request, res: Response) =>
       }
     });
 
-    // Clear Zoom fields from all meetings
+    // Clear Zoom fields and recording data from all meetings
     await prisma.meeting.updateMany({
       where: { cycleId },
       data: {
@@ -246,7 +253,11 @@ router.delete('/cycles/:cycleId/meeting', async (req: Request, res: Response) =>
         zoomJoinUrl: null,
         zoomPassword: null,
         zoomHostKey: null,
-        zoomHostEmail: null
+        zoomHostEmail: null,
+        zoomRecordingUrl: null,
+        zoomRecordingPassword: null,
+        lessonTranscript: null,
+        lessonSummary: null
       }
     });
 

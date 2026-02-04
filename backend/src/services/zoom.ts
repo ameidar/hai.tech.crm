@@ -396,19 +396,25 @@ export async function createCycleMeeting(params: {
   firstMeetingDate.setDate(firstMeetingDate.getDate() + daysUntilNext);
   const firstMeetingDateStr = `${firstMeetingDate.getFullYear()}-${(firstMeetingDate.getMonth() + 1).toString().padStart(2, '0')}-${firstMeetingDate.getDate().toString().padStart(2, '0')}`;
   
-  // Create the firstMeeting datetime
-  const firstMeeting = new Date(`${firstMeetingDateStr}T${timeStr}`);
+  // Create the firstMeeting datetime in UTC
+  // The timeStr is in Israel local time, we need to convert to UTC
+  // Israel is UTC+2 (or UTC+3 during DST, but Zoom handles DST)
+  // Create date in Israel timezone by appending the timezone offset
+  const israelDateStr = `${firstMeetingDateStr}T${timeStr}+02:00`;
+  const firstMeeting = new Date(israelDateStr);
   
   console.log('[Zoom] createCycleMeeting:', {
     startTime: params.startTime,
     originalStartDate: startDateStr,
     calculatedFirstMeetingDate: firstMeetingDateStr,
     timeStr,
+    israelDateStr,
     zoomDayOfWeek: params.dayOfWeek,
     targetDowJs: targetDowJs,
     currentDow,
     daysUntilNext,
     firstMeetingISO: firstMeeting.toISOString(),
+    firstMeetingUTCHours: firstMeeting.getUTCHours(),
   });
   
   // Find available user

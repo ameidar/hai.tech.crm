@@ -286,3 +286,58 @@ instructorsRouter.post('/:id/invite', managerOrAdmin, async (req, res, next) => 
   }
 });
 
+// Reset password for instructor (admin only)
+instructorsRouter.post('/:id/reset-password', managerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+
+    const instructor = await prisma.instructor.findUnique({
+      where: { id },
+      include: { user: true },
+    });
+
+    if (!instructor) {
+      throw new AppError(404, 'Instructor not found');
+    }
+
+    if (!instructor.userId || !instructor.user) {
+      throw new AppError(400, 'Instructor does not have a user account yet. Use invite instead.');
+    }
+
+    if (!instructor.email) {
+      throw new AppError(400, 'Instructor must have email to reset password');
+    }
+
+    // Generate reset token (valid for 24 hours)
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetExpiresAt = new Date();
+    resetExpiresAt.setHours(resetExpiresAt.getHours() + 24);
+
+    // Store reset token on instructor (reusing invite fields)
+    await prisma.instructor.update({
+      where: { id },
+      data: {
+        inviteToken: resetToken,
+        inviteExpiresAt: resetExpiresAt,
+      },
+    });
+
+    // Generate reset URL
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
+    const resetUrl = `${baseUrl}/reset-password/${resetToken}`;
+
+    res.json({
+      success: true,
+      resetUrl,
+      expiresAt: resetExpiresAt,
+      instructor: {
+        id: instructor.id,
+        name: instructor.name,
+        email: instructor.email,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+

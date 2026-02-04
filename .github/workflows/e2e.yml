@@ -1,0 +1,297 @@
+name: E2E Tests
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev]
+  schedule:
+    - cron: '0 2 * * *'  # Nightly at 2 AM UTC
+  workflow_dispatch:
+
+env:
+  BASE_URL: http://localhost:3001
+
+jobs:
+  smoke:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: haitech
+          POSTGRES_PASSWORD: haitech_pass
+          POSTGRES_DB: haitech_crm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            e2e/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: ./backend
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: ./frontend
+
+      - name: Install E2E dependencies
+        run: npm ci
+        working-directory: ./e2e
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: ./e2e
+
+      - name: Setup database
+        run: npx prisma db push --skip-generate
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
+
+      - name: Seed database
+        run: |
+          echo "=== Running seed ==="
+          npx prisma db seed 2>&1 || echo "Seed command failed with exit code $?"
+          echo "=== Trying direct seed ==="
+          npx tsx prisma/seed.ts 2>&1 || echo "Direct seed failed with exit code $?"
+          echo "=== Seed output complete ==="
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
+
+      - name: Verify seed data
+        run: |
+          echo "=== Checking tables ==="
+          PGPASSWORD=haitech_pass psql -h localhost -U haitech -d haitech_crm -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';" || true
+          echo "=== Checking users table ==="
+          PGPASSWORD=haitech_pass psql -h localhost -U haitech -d haitech_crm -c 'SELECT id, email, name, role, is_active FROM users;' || true
+        env:
+          DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
+
+      - name: Build backend
+        run: npm run build
+        working-directory: ./backend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: ./frontend
+        env:
+          VITE_API_URL: http://localhost:3000/api
+
+      - name: Start backend
+        run: |
+          npm start > backend.log 2>&1 &
+          echo $! > backend.pid
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
+          PORT: 3000
+          JWT_SECRET: test_jwt_secret
+          JWT_REFRESH_SECRET: test_jwt_refresh_secret
+          API_KEY: test_api_key
+          CORS_ORIGINS: http://localhost:3001
+          NODE_ENV: test
+
+      - name: Serve frontend
+        run: npx serve -s dist -l 3001 &
+        working-directory: ./frontend
+
+      - name: Wait for services
+        run: |
+          echo "Waiting for backend..."
+          for i in {1..60}; do
+            if curl -s http://localhost:3000/api/health > /dev/null 2>&1; then
+              echo "✅ Backend ready after $i seconds"
+              break
+            fi
+            if [ $i -eq 60 ]; then
+              echo "❌ Backend failed to start"
+              echo "=== Backend logs ==="
+              cat ./backend/backend.log || echo "No log file"
+              echo "=== Process status ==="
+              ps aux | grep node || true
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "Waiting for frontend..."
+          for i in {1..30}; do
+            if curl -s http://localhost:3001 > /dev/null 2>&1; then
+              echo "✅ Frontend ready after $i seconds"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ Frontend failed to start"
+              exit 1
+            fi
+            sleep 1
+          done
+          # Extra settling time for app initialization
+          sleep 3
+          
+          # Debug: Test login API directly
+          echo "=== Testing login API ==="
+          curl -s -X POST http://localhost:3000/api/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"email":"admin@haitech.co.il","password":"admin123"}' | head -200
+
+      - name: Run smoke tests
+        run: npx playwright test --grep @smoke
+        working-directory: ./e2e
+        env:
+          BASE_URL: http://localhost:3001
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-test-results
+          path: |
+            e2e/test-results/
+            e2e/playwright-report/
+          retention-days: 7
+
+  regression:
+    name: Regression Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: smoke
+    if: github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-regression')
+    
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: haitech
+          POSTGRES_PASSWORD: haitech_pass
+          POSTGRES_DB: haitech_crm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            e2e/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: ./backend
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: ./frontend
+
+      - name: Install E2E dependencies
+        run: npm ci
+        working-directory: ./e2e
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+        working-directory: ./e2e
+
+      - name: Setup database
+        run: npx prisma db push --skip-generate
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
+
+      - name: Seed database
+        run: npx prisma db seed
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
+
+      - name: Build backend
+        run: npm run build
+        working-directory: ./backend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: ./frontend
+        env:
+          VITE_API_URL: http://localhost:3000/api
+
+      - name: Start backend
+        run: npm start &
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
+          PORT: 3000
+          JWT_SECRET: test_jwt_secret
+          JWT_REFRESH_SECRET: test_jwt_refresh_secret
+          API_KEY: test_api_key
+          CORS_ORIGINS: http://localhost:3001
+          NODE_ENV: test
+
+      - name: Serve frontend
+        run: npx serve -s dist -l 3001 &
+        working-directory: ./frontend
+
+      - name: Wait for services
+        run: |
+          echo "Waiting for backend..."
+          for i in {1..60}; do
+            if curl -s http://localhost:3000/api/health > /dev/null 2>&1; then
+              echo "✅ Backend ready"
+              break
+            fi
+            [ $i -eq 60 ] && exit 1
+            sleep 1
+          done
+          echo "Waiting for frontend..."
+          for i in {1..30}; do
+            if curl -s http://localhost:3001 > /dev/null 2>&1; then
+              echo "✅ Frontend ready"
+              break
+            fi
+            [ $i -eq 30 ] && exit 1
+            sleep 1
+          done
+          sleep 3
+
+      - name: Run all tests
+        run: npx playwright test
+        working-directory: ./e2e
+        env:
+          BASE_URL: http://localhost:3001
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: regression-test-results
+          path: |
+            e2e/test-results/
+            e2e/playwright-report/
+          retention-days: 14

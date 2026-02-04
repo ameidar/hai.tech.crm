@@ -465,7 +465,7 @@ export default function CycleDetail() {
             </div>
 
             {/* Progress Card */}
-            <div className="card">
+            <div className="card" data-testid="progress-section">
               <div className="card-header">
                 <h2 className="font-semibold">התקדמות</h2>
               </div>
@@ -517,7 +517,7 @@ export default function CycleDetail() {
 
             {/* Zoom Card - Only for online cycles */}
             {cycle.activityType === 'online' && (
-              <div className="card">
+              <div className="card" data-testid="zoom-section">
                 <div className="card-header flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Video size={18} className="text-blue-600" />
@@ -585,27 +585,7 @@ export default function CycleDetail() {
                         </div>
                       </div>
 
-                      {/* Password */}
-                      {zoomMeeting.zoomPassword && (
-                        <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                          <div className="flex items-center gap-2">
-                            <Lock size={16} className="text-gray-600" />
-                            <span className="text-sm">סיסמה</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-sm">{zoomMeeting.zoomPassword}</span>
-                            <button
-                              onClick={() => copyToClipboard(zoomMeeting.zoomPassword!, 'password')}
-                              className={`p-1.5 rounded transition-colors ${
-                                copiedField === 'password' ? 'bg-green-100 text-green-600' : 'hover:bg-gray-200 text-gray-600'
-                              }`}
-                              title="העתק"
-                            >
-                              {copiedField === 'password' ? <CheckCircle size={16} /> : <Copy size={16} />}
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                      {/* Password - hidden, showing only Host Key instead */}
 
                       {/* Host Email */}
                       {zoomMeeting.zoomHostEmail && (
@@ -659,6 +639,7 @@ export default function CycleDetail() {
                         onClick={handleCreateZoomMeeting}
                         disabled={createZoomMeeting.isPending}
                         className="btn btn-primary"
+                        data-testid="create-zoom-btn"
                       >
                         {createZoomMeeting.isPending ? (
                           <>
@@ -679,12 +660,13 @@ export default function CycleDetail() {
             )}
 
             {/* Registrations */}
-            <div className="card">
+            <div className="card" data-testid="registrations-list">
               <div className="card-header flex items-center justify-between">
                 <h2 className="font-semibold">תלמידים ({registrations?.length || 0})</h2>
                 <button
                   onClick={() => setShowAddStudentModal(true)}
                   className="btn btn-primary text-sm"
+                  data-testid="add-student-btn"
                 >
                   <Plus size={16} />
                   הוסף תלמיד
@@ -783,7 +765,7 @@ export default function CycleDetail() {
               </div>
               {meetings && meetings.length > 0 ? (
                 <div className="overflow-x-auto">
-                  <table>
+                  <table data-testid="meetings-table">
                     <thead>
                       <tr>
                         <th className="w-10">
@@ -947,23 +929,7 @@ export default function CycleDetail() {
                     <span className="font-mono text-sm">{viewingMeeting.zoomMeetingId}</span>
                   </div>
                   
-                  {/* Password */}
-                  {viewingMeeting.zoomPassword && (
-                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <span className="text-sm text-gray-600">סיסמה</span>
-                      <div className="flex items-center gap-1">
-                        <span className="font-mono text-sm">{viewingMeeting.zoomPassword}</span>
-                        <button
-                          onClick={() => copyToClipboard(viewingMeeting.zoomPassword!, 'viewZoomPass')}
-                          className={`p-1 rounded ${
-                            copiedField === 'viewZoomPass' ? 'text-green-600' : 'text-gray-400 hover:text-blue-600'
-                          }`}
-                        >
-                          {copiedField === 'viewZoomPass' ? <CheckCircle size={12} /> : <Copy size={12} />}
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                  {/* Password - hidden */}
                   
                   {/* Host Key */}
                   {viewingMeeting.zoomHostKey && (
@@ -1006,6 +972,30 @@ export default function CycleDetail() {
                         <ExternalLink size={14} />
                         צפה בהקלטה
                       </a>
+                    </div>
+                  )}
+                  
+                  {/* Lesson Summary */}
+                  {viewingMeeting.lessonSummary && (
+                    <div className="col-span-2 p-4 bg-green-50 rounded-lg">
+                      <h4 className="text-sm font-medium text-green-800 mb-2 flex items-center gap-2">
+                        📋 סיכום השיעור
+                      </h4>
+                      <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                        {viewingMeeting.lessonSummary}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Lesson Transcript */}
+                  {viewingMeeting.lessonTranscript && (
+                    <div className="col-span-2 p-4 bg-blue-50 rounded-lg">
+                      <h4 className="text-sm font-medium text-blue-800 mb-2 flex items-center gap-2">
+                        📝 תמלול השיעור
+                      </h4>
+                      <div className="text-sm text-gray-700 whitespace-pre-wrap max-h-48 overflow-y-auto">
+                        {viewingMeeting.lessonTranscript}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1116,23 +1106,7 @@ export default function CycleDetail() {
                     <span className="font-mono">{selectedMeeting.zoomMeetingId}</span>
                   </div>
                   
-                  {/* Password */}
-                  {selectedMeeting.zoomPassword && (
-                    <div className="flex items-center justify-between p-2 bg-white rounded">
-                      <span className="text-gray-600">סיסמה:</span>
-                      <div className="flex items-center gap-1">
-                        <span className="font-mono">{selectedMeeting.zoomPassword}</span>
-                        <button
-                          onClick={() => copyToClipboard(selectedMeeting.zoomPassword!, 'editZoomPass')}
-                          className={`p-1 rounded ${
-                            copiedField === 'editZoomPass' ? 'text-green-600' : 'text-gray-400 hover:text-blue-600'
-                          }`}
-                        >
-                          {copiedField === 'editZoomPass' ? <CheckCircle size={12} /> : <Copy size={12} />}
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                  {/* Password - hidden */}
                   
                   {/* Host Key */}
                   {selectedMeeting.zoomHostKey && (
@@ -1443,6 +1417,8 @@ export default function CycleDetail() {
             onSubmit={handleUpdateCycle}
             onCancel={() => setShowEditCycleModal(false)}
             isLoading={updateCycle.isPending}
+            hasZoom={zoomMeeting?.hasMeeting === true}
+            zoomLoading={zoomLoading}
           />
         )}
       </Modal>
@@ -1953,9 +1929,13 @@ interface CycleQuickEditFormProps {
   onSubmit: (data: Partial<Cycle>) => void;
   onCancel: () => void;
   isLoading?: boolean;
+  hasZoom?: boolean;
+  zoomLoading?: boolean;
 }
 
-function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, onCancel, isLoading }: CycleQuickEditFormProps) {
+function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, onCancel, isLoading, hasZoom, zoomLoading }: CycleQuickEditFormProps) {
+  // Disable schedule fields if has zoom OR if zoom is still loading (for online cycles)
+  const scheduleFieldsLocked = hasZoom || (cycle.activityType === 'online' && zoomLoading);
   const formatDateForInput = (date: string | Date | undefined): string => {
     if (!date) return '';
     const d = new Date(date);
@@ -1982,6 +1962,15 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
   
   const [regenerateMeetings, setRegenerateMeetings] = useState(false);
   const originalStartDate = formatDateForInput(cycle.startDate);
+  const originalDayOfWeek = cycle.dayOfWeek;
+  const originalStartTime = cycle.startTime ? formatTimeForInput(cycle.startTime) : '16:00';
+  const originalEndTime = cycle.endTime ? formatTimeForInput(cycle.endTime) : '17:00';
+  
+  // Check if schedule fields changed
+  const scheduleChanged = formData.startDate !== originalStartDate ||
+    formData.dayOfWeek !== originalDayOfWeek ||
+    formData.startTime !== originalStartTime ||
+    formData.endTime !== originalEndTime;
 
   function formatTimeForInput(time: string | Date): string {
     if (!time) return '16:00';
@@ -2004,9 +1993,14 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     const [endHour, endMin] = formData.endTime.split(':').map(Number);
     const durationMinutes = (endHour * 60 + endMin) - (startHour * 60 + startMin);
 
-    // Check if start date changed - if so, ask to regenerate meetings
-    const startDateChanged = formData.startDate !== originalStartDate;
-    const shouldRegenerate = startDateChanged && regenerateMeetings;
+    // If schedule fields are locked and schedule changed, prevent submit
+    if (scheduleFieldsLocked && scheduleChanged) {
+      alert('לא ניתן לשנות ימים ושעות כשיש פגישת זום. יש למחוק את הזום קודם.');
+      return;
+    }
+
+    // If schedule changed, regenerate meetings
+    const shouldRegenerate = scheduleChanged && regenerateMeetings;
 
     onSubmit({
       name: formData.name,
@@ -2112,16 +2106,28 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
         </div>
 
         <div>
-          <label className="form-label">תאריך התחלה</label>
+          <label className="form-label">תאריך התחלה {scheduleFieldsLocked && <span className="text-red-500 text-xs">(נעול - יש זום)</span>}</label>
           <input
             type="date"
             value={formData.startDate}
             onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-            className="form-input"
+            className={`form-input ${scheduleFieldsLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+            disabled={scheduleFieldsLocked}
           />
         </div>
 
-        {formData.startDate !== originalStartDate && (
+        {/* Warning when has Zoom and trying to change schedule */}
+        {scheduleFieldsLocked && scheduleChanged && (
+          <div className="col-span-2 bg-red-50 border border-red-200 rounded-lg p-3">
+            <span className="text-sm text-red-800">
+              <strong>⚠️ לא ניתן לשנות ימים ושעות כשיש פגישת זום.</strong><br />
+              יש למחוק את הזום קודם ואז לערוך את המחזור.
+            </span>
+          </div>
+        )}
+
+        {/* Regenerate meetings option when schedule changes (only if no Zoom) */}
+        {!scheduleFieldsLocked && scheduleChanged && (
           <div className="col-span-2 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -2131,18 +2137,19 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
                 className="rounded border-gray-300 text-blue-600"
               />
               <span className="text-sm text-yellow-800">
-                <strong>שים לב:</strong> שינית את תאריך ההתחלה. סמן כדי ליצור מחדש את כל המפגשים מהתאריך החדש.
+                <strong>שים לב:</strong> שינית את לוח הזמנים. סמן כדי למחוק פגישות עתידיות וליצור מחדש לפי הנתונים החדשים.
               </span>
             </label>
           </div>
         )}
 
         <div>
-          <label className="form-label">יום בשבוע</label>
+          <label className="form-label">יום בשבוע {scheduleFieldsLocked && <span className="text-red-500 text-xs">(נעול - יש זום)</span>}</label>
           <select
             value={formData.dayOfWeek}
             onChange={(e) => setFormData({ ...formData, dayOfWeek: e.target.value as DayOfWeek })}
-            className="form-input"
+            className={`form-input ${scheduleFieldsLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+            disabled={scheduleFieldsLocked}
           >
             <option value="sunday">ראשון</option>
             <option value="monday">שני</option>
@@ -2154,22 +2161,24 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
         </div>
 
         <div>
-          <label className="form-label">שעת התחלה</label>
+          <label className="form-label">שעת התחלה {scheduleFieldsLocked && <span className="text-red-500 text-xs">(נעול - יש זום)</span>}</label>
           <input
             type="time"
             value={formData.startTime}
             onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
-            className="form-input"
+            className={`form-input ${scheduleFieldsLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+            disabled={scheduleFieldsLocked}
           />
         </div>
 
         <div>
-          <label className="form-label">שעת סיום</label>
+          <label className="form-label">שעת סיום {scheduleFieldsLocked && <span className="text-red-500 text-xs">(נעול - יש זום)</span>}</label>
           <input
             type="time"
             value={formData.endTime}
             onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
-            className="form-input"
+            className={`form-input ${scheduleFieldsLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+            disabled={scheduleFieldsLocked}
           />
         </div>
 

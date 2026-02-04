@@ -108,15 +108,45 @@ export async function getUsers(): Promise<ZoomUser[]> {
   return response.users;
 }
 
+// Local host key mapping (Zoom API requires admin scope to read host keys)
+const HOST_KEYS: Record<string, string> = {
+  'hila@hai.tech': '576706',
+  'alonad78@gmail.com': '161988',
+  'shaul@hai.tech': '152303',
+  'inna_grois@yahoo.com': '983810',
+  'innagrois@gmail.com': '184874',
+  'inna@hai.tech': '740578',
+  'info@hai.tech': '296693',
+  'hai.tech.teacher@gmail.com': '982294',
+};
+
 /**
- * Get user's host key
+ * Get user's host key - uses local lookup since Zoom API requires admin scope
  */
 export async function getUserHostKey(userId: string): Promise<string | null> {
+  console.log(`[Zoom] getUserHostKey called for userId: ${userId}`);
   try {
-    const response = await zoomRequest<{ host_key: string }>('GET', `/users/${userId}?login_type=100`);
-    return response.host_key || null;
-  } catch (error) {
-    console.error(`Failed to get host key for user ${userId}:`, error);
+    // First get the user's email
+    const user = await zoomRequest<{ email: string; host_key?: string }>('GET', `/users/${userId}`);
+    console.log(`[Zoom] User email for ${userId}: ${user.email}`);
+    
+    // Check local mapping first (Zoom API often doesn't return host_key without admin scope)
+    const localHostKey = HOST_KEYS[user.email.toLowerCase()];
+    if (localHostKey) {
+      console.log(`[Zoom] Found host key in local mapping for ${user.email}: ${localHostKey}`);
+      return localHostKey;
+    }
+    
+    // Fall back to API response if available
+    if (user.host_key) {
+      console.log(`[Zoom] Got host key from API for ${userId}: ${user.host_key}`);
+      return user.host_key;
+    }
+    
+    console.log(`[Zoom] No host key found for ${user.email}`);
+    return null;
+  } catch (error: any) {
+    console.error(`[Zoom] Failed to get host key for user ${userId}:`, error.message);
     return null;
   }
 }
@@ -145,25 +175,62 @@ export async function isUserAvailable(
   durationMinutes: number
 ): Promise<boolean> {
   const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
+  const requestedDayOfWeek = startTime.getUTCDay(); // Use UTC day of week
   
-  // Get meetings for that day
-  const from = new Date(startTime);
-  from.setHours(0, 0, 0, 0);
-  const to = new Date(startTime);
-  to.setHours(23, 59, 59, 999);
+  // Get all meetings for this user (not just for the specific day)
+  // We need to check recurring meetings that might occur on the same day of week
+  const meetings = await getUserMeetings(userId);
   
-  const meetings = await getUserMeetings(userId, from, to);
+  console.log(`[Zoom] Checking availability for user ${userId} at ${startTime.toISOString()} (${durationMinutes} min)`);
+  console.log(`[Zoom] Requested day of week (UTC): ${requestedDayOfWeek}`);
+  console.log(`[Zoom] Found ${meetings.length} meetings to check`);
   
   for (const meeting of meetings) {
     const meetingStart = new Date(meeting.start_time);
-    const meetingEnd = new Date(meetingStart.getTime() + meeting.duration * 60000);
+    const meetingDuration = meeting.duration;
     
-    // Check for overlap
-    if (startTime < meetingEnd && endTime > meetingStart) {
-      return false;
+    console.log(`[Zoom] Checking meeting: "${meeting.topic}" type=${meeting.type} start=${meeting.start_time} duration=${meetingDuration}`);
+    
+    // For recurring meetings (type 8), check if this day of week would conflict
+    if (meeting.type === 8) {
+      const meetingDayOfWeek = meetingStart.getUTCDay(); // Use UTC day of week
+      
+      console.log(`[Zoom]   Meeting day of week (UTC): ${meetingDayOfWeek}, requested: ${requestedDayOfWeek}`);
+      
+      // If meeting is on a different day of week, no conflict
+      if (meetingDayOfWeek !== requestedDayOfWeek) {
+        console.log(`[Zoom]   Different day of week, skipping`);
+        continue;
+      }
+      
+      // Same day of week - check time overlap using UTC consistently
+      const meetingTimeMinutes = meetingStart.getUTCHours() * 60 + meetingStart.getUTCMinutes();
+      const meetingEndTimeMinutes = meetingTimeMinutes + meetingDuration;
+      
+      const requestedTimeMinutes = startTime.getUTCHours() * 60 + startTime.getUTCMinutes();
+      const requestedEndTimeMinutes = requestedTimeMinutes + durationMinutes;
+      
+      console.log(`[Zoom]   Existing time (UTC min): ${meetingTimeMinutes} - ${meetingEndTimeMinutes}`);
+      console.log(`[Zoom]   Requested time (UTC min): ${requestedTimeMinutes} - ${requestedEndTimeMinutes}`);
+      
+      // Check for time overlap
+      if (requestedTimeMinutes < meetingEndTimeMinutes && requestedEndTimeMinutes > meetingTimeMinutes) {
+        console.log(`[Zoom] CONFLICT: Recurring meeting "${meeting.topic}" on same day of week with overlapping time`);
+        return false;
+      }
+      console.log(`[Zoom]   No overlap`);
+    } else {
+      // For non-recurring meetings, check exact date/time overlap
+      const meetingEnd = new Date(meetingStart.getTime() + meetingDuration * 60000);
+      
+      if (startTime < meetingEnd && endTime > meetingStart) {
+        console.log(`[Zoom] CONFLICT: Non-recurring meeting "${meeting.topic}" overlaps`);
+        return false;
+      }
     }
   }
   
+  console.log(`[Zoom] User ${userId} is AVAILABLE`);
   return true;
 }
 
@@ -176,17 +243,27 @@ export async function findAvailableUser(
 ): Promise<ZoomUser | null> {
   const users = await getUsers();
   
+  console.log(`[Zoom] Finding available user for ${startTime.toISOString()} (${durationMinutes} min)`);
+  console.log(`[Zoom] Checking ${users.length} users...`);
+  
   for (const user of users) {
-    if (user.status !== 'active') continue;
+    if (user.status !== 'active') {
+      console.log(`[Zoom] Skipping inactive user: ${user.email}`);
+      continue;
+    }
     
+    console.log(`[Zoom] Checking user: ${user.email}`);
     const available = await isUserAvailable(user.id, startTime, durationMinutes);
     if (available) {
+      console.log(`[Zoom] FOUND available user: ${user.email}`);
       // Get host key for this user
       const hostKey = await getUserHostKey(user.id);
       return { ...user, host_key: hostKey || undefined };
     }
+    console.log(`[Zoom] User ${user.email} is NOT available`);
   }
   
+  console.log(`[Zoom] NO available users found!`);
   return null;
 }
 
@@ -197,13 +274,18 @@ export async function createMeeting(
   hostId: string, 
   params: CreateMeetingParams
 ): Promise<ZoomMeeting & { host_key?: string }> {
-  // Format start_time for Zoom - when timezone is specified, send local time without Z suffix
+  // Format start_time for Zoom - send in Israel local time since timezone is Asia/Jerusalem
+  // Convert UTC date to Israel local time (UTC+2) for display
   const pad = (n: number) => n.toString().padStart(2, '0');
   const d = params.startTime;
-  const localTimeStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+  
+  // Add 2 hours to UTC to get Israel time (simplified - doesn't handle DST)
+  const israelTime = new Date(d.getTime() + 2 * 60 * 60 * 1000);
+  const localTimeStr = `${israelTime.getUTCFullYear()}-${pad(israelTime.getUTCMonth() + 1)}-${pad(israelTime.getUTCDate())}T${pad(israelTime.getUTCHours())}:${pad(israelTime.getUTCMinutes())}:00`;
   
   console.log('[Zoom] Creating meeting with startTime:', {
-    inputDate: d.toISOString(),
+    inputDateUTC: d.toISOString(),
+    israelTimeConverted: israelTime.toISOString(),
     formattedLocalTime: localTimeStr,
     timezone: params.timezone || 'Asia/Jerusalem',
     duration: params.duration,
@@ -221,7 +303,11 @@ export async function createMeeting(
       join_before_host: true,
       waiting_room: false,
       mute_upon_entry: true,
-      auto_recording: 'none'
+      auto_recording: 'none',
+      meeting_authentication: false,
+      alternative_hosts: 'hai.tech.teacher@gmail.com',
+      alternative_hosts_email_notification: false,
+      use_pmi: false
     }
   };
 
@@ -236,7 +322,9 @@ export async function createMeeting(
   console.log('[Zoom] Meeting created response:', JSON.stringify(meeting, null, 2));
   
   // Get host key
+  console.log('[Zoom] About to fetch host key for hostId:', hostId);
   const hostKey = await getUserHostKey(hostId);
+  console.log('[Zoom] Fetched host key:', hostKey);
   
   return { ...meeting, host_key: hostKey || undefined };
 }
@@ -246,6 +334,24 @@ export async function createMeeting(
  */
 export async function deleteMeeting(meetingId: string | number): Promise<void> {
   await zoomRequest('DELETE', `/meetings/${meetingId}`);
+}
+
+/**
+ * Delete all cloud recordings for a meeting
+ */
+export async function deleteRecordings(meetingId: string | number): Promise<void> {
+  try {
+    // Delete all recordings for this meeting
+    await zoomRequest('DELETE', `/meetings/${meetingId}/recordings`);
+    console.log(`[Zoom] Deleted cloud recordings for meeting ${meetingId}`);
+  } catch (error: any) {
+    // Ignore 404 (no recordings) or other errors - recordings might not exist
+    if (error.response?.status === 404) {
+      console.log(`[Zoom] No recordings found for meeting ${meetingId}`);
+    } else {
+      console.error(`[Zoom] Failed to delete recordings for meeting ${meetingId}:`, error.message);
+    }
+  }
 }
 
 /**
@@ -313,19 +419,25 @@ export async function createCycleMeeting(params: {
   firstMeetingDate.setDate(firstMeetingDate.getDate() + daysUntilNext);
   const firstMeetingDateStr = `${firstMeetingDate.getFullYear()}-${(firstMeetingDate.getMonth() + 1).toString().padStart(2, '0')}-${firstMeetingDate.getDate().toString().padStart(2, '0')}`;
   
-  // Create the firstMeeting datetime
-  const firstMeeting = new Date(`${firstMeetingDateStr}T${timeStr}`);
+  // Create the firstMeeting datetime in UTC
+  // The timeStr is in Israel local time, we need to convert to UTC
+  // Israel is UTC+2 (or UTC+3 during DST, but Zoom handles DST)
+  // Create date in Israel timezone by appending the timezone offset
+  const israelDateStr = `${firstMeetingDateStr}T${timeStr}+02:00`;
+  const firstMeeting = new Date(israelDateStr);
   
   console.log('[Zoom] createCycleMeeting:', {
     startTime: params.startTime,
     originalStartDate: startDateStr,
     calculatedFirstMeetingDate: firstMeetingDateStr,
     timeStr,
+    israelDateStr,
     zoomDayOfWeek: params.dayOfWeek,
     targetDowJs: targetDowJs,
     currentDow,
     daysUntilNext,
     firstMeetingISO: firstMeeting.toISOString(),
+    firstMeetingUTCHours: firstMeeting.getUTCHours(),
   });
   
   // Find available user
@@ -365,6 +477,7 @@ export const zoomService = {
   findAvailableUser,
   createMeeting,
   deleteMeeting,
+  deleteRecordings,
   getMeeting,
   createCycleMeeting
 };

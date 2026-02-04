@@ -729,6 +729,7 @@ export const useCreateZoomMeeting = () => {
     onSuccess: (_, cycleId) => {
       queryClient.invalidateQueries({ queryKey: ['zoom-meeting', cycleId] });
       queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings', cycleId] });
     },
   });
 };
@@ -741,6 +742,7 @@ export const useDeleteZoomMeeting = () => {
     onSuccess: (_, cycleId) => {
       queryClient.invalidateQueries({ queryKey: ['zoom-meeting', cycleId] });
       queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings', cycleId] });
     },
   });
 };

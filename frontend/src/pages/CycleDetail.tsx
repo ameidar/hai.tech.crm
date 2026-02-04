@@ -585,27 +585,7 @@ export default function CycleDetail() {
                         </div>
                       </div>
 
-                      {/* Password */}
-                      {zoomMeeting.zoomPassword && (
-                        <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                          <div className="flex items-center gap-2">
-                            <Lock size={16} className="text-gray-600" />
-                            <span className="text-sm">סיסמה</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-sm">{zoomMeeting.zoomPassword}</span>
-                            <button
-                              onClick={() => copyToClipboard(zoomMeeting.zoomPassword!, 'password')}
-                              className={`p-1.5 rounded transition-colors ${
-                                copiedField === 'password' ? 'bg-green-100 text-green-600' : 'hover:bg-gray-200 text-gray-600'
-                              }`}
-                              title="העתק"
-                            >
-                              {copiedField === 'password' ? <CheckCircle size={16} /> : <Copy size={16} />}
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                      {/* Password - hidden, showing only Host Key instead */}
 
                       {/* Host Email */}
                       {zoomMeeting.zoomHostEmail && (
@@ -947,23 +927,7 @@ export default function CycleDetail() {
                     <span className="font-mono text-sm">{viewingMeeting.zoomMeetingId}</span>
                   </div>
                   
-                  {/* Password */}
-                  {viewingMeeting.zoomPassword && (
-                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <span className="text-sm text-gray-600">סיסמה</span>
-                      <div className="flex items-center gap-1">
-                        <span className="font-mono text-sm">{viewingMeeting.zoomPassword}</span>
-                        <button
-                          onClick={() => copyToClipboard(viewingMeeting.zoomPassword!, 'viewZoomPass')}
-                          className={`p-1 rounded ${
-                            copiedField === 'viewZoomPass' ? 'text-green-600' : 'text-gray-400 hover:text-blue-600'
-                          }`}
-                        >
-                          {copiedField === 'viewZoomPass' ? <CheckCircle size={12} /> : <Copy size={12} />}
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                  {/* Password - hidden */}
                   
                   {/* Host Key */}
                   {viewingMeeting.zoomHostKey && (
@@ -1006,6 +970,30 @@ export default function CycleDetail() {
                         <ExternalLink size={14} />
                         צפה בהקלטה
                       </a>
+                    </div>
+                  )}
+                  
+                  {/* Lesson Summary */}
+                  {viewingMeeting.lessonSummary && (
+                    <div className="col-span-2 p-4 bg-green-50 rounded-lg">
+                      <h4 className="text-sm font-medium text-green-800 mb-2 flex items-center gap-2">
+                        📋 סיכום השיעור
+                      </h4>
+                      <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                        {viewingMeeting.lessonSummary}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Lesson Transcript */}
+                  {viewingMeeting.lessonTranscript && (
+                    <div className="col-span-2 p-4 bg-blue-50 rounded-lg">
+                      <h4 className="text-sm font-medium text-blue-800 mb-2 flex items-center gap-2">
+                        📝 תמלול השיעור
+                      </h4>
+                      <div className="text-sm text-gray-700 whitespace-pre-wrap max-h-48 overflow-y-auto">
+                        {viewingMeeting.lessonTranscript}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1116,23 +1104,7 @@ export default function CycleDetail() {
                     <span className="font-mono">{selectedMeeting.zoomMeetingId}</span>
                   </div>
                   
-                  {/* Password */}
-                  {selectedMeeting.zoomPassword && (
-                    <div className="flex items-center justify-between p-2 bg-white rounded">
-                      <span className="text-gray-600">סיסמה:</span>
-                      <div className="flex items-center gap-1">
-                        <span className="font-mono">{selectedMeeting.zoomPassword}</span>
-                        <button
-                          onClick={() => copyToClipboard(selectedMeeting.zoomPassword!, 'editZoomPass')}
-                          className={`p-1 rounded ${
-                            copiedField === 'editZoomPass' ? 'text-green-600' : 'text-gray-400 hover:text-blue-600'
-                          }`}
-                        >
-                          {copiedField === 'editZoomPass' ? <CheckCircle size={12} /> : <Copy size={12} />}
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                  {/* Password - hidden */}
                   
                   {/* Host Key */}
                   {selectedMeeting.zoomHostKey && (

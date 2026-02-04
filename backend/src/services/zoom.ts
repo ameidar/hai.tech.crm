@@ -113,10 +113,11 @@ export async function getUsers(): Promise<ZoomUser[]> {
  */
 export async function getUserHostKey(userId: string): Promise<string | null> {
   try {
-    const response = await zoomRequest<{ host_key: string }>('GET', `/users/${userId}?login_type=100`);
+    const response = await zoomRequest<{ host_key: string }>('GET', `/users/${userId}`);
+    console.log(`[Zoom] Got host key for ${userId}: ${response.host_key}`);
     return response.host_key || null;
-  } catch (error) {
-    console.error(`Failed to get host key for user ${userId}:`, error);
+  } catch (error: any) {
+    console.error(`[Zoom] Failed to get host key for user ${userId}:`, error.message);
     return null;
   }
 }
@@ -221,7 +222,11 @@ export async function createMeeting(
       join_before_host: true,
       waiting_room: false,
       mute_upon_entry: true,
-      auto_recording: 'none'
+      auto_recording: 'none',
+      meeting_authentication: false,
+      alternative_hosts: 'hai.tech.teacher@gmail.com',
+      alternative_hosts_email_notification: false,
+      use_pmi: false
     }
   };
 

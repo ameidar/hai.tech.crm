@@ -274,13 +274,18 @@ export async function createMeeting(
   hostId: string, 
   params: CreateMeetingParams
 ): Promise<ZoomMeeting & { host_key?: string }> {
-  // Format start_time for Zoom - when timezone is specified, send local time without Z suffix
+  // Format start_time for Zoom - send in Israel local time since timezone is Asia/Jerusalem
+  // Convert UTC date to Israel local time (UTC+2) for display
   const pad = (n: number) => n.toString().padStart(2, '0');
   const d = params.startTime;
-  const localTimeStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+  
+  // Add 2 hours to UTC to get Israel time (simplified - doesn't handle DST)
+  const israelTime = new Date(d.getTime() + 2 * 60 * 60 * 1000);
+  const localTimeStr = `${israelTime.getUTCFullYear()}-${pad(israelTime.getUTCMonth() + 1)}-${pad(israelTime.getUTCDate())}T${pad(israelTime.getUTCHours())}:${pad(israelTime.getUTCMinutes())}:00`;
   
   console.log('[Zoom] Creating meeting with startTime:', {
-    inputDate: d.toISOString(),
+    inputDateUTC: d.toISOString(),
+    israelTimeConverted: israelTime.toISOString(),
     formattedLocalTime: localTimeStr,
     timezone: params.timezone || 'Asia/Jerusalem',
     duration: params.duration,

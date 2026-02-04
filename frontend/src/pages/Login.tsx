@@ -41,14 +41,14 @@ export default function Login() {
 
           {/* Error Message */}
           {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3 text-red-700">
+            <div data-testid="login-error" className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3 text-red-700">
               <AlertCircle size={20} />
               <p className="text-sm">{error}</p>
             </div>
           )}
 
           {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-6" data-testid="login-form">
             <div>
               <label className="form-label">אימייל</label>
               <input
@@ -59,6 +59,7 @@ export default function Login() {
                 placeholder="your@email.com"
                 required
                 dir="ltr"
+                data-testid="email-input"
               />
             </div>
 
@@ -73,6 +74,7 @@ export default function Login() {
                   placeholder="••••••••"
                   required
                   dir="ltr"
+                  data-testid="password-input"
                 />
                 <button
                   type="button"
@@ -88,6 +90,7 @@ export default function Login() {
               type="submit"
               disabled={isLoading}
               className="w-full btn btn-primary justify-center py-3"
+              data-testid="login-button"
             >
               {isLoading ? (
                 <span className="animate-pulse">מתחבר...</span>

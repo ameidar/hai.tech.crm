@@ -1,0 +1,218 @@
+name: E2E Tests
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev]
+  schedule:
+    - cron: '0 2 * * *'  # Nightly at 2 AM UTC
+  workflow_dispatch:
+
+env:
+  BASE_URL: http://localhost:3001
+
+jobs:
+  smoke:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: haitech
+          POSTGRES_PASSWORD: haitech_pass
+          POSTGRES_DB: haitech_crm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            e2e/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: ./backend
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: ./frontend
+
+      - name: Install E2E dependencies
+        run: npm ci
+        working-directory: ./e2e
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: ./e2e
+
+      - name: Setup database
+        run: npx prisma migrate deploy
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
+
+      - name: Seed database
+        run: npx prisma db seed
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: ./frontend
+        env:
+          VITE_API_URL: http://localhost:3000
+
+      - name: Start backend
+        run: npm start &
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
+          PORT: 3000
+          JWT_SECRET: test_jwt_secret
+          NODE_ENV: test
+
+      - name: Serve frontend
+        run: npx serve -s dist -l 3001 &
+        working-directory: ./frontend
+
+      - name: Wait for services
+        run: |
+          echo "Waiting for backend..."
+          timeout 30 bash -c 'until curl -s http://localhost:3000/health > /dev/null 2>&1; do sleep 1; done' || echo "Backend ready or timed out"
+          echo "Waiting for frontend..."
+          timeout 30 bash -c 'until curl -s http://localhost:3001 > /dev/null 2>&1; do sleep 1; done' || echo "Frontend ready or timed out"
+
+      - name: Run smoke tests
+        run: npx playwright test --grep @smoke
+        working-directory: ./e2e
+        env:
+          BASE_URL: http://localhost:3001
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-test-results
+          path: |
+            e2e/test-results/
+            e2e/playwright-report/
+          retention-days: 7
+
+  regression:
+    name: Regression Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: smoke
+    if: github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-regression')
+    
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: haitech
+          POSTGRES_PASSWORD: haitech_pass
+          POSTGRES_DB: haitech_crm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            e2e/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: ./backend
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: ./frontend
+
+      - name: Install E2E dependencies
+        run: npm ci
+        working-directory: ./e2e
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+        working-directory: ./e2e
+
+      - name: Setup database
+        run: npx prisma migrate deploy
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
+
+      - name: Seed database
+        run: npx prisma db seed
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: ./frontend
+        env:
+          VITE_API_URL: http://localhost:3000
+
+      - name: Start backend
+        run: npm start &
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
+          PORT: 3000
+          JWT_SECRET: test_jwt_secret
+          NODE_ENV: test
+
+      - name: Serve frontend
+        run: npx serve -s dist -l 3001 &
+        working-directory: ./frontend
+
+      - name: Wait for services
+        run: |
+          timeout 30 bash -c 'until curl -s http://localhost:3000/health > /dev/null 2>&1; do sleep 1; done' || true
+          timeout 30 bash -c 'until curl -s http://localhost:3001 > /dev/null 2>&1; do sleep 1; done' || true
+
+      - name: Run all tests
+        run: npx playwright test
+        working-directory: ./e2e
+        env:
+          BASE_URL: http://localhost:3001
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: regression-test-results
+          path: |
+            e2e/test-results/
+            e2e/playwright-report/
+          retention-days: 14

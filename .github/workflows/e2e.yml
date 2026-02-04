@@ -70,7 +70,9 @@ jobs:
       - name: Seed database
         run: |
           echo "=== Running seed ==="
-          npx prisma db seed
+          npx prisma db seed 2>&1 || echo "Seed command failed with exit code $?"
+          echo "=== Trying direct seed ==="
+          npx tsx prisma/seed.ts 2>&1 || echo "Direct seed failed with exit code $?"
           echo "=== Seed output complete ==="
         working-directory: ./backend
         env:

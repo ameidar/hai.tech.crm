@@ -162,7 +162,7 @@ export default function Cycles() {
         title="מחזורים"
         subtitle={`${displayCycles?.length || 0} מחזורים`}
         actions={
-          <button onClick={() => setShowAddModal(true)} className="btn btn-primary">
+          <button onClick={() => setShowAddModal(true)} className="btn btn-primary" data-testid="add-cycle-btn">
             <Plus size={18} />
             מחזור חדש
           </button>
@@ -182,6 +182,7 @@ export default function Cycles() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="חיפוש לפי שם מחזור..."
                 className="form-input pr-10 w-full"
+                data-testid="search-input"
               />
             </div>
 
@@ -323,7 +324,7 @@ export default function Cycles() {
         ) : displayCycles && displayCycles.length > 0 ? (
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="overflow-x-auto">
-              <table>
+              <table data-testid="cycles-table">
                 <thead>
                   <tr>
                     <th className="w-12">

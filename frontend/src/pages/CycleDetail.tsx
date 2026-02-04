@@ -465,7 +465,7 @@ export default function CycleDetail() {
             </div>
 
             {/* Progress Card */}
-            <div className="card">
+            <div className="card" data-testid="progress-section">
               <div className="card-header">
                 <h2 className="font-semibold">התקדמות</h2>
               </div>
@@ -517,7 +517,7 @@ export default function CycleDetail() {
 
             {/* Zoom Card - Only for online cycles */}
             {cycle.activityType === 'online' && (
-              <div className="card">
+              <div className="card" data-testid="zoom-section">
                 <div className="card-header flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Video size={18} className="text-blue-600" />
@@ -639,6 +639,7 @@ export default function CycleDetail() {
                         onClick={handleCreateZoomMeeting}
                         disabled={createZoomMeeting.isPending}
                         className="btn btn-primary"
+                        data-testid="create-zoom-btn"
                       >
                         {createZoomMeeting.isPending ? (
                           <>
@@ -659,12 +660,13 @@ export default function CycleDetail() {
             )}
 
             {/* Registrations */}
-            <div className="card">
+            <div className="card" data-testid="registrations-list">
               <div className="card-header flex items-center justify-between">
                 <h2 className="font-semibold">תלמידים ({registrations?.length || 0})</h2>
                 <button
                   onClick={() => setShowAddStudentModal(true)}
                   className="btn btn-primary text-sm"
+                  data-testid="add-student-btn"
                 >
                   <Plus size={16} />
                   הוסף תלמיד
@@ -763,7 +765,7 @@ export default function CycleDetail() {
               </div>
               {meetings && meetings.length > 0 ? (
                 <div className="overflow-x-auto">
-                  <table>
+                  <table data-testid="meetings-table">
                     <thead>
                       <tr>
                         <th className="w-10">

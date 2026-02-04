@@ -20,22 +20,22 @@ import {
 
 // Admin/Manager navigation
 const adminNavItems = [
-  { path: '/', icon: LayoutDashboard, label: 'דשבורד' },
-  { path: '/customers', icon: Users, label: 'לקוחות' },
-  { path: '/students', icon: GraduationCap, label: 'תלמידים' },
-  { path: '/courses', icon: BookOpen, label: 'קורסים' },
-  { path: '/branches', icon: Building2, label: 'סניפים' },
-  { path: '/instructors', icon: UserCheck, label: 'מדריכים' },
-  { path: '/cycles', icon: RefreshCcw, label: 'מחזורים' },
-  { path: '/meetings', icon: Calendar, label: 'פגישות' },
-  { path: '/reports', icon: BarChart3, label: 'דוחות' },
-  { path: '/audit', icon: FileText, label: 'יומן פעילות' },
+  { path: '/', icon: LayoutDashboard, label: 'דשבורד', testId: 'nav-dashboard' },
+  { path: '/customers', icon: Users, label: 'לקוחות', testId: 'nav-customers' },
+  { path: '/students', icon: GraduationCap, label: 'תלמידים', testId: 'nav-students' },
+  { path: '/courses', icon: BookOpen, label: 'קורסים', testId: 'nav-courses' },
+  { path: '/branches', icon: Building2, label: 'סניפים', testId: 'nav-branches' },
+  { path: '/instructors', icon: UserCheck, label: 'מדריכים', testId: 'nav-instructors' },
+  { path: '/cycles', icon: RefreshCcw, label: 'מחזורים', testId: 'nav-cycles' },
+  { path: '/meetings', icon: Calendar, label: 'פגישות', testId: 'nav-meetings' },
+  { path: '/reports', icon: BarChart3, label: 'דוחות', testId: 'nav-reports' },
+  { path: '/audit', icon: FileText, label: 'יומן פעילות', testId: 'nav-audit' },
 ];
 
 // Instructor-only navigation
 const instructorNavItems = [
-  { path: '/instructor', icon: LayoutDashboard, label: 'הפגישות שלי' },
-  { path: '/meetings', icon: Calendar, label: 'כל הפגישות' },
+  { path: '/instructor', icon: LayoutDashboard, label: 'הפגישות שלי', testId: 'nav-instructor' },
+  { path: '/meetings', icon: Calendar, label: 'כל הפגישות', testId: 'nav-meetings' },
 ];
 
 export default function Layout() {
@@ -73,11 +73,12 @@ export default function Layout() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 py-4">
+        <nav className="flex-1 py-4" data-testid="main-nav">
           {(user?.role === 'instructor' ? instructorNavItems : adminNavItems).map((item) => (
             <NavLink
               key={item.path}
               to={item.path}
+              data-testid={item.testId}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-4 py-3 mx-2 rounded-lg transition-colors ${
                   isActive

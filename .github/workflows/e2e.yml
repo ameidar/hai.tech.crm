@@ -133,6 +133,12 @@ jobs:
           done
           # Extra settling time for app initialization
           sleep 3
+          
+          # Debug: Test login API directly
+          echo "=== Testing login API ==="
+          curl -v -X POST http://localhost:3000/api/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"email":"admin@haitech.co.il","password":"admin123"}' || true
 
       - name: Run smoke tests
         run: npx playwright test --grep @smoke

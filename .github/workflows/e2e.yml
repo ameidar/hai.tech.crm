@@ -94,6 +94,7 @@ jobs:
           JWT_SECRET: test_jwt_secret
           JWT_REFRESH_SECRET: test_jwt_refresh_secret
           API_KEY: test_api_key
+          CORS_ORIGINS: http://localhost:3001
           NODE_ENV: test
 
       - name: Serve frontend
@@ -230,6 +231,7 @@ jobs:
           JWT_SECRET: test_jwt_secret
           JWT_REFRESH_SECRET: test_jwt_refresh_secret
           API_KEY: test_api_key
+          CORS_ORIGINS: http://localhost:3001
           NODE_ENV: test
 
       - name: Serve frontend

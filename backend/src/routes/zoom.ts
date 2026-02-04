@@ -215,6 +215,13 @@ router.delete('/cycles/:cycleId/meeting', async (req: Request, res: Response) =>
       return res.status(400).json({ error: 'Cycle has no Zoom meeting' });
     }
 
+    // Delete cloud recordings first (must be done before deleting the meeting)
+    try {
+      await zoomService.deleteRecordings(cycle.zoomMeetingId);
+    } catch (error: any) {
+      console.log(`[Zoom] Could not delete recordings: ${error.message}`);
+    }
+
     // Delete meeting from Zoom
     try {
       await zoomService.deleteMeeting(cycle.zoomMeetingId);

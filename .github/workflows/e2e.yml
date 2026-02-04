@@ -73,6 +73,10 @@ jobs:
         env:
           DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
 
+      - name: Build backend
+        run: npm run build
+        working-directory: ./backend
+
       - name: Build frontend
         run: npm run build
         working-directory: ./frontend
@@ -198,6 +202,10 @@ jobs:
         working-directory: ./backend
         env:
           DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
+
+      - name: Build backend
+        run: npm run build
+        working-directory: ./backend
 
       - name: Build frontend
         run: npm run build

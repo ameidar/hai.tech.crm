@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search } from 'lucide-react';
-import { useInstructors, useCreateInstructor, useUpdateInstructor, useSendInstructorInvite } from '../hooks/useApi';
+import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound } from 'lucide-react';
+import { useInstructors, useCreateInstructor, useUpdateInstructor, useSendInstructorInvite, useResetInstructorPassword } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import { SkeletonCardGrid } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
@@ -14,6 +14,7 @@ export default function Instructors() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingInstructor, setEditingInstructor] = useState<Instructor | null>(null);
   const [inviteModal, setInviteModal] = useState<{ instructor: Instructor; url: string } | null>(null);
+  const [resetPasswordModal, setResetPasswordModal] = useState<{ instructor: Instructor; url: string } | null>(null);
   const [searchFilter, setSearchFilter] = useState('');
 
   const { data: instructors, isLoading } = useInstructors();
@@ -39,6 +40,7 @@ export default function Instructors() {
   const createInstructor = useCreateInstructor();
   const updateInstructor = useUpdateInstructor();
   const sendInvite = useSendInstructorInvite();
+  const resetPassword = useResetInstructorPassword();
 
   const handleSendInvite = async (instructor: Instructor) => {
     try {
@@ -46,6 +48,15 @@ export default function Instructors() {
       setInviteModal({ instructor, url: result.inviteUrl });
     } catch (error) {
       console.error('Failed to generate invite:', error);
+    }
+  };
+
+  const handleResetPassword = async (instructor: Instructor) => {
+    try {
+      const result = await resetPassword.mutateAsync(instructor.id);
+      setResetPasswordModal({ instructor, url: result.resetUrl });
+    } catch (error) {
+      console.error('Failed to generate reset link:', error);
     }
   };
 
@@ -107,7 +118,9 @@ export default function Instructors() {
                 instructor={instructor}
                 onEdit={() => setEditingInstructor(instructor)}
                 onSendInvite={() => handleSendInvite(instructor)}
+                onResetPassword={() => handleResetPassword(instructor)}
                 isInviteLoading={sendInvite.isPending}
+                isResetLoading={resetPassword.isPending}
               />
             ))}
           </div>
@@ -172,6 +185,22 @@ export default function Instructors() {
           />
         )}
       </Modal>
+
+      {/* Reset Password Modal */}
+      <Modal
+        isOpen={!!resetPasswordModal}
+        onClose={() => setResetPasswordModal(null)}
+        title="איפוס סיסמה"
+        size="md"
+      >
+        {resetPasswordModal && (
+          <ResetPasswordModalContent
+            instructor={resetPasswordModal.instructor}
+            resetUrl={resetPasswordModal.url}
+            onClose={() => setResetPasswordModal(null)}
+          />
+        )}
+      </Modal>
     </>
   );
 }
@@ -181,10 +210,12 @@ interface InstructorCardProps {
   instructor: Instructor;
   onEdit: () => void;
   onSendInvite: () => void;
+  onResetPassword: () => void;
   isInviteLoading?: boolean;
+  isResetLoading?: boolean;
 }
 
-function InstructorCard({ instructor, onEdit, onSendInvite, isInviteLoading }: InstructorCardProps) {
+function InstructorCard({ instructor, onEdit, onSendInvite, onResetPassword, isInviteLoading, isResetLoading }: InstructorCardProps) {
   const hasAccount = !!instructor.userId;
 
   return (
@@ -278,6 +309,17 @@ function InstructorCard({ instructor, onEdit, onSendInvite, isInviteLoading }: I
                 הזמנה
               </button>
             )}
+            {hasAccount && (
+              <button
+                onClick={onResetPassword}
+                disabled={isResetLoading}
+                className="text-orange-600 hover:text-orange-700 flex items-center gap-1.5 font-medium transition-colors"
+                title="איפוס סיסמה"
+              >
+                <KeyRound size={14} />
+                איפוס
+              </button>
+            )}
             <button
               onClick={onEdit}
               className="text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors"
@@ -369,6 +411,107 @@ function InviteModalContent({ instructor, inviteUrl, onClose }: InviteModalConte
           <MessageCircle size={20} />
           שלח בוואטסאפ
         </button>
+        
+        <button
+          onClick={handleCopy}
+          className="w-full flex items-center justify-center gap-2 bg-gray-100 text-gray-700 py-3 rounded-lg font-medium hover:bg-gray-200 transition-colors"
+        >
+          {copied ? <Check size={20} /> : <Copy size={20} />}
+          {copied ? 'הועתק!' : 'העתק קישור'}
+        </button>
+      </div>
+
+      <div className="mt-6 pt-4 border-t">
+        <button
+          onClick={onClose}
+          className="w-full text-gray-500 hover:text-gray-700 text-sm"
+        >
+          סגור
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Reset Password Modal Content
+interface ResetPasswordModalContentProps {
+  instructor: Instructor;
+  resetUrl: string;
+  onClose: () => void;
+}
+
+function ResetPasswordModalContent({ instructor, resetUrl, onClose }: ResetPasswordModalContentProps) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(resetUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  const handleWhatsApp = () => {
+    const message = encodeURIComponent(
+      `שלום ${instructor.name},\n\nקיבלנו בקשה לאיפוס הסיסמה שלך במערכת HaiTech CRM.\n\nלחץ על הקישור כדי להגדיר סיסמה חדשה:\n${resetUrl}\n\nהקישור תקף ל-24 שעות.`
+    );
+    let phone = instructor.phone?.replace(/[^0-9]/g, '') || '';
+    if (phone.startsWith('0')) {
+      phone = '972' + phone.substring(1);
+    }
+    window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
+  };
+
+  return (
+    <div className="p-6">
+      <div className="text-center mb-6">
+        <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <KeyRound className="text-orange-600" size={28} />
+        </div>
+        <h3 className="text-lg font-semibold text-gray-800">
+          איפוס סיסמה עבור {instructor.name}
+        </h3>
+        <p className="text-gray-500 text-sm mt-1">
+          הקישור תקף ל-24 שעות
+        </p>
+      </div>
+
+      {/* Link display */}
+      <div className="bg-gray-50 rounded-lg p-3 mb-4">
+        <p className="text-xs text-gray-500 mb-1">קישור לאיפוס:</p>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={resetUrl}
+            readOnly
+            dir="ltr"
+            className="flex-1 bg-white border border-gray-200 rounded px-3 py-2 text-sm text-gray-700 font-mono"
+          />
+          <button
+            onClick={handleCopy}
+            className={`p-2 rounded transition-colors ${
+              copied ? 'bg-green-100 text-green-600' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-100'
+            }`}
+            title="העתק קישור"
+          >
+            {copied ? <Check size={18} /> : <Copy size={18} />}
+          </button>
+        </div>
+      </div>
+
+      {/* Action buttons */}
+      <div className="space-y-3">
+        {instructor.phone && (
+          <button
+            onClick={handleWhatsApp}
+            className="w-full flex items-center justify-center gap-2 bg-green-500 text-white py-3 rounded-lg font-medium hover:bg-green-600 transition-colors"
+          >
+            <MessageCircle size={20} />
+            שלח בוואטסאפ
+          </button>
+        )}
         
         <button
           onClick={handleCopy}

@@ -52,7 +52,8 @@ test.describe('Critical Paths - Smoke Tests', { tag: '@smoke' }, () => {
     ];
 
     for (const item of navItems) {
-      const navLink = page.getByRole('link', { name: item.label });
+      // Use first() to handle multiple matching links (sidebar + page content)
+      const navLink = page.getByRole('link', { name: item.label }).first();
       await expect(navLink).toBeVisible();
     }
   });
@@ -66,8 +67,8 @@ test.describe('Critical Paths - Smoke Tests', { tag: '@smoke' }, () => {
     await loginPage.login(TEST_ADMIN.email, TEST_ADMIN.password);
     await expect(page).not.toHaveURL(/\/login/);
     
-    // Navigate to cycles
-    await page.getByRole('link', { name: HEBREW.nav.cycles }).click();
+    // Navigate to cycles (use first() for sidebar link)
+    await page.getByRole('link', { name: HEBREW.nav.cycles }).first().click();
     await cyclesPage.waitForPageLoad();
     
     // Verify page loaded
@@ -83,8 +84,8 @@ test.describe('Critical Paths - Smoke Tests', { tag: '@smoke' }, () => {
     await loginPage.login(TEST_ADMIN.email, TEST_ADMIN.password);
     await expect(page).not.toHaveURL(/\/login/);
     
-    // Navigate to cycles via sidebar
-    await page.getByRole('link', { name: HEBREW.nav.cycles }).click();
+    // Navigate to cycles via sidebar (use first() for sidebar link)
+    await page.getByRole('link', { name: HEBREW.nav.cycles }).first().click();
     await expect(page).toHaveURL(/\/cycles/);
     
     // Wait for page content to load

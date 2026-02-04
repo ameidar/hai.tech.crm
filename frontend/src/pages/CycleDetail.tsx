@@ -1415,6 +1415,7 @@ export default function CycleDetail() {
             onSubmit={handleUpdateCycle}
             onCancel={() => setShowEditCycleModal(false)}
             isLoading={updateCycle.isPending}
+            hasZoom={zoomMeeting?.hasMeeting || false}
           />
         )}
       </Modal>
@@ -1925,9 +1926,10 @@ interface CycleQuickEditFormProps {
   onSubmit: (data: Partial<Cycle>) => void;
   onCancel: () => void;
   isLoading?: boolean;
+  hasZoom?: boolean;
 }
 
-function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, onCancel, isLoading }: CycleQuickEditFormProps) {
+function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, onCancel, isLoading, hasZoom }: CycleQuickEditFormProps) {
   const formatDateForInput = (date: string | Date | undefined): string => {
     if (!date) return '';
     const d = new Date(date);
@@ -1954,6 +1956,15 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
   
   const [regenerateMeetings, setRegenerateMeetings] = useState(false);
   const originalStartDate = formatDateForInput(cycle.startDate);
+  const originalDayOfWeek = cycle.dayOfWeek;
+  const originalStartTime = cycle.startTime ? formatTimeForInput(cycle.startTime) : '16:00';
+  const originalEndTime = cycle.endTime ? formatTimeForInput(cycle.endTime) : '17:00';
+  
+  // Check if schedule fields changed
+  const scheduleChanged = formData.startDate !== originalStartDate ||
+    formData.dayOfWeek !== originalDayOfWeek ||
+    formData.startTime !== originalStartTime ||
+    formData.endTime !== originalEndTime;
 
   function formatTimeForInput(time: string | Date): string {
     if (!time) return '16:00';
@@ -1976,9 +1987,14 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     const [endHour, endMin] = formData.endTime.split(':').map(Number);
     const durationMinutes = (endHour * 60 + endMin) - (startHour * 60 + startMin);
 
-    // Check if start date changed - if so, ask to regenerate meetings
-    const startDateChanged = formData.startDate !== originalStartDate;
-    const shouldRegenerate = startDateChanged && regenerateMeetings;
+    // If has Zoom and schedule changed, prevent submit
+    if (hasZoom && scheduleChanged) {
+      alert('לא ניתן לשנות ימים ושעות כשיש פגישת זום. יש למחוק את הזום קודם.');
+      return;
+    }
+
+    // If schedule changed, regenerate meetings
+    const shouldRegenerate = scheduleChanged && regenerateMeetings;
 
     onSubmit({
       name: formData.name,
@@ -2084,16 +2100,28 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
         </div>
 
         <div>
-          <label className="form-label">תאריך התחלה</label>
+          <label className="form-label">תאריך התחלה {hasZoom && <span className="text-red-500 text-xs">(נעול - יש זום)</span>}</label>
           <input
             type="date"
             value={formData.startDate}
             onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-            className="form-input"
+            className={`form-input ${hasZoom ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+            disabled={hasZoom}
           />
         </div>
 
-        {formData.startDate !== originalStartDate && (
+        {/* Warning when has Zoom and trying to change schedule */}
+        {hasZoom && scheduleChanged && (
+          <div className="col-span-2 bg-red-50 border border-red-200 rounded-lg p-3">
+            <span className="text-sm text-red-800">
+              <strong>⚠️ לא ניתן לשנות ימים ושעות כשיש פגישת זום.</strong><br />
+              יש למחוק את הזום קודם ואז לערוך את המחזור.
+            </span>
+          </div>
+        )}
+
+        {/* Regenerate meetings option when schedule changes (only if no Zoom) */}
+        {!hasZoom && scheduleChanged && (
           <div className="col-span-2 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -2103,18 +2131,19 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
                 className="rounded border-gray-300 text-blue-600"
               />
               <span className="text-sm text-yellow-800">
-                <strong>שים לב:</strong> שינית את תאריך ההתחלה. סמן כדי ליצור מחדש את כל המפגשים מהתאריך החדש.
+                <strong>שים לב:</strong> שינית את לוח הזמנים. סמן כדי למחוק פגישות עתידיות וליצור מחדש לפי הנתונים החדשים.
               </span>
             </label>
           </div>
         )}
 
         <div>
-          <label className="form-label">יום בשבוע</label>
+          <label className="form-label">יום בשבוע {hasZoom && <span className="text-red-500 text-xs">(נעול - יש זום)</span>}</label>
           <select
             value={formData.dayOfWeek}
             onChange={(e) => setFormData({ ...formData, dayOfWeek: e.target.value as DayOfWeek })}
-            className="form-input"
+            className={`form-input ${hasZoom ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+            disabled={hasZoom}
           >
             <option value="sunday">ראשון</option>
             <option value="monday">שני</option>
@@ -2126,22 +2155,24 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
         </div>
 
         <div>
-          <label className="form-label">שעת התחלה</label>
+          <label className="form-label">שעת התחלה {hasZoom && <span className="text-red-500 text-xs">(נעול - יש זום)</span>}</label>
           <input
             type="time"
             value={formData.startTime}
             onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
-            className="form-input"
+            className={`form-input ${hasZoom ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+            disabled={hasZoom}
           />
         </div>
 
         <div>
-          <label className="form-label">שעת סיום</label>
+          <label className="form-label">שעת סיום {hasZoom && <span className="text-red-500 text-xs">(נעול - יש זום)</span>}</label>
           <input
             type="time"
             value={formData.endTime}
             onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
-            className="form-input"
+            className={`form-input ${hasZoom ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+            disabled={hasZoom}
           />
         </div>
 

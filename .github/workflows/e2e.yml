@@ -134,11 +134,15 @@ jobs:
           # Extra settling time for app initialization
           sleep 3
           
+          # Debug: Check if admin user exists in DB
+          echo "=== Checking database for admin user ==="
+          PGPASSWORD=haitech_pass psql -h localhost -U haitech -d haitech_crm -c "SELECT id, email, name, role FROM \"User\" WHERE email = 'admin@haitech.co.il';" || true
+          
           # Debug: Test login API directly
           echo "=== Testing login API ==="
           curl -v -X POST http://localhost:3000/api/auth/login \
             -H "Content-Type: application/json" \
-            -d '{"email":"admin@haitech.co.il","password":"admin123"}' || true
+            -d '{"email":"admin@haitech.co.il","password":"admin123"}' 2>&1 || true
 
       - name: Run smoke tests
         run: npx playwright test --grep @smoke

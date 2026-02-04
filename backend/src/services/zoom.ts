@@ -175,43 +175,50 @@ export async function isUserAvailable(
   durationMinutes: number
 ): Promise<boolean> {
   const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
-  const requestedDayOfWeek = startTime.getDay(); // 0=Sunday, 6=Saturday
+  const requestedDayOfWeek = startTime.getUTCDay(); // Use UTC day of week
   
   // Get all meetings for this user (not just for the specific day)
   // We need to check recurring meetings that might occur on the same day of week
   const meetings = await getUserMeetings(userId);
   
   console.log(`[Zoom] Checking availability for user ${userId} at ${startTime.toISOString()} (${durationMinutes} min)`);
+  console.log(`[Zoom] Requested day of week (UTC): ${requestedDayOfWeek}`);
   console.log(`[Zoom] Found ${meetings.length} meetings to check`);
   
   for (const meeting of meetings) {
     const meetingStart = new Date(meeting.start_time);
     const meetingDuration = meeting.duration;
     
+    console.log(`[Zoom] Checking meeting: "${meeting.topic}" type=${meeting.type} start=${meeting.start_time} duration=${meetingDuration}`);
+    
     // For recurring meetings (type 8), check if this day of week would conflict
     if (meeting.type === 8) {
-      const meetingDayOfWeek = meetingStart.getDay();
+      const meetingDayOfWeek = meetingStart.getUTCDay(); // Use UTC day of week
+      
+      console.log(`[Zoom]   Meeting day of week (UTC): ${meetingDayOfWeek}, requested: ${requestedDayOfWeek}`);
       
       // If meeting is on a different day of week, no conflict
       if (meetingDayOfWeek !== requestedDayOfWeek) {
+        console.log(`[Zoom]   Different day of week, skipping`);
         continue;
       }
       
-      // Same day of week - check time overlap
-      // Create times on the same date to compare properly
+      // Same day of week - check time overlap using UTC consistently
       const meetingTimeMinutes = meetingStart.getUTCHours() * 60 + meetingStart.getUTCMinutes();
       const meetingEndTimeMinutes = meetingTimeMinutes + meetingDuration;
       
-      const requestedTimeMinutes = startTime.getHours() * 60 + startTime.getMinutes();
+      const requestedTimeMinutes = startTime.getUTCHours() * 60 + startTime.getUTCMinutes();
       const requestedEndTimeMinutes = requestedTimeMinutes + durationMinutes;
+      
+      console.log(`[Zoom]   Existing time (UTC min): ${meetingTimeMinutes} - ${meetingEndTimeMinutes}`);
+      console.log(`[Zoom]   Requested time (UTC min): ${requestedTimeMinutes} - ${requestedEndTimeMinutes}`);
       
       // Check for time overlap
       if (requestedTimeMinutes < meetingEndTimeMinutes && requestedEndTimeMinutes > meetingTimeMinutes) {
         console.log(`[Zoom] CONFLICT: Recurring meeting "${meeting.topic}" on same day of week with overlapping time`);
-        console.log(`[Zoom]   Existing: ${meetingTimeMinutes} - ${meetingEndTimeMinutes} min`);
-        console.log(`[Zoom]   Requested: ${requestedTimeMinutes} - ${requestedEndTimeMinutes} min`);
         return false;
       }
+      console.log(`[Zoom]   No overlap`);
     } else {
       // For non-recurring meetings, check exact date/time overlap
       const meetingEnd = new Date(meetingStart.getTime() + meetingDuration * 60000);

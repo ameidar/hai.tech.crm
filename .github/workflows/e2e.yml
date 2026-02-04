@@ -84,7 +84,9 @@ jobs:
           VITE_API_URL: http://localhost:3000
 
       - name: Start backend
-        run: npm start &
+        run: |
+          npm start > backend.log 2>&1 &
+          echo $! > backend.pid
         working-directory: ./backend
         env:
           DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
@@ -106,6 +108,10 @@ jobs:
             fi
             if [ $i -eq 60 ]; then
               echo "❌ Backend failed to start"
+              echo "=== Backend logs ==="
+              cat ./backend/backend.log || echo "No log file"
+              echo "=== Process status ==="
+              ps aux | grep node || true
               exit 1
             fi
             sleep 1

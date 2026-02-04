@@ -92,6 +92,8 @@ jobs:
           DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
           PORT: 3000
           JWT_SECRET: test_jwt_secret
+          JWT_REFRESH_SECRET: test_jwt_refresh_secret
+          API_KEY: test_api_key
           NODE_ENV: test
 
       - name: Serve frontend
@@ -226,6 +228,8 @@ jobs:
           DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
           PORT: 3000
           JWT_SECRET: test_jwt_secret
+          JWT_REFRESH_SECRET: test_jwt_refresh_secret
+          API_KEY: test_api_key
           NODE_ENV: test
 
       - name: Serve frontend

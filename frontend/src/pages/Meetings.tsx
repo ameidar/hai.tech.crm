@@ -9,6 +9,7 @@ import {
   X,
 } from 'lucide-react';
 import { useMeetings, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus } from '../hooks/useApi';
+import { useAuth } from '../context/AuthContext';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
@@ -18,6 +19,8 @@ import { meetingStatusHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
 export default function Meetings() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
   const [searchParams] = useSearchParams();
   const [selectedDate, setSelectedDate] = useState(() => {
     return new Date().toISOString().split('T')[0];
@@ -290,8 +293,8 @@ export default function Meetings() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
-        {/* Bulk Actions Bar */}
-        {someSelected && (
+        {/* Bulk Actions Bar - Admin only */}
+        {someSelected && isAdmin && (
           <div className="mb-4 p-4 bg-blue-600 text-white rounded-lg flex items-center gap-4 flex-wrap animate-in slide-in-from-top">
             <span className="font-semibold bg-white/20 px-3 py-1 rounded-full">
               {selectedIds.size} נבחרו
@@ -408,17 +411,19 @@ export default function Meetings() {
               <thead>
                 <tr>
                   <th className="w-12">
-                    <button
-                      onClick={toggleSelectAll}
-                      className="p-1 hover:bg-gray-200 rounded transition-colors"
-                      title={allSelected ? 'בטל בחירת הכל' : 'בחר הכל'}
-                    >
-                      {allSelected ? (
-                        <CheckSquare size={20} className="text-blue-600" />
-                      ) : (
-                        <Square size={20} className="text-gray-400" />
-                      )}
-                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={toggleSelectAll}
+                        className="p-1 hover:bg-gray-200 rounded transition-colors"
+                        title={allSelected ? 'בטל בחירת הכל' : 'בחר הכל'}
+                      >
+                        {allSelected ? (
+                          <CheckSquare size={20} className="text-blue-600" />
+                        ) : (
+                          <Square size={20} className="text-gray-400" />
+                        )}
+                      </button>
+                    )}
                   </th>
                   {activeColumns.filter(col => allColumns[col]).map(col => (
                     <th key={col}>{allColumns[col].label}</th>
@@ -440,16 +445,18 @@ export default function Meetings() {
                         }`}
                       >
                         <td onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => toggleSelect(meeting.id)}
-                            className="p-1 hover:bg-gray-200 rounded transition-colors"
-                          >
-                            {isSelected ? (
-                              <CheckSquare size={20} className="text-blue-600" />
-                            ) : (
-                              <Square size={20} className="text-gray-400" />
-                            )}
-                          </button>
+                          {isAdmin && (
+                            <button
+                              onClick={() => toggleSelect(meeting.id)}
+                              className="p-1 hover:bg-gray-200 rounded transition-colors"
+                            >
+                              {isSelected ? (
+                                <CheckSquare size={20} className="text-blue-600" />
+                              ) : (
+                                <Square size={20} className="text-gray-400" />
+                              )}
+                            </button>
+                          )}
                         </td>
                         {activeColumns.filter(col => allColumns[col]).map(col => (
                           <td key={col} onClick={() => setSelectedMeeting(meeting)}>

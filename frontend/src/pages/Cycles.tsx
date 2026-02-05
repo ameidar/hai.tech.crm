@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square } from 'lucide-react';
-import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useViewData } from '../hooks/useApi';
+import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useBulkGenerateMeetings, useViewData } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading, { SkeletonTable } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
@@ -60,6 +60,7 @@ export default function Cycles() {
   const updateCycle = useUpdateCycle();
   const deleteCycle = useDeleteCycle();
   const bulkUpdateCycles = useBulkUpdateCycles();
+  const bulkGenerateMeetings = useBulkGenerateMeetings();
   const { data: viewData, isLoading: viewLoading } = useViewData(activeViewId, []);
 
   // Determine which data to display based on view mode
@@ -324,6 +325,24 @@ export default function Cycles() {
               >
                 <Edit size={16} />
                 עריכה גורפת
+              </button>
+              <button
+                onClick={async () => {
+                  if (confirm(`האם ליצור פגישות ל-${selectedCycles.size} מחזורים?`)) {
+                    try {
+                      const result = await bulkGenerateMeetings.mutateAsync(Array.from(selectedCycles));
+                      alert(result.message);
+                      setSelectedCycles(new Set());
+                    } catch (error: any) {
+                      alert(error.message || 'שגיאה ביצירת פגישות');
+                    }
+                  }
+                }}
+                disabled={bulkGenerateMeetings.isPending}
+                className="btn btn-success flex items-center gap-2"
+              >
+                <Calendar size={16} />
+                {bulkGenerateMeetings.isPending ? 'יוצר...' : 'צור פגישות'}
               </button>
               <button
                 onClick={() => setSelectedCycles(new Set())}

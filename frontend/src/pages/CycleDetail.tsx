@@ -47,6 +47,7 @@ import {
   useZoomMeeting,
   useCreateZoomMeeting,
   useDeleteZoomMeeting,
+  useGenerateMeetings,
 } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -95,6 +96,7 @@ export default function CycleDetail() {
   const { data: zoomMeeting, isLoading: zoomLoading } = useZoomMeeting(id!);
   const createZoomMeeting = useCreateZoomMeeting();
   const deleteZoomMeeting = useDeleteZoomMeeting();
+  const generateMeetings = useGenerateMeetings();
 
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
@@ -733,7 +735,29 @@ export default function CycleDetail() {
           <div className="lg:col-span-2">
             <div className="card">
               <div className="card-header flex items-center justify-between">
-                <h2 className="font-semibold">מפגשים ({meetings?.length || 0})</h2>
+                <div className="flex items-center gap-3">
+                  <h2 className="font-semibold">מפגשים ({meetings?.length || 0})</h2>
+                  {/* Generate meetings button - show when cycle has fewer meetings than totalMeetings */}
+                  {isAdmin && cycle && (meetings?.length || 0) < cycle.totalMeetings && (
+                    <button
+                      onClick={async () => {
+                        if (confirm(`האם ליצור ${cycle.totalMeetings - (meetings?.length || 0)} פגישות חדשות?`)) {
+                          try {
+                            const result = await generateMeetings.mutateAsync(id!);
+                            alert(result.message);
+                          } catch (error: any) {
+                            alert(error.message || 'שגיאה ביצירת פגישות');
+                          }
+                        }
+                      }}
+                      disabled={generateMeetings.isPending}
+                      className="btn btn-success text-sm"
+                    >
+                      <Plus size={16} />
+                      {generateMeetings.isPending ? 'יוצר...' : 'צור פגישות'}
+                    </button>
+                  )}
+                </div>
                 {selectedMeetingIds.size > 0 && isAdmin && (
                   <div className="flex items-center gap-3">
                     <span className="text-sm text-gray-500">

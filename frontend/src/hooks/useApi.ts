@@ -330,6 +330,37 @@ export const useDeleteCycle = () => {
   });
 };
 
+export const useGenerateMeetings = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (cycleId: string) =>
+      mutateData<{ message: string; generated: number; total: number }, undefined>(
+        `/cycles/${cycleId}/generate-meetings`,
+        'post'
+      ),
+    onSuccess: (_, cycleId) => {
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
+      queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings', cycleId] });
+    },
+  });
+};
+
+export const useBulkGenerateMeetings = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      mutateData<{ message: string; totalGenerated: number; results: any[] }, { ids: string[] }>(
+        '/cycles/bulk-generate-meetings',
+        'post',
+        { ids }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
+    },
+  });
+};
+
 export const useBulkUpdateCycles = () => {
   const queryClient = useQueryClient();
   return useMutation({

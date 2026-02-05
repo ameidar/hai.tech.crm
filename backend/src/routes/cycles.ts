@@ -606,6 +606,8 @@ cyclesRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
     
     if (data.status !== undefined) updateData.status = data.status;
     if (data.instructorId !== undefined) updateData.instructorId = data.instructorId;
+    if (data.courseId !== undefined) updateData.courseId = data.courseId;
+    if (data.branchId !== undefined) updateData.branchId = data.branchId;
     if (data.meetingRevenue !== undefined) updateData.meetingRevenue = data.meetingRevenue;
     if (data.pricePerStudent !== undefined) updateData.pricePerStudent = data.pricePerStudent;
     if (data.studentCount !== undefined) updateData.studentCount = data.studentCount;

@@ -715,6 +715,8 @@ export default function Cycles() {
         <BulkEditForm
           selectedCount={selectedCycles.size}
           instructors={instructors || []}
+          courses={courses || []}
+          branches={branches || []}
           onSubmit={handleBulkUpdate}
           onCancel={() => setShowBulkEditModal(false)}
           isLoading={bulkUpdateCycles.isPending}
@@ -1381,15 +1383,19 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
 interface BulkEditFormProps {
   selectedCount: number;
   instructors: { id: string; name: string }[];
+  courses: { id: string; name: string }[];
+  branches: { id: string; name: string }[];
   onSubmit: (data: Partial<Cycle>) => void;
   onCancel: () => void;
   isLoading?: boolean;
 }
 
-function BulkEditForm({ selectedCount, instructors, onSubmit, onCancel, isLoading }: BulkEditFormProps) {
+function BulkEditForm({ selectedCount, instructors, courses, branches, onSubmit, onCancel, isLoading }: BulkEditFormProps) {
   const [formData, setFormData] = useState<{
     status?: CycleStatus;
     instructorId?: string;
+    courseId?: string;
+    branchId?: string;
     meetingRevenue?: number;
     pricePerStudent?: number;
     studentCount?: number;
@@ -1427,6 +1433,12 @@ function BulkEditForm({ selectedCount, instructors, onSubmit, onCancel, isLoadin
     }
     if (enabledFields.has('instructorId') && formData.instructorId) {
       dataToSubmit.instructorId = formData.instructorId;
+    }
+    if (enabledFields.has('courseId') && formData.courseId) {
+      dataToSubmit.courseId = formData.courseId;
+    }
+    if (enabledFields.has('branchId') && formData.branchId) {
+      dataToSubmit.branchId = formData.branchId;
     }
     if (enabledFields.has('meetingRevenue') && formData.meetingRevenue !== undefined) {
       dataToSubmit.meetingRevenue = formData.meetingRevenue;
@@ -1503,6 +1515,58 @@ function BulkEditForm({ selectedCount, instructors, onSubmit, onCancel, isLoadin
               {instructors.map((instructor) => (
                 <option key={instructor.id} value={instructor.id}>
                   {instructor.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Course */}
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={enabledFields.has('courseId')}
+            onChange={() => toggleField('courseId')}
+            className="mt-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1">
+            <label className="form-label">קורס</label>
+            <select
+              value={formData.courseId || ''}
+              onChange={(e) => setFormData({ ...formData, courseId: e.target.value })}
+              className="form-input"
+              disabled={!enabledFields.has('courseId')}
+            >
+              <option value="">בחר קורס</option>
+              {courses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Branch */}
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={enabledFields.has('branchId')}
+            onChange={() => toggleField('branchId')}
+            className="mt-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1">
+            <label className="form-label">סניף</label>
+            <select
+              value={formData.branchId || ''}
+              onChange={(e) => setFormData({ ...formData, branchId: e.target.value })}
+              className="form-input"
+              disabled={!enabledFields.has('branchId')}
+            >
+              <option value="">בחר סניף</option>
+              {branches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
                 </option>
               ))}
             </select>

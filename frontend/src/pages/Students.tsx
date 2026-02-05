@@ -1,29 +1,53 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, User, GraduationCap, Plus, CreditCard, BookOpen } from 'lucide-react';
-import { useStudents, useCycles, useCreateRegistration, useUpdateRegistration } from '../hooks/useApi';
+import { Search, User, GraduationCap, Plus, CreditCard, BookOpen, Edit, Check } from 'lucide-react';
+import { useStudents, useCycles, useCreateRegistration, useUpdateRegistration, useUpdateStudent, useCustomers } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import { SkeletonTable } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import ViewSelector from '../components/ViewSelector';
-import type { Student, Cycle, Registration, PaymentStatus, PaymentMethod } from '../types';
+import type { Student, Cycle, Registration, PaymentStatus, PaymentMethod, Customer } from '../types';
 import { paymentStatusHebrew } from '../types';
 
 export default function Students() {
   const [search, setSearch] = useState('');
   const [registerStudent, setRegisterStudent] = useState<Student | null>(null);
   const [editPayment, setEditPayment] = useState<{ student: Student; registration: Registration } | null>(null);
+  const [editStudent, setEditStudent] = useState<Student | null>(null);
+  const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
+  const [showBulkEditModal, setShowBulkEditModal] = useState(false);
   
   const { data: students, isLoading } = useStudents();
   const { data: cycles } = useCycles({ status: 'active' });
+  const { data: customers } = useCustomers();
   const createRegistration = useCreateRegistration();
   const updateRegistration = useUpdateRegistration();
+  const updateStudent = useUpdateStudent();
 
   const filteredStudents = students?.filter((student) =>
     student.name.toLowerCase().includes(search.toLowerCase()) ||
     student.customer?.name.toLowerCase().includes(search.toLowerCase())
   ) || [];
+
+  // Selection handlers
+  const toggleSelectAll = () => {
+    if (selectedStudentIds.size === filteredStudents.length) {
+      setSelectedStudentIds(new Set());
+    } else {
+      setSelectedStudentIds(new Set(filteredStudents.map(s => s.id)));
+    }
+  };
+
+  const toggleSelectStudent = (id: string) => {
+    const newSet = new Set(selectedStudentIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedStudentIds(newSet);
+  };
 
   const handleRegister = async (cycleId: string, paymentData: { amount?: number; paymentStatus?: PaymentStatus; paymentMethod?: PaymentMethod }) => {
     if (!registerStudent) return;
@@ -59,6 +83,41 @@ export default function Students() {
     }
   };
 
+  const handleUpdateStudent = async (data: Partial<Student>) => {
+    if (!editStudent) return;
+    try {
+      await updateStudent.mutateAsync({
+        studentId: editStudent.id,
+        customerId: editStudent.customerId || '',
+        data,
+      });
+      setEditStudent(null);
+    } catch (error) {
+      console.error('Failed to update student:', error);
+      alert('שגיאה בעדכון התלמיד');
+    }
+  };
+
+  const handleBulkUpdate = async (data: Partial<Student>) => {
+    try {
+      const studentsToUpdate = filteredStudents.filter(s => selectedStudentIds.has(s.id));
+      const updatePromises = studentsToUpdate.map(student =>
+        updateStudent.mutateAsync({ 
+          studentId: student.id, 
+          customerId: student.customerId || '',
+          data 
+        })
+      );
+      await Promise.all(updatePromises);
+      setSelectedStudentIds(new Set());
+      setShowBulkEditModal(false);
+      alert(`עודכנו ${selectedStudentIds.size} תלמידים בהצלחה`);
+    } catch (error) {
+      console.error('Failed to bulk update students:', error);
+      alert('שגיאה בעדכון גורף');
+    }
+  };
+
   // Get cycles student is not already registered to
   const getAvailableCycles = (student: Student) => {
     const registeredCycleIds = new Set(student.registrations?.map(r => r.cycleId) || []);
@@ -91,18 +150,42 @@ export default function Students() {
 
       <div className="flex-1 p-6 overflow-auto bg-gray-50">
         {/* Search & Views */}
-        <div className="bg-white rounded-lg p-4 shadow mb-6 flex gap-4 items-center">
-          <ViewSelector entity="students" onApplyView={() => {}} />
-          <div className="relative w-80">
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-            <input
-              type="text"
-              placeholder="חיפוש לפי שם תלמיד או לקוח..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pr-10 pl-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
+        <div className="bg-white rounded-lg p-4 shadow mb-6 flex gap-4 items-center justify-between">
+          <div className="flex gap-4 items-center">
+            <ViewSelector entity="students" onApplyView={() => {}} />
+            <div className="relative w-80">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+              <input
+                type="text"
+                placeholder="חיפוש לפי שם תלמיד או לקוח..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pr-10 pl-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
           </div>
+          
+          {/* Bulk Actions */}
+          {selectedStudentIds.size > 0 && (
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-gray-500">
+                נבחרו {selectedStudentIds.size} תלמידים
+              </span>
+              <button
+                onClick={() => setShowBulkEditModal(true)}
+                className="btn btn-primary text-sm"
+              >
+                <Edit size={16} />
+                עריכה גורפת
+              </button>
+              <button
+                onClick={() => setSelectedStudentIds(new Set())}
+                className="btn btn-secondary text-sm"
+              >
+                בטל בחירה
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Students List */}
@@ -112,16 +195,33 @@ export default function Students() {
               <table>
                 <thead>
                   <tr>
+                    <th className="w-12">
+                      <input
+                        type="checkbox"
+                        checked={selectedStudentIds.size === filteredStudents.length && filteredStudents.length > 0}
+                        onChange={toggleSelectAll}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                    </th>
                     <th>שם התלמיד</th>
                     <th>לקוח (הורה)</th>
                     <th>כיתה</th>
+                    <th>תאריך לידה</th>
                     <th>הרשמות</th>
                     <th>פעולות</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredStudents.map((student) => (
-                    <tr key={student.id} className="group">
+                    <tr key={student.id} className={`group ${selectedStudentIds.has(student.id) ? 'bg-blue-50' : ''}`}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selectedStudentIds.has(student.id)}
+                          onChange={() => toggleSelectStudent(student.id)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                      </td>
                       <td>
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 bg-gradient-to-br from-blue-100 to-blue-200 rounded-full flex items-center justify-center shadow-sm group-hover:shadow transition-shadow">
@@ -143,6 +243,9 @@ export default function Students() {
                         )}
                       </td>
                       <td className="text-gray-600">{student.grade || <span className="text-gray-400">-</span>}</td>
+                      <td className="text-gray-600">
+                        {student.birthDate ? new Date(student.birthDate).toLocaleDateString('he-IL') : <span className="text-gray-400">-</span>}
+                      </td>
                       <td>
                         <div className="flex flex-wrap gap-1.5">
                           {student.registrations && student.registrations.length > 0 ? (
@@ -171,6 +274,14 @@ export default function Students() {
                       <td>
                         <div className="flex items-center gap-3">
                           <button
+                            onClick={() => setEditStudent(student)}
+                            className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 text-sm font-medium transition-colors"
+                            title="ערוך תלמיד"
+                          >
+                            <Edit size={16} />
+                            עריכה
+                          </button>
+                          <button
                             onClick={() => setRegisterStudent(student)}
                             className="inline-flex items-center gap-1.5 text-green-600 hover:text-green-700 text-sm font-medium transition-colors"
                             title="הרשם למחזור"
@@ -178,12 +289,6 @@ export default function Students() {
                             <Plus size={16} />
                             הרשמה
                           </button>
-                          <Link
-                            to={`/customers/${student.customerId}`}
-                            className="text-blue-600 hover:text-blue-800 hover:underline text-sm"
-                          >
-                            פרטים
-                          </Link>
                         </div>
                       </td>
                     </tr>
@@ -200,6 +305,38 @@ export default function Students() {
           />
         )}
       </div>
+
+      {/* Edit Student Modal */}
+      <Modal
+        isOpen={!!editStudent}
+        onClose={() => setEditStudent(null)}
+        title={`עריכת תלמיד - ${editStudent?.name || ''}`}
+      >
+        {editStudent && (
+          <StudentEditForm
+            student={editStudent}
+            customers={customers || []}
+            onSubmit={handleUpdateStudent}
+            onCancel={() => setEditStudent(null)}
+            isLoading={updateStudent.isPending}
+          />
+        )}
+      </Modal>
+
+      {/* Bulk Edit Modal */}
+      <Modal
+        isOpen={showBulkEditModal}
+        onClose={() => setShowBulkEditModal(false)}
+        title={`עריכה גורפת - ${selectedStudentIds.size} תלמידים`}
+      >
+        <StudentBulkEditForm
+          selectedCount={selectedStudentIds.size}
+          customers={customers || []}
+          onSubmit={handleBulkUpdate}
+          onCancel={() => setShowBulkEditModal(false)}
+          isLoading={updateStudent.isPending}
+        />
+      </Modal>
 
       {/* Register to Cycle Modal */}
       <Modal
@@ -235,6 +372,202 @@ export default function Students() {
         )}
       </Modal>
     </div>
+  );
+}
+
+// Student Edit Form
+interface StudentEditFormProps {
+  student: Student;
+  customers: Customer[];
+  onSubmit: (data: Partial<Student>) => void;
+  onCancel: () => void;
+  isLoading?: boolean;
+}
+
+function StudentEditForm({ student, customers, onSubmit, onCancel, isLoading }: StudentEditFormProps) {
+  const [formData, setFormData] = useState({
+    name: student.name,
+    birthDate: student.birthDate ? new Date(student.birthDate).toISOString().split('T')[0] : '',
+    grade: student.grade || '',
+    customerId: student.customerId || '',
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSubmit({
+      name: formData.name,
+      birthDate: formData.birthDate || undefined,
+      grade: formData.grade || undefined,
+      customerId: formData.customerId || undefined,
+    });
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="col-span-2">
+          <label className="form-label">שם התלמיד *</label>
+          <input
+            type="text"
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            className="form-input"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="form-label">תאריך לידה</label>
+          <input
+            type="date"
+            value={formData.birthDate}
+            onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
+            className="form-input"
+          />
+        </div>
+
+        <div>
+          <label className="form-label">כיתה</label>
+          <input
+            type="text"
+            value={formData.grade}
+            onChange={(e) => setFormData({ ...formData, grade: e.target.value })}
+            className="form-input"
+            placeholder="לדוגמה: ז1"
+          />
+        </div>
+
+        <div className="col-span-2">
+          <label className="form-label">לקוח (הורה)</label>
+          <select
+            value={formData.customerId}
+            onChange={(e) => setFormData({ ...formData, customerId: e.target.value })}
+            className="form-input"
+          >
+            <option value="">בחר לקוח...</option>
+            {customers.map((customer) => (
+              <option key={customer.id} value={customer.id}>
+                {customer.name} {customer.phone ? `(${customer.phone})` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-3 pt-4 border-t">
+        <button type="button" onClick={onCancel} className="btn btn-secondary">
+          ביטול
+        </button>
+        <button type="submit" className="btn btn-primary" disabled={isLoading}>
+          {isLoading ? 'שומר...' : 'שמור'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// Student Bulk Edit Form
+interface StudentBulkEditFormProps {
+  selectedCount: number;
+  customers: Customer[];
+  onSubmit: (data: Partial<Student>) => void;
+  onCancel: () => void;
+  isLoading?: boolean;
+}
+
+function StudentBulkEditForm({ selectedCount, customers, onSubmit, onCancel, isLoading }: StudentBulkEditFormProps) {
+  const [formData, setFormData] = useState({
+    grade: '',
+    customerId: '',
+  });
+  const [updateGrade, setUpdateGrade] = useState(false);
+  const [updateCustomer, setUpdateCustomer] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const data: Partial<Student> = {};
+    if (updateGrade) data.grade = formData.grade || undefined;
+    if (updateCustomer) data.customerId = formData.customerId || undefined;
+    
+    if (Object.keys(data).length === 0) {
+      alert('בחר לפחות שדה אחד לעדכון');
+      return;
+    }
+    
+    onSubmit(data);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      <div className="bg-blue-50 rounded-lg p-4 mb-4">
+        <p className="text-sm text-blue-700">
+          <Check size={16} className="inline me-1" />
+          נבחרו {selectedCount} תלמידים לעדכון
+        </p>
+        <p className="text-xs text-blue-600 mt-1">
+          סמן את השדות שברצונך לעדכן
+        </p>
+      </div>
+
+      <div className="space-y-4">
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            id="updateGrade"
+            checked={updateGrade}
+            onChange={(e) => setUpdateGrade(e.target.checked)}
+            className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1">
+            <label htmlFor="updateGrade" className="form-label cursor-pointer">כיתה</label>
+            <input
+              type="text"
+              value={formData.grade}
+              onChange={(e) => setFormData({ ...formData, grade: e.target.value })}
+              className="form-input"
+              placeholder="לדוגמה: ז1"
+              disabled={!updateGrade}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            id="updateCustomer"
+            checked={updateCustomer}
+            onChange={(e) => setUpdateCustomer(e.target.checked)}
+            className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1">
+            <label htmlFor="updateCustomer" className="form-label cursor-pointer">לקוח (הורה)</label>
+            <select
+              value={formData.customerId}
+              onChange={(e) => setFormData({ ...formData, customerId: e.target.value })}
+              className="form-input"
+              disabled={!updateCustomer}
+            >
+              <option value="">בחר לקוח...</option>
+              {customers.map((customer) => (
+                <option key={customer.id} value={customer.id}>
+                  {customer.name} {customer.phone ? `(${customer.phone})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-3 pt-4 border-t">
+        <button type="button" onClick={onCancel} className="btn btn-secondary">
+          ביטול
+        </button>
+        <button type="submit" className="btn btn-primary" disabled={isLoading || (!updateGrade && !updateCustomer)}>
+          {isLoading ? 'מעדכן...' : `עדכן ${selectedCount} תלמידים`}
+        </button>
+      </div>
+    </form>
   );
 }
 

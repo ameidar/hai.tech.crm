@@ -1,0 +1,607 @@
+[
+  {
+    "status": "error",
+    "name": "תכנית AI להנהלת רשות דימונה שלוחת בן גוריון",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "שיעורים פרטיים נועה ושיילי- רון 0524600032",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "שיעורים פרטיים לעומרי- דרור 0526069144",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "שיעורים פרטיים ליסעור- סלעית 0523220240 המשך",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "שיעורים פרטיים לחן אור- 0505450035",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "שיעורים פרטיים לאביגיל- אלה 0526997919",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "שיעורים פרטיים ירדן והדר- שרית 0544431571",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "שיעורים פרטיים אלינור- 0544516436",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "שיעורים פרטיים אדי- 0548326972",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "שיעור פרטיים בסאל- 0523540172",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "רמת נגב ימי ד' קבוצה 3",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "רמת נגב ימי ד' קבוצה 2",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "רמת נגב ימי ד' קבוצה 1",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "רמות ספורטיב קבוצה 2- ימי א'",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "רמות ספורטיב קבוצה 1- ימי א'",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "רמות ספורטיב ימי ד- vibeCodding",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "רימון רעננה- כיתה ט'",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "רימון רעננה- כיתה ח'",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "רימון רעננה- כיתה ז'",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "צהרונים נווה במדבר 15:00",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "צהרונים נווה במדבר 14:15",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "צהרונים נווה במדבר 13:30",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "צהרונים יחדיו 15:15",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "צהרונים יחדיו 14:45",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "צהרונים יחדיו 14:00",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "צהרונים יחדיו 13:15",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "פלח 5- מיינקראפט",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "פלח 5- ai פיתוח משחקים",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "פייתון AI פיתוח משחקים כפר סבא אונליין",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "עמל מקיף אלבטוף",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "עומר פרונטלי - תלת מימד",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "עומר - פיתוח משחקים עם AI",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "עומר - פיתוח אנימציות ומשחקים ב-Scratch",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "עומר - מיינקראפט וחשיבה מחשובית קבוצה 1",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "עומר - יזמות טכנולוגית ו-AI",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "סניף ירושלים נפגעי תאונות עבודה - 2026",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "ניצנים יום ד'- קבוצה 4",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "ניצנים יום ד'- קבוצה 3",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "ניצנים יום ד'- קבוצה 2",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "ניצנים יום ד'- קבוצה 1",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "ניצנים יום א'- קבוצה 4",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "ניצנים יום א'- קבוצה 3",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "ניצנים יום א'- קבוצה 2",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "ניצנים יום א'- קבוצה 1",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מפתחים אפליקציות עם AI - כיתות ה' ימי חמישי (קבוצה 1)",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מנדיי - שש שנתי יש",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מנדיי - ראשית עירוני ח׳ ת״א",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מנדיי - מקיף ה׳ דרכא אשקלון",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מנדיי - מקיף אמית י׳ אשדוד",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מנדיי - ישיבת אביר יעקב",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מנדיי - יאפא אלמוסתקבל",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מנדיי - חטיבת ביניים קוגל",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מנדיי - חט״ב ע״ש אלבירוני - ניהאי",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מנדיי - חט",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מנדיי - חט",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מנדיי - אורט מדעים ואומנויות נהריה",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מיינקרפט, חשיבה מחשובית ו-AI לכיתות ב' ימי שני (קבוצה 2) תומכים",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מיינקרפט, חשיבה מחשובית ו-AI לכיתות ב' ימי שני (קבוצה 2)",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מיינקרפט, חשיבה מחשובית ו-AI לכיתות ב' ימי שני (קבוצה 1)",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מיינקרפט לכיתות ה'- רננים ראשון לציון מחזור 4",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מיינקרפט לכיתות ה'- רננים ראשון לציון מחזור 3",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מיינקרפט לכיתות ה'- רננים ראשון לציון מחזור 2",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "מיינקרפט לכיתות ה'- רננים ראשון לציון מחזור 1",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "כלניות- קבוצה 2 ימי ג'",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "כלניות- קבוצה 1 ימי ג'",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "יסוד המעלה ראשון לציון 12:00",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "יסוד המעלה ראשון לציון 11:00",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "יסוד המעלה ראשון לציון 10:00",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "יסוד המעלה ראשון לציון 09:00",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "יסוד המעלה ראשון לציון 08:00",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "יזמות טכנולוגית ו-AI כיתות ה' ימי חמישי תומכים",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "יזמות טכנולוגית ו-AI כיתות ה' ימי חמישי (קבוצה 2)",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "הרעות כרמיאל- קבוצה 3 כיתות ו",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "הרעות כרמיאל- קבוצה 2 כיתות ה",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "הרעות כרמיאל- קבוצה 1 כיתות ד",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "הכשרת צוות הוראה לאלומות",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "הדרכת AI לצוות הוראה- חדרה",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "הדסה נעורים - שכבה ה׳ - קבוצה 4",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "הדסה נעורים - שכבה ה׳ - קבוצה 3",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "הדסה נעורים - שכבה ה׳ - קבוצה 2",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "הדסה נעורים - שכבה ה׳ - קבוצה 1",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "הדסה נעורים - שכבה ד׳ - קבוצה 4",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "הדסה נעורים - שכבה ד׳ - קבוצה 3",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "הדסה נעורים - שכבה ד׳ - קבוצה 2",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "הדסה נעורים - שכבה ד׳ - קבוצה 1",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "הדסה נעורים - שכבה ג׳ - קבוצה 4",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "הדסה נעורים - שכבה ג׳ - קבוצה 3",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "הדסה נעורים - שכבה ג׳ - קבוצה 2",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "הדסה נעורים - שכבה ג׳ - קבוצה 1",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "בן גוריון קבוצה 6- ימי א",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "בן גוריון קבוצה 5- ימי א",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "בן גוריון קבוצה 4- ימי א",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "בן גוריון קבוצה 3- ימי א",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "בן גוריון קבוצה 2- ימי א",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "בן גוריון קבוצה 1- ימי א",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "בית ספר עץ החיים",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "בית יהדות איראן- קבוצה 1 ימי ה'",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "בינה מלאכותית לפיתוח משחק, כיתות ג' ימי רביעי (קבוצה 2)",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "בינה מלאכותית לפיתוח משחק - כיתות ג' ימי רביעי (קבוצה 1) תומכים",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "בינה מלאכותית לפיתוח משחק - כיתות ג' ימי רביעי (קבוצה 1)",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אלומות- ימי ב' קבוצה 2",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אלומות- ימי ב' קבוצה 1",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אלומות- ימי א' קבוצה 5",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אלומות- ימי א' קבוצה 4",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אלומות- ימי א' קבוצה 3",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אלומות- ימי א' קבוצה 2",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אלומות- ימי א' קבוצה 1",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אורט -  פיתוח אפליקציות 8:30",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אורט -  פיתוח אפליקציות 14:00",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אורט -  פיתוח אפליקציות 10:15",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אורט -  פייטון 8:30",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אורט -  פייטון 14:00",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אורט -  פייטון 10:15",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אורט -  סייבר 8:30",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אורט -  סייבר 8:30",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אורט -  סייבר 8:30",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אורט -  סייבר 8:30",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אורט -  סייבר 14:00",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אורט -  סייבר 14:00",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אורט -  סייבר 10:15",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  },
+  {
+    "status": "error",
+    "name": "אורט -  סייבר 10:15",
+    "error": "Cannot read properties of undefined (reading 'padStart')"
+  }
+]

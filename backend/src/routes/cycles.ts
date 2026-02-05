@@ -737,3 +737,60 @@ cyclesRouter.post('/:id/registrations', managerOrAdmin, async (req, res, next) =
     next(error);
   }
 });
+
+// Sync cycle progress from meetings table
+cyclesRouter.post('/:id/sync-progress', managerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+
+    // Get cycle
+    const cycle = await prisma.cycle.findUnique({
+      where: { id },
+    });
+    if (!cycle) throw new AppError(404, 'Cycle not found');
+
+    // Count completed meetings from meetings table
+    const completedMeetings = await prisma.meeting.count({
+      where: {
+        cycleId: id,
+        status: 'completed',
+      },
+    });
+
+    // Count total meetings from meetings table
+    const totalMeetingsFromTable = await prisma.meeting.count({
+      where: { cycleId: id },
+    });
+
+    // Use the larger of cycle.totalMeetings or actual meeting count
+    const totalMeetings = Math.max(cycle.totalMeetings, totalMeetingsFromTable);
+    const remainingMeetings = totalMeetings - completedMeetings;
+
+    // Update cycle with synced values
+    const updated = await prisma.cycle.update({
+      where: { id },
+      data: {
+        completedMeetings,
+        remainingMeetings,
+        totalMeetings,
+      },
+      include: {
+        course: { select: { id: true, name: true } },
+        branch: { select: { id: true, name: true } },
+        instructor: { select: { id: true, name: true } },
+      },
+    });
+
+    res.json({
+      ...updated,
+      synced: {
+        completedMeetings,
+        remainingMeetings,
+        totalMeetings,
+        meetingsInTable: totalMeetingsFromTable,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});

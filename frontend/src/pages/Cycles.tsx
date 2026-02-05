@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square } from 'lucide-react';
+import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useBulkGenerateMeetings, useViewData } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading, { SkeletonTable } from '../components/ui/Loading';
@@ -27,6 +27,8 @@ export default function Cycles() {
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'filters' | 'view'>('filters');
   const [pageSize, setPageSize] = useState<number>(100);
+  const [sortField, setSortField] = useState<string>('name');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   // Initialize filters from URL params
   useEffect(() => {
@@ -64,10 +66,87 @@ export default function Cycles() {
   const { data: viewData, isLoading: viewLoading } = useViewData(activeViewId, []);
 
   // Determine which data to display based on view mode
-  const displayCycles = viewMode === 'view' && viewData?.data 
+  const rawCycles = viewMode === 'view' && viewData?.data 
     ? viewData.data as Cycle[]
     : cycles || [];
   const displayLoading = viewMode === 'view' ? viewLoading : isLoading;
+
+  // Sort cycles
+  const displayCycles = useMemo(() => {
+    if (!rawCycles.length) return rawCycles;
+    
+    return [...rawCycles].sort((a, b) => {
+      let aVal: any;
+      let bVal: any;
+      
+      switch (sortField) {
+        case 'name':
+          aVal = a.name || '';
+          bVal = b.name || '';
+          break;
+        case 'course':
+          aVal = a.course?.name || '';
+          bVal = b.course?.name || '';
+          break;
+        case 'branch':
+          aVal = a.branch?.name || '';
+          bVal = b.branch?.name || '';
+          break;
+        case 'instructor':
+          aVal = a.instructor?.name || '';
+          bVal = b.instructor?.name || '';
+          break;
+        case 'startDate':
+          aVal = new Date(a.startDate).getTime();
+          bVal = new Date(b.startDate).getTime();
+          break;
+        case 'dayOfWeek':
+          const dayOrder = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+          aVal = dayOrder[a.dayOfWeek] ?? 0;
+          bVal = dayOrder[b.dayOfWeek] ?? 0;
+          break;
+        case 'type':
+          aVal = a.type || '';
+          bVal = b.type || '';
+          break;
+        case 'pricePerStudent':
+          aVal = Number(a.pricePerStudent) || 0;
+          bVal = Number(b.pricePerStudent) || 0;
+          break;
+        case 'meetingRevenue':
+          aVal = Number(a.meetingRevenue) || 0;
+          bVal = Number(b.meetingRevenue) || 0;
+          break;
+        case 'progress':
+          aVal = a.totalMeetings > 0 ? a.completedMeetings / a.totalMeetings : 0;
+          bVal = b.totalMeetings > 0 ? b.completedMeetings / b.totalMeetings : 0;
+          break;
+        case 'status':
+          aVal = a.status || '';
+          bVal = b.status || '';
+          break;
+        default:
+          return 0;
+      }
+      
+      if (typeof aVal === 'string') {
+        const comparison = aVal.localeCompare(bVal, 'he');
+        return sortDirection === 'asc' ? comparison : -comparison;
+      }
+      
+      return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+    });
+  }, [rawCycles, sortField, sortDirection]);
+
+  // Toggle sort
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   // Selection helpers
   const toggleCycle = (id: string) => {
@@ -377,17 +456,72 @@ export default function Cycles() {
                         )}
                       </button>
                     </th>
-                    <th>שם המחזור</th>
-                    <th>קורס</th>
-                    <th>סניף</th>
-                    <th>מדריך</th>
-                    <th>תאריך התחלה</th>
-                    <th>יום ושעה</th>
-                    <th>סוג</th>
-                    <th>מחיר לתלמיד</th>
-                    <th>הכנסה למפגש</th>
-                    <th>התקדמות</th>
-                    <th>סטטוס</th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('name')}>
+                      <div className="flex items-center gap-1">
+                        שם המחזור
+                        {sortField === 'name' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('course')}>
+                      <div className="flex items-center gap-1">
+                        קורס
+                        {sortField === 'course' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('branch')}>
+                      <div className="flex items-center gap-1">
+                        סניף
+                        {sortField === 'branch' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('instructor')}>
+                      <div className="flex items-center gap-1">
+                        מדריך
+                        {sortField === 'instructor' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('startDate')}>
+                      <div className="flex items-center gap-1">
+                        תאריך התחלה
+                        {sortField === 'startDate' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('dayOfWeek')}>
+                      <div className="flex items-center gap-1">
+                        יום ושעה
+                        {sortField === 'dayOfWeek' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('type')}>
+                      <div className="flex items-center gap-1">
+                        סוג
+                        {sortField === 'type' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('pricePerStudent')}>
+                      <div className="flex items-center gap-1">
+                        מחיר לתלמיד
+                        {sortField === 'pricePerStudent' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('meetingRevenue')}>
+                      <div className="flex items-center gap-1">
+                        הכנסה למפגש
+                        {sortField === 'meetingRevenue' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('progress')}>
+                      <div className="flex items-center gap-1">
+                        התקדמות
+                        {sortField === 'progress' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('status')}>
+                      <div className="flex items-center gap-1">
+                        סטטוס
+                        {sortField === 'status' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
                     <th>פעולות</th>
                   </tr>
                 </thead>

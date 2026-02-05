@@ -4,6 +4,7 @@ import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { updateMeetingSchema, postponeMeetingSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
 import { logAudit } from '../utils/audit.js';
+import { zoomService } from '../services/zoom.js';
 
 // Send WhatsApp alert for negative profit
 async function sendNegativeProfitAlert(meetingData: {
@@ -187,6 +188,162 @@ meetingsRouter.get('/:id', async (req, res, next) => {
     }
 
     res.json(meeting);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Create exceptional/ad-hoc meeting for a cycle
+meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
+  try {
+    const { cycleId, instructorId, scheduledDate, startTime, endTime, withZoom, activityType, topic, notes } = req.body;
+
+    if (!cycleId || !instructorId || !scheduledDate || !startTime || !endTime) {
+      throw new AppError(400, 'Missing required fields: cycleId, instructorId, scheduledDate, startTime, endTime');
+    }
+
+    // Get cycle details for revenue calculation
+    const cycle = await prisma.cycle.findUnique({
+      where: { id: cycleId },
+      include: { 
+        course: true,
+        registrations: {
+          where: { status: { in: ['registered', 'active'] } },
+        },
+      },
+    });
+
+    if (!cycle) {
+      throw new AppError(404, 'Cycle not found');
+    }
+
+    // Get instructor for cost calculation
+    const instructor = await prisma.instructor.findUnique({
+      where: { id: instructorId },
+    });
+
+    if (!instructor) {
+      throw new AppError(404, 'Instructor not found');
+    }
+
+    // Calculate duration in minutes
+    const [startHour, startMin] = startTime.split(':').map(Number);
+    const [endHour, endMin] = endTime.split(':').map(Number);
+    const durationMinutes = (endHour * 60 + endMin) - (startHour * 60 + startMin);
+
+    // Calculate revenue based on cycle type
+    let revenue = 0;
+    if (cycle.type === 'institutional_fixed' && cycle.meetingRevenue) {
+      revenue = Number(cycle.meetingRevenue);
+    } else if (cycle.type === 'institutional_per_child' && cycle.pricePerStudent) {
+      const studentCount = cycle.studentCount || cycle.registrations.length;
+      revenue = Number(cycle.pricePerStudent) * studentCount;
+    } else if (cycle.type === 'private' && cycle.pricePerStudent) {
+      revenue = Number(cycle.pricePerStudent) * cycle.registrations.length;
+    }
+
+    // Calculate instructor payment based on activity type
+    const meetingActivityType = activityType || cycle.activityType || 'frontal';
+    let hourlyRate = 0;
+    if (meetingActivityType === 'online') {
+      hourlyRate = Number(instructor.rateOnline) || Number(instructor.rateFrontal) || 0;
+    } else if (meetingActivityType === 'private_lesson') {
+      hourlyRate = Number(instructor.ratePrivate) || Number(instructor.rateFrontal) || 0;
+    } else {
+      hourlyRate = Number(instructor.rateFrontal) || 0;
+    }
+    const instructorPayment = Math.round(hourlyRate * (durationMinutes / 60));
+    const profit = revenue - instructorPayment;
+
+    // Create the meeting
+    const meeting = await prisma.meeting.create({
+      data: {
+        cycleId,
+        instructorId,
+        scheduledDate: new Date(scheduledDate),
+        startTime: new Date(`1970-01-01T${startTime}:00Z`),
+        endTime: new Date(`1970-01-01T${endTime}:00Z`),
+        status: 'scheduled',
+        activityType: activityType || cycle.activityType || 'frontal',
+        topic,
+        notes,
+        revenue,
+        instructorPayment,
+        profit,
+      },
+      include: {
+        cycle: { include: { course: true, branch: true } },
+        instructor: true,
+      },
+    });
+
+    // Create Zoom meeting if requested
+    if (withZoom) {
+      try {
+        const meetingDate = new Date(scheduledDate);
+        const [sHour, sMin] = startTime.split(':').map(Number);
+        meetingDate.setUTCHours(sHour, sMin, 0, 0);
+
+        // Find an available Zoom user
+        const availableUser = await zoomService.findAvailableUser(meetingDate, durationMinutes);
+        if (availableUser) {
+          const zoomMeeting = await zoomService.createMeeting(availableUser.id, {
+            topic: `${cycle.course?.name || cycle.name} - פגישה חריגה`,
+            startTime: meetingDate,
+            duration: durationMinutes,
+          });
+
+          // Update meeting with Zoom details
+          await prisma.meeting.update({
+            where: { id: meeting.id },
+            data: {
+              zoomMeetingId: zoomMeeting.id?.toString(),
+              zoomJoinUrl: zoomMeeting.join_url,
+              zoomStartUrl: zoomMeeting.start_url,
+              zoomPassword: zoomMeeting.password,
+              zoomHostKey: zoomMeeting.host_key,
+              zoomHostEmail: availableUser.email,
+            },
+          });
+
+          // Merge Zoom details into response
+          Object.assign(meeting, {
+            zoomMeetingId: zoomMeeting.id?.toString(),
+            zoomJoinUrl: zoomMeeting.join_url,
+            zoomStartUrl: zoomMeeting.start_url,
+            zoomPassword: zoomMeeting.password,
+            zoomHostKey: zoomMeeting.host_key,
+            zoomHostEmail: availableUser.email,
+          });
+        } else {
+          console.warn('No available Zoom user found for meeting');
+        }
+      } catch (zoomError) {
+        console.error('Failed to create Zoom meeting:', zoomError);
+        // Continue without Zoom - don't fail the entire request
+      }
+    }
+
+    // Update cycle meeting counts
+    await prisma.cycle.update({
+      where: { id: cycleId },
+      data: {
+        totalMeetings: { increment: 1 },
+        remainingMeetings: { increment: 1 },
+      },
+    });
+
+    // Log audit
+    await logAudit({
+      action: 'CREATE',
+      entity: 'meeting',
+      entityId: meeting.id,
+      userId: (req.user as any)?.id,
+      newValue: meeting as any,
+      req,
+    });
+
+    res.status(201).json(meeting);
   } catch (error) {
     next(error);
   }

@@ -492,6 +492,110 @@ cyclesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
   }
 });
 
+// Generate meetings for a cycle
+cyclesRouter.post('/:id/generate-meetings', managerOrAdmin, async (req, res, next) => {
+  try {
+    const cycleId = req.params.id;
+
+    // Check if cycle exists
+    const cycle = await prisma.cycle.findUnique({
+      where: { id: cycleId },
+      include: { meetings: true }
+    });
+
+    if (!cycle) {
+      throw new AppError(404, 'Cycle not found');
+    }
+    
+    // Calculate how many new meetings to generate
+    const meetingsToGenerate = cycle.totalMeetings - cycle.meetings.length;
+
+    if (meetingsToGenerate <= 0) {
+      return res.json({ 
+        message: 'כל הפגישות כבר קיימות',
+        generated: 0,
+        total: cycle.meetings.length
+      });
+    }
+
+    // Generate the new meetings
+    await generateMeetingsForCycle(cycleId);
+
+    // Get updated cycle
+    const updatedCycle = await prisma.cycle.findUnique({
+      where: { id: cycleId },
+      include: { meetings: true }
+    });
+
+    res.json({ 
+      message: `נוצרו ${meetingsToGenerate} פגישות חדשות`,
+      generated: meetingsToGenerate,
+      total: updatedCycle?.meetings.length || 0
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Bulk generate meetings for multiple cycles
+cyclesRouter.post('/bulk-generate-meetings', managerOrAdmin, async (req, res, next) => {
+  try {
+    const { ids } = req.body as { ids: string[] };
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      throw new AppError(400, 'Invalid cycle IDs');
+    }
+
+    interface GenerateResult {
+      cycleId: string;
+      name?: string;
+      success: boolean;
+      generated?: number;
+      message?: string;
+      error?: string;
+    }
+
+    const results: GenerateResult[] = [];
+    
+    for (const cycleId of ids) {
+      try {
+        const cycle = await prisma.cycle.findUnique({
+          where: { id: cycleId },
+          include: { meetings: true }
+        });
+
+        if (!cycle) {
+          results.push({ cycleId, success: false, error: 'Cycle not found' });
+          continue;
+        }
+
+        const meetingsToGenerate = cycle.totalMeetings - cycle.meetings.length;
+
+        if (meetingsToGenerate <= 0) {
+          results.push({ cycleId, name: cycle.name, success: true, generated: 0, message: 'Already has all meetings' });
+          continue;
+        }
+
+        await generateMeetingsForCycle(cycleId);
+        results.push({ cycleId, name: cycle.name, success: true, generated: meetingsToGenerate });
+      } catch (err: any) {
+        results.push({ cycleId, success: false, error: err.message });
+      }
+    }
+
+    const totalGenerated = results.filter(r => r.success).reduce((sum, r) => sum + (r.generated || 0), 0);
+    const successCount = results.filter(r => r.success).length;
+
+    res.json({
+      message: `נוצרו פגישות ל-${successCount} מחזורים`,
+      totalGenerated,
+      results
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Bulk update cycles
 cyclesRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
   try {
@@ -502,6 +606,8 @@ cyclesRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
     
     if (data.status !== undefined) updateData.status = data.status;
     if (data.instructorId !== undefined) updateData.instructorId = data.instructorId;
+    if (data.courseId !== undefined) updateData.courseId = data.courseId;
+    if (data.branchId !== undefined) updateData.branchId = data.branchId;
     if (data.meetingRevenue !== undefined) updateData.meetingRevenue = data.meetingRevenue;
     if (data.pricePerStudent !== undefined) updateData.pricePerStudent = data.pricePerStudent;
     if (data.studentCount !== undefined) updateData.studentCount = data.studentCount;
@@ -627,6 +733,63 @@ cyclesRouter.post('/:id/registrations', managerOrAdmin, async (req, res, next) =
     });
 
     res.status(201).json(registration);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Sync cycle progress from meetings table
+cyclesRouter.post('/:id/sync-progress', managerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+
+    // Get cycle
+    const cycle = await prisma.cycle.findUnique({
+      where: { id },
+    });
+    if (!cycle) throw new AppError(404, 'Cycle not found');
+
+    // Count completed meetings from meetings table
+    const completedMeetings = await prisma.meeting.count({
+      where: {
+        cycleId: id,
+        status: 'completed',
+      },
+    });
+
+    // Count total meetings from meetings table
+    const totalMeetingsFromTable = await prisma.meeting.count({
+      where: { cycleId: id },
+    });
+
+    // Use the larger of cycle.totalMeetings or actual meeting count
+    const totalMeetings = Math.max(cycle.totalMeetings, totalMeetingsFromTable);
+    const remainingMeetings = totalMeetings - completedMeetings;
+
+    // Update cycle with synced values
+    const updated = await prisma.cycle.update({
+      where: { id },
+      data: {
+        completedMeetings,
+        remainingMeetings,
+        totalMeetings,
+      },
+      include: {
+        course: { select: { id: true, name: true } },
+        branch: { select: { id: true, name: true } },
+        instructor: { select: { id: true, name: true } },
+      },
+    });
+
+    res.json({
+      ...updated,
+      synced: {
+        completedMeetings,
+        remainingMeetings,
+        totalMeetings,
+        meetingsInTable: totalMeetingsFromTable,
+      },
+    });
   } catch (error) {
     next(error);
   }

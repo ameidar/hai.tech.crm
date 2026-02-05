@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square } from 'lucide-react';
-import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useViewData } from '../hooks/useApi';
+import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useBulkGenerateMeetings, useViewData } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading, { SkeletonTable } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
@@ -26,6 +26,9 @@ export default function Cycles() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'filters' | 'view'>('filters');
+  const [pageSize, setPageSize] = useState<number>(100);
+  const [sortField, setSortField] = useState<string>('name');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   // Initialize filters from URL params
   useEffect(() => {
@@ -50,6 +53,7 @@ export default function Cycles() {
     courseId: courseFilter || undefined,
     dayOfWeek: dayFilter || undefined,
     search: debouncedSearch || undefined,
+    limit: pageSize,
   });
   const { data: courses } = useCourses();
   const { data: branches } = useBranches();
@@ -58,13 +62,91 @@ export default function Cycles() {
   const updateCycle = useUpdateCycle();
   const deleteCycle = useDeleteCycle();
   const bulkUpdateCycles = useBulkUpdateCycles();
+  const bulkGenerateMeetings = useBulkGenerateMeetings();
   const { data: viewData, isLoading: viewLoading } = useViewData(activeViewId, []);
 
   // Determine which data to display based on view mode
-  const displayCycles = viewMode === 'view' && viewData?.data 
+  const rawCycles = viewMode === 'view' && viewData?.data 
     ? viewData.data as Cycle[]
     : cycles || [];
   const displayLoading = viewMode === 'view' ? viewLoading : isLoading;
+
+  // Sort cycles
+  const displayCycles = useMemo(() => {
+    if (!rawCycles.length) return rawCycles;
+    
+    return [...rawCycles].sort((a, b) => {
+      let aVal: any;
+      let bVal: any;
+      
+      switch (sortField) {
+        case 'name':
+          aVal = a.name || '';
+          bVal = b.name || '';
+          break;
+        case 'course':
+          aVal = a.course?.name || '';
+          bVal = b.course?.name || '';
+          break;
+        case 'branch':
+          aVal = a.branch?.name || '';
+          bVal = b.branch?.name || '';
+          break;
+        case 'instructor':
+          aVal = a.instructor?.name || '';
+          bVal = b.instructor?.name || '';
+          break;
+        case 'startDate':
+          aVal = new Date(a.startDate).getTime();
+          bVal = new Date(b.startDate).getTime();
+          break;
+        case 'dayOfWeek':
+          const dayOrder = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+          aVal = dayOrder[a.dayOfWeek] ?? 0;
+          bVal = dayOrder[b.dayOfWeek] ?? 0;
+          break;
+        case 'type':
+          aVal = a.type || '';
+          bVal = b.type || '';
+          break;
+        case 'pricePerStudent':
+          aVal = Number(a.pricePerStudent) || 0;
+          bVal = Number(b.pricePerStudent) || 0;
+          break;
+        case 'meetingRevenue':
+          aVal = Number(a.meetingRevenue) || 0;
+          bVal = Number(b.meetingRevenue) || 0;
+          break;
+        case 'progress':
+          aVal = a.totalMeetings > 0 ? a.completedMeetings / a.totalMeetings : 0;
+          bVal = b.totalMeetings > 0 ? b.completedMeetings / b.totalMeetings : 0;
+          break;
+        case 'status':
+          aVal = a.status || '';
+          bVal = b.status || '';
+          break;
+        default:
+          return 0;
+      }
+      
+      if (typeof aVal === 'string') {
+        const comparison = aVal.localeCompare(bVal, 'he');
+        return sortDirection === 'asc' ? comparison : -comparison;
+      }
+      
+      return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+    });
+  }, [rawCycles, sortField, sortDirection]);
+
+  // Toggle sort
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   // Selection helpers
   const toggleCycle = (id: string) => {
@@ -265,6 +347,20 @@ export default function Cycles() {
               </select>
             </div>
 
+            {/* Page size selector */}
+            <div className="w-28">
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="form-input"
+              >
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={200}>200</option>
+                <option value={500}>הכל</option>
+              </select>
+            </div>
+
             {/* View Selector */}
             <ViewSelector
               entity="cycles"
@@ -310,6 +406,24 @@ export default function Cycles() {
                 עריכה גורפת
               </button>
               <button
+                onClick={async () => {
+                  if (confirm(`האם ליצור פגישות ל-${selectedCycles.size} מחזורים?`)) {
+                    try {
+                      const result = await bulkGenerateMeetings.mutateAsync(Array.from(selectedCycles));
+                      alert(result.message);
+                      setSelectedCycles(new Set());
+                    } catch (error: any) {
+                      alert(error.message || 'שגיאה ביצירת פגישות');
+                    }
+                  }
+                }}
+                disabled={bulkGenerateMeetings.isPending}
+                className="btn btn-success flex items-center gap-2"
+              >
+                <Calendar size={16} />
+                {bulkGenerateMeetings.isPending ? 'יוצר...' : 'צור פגישות'}
+              </button>
+              <button
                 onClick={() => setSelectedCycles(new Set())}
                 className="btn btn-secondary"
               >
@@ -342,15 +456,72 @@ export default function Cycles() {
                         )}
                       </button>
                     </th>
-                    <th>שם המחזור</th>
-                    <th>קורס</th>
-                    <th>סניף</th>
-                    <th>מדריך</th>
-                    <th>תאריך התחלה</th>
-                    <th>יום ושעה</th>
-                    <th>סוג</th>
-                    <th>התקדמות</th>
-                    <th>סטטוס</th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('name')}>
+                      <div className="flex items-center gap-1">
+                        שם המחזור
+                        {sortField === 'name' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('course')}>
+                      <div className="flex items-center gap-1">
+                        קורס
+                        {sortField === 'course' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('branch')}>
+                      <div className="flex items-center gap-1">
+                        סניף
+                        {sortField === 'branch' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('instructor')}>
+                      <div className="flex items-center gap-1">
+                        מדריך
+                        {sortField === 'instructor' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('startDate')}>
+                      <div className="flex items-center gap-1">
+                        תאריך התחלה
+                        {sortField === 'startDate' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('dayOfWeek')}>
+                      <div className="flex items-center gap-1">
+                        יום ושעה
+                        {sortField === 'dayOfWeek' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('type')}>
+                      <div className="flex items-center gap-1">
+                        סוג
+                        {sortField === 'type' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('pricePerStudent')}>
+                      <div className="flex items-center gap-1">
+                        מחיר לתלמיד
+                        {sortField === 'pricePerStudent' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('meetingRevenue')}>
+                      <div className="flex items-center gap-1">
+                        הכנסה למפגש
+                        {sortField === 'meetingRevenue' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('progress')}>
+                      <div className="flex items-center gap-1">
+                        התקדמות
+                        {sortField === 'progress' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
+                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('status')}>
+                      <div className="flex items-center gap-1">
+                        סטטוס
+                        {sortField === 'status' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                      </div>
+                    </th>
                     <th>פעולות</th>
                   </tr>
                 </thead>
@@ -428,6 +599,12 @@ export default function Cycles() {
                         <span className={`badge ${cycle.type === 'private' ? 'badge-warning' : 'badge-info'}`}>
                           {cycleTypeHebrew[cycle.type]}
                         </span>
+                      </td>
+                      <td className="text-gray-600">
+                        {cycle.pricePerStudent ? `₪${Number(cycle.pricePerStudent).toLocaleString()}` : '-'}
+                      </td>
+                      <td className="text-gray-600">
+                        {cycle.meetingRevenue ? `₪${Number(cycle.meetingRevenue).toLocaleString()}` : '-'}
                       </td>
                       <td>
                         <div className="flex items-center gap-2">
@@ -538,6 +715,8 @@ export default function Cycles() {
         <BulkEditForm
           selectedCount={selectedCycles.size}
           instructors={instructors || []}
+          courses={courses || []}
+          branches={branches || []}
           onSubmit={handleBulkUpdate}
           onCancel={() => setShowBulkEditModal(false)}
           isLoading={bulkUpdateCycles.isPending}
@@ -1204,15 +1383,19 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
 interface BulkEditFormProps {
   selectedCount: number;
   instructors: { id: string; name: string }[];
+  courses: { id: string; name: string }[];
+  branches: { id: string; name: string }[];
   onSubmit: (data: Partial<Cycle>) => void;
   onCancel: () => void;
   isLoading?: boolean;
 }
 
-function BulkEditForm({ selectedCount, instructors, onSubmit, onCancel, isLoading }: BulkEditFormProps) {
+function BulkEditForm({ selectedCount, instructors, courses, branches, onSubmit, onCancel, isLoading }: BulkEditFormProps) {
   const [formData, setFormData] = useState<{
     status?: CycleStatus;
     instructorId?: string;
+    courseId?: string;
+    branchId?: string;
     meetingRevenue?: number;
     pricePerStudent?: number;
     studentCount?: number;
@@ -1250,6 +1433,12 @@ function BulkEditForm({ selectedCount, instructors, onSubmit, onCancel, isLoadin
     }
     if (enabledFields.has('instructorId') && formData.instructorId) {
       dataToSubmit.instructorId = formData.instructorId;
+    }
+    if (enabledFields.has('courseId') && formData.courseId) {
+      dataToSubmit.courseId = formData.courseId;
+    }
+    if (enabledFields.has('branchId') && formData.branchId) {
+      dataToSubmit.branchId = formData.branchId;
     }
     if (enabledFields.has('meetingRevenue') && formData.meetingRevenue !== undefined) {
       dataToSubmit.meetingRevenue = formData.meetingRevenue;
@@ -1326,6 +1515,58 @@ function BulkEditForm({ selectedCount, instructors, onSubmit, onCancel, isLoadin
               {instructors.map((instructor) => (
                 <option key={instructor.id} value={instructor.id}>
                   {instructor.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Course */}
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={enabledFields.has('courseId')}
+            onChange={() => toggleField('courseId')}
+            className="mt-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1">
+            <label className="form-label">קורס</label>
+            <select
+              value={formData.courseId || ''}
+              onChange={(e) => setFormData({ ...formData, courseId: e.target.value })}
+              className="form-input"
+              disabled={!enabledFields.has('courseId')}
+            >
+              <option value="">בחר קורס</option>
+              {courses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Branch */}
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={enabledFields.has('branchId')}
+            onChange={() => toggleField('branchId')}
+            className="mt-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1">
+            <label className="form-label">סניף</label>
+            <select
+              value={formData.branchId || ''}
+              onChange={(e) => setFormData({ ...formData, branchId: e.target.value })}
+              className="form-input"
+              disabled={!enabledFields.has('branchId')}
+            >
+              <option value="">בחר סניף</option>
+              {branches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
                 </option>
               ))}
             </select>

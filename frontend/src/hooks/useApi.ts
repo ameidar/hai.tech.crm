@@ -330,6 +330,52 @@ export const useDeleteCycle = () => {
   });
 };
 
+export const useGenerateMeetings = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (cycleId: string) =>
+      mutateData<{ message: string; generated: number; total: number }, undefined>(
+        `/cycles/${cycleId}/generate-meetings`,
+        'post'
+      ),
+    onSuccess: (_, cycleId) => {
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
+      queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings', cycleId] });
+    },
+  });
+};
+
+export const useSyncCycleProgress = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (cycleId: string) =>
+      mutateData<Cycle & { synced: { completedMeetings: number; remainingMeetings: number; totalMeetings: number; meetingsInTable: number } }, undefined>(
+        `/cycles/${cycleId}/sync-progress`,
+        'post'
+      ),
+    onSuccess: (_, cycleId) => {
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
+      queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
+    },
+  });
+};
+
+export const useBulkGenerateMeetings = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      mutateData<{ message: string; totalGenerated: number; results: any[] }, { ids: string[] }>(
+        '/cycles/bulk-generate-meetings',
+        'post',
+        { ids }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
+    },
+  });
+};
+
 export const useBulkUpdateCycles = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -424,6 +470,32 @@ export const useMeeting = (id: string) => {
   });
 };
 
+export interface CreateMeetingData {
+  cycleId: string;
+  instructorId: string;
+  scheduledDate: string;
+  startTime: string;
+  endTime: string;
+  withZoom?: boolean;
+  activityType?: string;
+  topic?: string;
+  notes?: string;
+}
+
+export const useCreateMeeting = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateMeetingData) =>
+      mutateData<Meeting, CreateMeetingData>('/meetings', 'post', data),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings', data.cycleId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle', data.cycleId] });
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
+    },
+  });
+};
+
 export const useUpdateMeeting = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -434,6 +506,7 @@ export const useUpdateMeeting = () => {
       queryClient.invalidateQueries({ queryKey: ['meeting', id] });
       if (data.cycleId) {
         queryClient.invalidateQueries({ queryKey: ['cycle-meetings', data.cycleId] });
+        queryClient.invalidateQueries({ queryKey: ['cycle', data.cycleId] });
       }
     },
   });
@@ -486,6 +559,9 @@ export const useBulkRecalculateMeetings = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['meetings'] });
       queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
+      // Invalidate all cycle queries to refresh progress stats
+      queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'cycle' });
     },
   });
 };
@@ -503,6 +579,8 @@ export const useBulkUpdateMeetingStatus = () => {
       queryClient.invalidateQueries({ queryKey: ['meetings'] });
       queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
       queryClient.invalidateQueries({ queryKey: ['cycles'] });
+      // Invalidate all cycle queries to refresh progress stats
+      queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'cycle' });
     },
   });
 };

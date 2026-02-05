@@ -26,6 +26,7 @@ export default function Cycles() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'filters' | 'view'>('filters');
+  const [pageSize, setPageSize] = useState<number>(100);
 
   // Initialize filters from URL params
   useEffect(() => {
@@ -50,6 +51,7 @@ export default function Cycles() {
     courseId: courseFilter || undefined,
     dayOfWeek: dayFilter || undefined,
     search: debouncedSearch || undefined,
+    limit: pageSize,
   });
   const { data: courses } = useCourses();
   const { data: branches } = useBranches();
@@ -262,6 +264,20 @@ export default function Cycles() {
                 <option value="active">פעיל</option>
                 <option value="completed">הושלם</option>
                 <option value="cancelled">בוטל</option>
+              </select>
+            </div>
+
+            {/* Page size selector */}
+            <div className="w-28">
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="form-input"
+              >
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={200}>200</option>
+                <option value={500}>הכל</option>
               </select>
             </div>
 

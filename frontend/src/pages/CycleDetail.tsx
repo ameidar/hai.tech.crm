@@ -47,6 +47,9 @@ import {
   useZoomMeeting,
   useCreateZoomMeeting,
   useDeleteZoomMeeting,
+  useGenerateMeetings,
+  useSyncCycleProgress,
+  useCreateMeeting,
 } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -76,6 +79,7 @@ export default function CycleDetail() {
   const [showBulkEditModal, setShowBulkEditModal] = useState(false);
   const [attendanceMeeting, setAttendanceMeeting] = useState<Meeting | null>(null);
   const [showEditCycleModal, setShowEditCycleModal] = useState(false);
+  const [showCreateMeetingModal, setShowCreateMeetingModal] = useState(false);
 
   const { data: cycle, isLoading } = useCycle(id!);
   const { data: meetings } = useCycleMeetings(id!);
@@ -95,6 +99,9 @@ export default function CycleDetail() {
   const { data: zoomMeeting, isLoading: zoomLoading } = useZoomMeeting(id!);
   const createZoomMeeting = useCreateZoomMeeting();
   const deleteZoomMeeting = useDeleteZoomMeeting();
+  const generateMeetings = useGenerateMeetings();
+  const syncCycleProgress = useSyncCycleProgress();
+  const createMeeting = useCreateMeeting();
 
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
@@ -121,6 +128,41 @@ export default function CycleDetail() {
         console.error('Failed to delete Zoom meeting:', error);
         alert('שגיאה במחיקת פגישת Zoom');
       }
+    }
+  };
+
+  const handleSyncProgress = async () => {
+    try {
+      const result = await syncCycleProgress.mutateAsync(id!);
+      const { synced } = result as any;
+      if (synced) {
+        alert(`סונכרן: ${synced.completedMeetings} הושלמו מתוך ${synced.totalMeetings} (${synced.meetingsInTable} פגישות בטבלה)`);
+      }
+    } catch (error) {
+      console.error('Failed to sync cycle progress:', error);
+      alert('שגיאה בסנכרון התקדמות');
+    }
+  };
+
+  const handleCreateMeeting = async (data: {
+    instructorId: string;
+    scheduledDate: string;
+    startTime: string;
+    endTime: string;
+    withZoom: boolean;
+    activityType?: string;
+    topic?: string;
+    notes?: string;
+  }) => {
+    try {
+      await createMeeting.mutateAsync({
+        cycleId: id!,
+        ...data,
+      });
+      setShowCreateMeetingModal(false);
+    } catch (error) {
+      console.error('Failed to create meeting:', error);
+      alert('שגיאה ביצירת הפגישה');
     }
   };
 
@@ -466,8 +508,18 @@ export default function CycleDetail() {
 
             {/* Progress Card */}
             <div className="card" data-testid="progress-section">
-              <div className="card-header">
+              <div className="card-header flex items-center justify-between">
                 <h2 className="font-semibold">התקדמות</h2>
+                {isAdmin && (
+                  <button
+                    onClick={handleSyncProgress}
+                    disabled={syncCycleProgress.isPending}
+                    className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+                    title="סנכרן התקדמות מטבלת הפגישות"
+                  >
+                    <RefreshCcw size={16} className={syncCycleProgress.isPending ? 'animate-spin' : ''} />
+                  </button>
+                )}
               </div>
               <div className="card-body">
                 {(() => {
@@ -733,7 +785,39 @@ export default function CycleDetail() {
           <div className="lg:col-span-2">
             <div className="card">
               <div className="card-header flex items-center justify-between">
-                <h2 className="font-semibold">מפגשים ({meetings?.length || 0})</h2>
+                <div className="flex items-center gap-3">
+                  <h2 className="font-semibold">מפגשים ({meetings?.length || 0})</h2>
+                  {/* Generate meetings button - show when cycle has fewer meetings than totalMeetings */}
+                  {isAdmin && cycle && (meetings?.length || 0) < cycle.totalMeetings && (
+                    <button
+                      onClick={async () => {
+                        if (confirm(`האם ליצור ${cycle.totalMeetings - (meetings?.length || 0)} פגישות חדשות?`)) {
+                          try {
+                            const result = await generateMeetings.mutateAsync(id!);
+                            alert(result.message);
+                          } catch (error: any) {
+                            alert(error.message || 'שגיאה ביצירת פגישות');
+                          }
+                        }
+                      }}
+                      disabled={generateMeetings.isPending}
+                      className="btn btn-success text-sm"
+                    >
+                      <Plus size={16} />
+                      {generateMeetings.isPending ? 'יוצר...' : 'צור פגישות'}
+                    </button>
+                  )}
+                  {/* Add exceptional meeting button */}
+                  {isAdmin && (
+                    <button
+                      onClick={() => setShowCreateMeetingModal(true)}
+                      className="btn btn-secondary text-sm"
+                    >
+                      <Plus size={16} />
+                      פגישה חריגה
+                    </button>
+                  )}
+                </div>
                 {selectedMeetingIds.size > 0 && isAdmin && (
                   <div className="flex items-center gap-3">
                     <span className="text-sm text-gray-500">
@@ -1429,6 +1513,24 @@ export default function CycleDetail() {
           />
         )}
       </Modal>
+
+      {/* Create Exceptional Meeting Modal */}
+      <Modal
+        isOpen={showCreateMeetingModal}
+        onClose={() => setShowCreateMeetingModal(false)}
+        title="יצירת פגישה חריגה"
+        size="md"
+      >
+        {cycle && (
+          <CreateMeetingForm
+            cycle={cycle}
+            instructors={instructors || []}
+            onSubmit={handleCreateMeeting}
+            onCancel={() => setShowCreateMeetingModal(false)}
+            isLoading={createMeeting.isPending}
+          />
+        )}
+      </Modal>
     </>
   );
 }
@@ -1963,6 +2065,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     totalMeetings: cycle.totalMeetings,
     pricePerStudent: cycle.pricePerStudent || 0,
     meetingRevenue: cycle.meetingRevenue || 0,
+    studentCount: cycle.studentCount || 0,
     maxStudents: cycle.maxStudents || 15,
     activityType: cycle.activityType || 'frontal',
   });
@@ -2022,8 +2125,9 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
       endTime: formData.endTime,
       durationMinutes: durationMinutes > 0 ? durationMinutes : 60,
       totalMeetings: Number(formData.totalMeetings),
-      pricePerStudent: formData.type === 'private' ? Number(formData.pricePerStudent) : undefined,
+      pricePerStudent: (formData.type === 'private' || formData.type === 'institutional_per_child') ? Number(formData.pricePerStudent) : undefined,
       meetingRevenue: formData.type === 'institutional_fixed' ? Number(formData.meetingRevenue) : undefined,
+      studentCount: formData.type === 'institutional_per_child' ? Number(formData.studentCount) : undefined,
       maxStudents: Number(formData.maxStudents),
       activityType: formData.activityType as ActivityType,
       regenerateMeetings: shouldRegenerate,
@@ -2200,13 +2304,26 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
           />
         </div>
 
-        {formData.type === 'private' && (
+        {(formData.type === 'private' || formData.type === 'institutional_per_child') && (
           <div>
-            <label className="form-label">מחיר לתלמיד (₪)</label>
+            <label className="form-label">מחיר לתלמיד {formData.type === 'institutional_per_child' ? '(למפגש)' : ''} (₪)</label>
             <input
               type="number"
               value={formData.pricePerStudent}
               onChange={(e) => setFormData({ ...formData, pricePerStudent: Number(e.target.value) })}
+              className="form-input"
+              min="0"
+            />
+          </div>
+        )}
+
+        {formData.type === 'institutional_per_child' && (
+          <div>
+            <label className="form-label">מספר נרשמים</label>
+            <input
+              type="number"
+              value={formData.studentCount}
+              onChange={(e) => setFormData({ ...formData, studentCount: Number(e.target.value) })}
               className="form-input"
               min="0"
             />
@@ -2257,6 +2374,154 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
         </button>
         <button type="submit" className="btn btn-primary" disabled={isLoading}>
           {isLoading ? 'שומר...' : 'שמור'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// Create Exceptional Meeting Form
+interface CreateMeetingFormProps {
+  cycle: Cycle;
+  instructors: Instructor[];
+  onSubmit: (data: {
+    instructorId: string;
+    scheduledDate: string;
+    startTime: string;
+    endTime: string;
+    withZoom: boolean;
+    activityType?: string;
+    topic?: string;
+    notes?: string;
+  }) => void;
+  onCancel: () => void;
+  isLoading?: boolean;
+}
+
+function CreateMeetingForm({ cycle, instructors, onSubmit, onCancel, isLoading }: CreateMeetingFormProps) {
+  const [formData, setFormData] = useState({
+    instructorId: cycle.instructorId || cycle.instructor?.id || '',
+    scheduledDate: new Date().toISOString().split('T')[0],
+    startTime: cycle.startTime ? (typeof cycle.startTime === 'string' ? cycle.startTime.substring(0, 5) : new Date(cycle.startTime).toISOString().substring(11, 16)) : '16:00',
+    endTime: cycle.endTime ? (typeof cycle.endTime === 'string' ? cycle.endTime.substring(0, 5) : new Date(cycle.endTime).toISOString().substring(11, 16)) : '17:00',
+    withZoom: cycle.activityType === 'online',
+    activityType: (cycle.activityType || 'frontal') as string,
+    topic: '',
+    notes: '',
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSubmit(formData);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="form-label">תאריך *</label>
+          <input
+            type="date"
+            value={formData.scheduledDate}
+            onChange={(e) => setFormData({ ...formData, scheduledDate: e.target.value })}
+            className="form-input"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="form-label">מדריך *</label>
+          <select
+            value={formData.instructorId}
+            onChange={(e) => setFormData({ ...formData, instructorId: e.target.value })}
+            className="form-input"
+            required
+          >
+            <option value="">בחר מדריך</option>
+            {instructors.filter(i => i.isActive).map((instructor) => (
+              <option key={instructor.id} value={instructor.id}>
+                {instructor.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="form-label">שעת התחלה *</label>
+          <input
+            type="time"
+            value={formData.startTime}
+            onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
+            className="form-input"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="form-label">שעת סיום *</label>
+          <input
+            type="time"
+            value={formData.endTime}
+            onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
+            className="form-input"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="form-label">סוג פעילות</label>
+          <select
+            value={formData.activityType}
+            onChange={(e) => setFormData({ ...formData, activityType: e.target.value })}
+            className="form-input"
+          >
+            <option value="frontal">פרונטלי</option>
+            <option value="online">אונליין</option>
+            <option value="private_lesson">שיעור פרטי</option>
+          </select>
+        </div>
+
+        <div className="flex items-center">
+          <label className="flex items-center gap-2 cursor-pointer mt-6">
+            <input
+              type="checkbox"
+              checked={formData.withZoom}
+              onChange={(e) => setFormData({ ...formData, withZoom: e.target.checked })}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm text-gray-700">צור פגישת Zoom</span>
+          </label>
+        </div>
+
+        <div className="col-span-2">
+          <label className="form-label">נושא</label>
+          <input
+            type="text"
+            value={formData.topic}
+            onChange={(e) => setFormData({ ...formData, topic: e.target.value })}
+            className="form-input"
+            placeholder="נושא הפגישה (אופציונלי)"
+          />
+        </div>
+
+        <div className="col-span-2">
+          <label className="form-label">הערות</label>
+          <textarea
+            value={formData.notes}
+            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+            className="form-input"
+            rows={2}
+            placeholder="הערות (אופציונלי)"
+          />
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-3 pt-4 border-t">
+        <button type="button" onClick={onCancel} className="btn btn-secondary">
+          ביטול
+        </button>
+        <button type="submit" className="btn btn-primary" disabled={isLoading}>
+          {isLoading ? 'יוצר פגישה...' : 'צור פגישה'}
         </button>
       </div>
     </form>

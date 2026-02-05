@@ -215,6 +215,8 @@ export const bulkUpdateCyclesSchema = z.object({
   data: z.object({
     status: z.enum(['active', 'completed', 'cancelled']).optional(),
     instructorId: z.string().min(1).optional(),
+    courseId: z.string().min(1).optional(),
+    branchId: z.string().min(1).optional(),
     meetingRevenue: z.number().positive().optional().nullable(),
     pricePerStudent: z.number().positive().optional().nullable(),
     studentCount: z.number().int().positive().optional().nullable(),

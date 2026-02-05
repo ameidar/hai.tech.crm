@@ -734,7 +734,7 @@ export default function CycleDetail() {
             <div className="card">
               <div className="card-header flex items-center justify-between">
                 <h2 className="font-semibold">מפגשים ({meetings?.length || 0})</h2>
-                {selectedMeetingIds.size > 0 && (
+                {selectedMeetingIds.size > 0 && isAdmin && (
                   <div className="flex items-center gap-3">
                     <span className="text-sm text-gray-500">
                       נבחרו {selectedMeetingIds.size} פגישות
@@ -769,12 +769,14 @@ export default function CycleDetail() {
                     <thead>
                       <tr>
                         <th className="w-10">
-                          <input
-                            type="checkbox"
-                            checked={meetings.length > 0 && selectedMeetingIds.size === meetings.length}
-                            onChange={toggleAllMeetings}
-                            className="rounded border-gray-300"
-                          />
+                          {isAdmin && (
+                            <input
+                              type="checkbox"
+                              checked={meetings.length > 0 && selectedMeetingIds.size === meetings.length}
+                              onChange={toggleAllMeetings}
+                              className="rounded border-gray-300"
+                            />
+                          )}
                         </th>
                         <th>#</th>
                         <th>תאריך</th>
@@ -795,12 +797,14 @@ export default function CycleDetail() {
                             onClick={() => setViewingMeeting(meeting)}
                           >
                             <td onClick={(e) => e.stopPropagation()}>
-                              <input
-                                type="checkbox"
-                                checked={selectedMeetingIds.has(meeting.id)}
-                                onChange={() => toggleMeetingSelection(meeting.id)}
-                                className="rounded border-gray-300"
-                              />
+                              {isAdmin && (
+                                <input
+                                  type="checkbox"
+                                  checked={selectedMeetingIds.has(meeting.id)}
+                                  onChange={() => toggleMeetingSelection(meeting.id)}
+                                  className="rounded border-gray-300"
+                                />
+                              )}
                             </td>
                             <td className="font-medium">{index + 1}</td>
                             <td>{formatDate(meeting.scheduledDate)}</td>
@@ -825,12 +829,15 @@ export default function CycleDetail() {
                                 >
                                   <ClipboardList size={16} />
                                 </button>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setSelectedMeeting(meeting); }}
-                                  className="text-blue-600 hover:underline text-sm"
-                                >
-                                  עדכון
-                                </button>
+                                {/* Instructors can only edit today's meetings */}
+                                {(isAdmin || meeting.scheduledDate.split('T')[0] === new Date().toISOString().split('T')[0]) && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setSelectedMeeting(meeting); }}
+                                    className="text-blue-600 hover:underline text-sm"
+                                  >
+                                    עדכון
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>

@@ -365,6 +365,8 @@ export default function Cycles() {
                     <th>תאריך התחלה</th>
                     <th>יום ושעה</th>
                     <th>סוג</th>
+                    <th>מחיר לתלמיד</th>
+                    <th>הכנסה למפגש</th>
                     <th>התקדמות</th>
                     <th>סטטוס</th>
                     <th>פעולות</th>
@@ -444,6 +446,12 @@ export default function Cycles() {
                         <span className={`badge ${cycle.type === 'private' ? 'badge-warning' : 'badge-info'}`}>
                           {cycleTypeHebrew[cycle.type]}
                         </span>
+                      </td>
+                      <td className="text-gray-600">
+                        {cycle.pricePerStudent ? `₪${Number(cycle.pricePerStudent).toLocaleString()}` : '-'}
+                      </td>
+                      <td className="text-gray-600">
+                        {cycle.meetingRevenue ? `₪${Number(cycle.meetingRevenue).toLocaleString()}` : '-'}
                       </td>
                       <td>
                         <div className="flex items-center gap-2">

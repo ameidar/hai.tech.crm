@@ -682,3 +682,125 @@ textarea.form-input {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* ========================================
+   Mobile-specific Styles
+   ======================================== */
+
+/* Safe area for iOS devices (notch/home indicator) */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0);
+}
+
+/* Touch-friendly tap highlights */
+@media (hover: none) {
+  button, a, [role="button"] {
+    -webkit-tap-highlight-color: rgba(59, 130, 246, 0.1);
+  }
+  
+  /* Larger touch targets on mobile */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Mobile bottom navigation */
+.mobile-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: white;
+  border-top: 1px solid var(--color-gray-200);
+  box-shadow: 0 -4px 20px rgb(0 0 0 / 0.1);
+  z-index: 50;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* Prevent body scroll when modal is open on mobile */
+body.modal-open {
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
+}
+
+/* Mobile card styles */
+@media (max-width: 640px) {
+  .card {
+    @apply rounded-xl;
+  }
+  
+  .card:hover {
+    transform: none;
+  }
+  
+  .card-body {
+    @apply p-4;
+  }
+  
+  /* Larger buttons on mobile */
+  .btn {
+    @apply px-4 py-3;
+  }
+  
+  /* Full-width buttons on mobile */
+  .btn-mobile-full {
+    @apply w-full justify-center;
+  }
+}
+
+/* Pull to refresh indicator (for future) */
+.pull-indicator {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.pull-indicator.visible {
+  opacity: 1;
+}
+
+/* Mobile form inputs - larger for touch */
+@media (max-width: 640px) {
+  .form-input {
+    @apply py-3 text-base;
+    font-size: 16px; /* Prevents iOS zoom on focus */
+  }
+}
+
+/* Swipe actions container (for future) */
+.swipe-container {
+  overflow: hidden;
+  position: relative;
+}
+
+.swipe-content {
+  transition: transform 0.2s ease-out;
+}
+
+.swipe-actions {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: stretch;
+}
+
+.swipe-actions-right {
+  right: 0;
+  transform: translateX(100%);
+}
+
+.swipe-actions-left {
+  left: 0;
+  transform: translateX(-100%);
+}

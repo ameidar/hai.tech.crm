@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
+import MobileInstructorLayout from './components/MobileInstructorLayout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Customers from './pages/Customers';
@@ -20,6 +21,12 @@ import ResetPassword from './pages/ResetPassword';
 import MeetingStatus from './pages/MeetingStatus';
 import AuditLog from './pages/AuditLog';
 
+// Mobile instructor pages
+import MobileMeetings from './pages/instructor/MobileMeetings';
+import MobileMeetingDetail from './pages/instructor/MobileMeetingDetail';
+import MobileAttendanceOverview from './pages/instructor/MobileAttendanceOverview';
+import MobileProfile from './pages/instructor/MobileProfile';
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -28,6 +35,14 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+/**
+ * Detect if user is on a mobile device
+ */
+function useIsMobile() {
+  if (typeof window === 'undefined') return false;
+  return window.innerWidth < 768 || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -49,10 +64,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function AppRoutes() {
   const { isAuthenticated, user } = useAuth();
+  const isMobile = useIsMobile();
+  const isInstructor = user?.role === 'instructor';
 
   // Redirect based on role
   const getDefaultRoute = () => {
-    if (user?.role === 'instructor') return '/instructor';
+    if (isInstructor) return '/instructor';
     return '/';
   };
 
@@ -65,6 +82,25 @@ function AppRoutes() {
       <Route path="/invite/:token" element={<InviteSetup />} />
       <Route path="/reset-password/:token" element={<ResetPassword />} />
       <Route path="/m/:meetingId/:token" element={<MeetingStatus />} />
+      
+      {/* Mobile Instructor Routes */}
+      {isInstructor && isMobile ? (
+        <Route
+          path="/instructor"
+          element={
+            <ProtectedRoute>
+              <MobileInstructorLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<MobileMeetings />} />
+          <Route path="meeting/:id" element={<MobileMeetingDetail />} />
+          <Route path="attendance" element={<MobileAttendanceOverview />} />
+          <Route path="profile" element={<MobileProfile />} />
+        </Route>
+      ) : null}
+
+      {/* Desktop Routes */}
       <Route
         path="/"
         element={
@@ -73,7 +109,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route index element={user?.role === 'instructor' ? <Navigate to="/instructor" replace /> : <Dashboard />} />
+        <Route index element={isInstructor ? <Navigate to="/instructor" replace /> : <Dashboard />} />
         <Route path="customers" element={<Customers />} />
         <Route path="customers/:id" element={<CustomerDetail />} />
         <Route path="students" element={<Students />} />
@@ -86,6 +122,9 @@ function AppRoutes() {
         <Route path="reports" element={<Reports />} />
         <Route path="audit" element={<AuditLog />} />
         <Route path="instructor" element={<InstructorDashboard />} />
+        
+        {/* Desktop instructor meeting detail (fallback) */}
+        <Route path="instructor/meeting/:id" element={<MobileMeetingDetail />} />
       </Route>
     </Routes>
   );

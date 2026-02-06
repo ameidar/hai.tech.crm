@@ -462,7 +462,7 @@ export const useMeetings = (params?: { date?: string; from?: string; to?: string
   });
 };
 
-export const useMeeting = (id: string) => {
+export const useMeeting = (id: string | undefined) => {
   return useQuery({
     queryKey: ['meeting', id],
     queryFn: () => fetchData<Meeting>(`/meetings/${id}`),

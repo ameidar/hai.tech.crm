@@ -126,6 +126,7 @@ model User {
   attendanceRecords Attendance[]
   savedViews        SavedView[]
   apiKeys           ApiKey[]
+  webhooks          Webhook[]
 
   @@map("users")
 }
@@ -419,6 +420,50 @@ model ApiKey {
   @@index([keyPrefix])
   @@index([isActive])
   @@map("api_keys")
+}
+
+model Webhook {
+  id          String    @id @default(cuid())
+  name        String
+  url         String
+  events      String[]  // Array of event names (customer.created, meeting.completed, etc.)
+  secret      String?   // Secret for HMAC signature
+  headers     Json?     // Custom headers to include in webhook calls
+  status      String    @default("active") // active, paused, disabled
+  createdById String    @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  deliveries  WebhookDelivery[]
+
+  @@index([status])
+  @@map("webhooks")
+}
+
+model WebhookDelivery {
+  id            String    @id @default(cuid())
+  webhookId     String    @map("webhook_id")
+  event         String    // Event that triggered the delivery
+  payload       Json      // The payload sent
+  responseCode  Int?      @map("response_code")
+  responseBody  String?   @map("response_body")
+  success       Boolean   @default(false)
+  attempts      Int       @default(1)
+  nextRetryAt   DateTime? @map("next_retry_at")
+  completedAt   DateTime? @map("completed_at")
+  error         String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  webhook       Webhook   @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId])
+  @@index([event])
+  @@index([success])
+  @@index([nextRetryAt])
+  @@map("webhook_deliveries")
 }
 
 model AuditLog {

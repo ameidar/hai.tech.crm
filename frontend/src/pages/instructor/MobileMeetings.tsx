@@ -233,8 +233,8 @@ export default function MobileMeetings() {
                         </div>
                       )}
 
-                      {/* Join Zoom Button */}
-                      {meeting.zoomJoinUrl && meeting.status === 'scheduled' && (
+                      {/* Join Zoom Button - only for online meetings with Zoom configured */}
+                      {isOnline && meeting.zoomJoinUrl && meeting.status === 'scheduled' && (
                         <a
                           href={meeting.zoomJoinUrl}
                           target="_blank"
@@ -248,7 +248,7 @@ export default function MobileMeetings() {
                       )}
 
                       {/* Action Hint */}
-                      {isToday(meeting.scheduledDate) && meeting.status === 'scheduled' && !meeting.zoomJoinUrl && (
+                      {isToday(meeting.scheduledDate) && meeting.status === 'scheduled' && !(isOnline && meeting.zoomJoinUrl) && (
                         <div className="mt-3 flex items-center justify-between">
                           <span className="text-xs text-blue-600 font-medium">
                             לחץ לעדכון נוכחות וסטטוס

@@ -15,6 +15,7 @@ import { registrationsRouter } from './routes/registrations.js';
 import { attendanceRouter } from './routes/attendance.js';
 import apiKeysRouter from './routes/api-keys.js';
 import webhooksRouter from './routes/webhooks.js';
+import reportsRouter from './routes/reports.js';
 
 /**
  * API v1 Router
@@ -64,6 +65,7 @@ router.use('/attendance', attendanceRouter);
 // Security & Admin endpoints (protected, admin only)
 router.use('/api-keys', apiKeysRouter);
 router.use('/webhooks', webhooksRouter);
+router.use('/reports', reportsRouter);
 
 // Future routes will be added here:
 // router.use('/institutional-orders', institutionalOrdersRouter);

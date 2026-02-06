@@ -8,6 +8,12 @@
 # Usage: ./api-tests.sh [base_url]
 #
 
+# Check dependencies
+if ! command -v jq &> /dev/null; then
+    echo "Error: jq is required but not installed. Please install jq first."
+    exit 1
+fi
+
 # Configuration
 BASE_URL="${1:-http://localhost:4000/api/v1}"
 ADMIN_EMAIL="admin@haitech.co.il"
@@ -37,24 +43,24 @@ REGISTRATION_ID=""
 ATTENDANCE_ID=""
 DUPLICATED_CYCLE_ID=""
 
-# Logging functions
+# Logging functions - all go to stderr so they don't interfere with response capture
 log_pass() {
-    echo -e "${GREEN}[PASS]${NC} $1"
+    echo -e "${GREEN}[PASS]${NC} $1" >&2
     ((PASS_COUNT++))
 }
 
 log_fail() {
-    echo -e "${RED}[FAIL]${NC} $1"
+    echo -e "${RED}[FAIL]${NC} $1" >&2
     ((FAIL_COUNT++))
 }
 
 log_skip() {
-    echo -e "${YELLOW}[SKIP]${NC} $1"
+    echo -e "${YELLOW}[SKIP]${NC} $1" >&2
     ((SKIP_COUNT++))
 }
 
 log_info() {
-    echo -e "${YELLOW}[INFO]${NC} $1"
+    echo -e "${YELLOW}[INFO]${NC} $1" >&2
 }
 
 # Helper function to test an endpoint
@@ -113,20 +119,43 @@ test_endpoint() {
     fi
 }
 
-# Extract ID from JSON response
+# Extract ID from JSON response using jq
 extract_id() {
-    echo "$1" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4
+    echo "$1" | jq -r '.id // empty' 2>/dev/null
 }
 
-# Extract data.id from nested response
+# Extract data.id from nested response using jq
 extract_data_id() {
-    # Try to get id from data object
-    local id=$(echo "$1" | sed 's/.*"data":{[^}]*"id":"\([^"]*\)".*/\1/' | head -1)
-    if [ -n "$id" ] && [ "$id" != "$1" ]; then
+    local id
+    # Try data.id first (standard API response)
+    id=$(echo "$1" | jq -r '.data.id // empty' 2>/dev/null)
+    if [ -n "$id" ] && [ "$id" != "null" ]; then
         echo "$id"
-    else
-        extract_id "$1"
+        return
     fi
+    # Try direct id
+    id=$(echo "$1" | jq -r '.id // empty' 2>/dev/null)
+    if [ -n "$id" ] && [ "$id" != "null" ]; then
+        echo "$id"
+        return
+    fi
+}
+
+# Extract token from login response
+extract_token() {
+    local token
+    # Try data.accessToken first (our API format), then alternatives
+    token=$(echo "$1" | jq -r '.data.accessToken // .data.token // .accessToken // .token' 2>/dev/null)
+    if [ "$token" = "null" ] || [ -z "$token" ]; then
+        echo ""
+    else
+        echo "$token"
+    fi
+}
+
+# Extract first ID from array in data
+extract_first_id_from_array() {
+    echo "$1" | jq -r '.data[0].id // empty' 2>/dev/null
 }
 
 echo "=========================================="
@@ -149,14 +178,11 @@ echo "--- Authentication Tests ---"
 
 # Test 1: Login with valid credentials
 response=$(test_endpoint POST /auth/login "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}" 200 "valid credentials" false) || true
-if [ $? -eq 0 ]; then
-    TOKEN=$(echo "$response" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
-    if [ -z "$TOKEN" ]; then
-        TOKEN=$(echo "$response" | grep -o '"accessToken":"[^"]*"' | cut -d'"' -f4)
-    fi
-    if [ -n "$TOKEN" ]; then
-        log_info "Token obtained: ${TOKEN:0:30}..."
-    fi
+TOKEN=$(extract_token "$response")
+if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
+    log_info "Token obtained: ${TOKEN:0:30}..."
+else
+    log_fail "Could not extract token from login response"
 fi
 
 # Test 2: Login with invalid credentials
@@ -446,9 +472,11 @@ test_endpoint GET /meetings "" 200 "list meetings" || true
 # Get cycle meetings to find a meeting ID
 if [ -n "$CYCLE_ID" ]; then
     response=$(test_endpoint GET "/cycles/$CYCLE_ID/meetings" "" 200 "get cycle meetings for ID") || true
-    MEETING_ID=$(echo "$response" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-    if [ -n "$MEETING_ID" ]; then
+    MEETING_ID=$(extract_first_id_from_array "$response")
+    if [ -n "$MEETING_ID" ] && [ "$MEETING_ID" != "null" ]; then
         log_info "Found meeting ID: $MEETING_ID"
+    else
+        log_info "No meetings found in cycle - generate-meetings may have failed"
     fi
 fi
 
@@ -477,14 +505,16 @@ if [ -n "$MEETING_ID" ]; then
     test_endpoint POST "/meetings/$MEETING_ID/recalculate" "" 200 "recalculate meeting" || true
 fi
 
-# Find another meeting to cancel
+# Find another meeting to cancel (get second meeting)
 CANCEL_MEETING_ID=""
 if [ -n "$CYCLE_ID" ]; then
     response=$(test_endpoint GET "/cycles/$CYCLE_ID/meetings" "" 200 "get meetings for cancel test") || true
-    CANCEL_MEETING_ID=$(echo "$response" | grep -o '"id":"[^"]*"' | grep -v "$MEETING_ID" | head -1 | cut -d'"' -f4)
-    if [ -n "$CANCEL_MEETING_ID" ]; then
+    CANCEL_MEETING_ID=$(echo "$response" | jq -r '.data[1].id // empty' 2>/dev/null)
+    if [ -n "$CANCEL_MEETING_ID" ] && [ "$CANCEL_MEETING_ID" != "null" ]; then
         log_info "Found meeting to cancel: $CANCEL_MEETING_ID"
         test_endpoint POST "/meetings/$CANCEL_MEETING_ID/cancel" '{"reason":"Cancelled via API test"}' 200 "cancel meeting" || true
+    else
+        log_skip "No second meeting found for cancel test"
     fi
 fi
 

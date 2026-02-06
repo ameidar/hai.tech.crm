@@ -178,8 +178,8 @@ export default function MobileMeetingDetail() {
             )}
           </div>
           
-          {/* Join Zoom Button */}
-          {meeting.zoomJoinUrl && meeting.status === 'scheduled' && (
+          {/* Join Zoom Button - only for online meetings with Zoom configured */}
+          {isOnline && meeting.zoomJoinUrl && meeting.status === 'scheduled' && (
             <a
               href={meeting.zoomJoinUrl}
               target="_blank"

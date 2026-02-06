@@ -189,7 +189,7 @@ export default function InstructorDashboard() {
                     }`}>
                       {meetingStatusHebrew[meeting.status]}
                     </span>
-                    {meeting.zoomJoinUrl && meeting.status === 'scheduled' && (
+                    {meeting.cycle?.activityType === 'online' && meeting.zoomJoinUrl && meeting.status === 'scheduled' && (
                       <a
                         href={meeting.zoomJoinUrl}
                         target="_blank"

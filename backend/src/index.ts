@@ -24,6 +24,7 @@ import { viewsRouter } from './routes/views.js';
 import { communicationRouter } from './routes/communication.js';
 import zoomRouter from './routes/zoom.js';
 import zoomWebhookRouter from './routes/zoom-webhook.js';
+import { instructorMagicRouter } from './routes/instructor-magic.js';
 
 const app = express();
 
@@ -140,6 +141,7 @@ app.use('/api/webhook', webhookRouter);
 app.use('/api/communication', communicationRouter);
 app.use('/api/zoom', zoomRouter);
 app.use('/api/zoom-webhook', zoomWebhookRouter);
+app.use('/api/instructor-magic', instructorMagicRouter);
 
 // Error handling for API routes
 app.use('/api', errorHandler);

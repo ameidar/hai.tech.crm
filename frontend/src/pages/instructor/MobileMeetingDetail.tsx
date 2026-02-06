@@ -177,6 +177,19 @@ export default function MobileMeetingDetail() {
               </>
             )}
           </div>
+          
+          {/* Join Zoom Button */}
+          {meeting.zoomJoinUrl && meeting.status === 'scheduled' && (
+            <a
+              href={meeting.zoomJoinUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 w-full py-4 bg-blue-600 text-white rounded-xl font-medium text-lg flex items-center justify-center gap-3 hover:bg-blue-700 active:scale-[0.98] transition-all shadow-lg shadow-blue-200"
+            >
+              <Video size={22} />
+              הצטרף לפגישת Zoom
+            </a>
+          )}
         </div>
 
         {/* Status Selection */}

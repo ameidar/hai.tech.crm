@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Calendar, Clock, Users, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { Calendar, Clock, Users, CheckCircle, XCircle, AlertCircle, Video } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useMeetings, useUpdateMeeting } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
@@ -189,10 +189,21 @@ export default function InstructorDashboard() {
                     }`}>
                       {meetingStatusHebrew[meeting.status]}
                     </span>
+                    {meeting.zoomJoinUrl && meeting.status === 'scheduled' && (
+                      <a
+                        href={meeting.zoomJoinUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-primary text-sm flex items-center gap-2"
+                      >
+                        <Video size={16} />
+                        הצטרף לזום
+                      </a>
+                    )}
                     {isToday(meeting.scheduledDate) && meeting.status === 'scheduled' && (
                       <button
                         onClick={() => setSelectedMeeting(meeting)}
-                        className="btn btn-primary text-sm"
+                        className="btn btn-secondary text-sm"
                       >
                         עדכן סטטוס
                       </button>

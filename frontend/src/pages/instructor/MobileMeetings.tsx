@@ -233,8 +233,22 @@ export default function MobileMeetings() {
                         </div>
                       )}
 
+                      {/* Join Zoom Button */}
+                      {meeting.zoomJoinUrl && meeting.status === 'scheduled' && (
+                        <a
+                          href={meeting.zoomJoinUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-3 w-full py-3 bg-blue-600 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2 hover:bg-blue-700 active:scale-[0.98] transition-all"
+                        >
+                          <Video size={18} />
+                          הצטרף לזום
+                        </a>
+                      )}
+
                       {/* Action Hint */}
-                      {isToday(meeting.scheduledDate) && meeting.status === 'scheduled' && (
+                      {isToday(meeting.scheduledDate) && meeting.status === 'scheduled' && !meeting.zoomJoinUrl && (
                         <div className="mt-3 flex items-center justify-between">
                           <span className="text-xs text-blue-600 font-medium">
                             לחץ לעדכון נוכחות וסטטוס

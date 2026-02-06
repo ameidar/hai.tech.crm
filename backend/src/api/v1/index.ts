@@ -16,6 +16,7 @@ import { attendanceRouter } from './routes/attendance.js';
 import apiKeysRouter from './routes/api-keys.js';
 import webhooksRouter from './routes/webhooks.js';
 import reportsRouter from './routes/reports.js';
+import docsRouter from './routes/docs.js';
 
 /**
  * API v1 Router
@@ -47,6 +48,9 @@ router.use(auditMiddleware);
 
 // Health checks (public)
 router.use('/health', healthRouter);
+
+// API Documentation (public)
+router.use('/docs', docsRouter);
 
 // Authentication (public + protected)
 router.use('/auth', authRouter);

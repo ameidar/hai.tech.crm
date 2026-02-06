@@ -7,6 +7,10 @@ import { studentsRouter } from './routes/students.js';
 import { coursesRouter } from './routes/courses.js';
 import { branchesRouter } from './routes/branches.js';
 import { instructorsRouter } from './routes/instructors.js';
+import { cyclesRouter } from './routes/cycles.js';
+import { meetingsRouter } from './routes/meetings.js';
+import { registrationsRouter } from './routes/registrations.js';
+import { attendanceRouter } from './routes/attendance.js';
 
 /**
  * API v1 Router
@@ -42,12 +46,12 @@ router.use('/students', studentsRouter);
 router.use('/courses', coursesRouter);
 router.use('/branches', branchesRouter);
 router.use('/instructors', instructorsRouter);
+router.use('/cycles', cyclesRouter);
+router.use('/meetings', meetingsRouter);
+router.use('/registrations', registrationsRouter);
+router.use('/attendance', attendanceRouter);
 
 // Future routes will be added here:
-// router.use('/cycles', cyclesRouter);
-// router.use('/meetings', meetingsRouter);
-// router.use('/registrations', registrationsRouter);
-// router.use('/attendance', attendanceRouter);
 // router.use('/institutional-orders', institutionalOrdersRouter);
 
 // =============================================================================

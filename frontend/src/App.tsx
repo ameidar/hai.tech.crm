@@ -26,6 +26,7 @@ import MobileMeetings from './pages/instructor/MobileMeetings';
 import MobileMeetingDetail from './pages/instructor/MobileMeetingDetail';
 import MobileAttendanceOverview from './pages/instructor/MobileAttendanceOverview';
 import MobileProfile from './pages/instructor/MobileProfile';
+import InstructorMagicMeeting from './pages/InstructorMagicMeeting';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -82,6 +83,7 @@ function AppRoutes() {
       <Route path="/invite/:token" element={<InviteSetup />} />
       <Route path="/reset-password/:token" element={<ResetPassword />} />
       <Route path="/m/:meetingId/:token" element={<MeetingStatus />} />
+      <Route path="/i/:meetingId/:token" element={<InstructorMagicMeeting />} />
       
       {/* Mobile Instructor Routes */}
       {isInstructor && isMobile ? (

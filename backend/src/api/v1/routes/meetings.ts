@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { meetingsController } from '../controllers/meetings.controller.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
+import { requireScope } from '../middleware/scope-check.js';
 import { validate, validateBody, validateQuery, validateParams } from '../middleware/validate.js';
 import { idParamSchema } from '../validators/common.js';
 import {
@@ -25,7 +26,7 @@ router.use(authenticate);
  * GET /meetings
  * List all meetings with pagination and filters
  */
-router.get('/', validateQuery(meetingQuerySchema), (req, res, next) => {
+router.get('/', requireScope('read:meetings'), validateQuery(meetingQuerySchema), (req, res, next) => {
   meetingsController.list(req, res, next);
 });
 
@@ -33,7 +34,7 @@ router.get('/', validateQuery(meetingQuerySchema), (req, res, next) => {
  * GET /meetings/:id
  * Get single meeting by ID with full details
  */
-router.get('/:id', validateParams(idParamSchema), (req, res, next) => {
+router.get('/:id', requireScope('read:meetings'), validateParams(idParamSchema), (req, res, next) => {
   meetingsController.getById(req, res, next);
 });
 
@@ -41,7 +42,7 @@ router.get('/:id', validateParams(idParamSchema), (req, res, next) => {
  * POST /meetings
  * Create new meeting (manager or admin only)
  */
-router.post('/', managerOrAdmin, validateBody(createMeetingSchema), (req, res, next) => {
+router.post('/', requireScope('write:meetings'), managerOrAdmin, validateBody(createMeetingSchema), (req, res, next) => {
   meetingsController.create(req, res, next);
 });
 

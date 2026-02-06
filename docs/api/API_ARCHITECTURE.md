@@ -329,16 +329,16 @@ const signature = crypto
 
 ---
 
-## 10. שאלות לבירור
+## 10. החלטות עיצוב
 
-לפני התחלת המימוש, צריך לברר:
-
-1. **API Keys Management** - האם נבנה UI לניהול מפתחות או רק CLI/DB?
-2. **Webhook Registration** - האם לקוחות יכולים לרשום webhooks בעצמם?
-3. **Multi-tenant** - האם יש צורך לתמוך במספר ארגונים?
-4. **Rate Limits** - מה הגבולות הנדרשים בפועל?
-5. **Data Export** - האם נדרש API לייצוא מלא (GDPR)?
-6. **Real-time** - האם נדרש WebSocket לעדכונים בזמן אמת?
+| נושא | החלטה | הערות |
+|------|--------|-------|
+| API Keys Management | HTTP requests בלבד | ללא UI, ניהול ישיר ב-DB או API |
+| Webhook Registration | Admin בלבד | לקוחות לא רושמים בעצמם |
+| Multi-tenant | לא נדרש | ארגון יחיד |
+| Real-time | לא נדרש | Refresh ידני מספיק |
+| Data Export (GDPR) | לא נדרש | לא רלוונטי לפעילות |
+| Rate Limits | 1000 req/hour default | ניתן להתאים בהמשך |
 
 ---
 

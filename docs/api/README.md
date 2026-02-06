@@ -46,14 +46,16 @@ X-API-Key: haitech_live_abc123...
 - **MVP (Core CRUD)**: 3-5 שבועות
 - **Full API**: 10-15 שבועות
 
-## שאלות פתוחות
+## החלטות עיצוב
 
-1. API Keys - UI או CLI בלבד?
-2. Webhook Registration - לקוחות יכולים לרשום בעצמם?
-3. Multi-tenant - נדרש?
-4. Real-time - WebSocket לעדכונים?
-5. Data Export - GDPR compliance?
+| נושא | החלטה |
+|------|--------|
+| API Keys | HTTP requests בלבד, ללא ממשק ניהול |
+| Webhooks | רישום ע"י Admin בלבד |
+| Multi-tenant | לא נדרש (ארגון יחיד) |
+| Real-time | לא נדרש (refresh ידני) |
+| GDPR Export | לא נדרש |
 
 ---
 
-*נוצר: 2025-02-06*
+*נוצר: 2025-02-06 | עודכן: 2025-02-06*

@@ -121,10 +121,11 @@ model User {
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
   // Relations
-  instructor       Instructor?
-  meetingUpdates   Meeting[]    @relation("MeetingStatusUpdater")
+  instructor        Instructor?
+  meetingUpdates    Meeting[]    @relation("MeetingStatusUpdater")
   attendanceRecords Attendance[]
-  savedViews       SavedView[]
+  savedViews        SavedView[]
+  apiKeys           ApiKey[]
 
   @@map("users")
 }
@@ -396,10 +397,35 @@ model Attendance {
   @@map("attendance")
 }
 
+model ApiKey {
+  id          String    @id @default(uuid())
+  name        String                          // Friendly name (e.g., "n8n Integration")
+  keyHash     String    @unique @map("key_hash") // SHA-256 hash of the key
+  keyPrefix   String    @map("key_prefix")    // First 8 chars for identification (haitech_)
+  scopes      String[]  @default([])          // ["read:customers", "write:cycles", "*"]
+  rateLimit   Int       @default(1000) @map("rate_limit") // requests per hour
+  isActive    Boolean   @default(true) @map("is_active")
+  expiresAt   DateTime? @map("expires_at")
+  lastUsedAt  DateTime? @map("last_used_at")
+  lastUsedIp  String?   @map("last_used_ip")
+  createdById String    @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  auditLogs   AuditLog[]
+
+  @@index([keyPrefix])
+  @@index([isActive])
+  @@map("api_keys")
+}
+
 model AuditLog {
   id        String   @id @default(uuid())
   userId    String?  @map("user_id")
   userName  String?  @map("user_name")
+  apiKeyId  String?  @map("api_key_id")
   action    String   // CREATE, UPDATE, DELETE
   entity    String   // Customer, Cycle, Meeting, etc.
   entityId  String   @map("entity_id")
@@ -409,8 +435,12 @@ model AuditLog {
   userAgent String?  @map("user_agent")
   createdAt DateTime @default(now()) @map("created_at")
 
+  // Relations
+  apiKey    ApiKey?  @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+
   @@index([entity, entityId])
   @@index([userId])
+  @@index([apiKeyId])
   @@index([createdAt])
   @@map("audit_logs")
 }

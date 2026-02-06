@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { requestIdMiddleware, httpLogger, apiErrorHandler } from './middleware/index.js';
+import { rateLimit } from './middleware/rate-limit.js';
+import { auditMiddleware } from './middleware/audit.js';
 import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
 import { customersRouter } from './routes/customers.js';
@@ -11,6 +13,7 @@ import { cyclesRouter } from './routes/cycles.js';
 import { meetingsRouter } from './routes/meetings.js';
 import { registrationsRouter } from './routes/registrations.js';
 import { attendanceRouter } from './routes/attendance.js';
+import apiKeysRouter from './routes/api-keys.js';
 
 /**
  * API v1 Router
@@ -29,6 +32,12 @@ router.use(requestIdMiddleware);
 
 // HTTP request/response logging with correlation ID
 router.use(httpLogger);
+
+// Rate limiting (per user/API key/IP)
+router.use(rateLimit);
+
+// Audit logging for mutations
+router.use(auditMiddleware);
 
 // =============================================================================
 // Routes
@@ -50,6 +59,9 @@ router.use('/cycles', cyclesRouter);
 router.use('/meetings', meetingsRouter);
 router.use('/registrations', registrationsRouter);
 router.use('/attendance', attendanceRouter);
+
+// Security & Admin endpoints (protected, admin only)
+router.use('/api-keys', apiKeysRouter);
 
 // Future routes will be added here:
 // router.use('/institutional-orders', institutionalOrdersRouter);

@@ -16,6 +16,7 @@ import { attendanceRouter } from './routes/attendance.js';
 import apiKeysRouter from './routes/api-keys.js';
 import webhooksRouter from './routes/webhooks.js';
 import reportsRouter from './routes/reports.js';
+import auditLogsRouter from './routes/audit-logs.js';
 import docsRouter from './routes/docs.js';
 
 /**
@@ -70,6 +71,7 @@ router.use('/attendance', attendanceRouter);
 router.use('/api-keys', apiKeysRouter);
 router.use('/webhooks', webhooksRouter);
 router.use('/reports', reportsRouter);
+router.use('/audit-logs', auditLogsRouter);
 
 // Future routes will be added here:
 // router.use('/institutional-orders', institutionalOrdersRouter);

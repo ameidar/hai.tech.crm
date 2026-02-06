@@ -174,6 +174,7 @@ export async function getAuditLogs(options: {
   entity?: string;
   entityId?: string;
   userId?: string;
+  apiKeyId?: string;
   action?: string;
   startDate?: Date;
   endDate?: Date;
@@ -185,6 +186,7 @@ export async function getAuditLogs(options: {
   if (options.entity) where.entity = options.entity;
   if (options.entityId) where.entityId = options.entityId;
   if (options.userId) where.userId = options.userId;
+  if (options.apiKeyId) where.apiKeyId = options.apiKeyId;
   if (options.action) where.action = options.action;
   
   if (options.startDate || options.endDate) {
@@ -196,6 +198,15 @@ export async function getAuditLogs(options: {
   const [items, total] = await Promise.all([
     prisma.auditLog.findMany({
       where,
+      include: {
+        apiKey: {
+          select: {
+            id: true,
+            name: true,
+            keyPrefix: true,
+          },
+        },
+      },
       orderBy: { createdAt: 'desc' },
       take: options.limit || 50,
       skip: options.offset || 0,

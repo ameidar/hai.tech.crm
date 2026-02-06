@@ -8,6 +8,8 @@ import {
   createCycleSchema,
   updateCycleSchema,
   createCycleRegistrationSchema,
+  duplicateCycleSchema,
+  bulkUpdateCyclesSchema,
 } from '../validators/cycles.js';
 
 const router = Router();
@@ -86,6 +88,58 @@ router.post(
   validate({ params: idParamSchema, body: createCycleRegistrationSchema }),
   (req, res, next) => {
     cyclesController.addRegistration(req, res, next);
+  }
+);
+
+/**
+ * POST /cycles/:id/generate-meetings
+ * Generate meetings for a cycle (manager or admin only)
+ */
+router.post(
+  '/:id/generate-meetings',
+  managerOrAdmin,
+  validateParams(idParamSchema),
+  (req, res, next) => {
+    cyclesController.generateMeetings(req, res, next);
+  }
+);
+
+/**
+ * POST /cycles/:id/sync-progress
+ * Sync cycle progress from meetings table (manager or admin only)
+ */
+router.post(
+  '/:id/sync-progress',
+  managerOrAdmin,
+  validateParams(idParamSchema),
+  (req, res, next) => {
+    cyclesController.syncProgress(req, res, next);
+  }
+);
+
+/**
+ * POST /cycles/:id/duplicate
+ * Duplicate a cycle with new start date (manager or admin only)
+ */
+router.post(
+  '/:id/duplicate',
+  managerOrAdmin,
+  validate({ params: idParamSchema, body: duplicateCycleSchema }),
+  (req, res, next) => {
+    cyclesController.duplicate(req, res, next);
+  }
+);
+
+/**
+ * POST /cycles/bulk-update
+ * Bulk update multiple cycles (admin only)
+ */
+router.post(
+  '/bulk-update',
+  managerOrAdmin,
+  validateBody(bulkUpdateCyclesSchema),
+  (req, res, next) => {
+    cyclesController.bulkUpdate(req, res, next);
   }
 );
 

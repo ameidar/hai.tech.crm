@@ -5,7 +5,13 @@ import {
   CreateMeetingInput,
   UpdateMeetingInput,
   PostponeMeetingInput,
+  BulkRecalculateMeetingsInput,
+  BulkUpdateMeetingStatusInput,
+  BulkDeleteMeetingsInput,
+  CompleteMeetingInput,
+  CancelMeetingInput,
 } from '../validators/meetings.js';
+import { BulkAttendanceInput } from '../validators/attendance.js';
 import { sendSuccess, sendCreated, sendList, sendNoContent } from '../../../common/utils/response.js';
 
 /**
@@ -99,6 +105,100 @@ export class MeetingsController {
       const { id } = req.params;
       const data = req.body as PostponeMeetingInput;
       const result = await meetingsService.postpone(id, data, req);
+      sendSuccess(res, result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /meetings/:id/complete - Complete a meeting
+   */
+  async complete(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const data = (req.body || {}) as CompleteMeetingInput;
+      const meeting = await meetingsService.complete(id, data, req);
+      sendSuccess(res, meeting);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /meetings/:id/cancel - Cancel a meeting
+   */
+  async cancel(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const data = (req.body || {}) as CancelMeetingInput;
+      const meeting = await meetingsService.cancel(id, data, req);
+      sendSuccess(res, meeting);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /meetings/:id/recalculate - Recalculate meeting financials
+   */
+  async recalculate(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const meeting = await meetingsService.recalculate(id, req);
+      sendSuccess(res, meeting);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /meetings/bulk-recalculate - Bulk recalculate meetings
+   */
+  async bulkRecalculate(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = req.body as BulkRecalculateMeetingsInput;
+      const result = await meetingsService.bulkRecalculate(data, req);
+      sendSuccess(res, result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /meetings/bulk-update-status - Bulk update meeting status
+   */
+  async bulkUpdateStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = req.body as BulkUpdateMeetingStatusInput;
+      const result = await meetingsService.bulkUpdateStatus(data, req);
+      sendSuccess(res, result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /meetings/bulk-delete - Bulk delete meetings
+   */
+  async bulkDelete(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = req.body as BulkDeleteMeetingsInput;
+      const result = await meetingsService.bulkDelete(data, req);
+      sendSuccess(res, result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /meetings/:id/attendance/bulk - Bulk record attendance
+   */
+  async bulkRecordAttendance(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const data = req.body as BulkAttendanceInput;
+      const result = await meetingsService.bulkRecordAttendance(id, data.records, req);
       sendSuccess(res, result);
     } catch (error) {
       next(error);

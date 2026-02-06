@@ -79,8 +79,49 @@ export const postponeMeetingSchema = z.object({
   notes: z.string().optional(),
 });
 
+/**
+ * Bulk recalculate meetings schema
+ */
+export const bulkRecalculateMeetingsSchema = z.object({
+  ids: z.array(uuidSchema).min(1),
+});
+
+/**
+ * Bulk update meeting status schema
+ */
+export const bulkUpdateMeetingStatusSchema = z.object({
+  ids: z.array(uuidSchema).min(1),
+  status: meetingStatusEnum,
+});
+
+/**
+ * Bulk delete meetings schema
+ */
+export const bulkDeleteMeetingsSchema = z.object({
+  ids: z.array(uuidSchema).min(1),
+});
+
+/**
+ * Complete meeting schema (optional notes)
+ */
+export const completeMeetingSchema = z.object({
+  notes: z.string().optional(),
+});
+
+/**
+ * Cancel meeting schema (optional reason)
+ */
+export const cancelMeetingSchema = z.object({
+  reason: z.string().optional(),
+});
+
 // Export types
 export type MeetingQuery = z.infer<typeof meetingQuerySchema>;
 export type CreateMeetingInput = z.infer<typeof createMeetingSchema>;
 export type UpdateMeetingInput = z.infer<typeof updateMeetingSchema>;
 export type PostponeMeetingInput = z.infer<typeof postponeMeetingSchema>;
+export type BulkRecalculateMeetingsInput = z.infer<typeof bulkRecalculateMeetingsSchema>;
+export type BulkUpdateMeetingStatusInput = z.infer<typeof bulkUpdateMeetingStatusSchema>;
+export type BulkDeleteMeetingsInput = z.infer<typeof bulkDeleteMeetingsSchema>;
+export type CompleteMeetingInput = z.infer<typeof completeMeetingSchema>;
+export type CancelMeetingInput = z.infer<typeof cancelMeetingSchema>;

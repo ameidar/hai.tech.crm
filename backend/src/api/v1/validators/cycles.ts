@@ -139,8 +139,38 @@ export const createCycleRegistrationSchema = z.object({
   notes: z.string().optional(),
 });
 
+/**
+ * Duplicate cycle schema
+ */
+export const duplicateCycleSchema = z.object({
+  newStartDate: z.string().transform((val) => new Date(val)),
+  newName: z.string().optional(),
+  copyRegistrations: z.boolean().optional().default(false),
+  generateMeetings: z.boolean().optional().default(true),
+});
+
+/**
+ * Bulk update cycles schema
+ */
+export const bulkUpdateCyclesSchema = z.object({
+  ids: z.array(uuidSchema).min(1),
+  data: z.object({
+    status: cycleStatusEnum.optional(),
+    instructorId: uuidSchema.optional(),
+    courseId: uuidSchema.optional(),
+    branchId: uuidSchema.optional(),
+    meetingRevenue: z.number().nonnegative().optional(),
+    pricePerStudent: z.number().nonnegative().optional(),
+    studentCount: z.number().int().nonnegative().optional(),
+    sendParentReminders: z.boolean().optional(),
+    activityType: activityTypeEnum.optional(),
+  }),
+});
+
 // Export types
 export type CycleQuery = z.infer<typeof cycleQuerySchema>;
 export type CreateCycleInput = z.infer<typeof createCycleSchema>;
 export type UpdateCycleInput = z.infer<typeof updateCycleSchema>;
 export type CreateCycleRegistrationInput = z.infer<typeof createCycleRegistrationSchema>;
+export type DuplicateCycleInput = z.infer<typeof duplicateCycleSchema>;
+export type BulkUpdateCyclesInput = z.infer<typeof bulkUpdateCyclesSchema>;

@@ -5,6 +5,8 @@ import {
   CreateCycleInput,
   UpdateCycleInput,
   CreateCycleRegistrationInput,
+  DuplicateCycleInput,
+  BulkUpdateCyclesInput,
 } from '../validators/cycles.js';
 import { sendSuccess, sendCreated, sendList, sendNoContent } from '../../../common/utils/response.js';
 
@@ -113,6 +115,59 @@ export class CyclesController {
       const data = req.body as CreateCycleRegistrationInput;
       const registration = await cyclesService.addRegistration(id, data, req);
       sendCreated(res, registration);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /cycles/:id/generate-meetings - Generate meetings for cycle
+   */
+  async generateMeetings(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const result = await cyclesService.generateMeetings(id, req);
+      sendSuccess(res, result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /cycles/:id/sync-progress - Sync cycle progress from meetings
+   */
+  async syncProgress(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const result = await cyclesService.syncProgress(id, req);
+      sendSuccess(res, result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /cycles/:id/duplicate - Duplicate a cycle
+   */
+  async duplicate(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const data = req.body as DuplicateCycleInput;
+      const cycle = await cyclesService.duplicate(id, data, req);
+      sendCreated(res, cycle);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /cycles/bulk-update - Bulk update multiple cycles
+   */
+  async bulkUpdate(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = req.body as BulkUpdateCyclesInput;
+      const result = await cyclesService.bulkUpdate(data, req);
+      sendSuccess(res, result);
     } catch (error) {
       next(error);
     }

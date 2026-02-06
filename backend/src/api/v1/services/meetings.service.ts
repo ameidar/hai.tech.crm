@@ -8,6 +8,11 @@ import {
   CreateMeetingInput,
   UpdateMeetingInput,
   PostponeMeetingInput,
+  BulkRecalculateMeetingsInput,
+  BulkUpdateMeetingStatusInput,
+  BulkDeleteMeetingsInput,
+  CompleteMeetingInput,
+  CancelMeetingInput,
 } from '../validators/meetings.js';
 
 /**
@@ -322,6 +327,389 @@ export class MeetingsService {
     const profit = revenue - instructorPayment;
 
     return { revenue, instructorPayment, profit };
+  }
+
+  /**
+   * Complete a meeting (mark as completed and calculate financials)
+   */
+  async complete(id: string, data: CompleteMeetingInput, req?: Request) {
+    const existing = await this.repository.findById(id);
+    if (!existing) {
+      throw new NotFoundError('Meeting', id);
+    }
+
+    if (existing.status === 'completed') {
+      throw new ValidationError('Meeting is already completed');
+    }
+
+    // Calculate financials
+    const financials = await this.calculateMeetingFinancials(existing);
+
+    const meeting = await this.repository.update(
+      id,
+      {
+        status: 'completed',
+        notes: data.notes || existing.notes,
+        ...financials,
+      },
+      req?.user?.userId
+    );
+
+    // Update cycle counters
+    await prisma.cycle.update({
+      where: { id: existing.cycleId },
+      data: {
+        completedMeetings: { increment: 1 },
+        remainingMeetings: { decrement: 1 },
+      },
+    });
+
+    // Audit log
+    if (req) {
+      await logAudit({
+        userId: req.user?.userId,
+        action: 'UPDATE',
+        entity: 'Meeting',
+        entityId: id,
+        oldValue: { status: existing.status },
+        newValue: { status: 'completed', ...financials },
+        req,
+      });
+    }
+
+    return meeting;
+  }
+
+  /**
+   * Cancel a meeting
+   */
+  async cancel(id: string, data: CancelMeetingInput, req?: Request) {
+    const existing = await this.repository.findById(id);
+    if (!existing) {
+      throw new NotFoundError('Meeting', id);
+    }
+
+    if (existing.status === 'cancelled') {
+      throw new ValidationError('Meeting is already cancelled');
+    }
+
+    // If meeting was completed, decrement cycle counters
+    if (existing.status === 'completed') {
+      await prisma.cycle.update({
+        where: { id: existing.cycleId },
+        data: {
+          completedMeetings: { decrement: 1 },
+          remainingMeetings: { increment: 1 },
+        },
+      });
+    }
+
+    const meeting = await this.repository.update(
+      id,
+      {
+        status: 'cancelled',
+        notes: data.reason || existing.notes,
+        revenue: 0,
+        instructorPayment: 0,
+        profit: 0,
+      },
+      req?.user?.userId
+    );
+
+    // Audit log
+    if (req) {
+      await logAudit({
+        userId: req.user?.userId,
+        action: 'UPDATE',
+        entity: 'Meeting',
+        entityId: id,
+        oldValue: { status: existing.status },
+        newValue: { status: 'cancelled', reason: data.reason },
+        req,
+      });
+    }
+
+    return meeting;
+  }
+
+  /**
+   * Recalculate meeting financials
+   */
+  async recalculate(id: string, req?: Request) {
+    const existing = await this.repository.findById(id);
+    if (!existing) {
+      throw new NotFoundError('Meeting', id);
+    }
+
+    if (existing.status !== 'completed') {
+      throw new ValidationError('Can only recalculate completed meetings');
+    }
+
+    // Calculate financials
+    const financials = await this.calculateMeetingFinancials(existing);
+
+    const meeting = await this.repository.update(id, financials, req?.user?.userId);
+
+    // Audit log
+    if (req) {
+      await logAudit({
+        userId: req.user?.userId,
+        action: 'UPDATE',
+        entity: 'Meeting',
+        entityId: id,
+        oldValue: {
+          revenue: existing.revenue,
+          instructorPayment: existing.instructorPayment,
+          profit: existing.profit,
+        },
+        newValue: financials,
+        req,
+      });
+    }
+
+    return meeting;
+  }
+
+  /**
+   * Bulk recalculate meetings
+   */
+  async bulkRecalculate(input: BulkRecalculateMeetingsInput, req?: Request) {
+    let recalculated = 0;
+    const errors: string[] = [];
+
+    for (const id of input.ids) {
+      try {
+        const meeting = await this.repository.findById(id);
+        if (!meeting || meeting.status !== 'completed') {
+          continue;
+        }
+
+        const financials = await this.calculateMeetingFinancials(meeting);
+        await this.repository.update(id, financials, req?.user?.userId);
+        recalculated++;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        errors.push(`Meeting ${id}: ${message}`);
+      }
+    }
+
+    // Audit log
+    if (req) {
+      await logAudit({
+        userId: req.user?.userId,
+        action: 'UPDATE',
+        entity: 'Meeting',
+        entityId: input.ids.join(','),
+        newValue: { action: 'bulk-recalculate', recalculated, errors },
+        req,
+      });
+    }
+
+    return { success: true, recalculated, errors: errors.length > 0 ? errors : undefined };
+  }
+
+  /**
+   * Bulk update meeting status
+   */
+  async bulkUpdateStatus(input: BulkUpdateMeetingStatusInput, req?: Request) {
+    let updated = 0;
+    const errors: string[] = [];
+
+    for (const id of input.ids) {
+      try {
+        const existing = await this.repository.findById(id);
+        if (!existing) {
+          errors.push(`Meeting ${id} not found`);
+          continue;
+        }
+
+        const updateData: UpdateMeetingInput = {
+          status: input.status,
+        };
+
+        // Handle status change to completed
+        if (input.status === 'completed' && existing.status !== 'completed') {
+          const financials = await this.calculateMeetingFinancials(existing);
+          Object.assign(updateData, financials);
+
+          await prisma.cycle.update({
+            where: { id: existing.cycleId },
+            data: {
+              completedMeetings: { increment: 1 },
+              remainingMeetings: { decrement: 1 },
+            },
+          });
+        }
+
+        // Handle status change FROM completed
+        if (existing.status === 'completed' && input.status !== 'completed') {
+          updateData.revenue = 0;
+          updateData.instructorPayment = 0;
+          updateData.profit = 0;
+
+          await prisma.cycle.update({
+            where: { id: existing.cycleId },
+            data: {
+              completedMeetings: { decrement: 1 },
+              remainingMeetings: { increment: 1 },
+            },
+          });
+        }
+
+        await this.repository.update(id, updateData, req?.user?.userId);
+        updated++;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        errors.push(`Meeting ${id}: ${message}`);
+      }
+    }
+
+    // Audit log
+    if (req) {
+      await logAudit({
+        userId: req.user?.userId,
+        action: 'UPDATE',
+        entity: 'Meeting',
+        entityId: input.ids.join(','),
+        newValue: { action: 'bulk-update-status', status: input.status, updated, errors },
+        req,
+      });
+    }
+
+    return { success: true, updated, errors: errors.length > 0 ? errors : undefined };
+  }
+
+  /**
+   * Bulk delete meetings
+   */
+  async bulkDelete(input: BulkDeleteMeetingsInput, req?: Request) {
+    // Get meetings to check their status
+    const meetings = await prisma.meeting.findMany({
+      where: { id: { in: input.ids }, deletedAt: null },
+      select: { id: true, cycleId: true, status: true },
+    });
+
+    // Group completed meetings by cycle to update counters
+    const completedByCycle = meetings
+      .filter((m) => m.status === 'completed')
+      .reduce((acc, m) => {
+        acc[m.cycleId] = (acc[m.cycleId] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+    // Update cycle counters
+    for (const [cycleId, count] of Object.entries(completedByCycle)) {
+      await prisma.cycle.update({
+        where: { id: cycleId },
+        data: {
+          completedMeetings: { decrement: count },
+          remainingMeetings: { increment: count },
+        },
+      });
+    }
+
+    // Soft delete all meetings
+    const result = await prisma.meeting.updateMany({
+      where: { id: { in: input.ids } },
+      data: {
+        deletedAt: new Date(),
+        deletedBy: req?.user?.userId,
+      },
+    });
+
+    // Audit log
+    if (req) {
+      await logAudit({
+        userId: req.user?.userId,
+        action: 'DELETE',
+        entity: 'Meeting',
+        entityId: input.ids.join(','),
+        oldValue: { ids: input.ids, meetings: meetings.length },
+        req,
+      });
+    }
+
+    return { success: true, deleted: result.count };
+  }
+
+  /**
+   * Bulk record attendance for a meeting
+   */
+  async bulkRecordAttendance(
+    meetingId: string,
+    records: Array<{
+      registrationId?: string;
+      studentId?: string;
+      guestName?: string;
+      status: 'present' | 'absent' | 'late';
+      isTrial?: boolean;
+      notes?: string;
+    }>,
+    req?: Request
+  ) {
+    // Verify meeting exists
+    const meeting = await this.repository.findById(meetingId);
+    if (!meeting) {
+      throw new NotFoundError('Meeting', meetingId);
+    }
+
+    const results = [];
+
+    for (const record of records) {
+      // Check for existing attendance
+      let existingAttendance = null;
+      if (record.registrationId) {
+        existingAttendance = await prisma.attendance.findFirst({
+          where: { meetingId, registrationId: record.registrationId },
+        });
+      } else if (record.studentId) {
+        existingAttendance = await prisma.attendance.findFirst({
+          where: { meetingId, studentId: record.studentId },
+        });
+      }
+
+      if (existingAttendance) {
+        // Update existing
+        const updated = await prisma.attendance.update({
+          where: { id: existingAttendance.id },
+          data: {
+            status: record.status,
+            isTrial: record.isTrial,
+            notes: record.notes,
+          },
+        });
+        results.push(updated);
+      } else {
+        // Create new
+        const created = await prisma.attendance.create({
+          data: {
+            meetingId,
+            registrationId: record.registrationId,
+            studentId: record.studentId,
+            guestName: record.guestName,
+            status: record.status,
+            isTrial: record.isTrial || false,
+            notes: record.notes,
+            recordedById: req?.user?.userId,
+          },
+        });
+        results.push(created);
+      }
+    }
+
+    // Audit log
+    if (req) {
+      await logAudit({
+        userId: req.user?.userId,
+        action: 'UPDATE',
+        entity: 'Attendance',
+        entityId: meetingId,
+        newValue: { meetingId, recordCount: results.length },
+        req,
+      });
+    }
+
+    return { count: results.length, records: results };
   }
 }
 

@@ -78,6 +78,68 @@ webhookRouter.get('/cycles/search', async (req, res, next) => {
   }
 });
 
+// Get meeting for a cycle by date (defaults to today)
+// GET /api/webhook/cycles/:id/meeting?date=2026-02-07 (optional, defaults to today)
+webhookRouter.get('/cycles/:id/meeting', async (req, res, next) => {
+  try {
+    const cycleId = req.params.id;
+    const dateParam = req.query.date as string;
+    
+    // Parse date or use today
+    let targetDate: Date;
+    if (dateParam) {
+      targetDate = new Date(dateParam);
+    } else {
+      targetDate = new Date();
+    }
+    targetDate.setHours(0, 0, 0, 0);
+    
+    const nextDay = new Date(targetDate);
+    nextDay.setDate(nextDay.getDate() + 1);
+
+    const meeting = await prisma.meeting.findFirst({
+      where: {
+        cycleId,
+        scheduledDate: {
+          gte: targetDate,
+          lt: nextDay,
+        },
+      },
+      select: {
+        id: true,
+        scheduledDate: true,
+        startTime: true,
+        endTime: true,
+        status: true,
+        zoomJoinUrl: true,
+      },
+    });
+
+    if (!meeting) {
+      res.json({
+        success: true,
+        meeting: null,
+        message: `No meeting found for date ${targetDate.toISOString().split('T')[0]}`,
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      meeting: {
+        id: meeting.id,
+        scheduledDate: meeting.scheduledDate.toISOString().split('T')[0],
+        startTime: meeting.startTime,
+        endTime: meeting.endTime,
+        status: meeting.status,
+        hasZoomLink: !!meeting.zoomJoinUrl,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Get next scheduled meeting for a cycle
 // GET /api/webhook/cycles/:id/next-meeting
 webhookRouter.get('/cycles/:id/next-meeting', async (req, res, next) => {

@@ -62,8 +62,8 @@ export default function MeetingEditModal({
     await onSave(meeting.id, {
       status: formData.status,
       activityType: formData.activityType,
-      topic: formData.topic || null,
-      notes: formData.notes || null,
+      topic: formData.topic || undefined,
+      notes: formData.notes || undefined,
       scheduledDate: formData.scheduledDate,
       startTime: formData.startTime,
       endTime: formData.endTime,

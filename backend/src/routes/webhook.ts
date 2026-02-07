@@ -303,6 +303,85 @@ webhookRouter.post('/leads', async (req, res, next) => {
 });
 
 // Generic meeting update
+// Helper function to recalculate meeting financials
+async function recalculateMeetingFinancials(meetingId: string) {
+  const meeting = await prisma.meeting.findUnique({
+    where: { id: meetingId },
+    include: {
+      cycle: {
+        include: {
+          registrations: {
+            where: { status: { in: ['registered', 'active'] } },
+          },
+        },
+      },
+      instructor: true,
+    },
+  });
+
+  if (!meeting || meeting.status !== 'completed') {
+    return null;
+  }
+
+  const cycleData = meeting.cycle;
+
+  // Calculate revenue based on cycle type
+  let revenue = 0;
+  const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
+
+  if (cycleData.type === 'private') {
+    const totalRegistrationAmount = cycleData.registrations.reduce(
+      (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
+      0
+    );
+    revenue = Math.round(totalRegistrationAmount / cycleData.totalMeetings);
+  } else if (cycleData.type === 'institutional_per_child') {
+    const pricePerStudent = Number(cycleData.pricePerStudent || 0);
+    const studentCount = cycleData.studentCount || activeRegistrations.length;
+    revenue = Math.round(pricePerStudent * studentCount);
+  } else if (cycleData.type === 'institutional_fixed') {
+    revenue = Number(cycleData.meetingRevenue || 0);
+  }
+
+  // Calculate instructor payment based on activity type
+  const activityType = meeting.activityType || cycleData.activityType ||
+    (cycleData.isOnline ? 'online' : (cycleData.type === 'private' ? 'private_lesson' : 'frontal'));
+
+  const instructor = meeting.instructor;
+  let instructorPayment = 0;
+  if (instructor) {
+    let hourlyRate = 0;
+    switch (activityType) {
+      case 'online':
+        hourlyRate = Number(instructor.rateOnline || instructor.rateFrontal || 0);
+        break;
+      case 'private_lesson':
+        hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
+        break;
+      case 'frontal':
+      default:
+        hourlyRate = Number(instructor.rateFrontal || 0);
+        break;
+    }
+
+    const durationMinutes = cycleData.durationMinutes;
+    const durationHours = durationMinutes / 60;
+    instructorPayment = Math.round(hourlyRate * durationHours);
+  }
+
+  const profit = revenue - instructorPayment;
+
+  // Update meeting with calculated values
+  return prisma.meeting.update({
+    where: { id: meetingId },
+    data: {
+      revenue,
+      instructorPayment,
+      profit,
+    },
+  });
+}
+
 // PATCH /api/webhook/meetings/:id
 webhookRouter.patch('/meetings/:id', async (req, res, next) => {
   try {
@@ -325,10 +404,18 @@ webhookRouter.patch('/meetings/:id', async (req, res, next) => {
       throw new AppError(400, 'No valid fields to update');
     }
 
-    const meeting = await prisma.meeting.update({
+    let meeting = await prisma.meeting.update({
       where: { id: meetingId },
       data: updateData,
     });
+
+    // If status changed to completed, automatically recalculate financials
+    if (updateData.status === 'completed') {
+      const recalculated = await recalculateMeetingFinancials(meetingId);
+      if (recalculated) {
+        meeting = recalculated;
+      }
+    }
 
     res.json({
       success: true,

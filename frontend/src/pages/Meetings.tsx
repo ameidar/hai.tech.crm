@@ -7,13 +7,18 @@ import {
   CheckSquare,
   Square,
   X,
+  Edit,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
-import { useMeetings, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus } from '../hooks/useApi';
+import { useMeetings, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus, useUpdateMeeting } from '../hooks/useApi';
 import { useAuth } from '../context/AuthContext';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import MeetingDetailModal from '../components/MeetingDetailModal';
+import MeetingEditModal from '../components/MeetingEditModal';
 import ViewSelector from '../components/ViewSelector';
 import { meetingStatusHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
@@ -26,10 +31,15 @@ export default function Meetings() {
     return new Date().toISOString().split('T')[0];
   });
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
+  const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'date' | 'view'>('date');
   const [viewColumns, setViewColumns] = useState<string[]>([]);
   const [instructorFilter, setInstructorFilter] = useState('');
+  
+  // Sorting state
+  const [sortColumn, setSortColumn] = useState<string>('startTime');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -136,11 +146,62 @@ export default function Meetings() {
   const { data: viewData, isLoading: viewLoading } = useViewData(activeViewId, dateFilter);
   const recalculateMeeting = useRecalculateMeeting();
   const bulkUpdateStatus = useBulkUpdateMeetingStatus();
+  const updateMeeting = useUpdateMeeting();
+
+  // Sort handler
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  // Get nested value from object
+  const getNestedValue = (obj: any, path: string): any => {
+    return path.split('.').reduce((current, key) => current?.[key], obj);
+  };
 
   // Determine which data to display based on view mode
-  const displayMeetings = viewMode === 'view' && viewData?.data 
+  const rawMeetings = viewMode === 'view' && viewData?.data 
     ? viewData.data as Meeting[]
     : meetings || [];
+
+  // Sort meetings
+  const displayMeetings = useMemo(() => {
+    const sorted = [...rawMeetings].sort((a, b) => {
+      let aVal = getNestedValue(a, sortColumn);
+      let bVal = getNestedValue(b, sortColumn);
+      
+      // Handle nulls
+      if (aVal == null) return 1;
+      if (bVal == null) return -1;
+      
+      // Handle dates
+      if (sortColumn === 'scheduledDate') {
+        aVal = new Date(aVal).getTime();
+        bVal = new Date(bVal).getTime();
+      }
+      
+      // Handle numbers
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+      
+      // Handle strings
+      const comparison = String(aVal).localeCompare(String(bVal), 'he');
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+    return sorted;
+  }, [rawMeetings, sortColumn, sortDirection]);
+
+  // Handle edit meeting save
+  const handleEditSave = async (id: string, data: Partial<Meeting>) => {
+    await updateMeeting.mutateAsync({ id, data });
+    setEditingMeeting(null);
+    refetch();
+  };
   const displayLoading = viewMode === 'view' ? viewLoading : isLoading;
 
   const handleApplyView = (filters: any[], columns: string[], sortBy?: string, sortOrder?: string) => {
@@ -426,14 +487,26 @@ export default function Meetings() {
                     )}
                   </th>
                   {activeColumns.filter(col => allColumns[col]).map(col => (
-                    <th key={col}>{allColumns[col].label}</th>
+                    <th 
+                      key={col} 
+                      className="cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleSort(col)}
+                    >
+                      <div className="flex items-center gap-1">
+                        {allColumns[col].label}
+                        {sortColumn === col ? (
+                          sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />
+                        ) : (
+                          <ArrowUpDown size={14} className="text-gray-300" />
+                        )}
+                      </div>
+                    </th>
                   ))}
+                  {isAdmin && <th className="w-16">פעולות</th>}
                 </tr>
               </thead>
               <tbody>
-                {displayMeetings
-                  .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''))
-                  .map((meeting) => {
+                {displayMeetings.map((meeting) => {
                     const isSelected = selectedIds.has(meeting.id);
                     return (
                       <tr 
@@ -463,6 +536,17 @@ export default function Meetings() {
                             {allColumns[col].render(meeting)}
                           </td>
                         ))}
+                        {isAdmin && (
+                          <td onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => setEditingMeeting(meeting)}
+                              className="p-1.5 hover:bg-blue-100 rounded transition-colors text-blue-600"
+                              title="עריכה"
+                            >
+                              <Edit size={16} />
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -535,6 +619,14 @@ export default function Meetings() {
         onClose={() => setSelectedMeeting(null)}
         onRecalculate={handleRecalculate}
         isRecalculating={recalculateMeeting.isPending}
+      />
+
+      {/* Meeting Edit Modal */}
+      <MeetingEditModal
+        meeting={editingMeeting}
+        onClose={() => setEditingMeeting(null)}
+        onSave={handleEditSave}
+        isSaving={updateMeeting.isPending}
       />
     </>
   );

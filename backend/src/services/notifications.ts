@@ -89,6 +89,31 @@ export async function sendEmail(
   }
 }
 
+// Notify admin about new lead
+export async function notifyAdminNewLead(lead: {
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  childName?: string | null;
+  interest?: string | null;
+  source?: string;
+}): Promise<void> {
+  const adminPhone = '0528746137'; // Ami's phone
+  
+  const message = `🎯 *ליד חדש מהאתר!*
+
+👤 *שם:* ${lead.name}
+📞 *טלפון:* ${lead.phone || 'לא צוין'}
+📧 *מייל:* ${lead.email || 'לא צוין'}
+${lead.childName ? `👧 *ילד/ה:* ${lead.childName}` : ''}
+${lead.interest ? `🎓 *תחום עניין:* ${lead.interest}` : ''}
+📍 *מקור:* ${lead.source || 'website'}
+
+🔗 https://crm.orma-ai.com/customers`;
+
+  await sendWhatsAppMessage(adminPhone, message);
+}
+
 // Welcome lead notification
 export async function sendWelcomeNotifications(lead: {
   name: string;

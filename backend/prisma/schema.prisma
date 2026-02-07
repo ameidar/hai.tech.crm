@@ -155,6 +155,7 @@ model Student {
   customerId String    @map("customer_id")
   name       String
   birthDate  DateTime? @map("birth_date") @db.Date
+  age        Int?
   grade      String?
   notes      String?
   createdAt  DateTime  @default(now()) @map("created_at")

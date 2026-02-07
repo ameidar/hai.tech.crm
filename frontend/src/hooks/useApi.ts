@@ -585,6 +585,24 @@ export const useBulkUpdateMeetingStatus = () => {
   });
 };
 
+export const useBulkUpdateMeetings = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, data }: { ids: string[]; data: Record<string, any> }) =>
+      mutateData<{ success: boolean; updated: number; errors?: string[] }, { ids: string[]; data: Record<string, any> }>(
+        '/meetings/bulk-update',
+        'post',
+        { ids, data }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
+      queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'cycle' });
+    },
+  });
+};
+
 // ==================== Reports ====================
 export const useDailyReport = (date: string) => {
   return useQuery({

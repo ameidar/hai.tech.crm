@@ -12,13 +12,14 @@ import {
   ArrowUp,
   ArrowDown,
 } from 'lucide-react';
-import { useMeetings, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus, useUpdateMeeting } from '../hooks/useApi';
+import { useMeetings, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus, useUpdateMeeting, useBulkUpdateMeetings } from '../hooks/useApi';
 import { useAuth } from '../context/AuthContext';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import MeetingDetailModal from '../components/MeetingDetailModal';
 import MeetingEditModal from '../components/MeetingEditModal';
+import BulkMeetingEditModal, { type BulkMeetingUpdateData } from '../components/BulkMeetingEditModal';
 import ViewSelector from '../components/ViewSelector';
 import { meetingStatusHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
@@ -44,6 +45,7 @@ export default function Meetings() {
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkStatus, setBulkStatus] = useState<string>('');
+  const [showBulkEditModal, setShowBulkEditModal] = useState(false);
 
   // Initialize filter from URL params
   useEffect(() => {
@@ -147,6 +149,7 @@ export default function Meetings() {
   const recalculateMeeting = useRecalculateMeeting();
   const bulkUpdateStatus = useBulkUpdateMeetingStatus();
   const updateMeeting = useUpdateMeeting();
+  const bulkUpdateMeetings = useBulkUpdateMeetings();
 
   // Sort handler
   const handleSort = (column: string) => {
@@ -201,6 +204,31 @@ export default function Meetings() {
     await updateMeeting.mutateAsync({ id, data });
     setEditingMeeting(null);
     refetch();
+  };
+
+  // Handle bulk edit save
+  const handleBulkEditSave = async (data: BulkMeetingUpdateData) => {
+    if (selectedIds.size === 0) return;
+
+    try {
+      const result = await bulkUpdateMeetings.mutateAsync({
+        ids: Array.from(selectedIds),
+        data,
+      });
+
+      if (result.errors && result.errors.length > 0) {
+        alert(`עודכנו ${result.updated} פגישות. שגיאות: ${result.errors.join(', ')}`);
+      } else {
+        alert(`עודכנו ${result.updated} פגישות בהצלחה`);
+      }
+
+      setShowBulkEditModal(false);
+      setSelectedIds(new Set());
+      refetch();
+    } catch (error) {
+      console.error('Failed to bulk update:', error);
+      alert('שגיאה בעדכון גורף');
+    }
   };
   const displayLoading = viewMode === 'view' ? viewLoading : isLoading;
 
@@ -379,6 +407,14 @@ export default function Meetings() {
               className="px-4 py-2 bg-green-500 hover:bg-green-600 disabled:opacity-50 rounded-lg font-medium transition-colors"
             >
               {bulkUpdateStatus.isPending ? 'מעדכן...' : '🔄 עדכן סטטוס'}
+            </button>
+
+            <button
+              onClick={() => setShowBulkEditModal(true)}
+              className="px-4 py-2 bg-blue-500 hover:bg-blue-600 rounded-lg font-medium transition-colors flex items-center gap-1"
+            >
+              <Edit size={16} />
+              עריכה גורפת
             </button>
             
             <button
@@ -627,6 +663,15 @@ export default function Meetings() {
         onClose={() => setEditingMeeting(null)}
         onSave={handleEditSave}
         isSaving={updateMeeting.isPending}
+      />
+
+      {/* Bulk Edit Modal */}
+      <BulkMeetingEditModal
+        isOpen={showBulkEditModal}
+        selectedCount={selectedIds.size}
+        onClose={() => setShowBulkEditModal(false)}
+        onSave={handleBulkEditSave}
+        isSaving={bulkUpdateMeetings.isPending}
       />
     </>
   );

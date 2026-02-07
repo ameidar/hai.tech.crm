@@ -307,11 +307,16 @@ webhookRouter.post('/leads', async (req, res, next) => {
 webhookRouter.patch('/meetings/:id', async (req, res, next) => {
   try {
     const meetingId = req.params.id;
-    const allowedFields = ['zoomMeetingId', 'zoomJoinUrl', 'zoomStartUrl', 'topic', 'notes'];
+    const allowedFields = ['zoomMeetingId', 'zoomJoinUrl', 'zoomStartUrl', 'topic', 'notes', 'status'];
+    const validStatuses = ['scheduled', 'completed', 'cancelled', 'postponed'];
     
     const updateData: Record<string, any> = {};
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) {
+        // Validate status value
+        if (field === 'status' && !validStatuses.includes(req.body[field])) {
+          throw new AppError(400, `Invalid status. Must be one of: ${validStatuses.join(', ')}`);
+        }
         updateData[field] = req.body[field];
       }
     }

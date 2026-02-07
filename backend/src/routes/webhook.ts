@@ -156,7 +156,12 @@ webhookRouter.post('/leads', async (req, res, next) => {
       city,
       notes,
       source = 'website',
-      students // Optional: array of { name, birthDate?, grade? }
+      students, // Optional: array of { name, birthDate?, grade? }
+      // New fields from website form
+      childName,
+      childAge,
+      interest,
+      message,
     } = req.body;
 
     if (!name) {
@@ -180,19 +185,47 @@ webhookRouter.post('/leads', async (req, res, next) => {
       });
     }
 
+    // Build notes from all available info
+    const buildNotes = () => {
+      const parts = [];
+      if (interest) parts.push(`תחום עניין: ${interest}`);
+      if (message) parts.push(`הודעה: ${message}`);
+      if (notes) parts.push(notes);
+      if (childName && childAge) parts.push(`ילד/ה: ${childName}, גיל ${childAge}`);
+      else if (childName) parts.push(`ילד/ה: ${childName}`);
+      return parts.length > 0 ? parts.join(' | ') : 'פנייה חדשה';
+    };
+
     if (existingCustomer) {
       // Update existing customer with any new info
+      const noteText = buildNotes();
       const customer = await prisma.customer.update({
         where: { id: existingCustomer.id },
         data: {
           notes: existingCustomer.notes 
-            ? `${existingCustomer.notes}\n---\n[${new Date().toISOString()}] ${source}: ${notes || 'פנייה חדשה'}`
-            : `[${new Date().toISOString()}] ${source}: ${notes || 'פנייה חדשה'}`,
+            ? `${existingCustomer.notes}\n---\n[${new Date().toISOString()}] ${source}: ${noteText}`
+            : `[${new Date().toISOString()}] ${source}: ${noteText}`,
         },
         include: {
           students: true,
         },
       });
+
+      // If childName provided, check if student exists and create if not
+      if (childName) {
+        const existingStudent = await prisma.student.findFirst({
+          where: { customerId: existingCustomer.id, name: childName },
+        });
+        if (!existingStudent) {
+          await prisma.student.create({
+            data: {
+              customerId: existingCustomer.id,
+              name: childName,
+              notes: childAge ? `גיל: ${childAge}${interest ? ` | תחום עניין: ${interest}` : ''}` : (interest ? `תחום עניין: ${interest}` : undefined),
+            },
+          });
+        }
+      }
 
       res.json({
         success: true,
@@ -208,6 +241,24 @@ webhookRouter.post('/leads', async (req, res, next) => {
       return;
     }
 
+    // Build student data from either students array or childName/childAge
+    let studentsToCreate: Array<{ name: string; birthDate?: Date | null; grade?: string | null; notes?: string }> = [];
+    
+    if (students && Array.isArray(students) && students.length > 0) {
+      studentsToCreate = students.map((s: { name: string; birthDate?: string; grade?: string }) => ({
+        name: s.name,
+        birthDate: s.birthDate ? new Date(s.birthDate) : null,
+        grade: s.grade || null,
+      }));
+    } else if (childName) {
+      studentsToCreate = [{
+        name: childName,
+        notes: childAge ? `גיל: ${childAge}${interest ? ` | תחום עניין: ${interest}` : ''}` : (interest ? `תחום עניין: ${interest}` : undefined),
+      }];
+    }
+
+    const noteText = buildNotes();
+
     // Create new customer
     const customer = await prisma.customer.create({
       data: {
@@ -215,15 +266,9 @@ webhookRouter.post('/leads', async (req, res, next) => {
         phone: phone || null,
         email: email || null,
         city: city || null,
-        notes: notes ? `[${new Date().toISOString()}] ${source}: ${notes}` : `[${new Date().toISOString()}] ${source}: ליד חדש`,
-        students: students && Array.isArray(students) && students.length > 0 
-          ? {
-              create: students.map((s: { name: string; birthDate?: string; grade?: string }) => ({
-                name: s.name,
-                birthDate: s.birthDate ? new Date(s.birthDate) : null,
-                grade: s.grade || null,
-              })),
-            }
+        notes: `[${new Date().toISOString()}] ${source}: ${noteText}`,
+        students: studentsToCreate.length > 0 
+          ? { create: studentsToCreate }
           : undefined,
       },
       include: {

@@ -2,7 +2,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { config } from '../config.js';
-import { sendWelcomeNotifications } from '../services/notifications.js';
+import { sendWelcomeNotifications, notifyAdminNewLead } from '../services/notifications.js';
+import { logAudit } from '../utils/audit.js';
 
 export const webhookRouter = Router();
 
@@ -449,6 +450,33 @@ webhookRouter.post('/leads', async (req, res, next) => {
       phone: customer.phone,
       email: customer.email,
     }).catch(err => console.error('[WEBHOOK] Failed to send welcome notifications:', err));
+
+    // Notify admin about new lead
+    notifyAdminNewLead({
+      name: customer.name,
+      phone: customer.phone,
+      email: customer.email,
+      childName: childName || undefined,
+      interest: interest || undefined,
+      source,
+    }).catch(err => console.error('[WEBHOOK] Failed to notify admin:', err));
+
+    // Create audit log
+    logAudit({
+      userId: 'system',
+      userName: 'Website Lead',
+      action: 'CREATE',
+      entity: 'customer',
+      entityId: customer.id,
+      newValue: {
+        source,
+        name: customer.name,
+        phone: customer.phone,
+        email: customer.email,
+        childName,
+        interest,
+      },
+    }).catch(err => console.error('[WEBHOOK] Failed to create audit log:', err));
 
     res.status(201).json({
       success: true,

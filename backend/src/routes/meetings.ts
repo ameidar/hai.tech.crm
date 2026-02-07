@@ -1116,6 +1116,131 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
   }
 });
 
+// Bulk update meetings (multiple fields)
+meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
+  try {
+    const { ids, data } = req.body;
+    
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new AppError(400, 'ids array is required');
+    }
+    
+    if (!data || Object.keys(data).length === 0) {
+      throw new AppError(400, 'data object is required');
+    }
+
+    // Allowed fields for bulk update
+    const allowedFields = ['status', 'activityType', 'topic', 'notes', 'scheduledDate', 'startTime', 'endTime'];
+    const updateData: Record<string, any> = {};
+    
+    for (const field of allowedFields) {
+      if (data[field] !== undefined) {
+        if (field === 'scheduledDate' && data[field]) {
+          updateData[field] = new Date(data[field]);
+        } else if ((field === 'startTime' || field === 'endTime') && data[field]) {
+          // Convert HH:MM to Date object
+          const [hours, minutes] = data[field].split(':').map(Number);
+          const timeDate = new Date(Date.UTC(1970, 0, 1, hours, minutes, 0));
+          updateData[field] = timeDate;
+        } else {
+          updateData[field] = data[field];
+        }
+      }
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      throw new AppError(400, 'No valid fields to update');
+    }
+
+    let updated = 0;
+    let errors: string[] = [];
+    const shouldRecalculate = updateData.status === 'completed';
+
+    for (const id of ids) {
+      try {
+        const existingMeeting = await prisma.meeting.findUnique({
+          where: { id },
+        });
+
+        if (!existingMeeting) {
+          errors.push(`Meeting ${id} not found`);
+          continue;
+        }
+
+        // If status changing to completed and wasn't completed before, add timestamps
+        if (updateData.status === 'completed' && existingMeeting.status !== 'completed') {
+          updateData.statusUpdatedAt = new Date();
+          updateData.statusUpdatedById = req.user!.userId;
+        }
+
+        await prisma.meeting.update({
+          where: { id },
+          data: updateData,
+        });
+
+        // Recalculate financials if status changed to completed
+        if (shouldRecalculate && existingMeeting.status !== 'completed') {
+          const meeting = await prisma.meeting.findUnique({
+            where: { id },
+            include: {
+              cycle: {
+                include: {
+                  registrations: { where: { status: { in: ['registered', 'active'] } } },
+                },
+              },
+              instructor: true,
+            },
+          });
+
+          if (meeting) {
+            const cycleData = meeting.cycle;
+            let revenue = 0;
+            const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
+
+            if (cycleData.type === 'private') {
+              const totalAmount = cycleData.registrations.reduce((sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0), 0);
+              revenue = Math.round(totalAmount / cycleData.totalMeetings);
+            } else if (cycleData.type === 'institutional_per_child') {
+              revenue = Math.round(Number(cycleData.pricePerStudent || 0) * (cycleData.studentCount || activeRegistrations.length));
+            } else if (cycleData.type === 'institutional_fixed') {
+              revenue = Number(cycleData.meetingRevenue || 0);
+            }
+
+            const activityType = meeting.activityType || cycleData.activityType || 'frontal';
+            let instructorPayment = 0;
+            if (meeting.instructor) {
+              let rate = 0;
+              switch (activityType) {
+                case 'online': rate = Number(meeting.instructor.rateOnline || meeting.instructor.rateFrontal || 0); break;
+                case 'private_lesson': rate = Number(meeting.instructor.ratePrivate || meeting.instructor.rateFrontal || 0); break;
+                default: rate = Number(meeting.instructor.rateFrontal || 0);
+              }
+              instructorPayment = Math.round(rate * (cycleData.durationMinutes / 60));
+            }
+
+            await prisma.meeting.update({
+              where: { id },
+              data: { revenue, instructorPayment, profit: revenue - instructorPayment },
+            });
+          }
+        }
+
+        updated++;
+      } catch (err: any) {
+        errors.push(`Meeting ${id}: ${err.message}`);
+      }
+    }
+
+    res.json({ 
+      success: true, 
+      updated, 
+      errors: errors.length > 0 ? errors : undefined 
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Bulk delete meetings
 meetingsRouter.post('/bulk-delete', managerOrAdmin, async (req, res, next) => {
   try {

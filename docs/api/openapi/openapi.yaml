@@ -1,0 +1,943 @@
+openapi: 3.0.3
+info:
+  title: HaiTech CRM API
+  description: |
+    API for HaiTech CRM - מערכת לניהול הדרכות תכנות ובינה מלאכותית.
+    
+    ## Authentication
+    - **JWT**: For user interface - `Authorization: Bearer <token>`
+    - **API Key**: For integrations - `X-API-Key: <key>`
+    
+    ## Rate Limiting
+    - Default: 1000 requests/hour
+    - Headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
+    
+    ## Pagination
+    - Use `limit` and `offset` query parameters
+    - Default limit: 20, Max: 100
+  version: 1.0.0
+  contact:
+    name: HaiTech Support
+    email: support@hai.tech
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.haitech-crm.com/api/v1
+    description: Production
+  - url: http://localhost:3000/api/v1
+    description: Development
+
+tags:
+  - name: Auth
+    description: Authentication endpoints
+  - name: Customers
+    description: Customer management
+  - name: Students
+    description: Student management
+  - name: Cycles
+    description: Course cycle management
+  - name: Meetings
+    description: Meeting/lesson management
+  - name: Registrations
+    description: Registration management
+  - name: Attendance
+    description: Attendance tracking
+
+security:
+  - bearerAuth: []
+  - apiKeyAuth: []
+
+paths:
+  # ==================
+  # AUTH
+  # ==================
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: admin@haitech.co.il
+                password:
+                  type: string
+                  example: password123
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      accessToken:
+                        type: string
+                      refreshToken:
+                        type: string
+                      user:
+                        $ref: '#/components/schemas/User'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current user
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/User'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+
+  # ==================
+  # CUSTOMERS
+  # ==================
+  /customers:
+    get:
+      tags: [Customers]
+      summary: List customers
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search in name, phone, email
+        - name: city
+          in: query
+          schema:
+            type: string
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [name, createdAt]
+        - name: sortOrder
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        '200':
+          description: List of customers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Customer'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+    post:
+      tags: [Customers]
+      summary: Create customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomerCreate'
+      responses:
+        '201':
+          description: Customer created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Customer'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /customers/{id}:
+    get:
+      tags: [Customers]
+      summary: Get customer by ID
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Customer details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CustomerWithStudents'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Customers]
+      summary: Update customer
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomerUpdate'
+      responses:
+        '200':
+          description: Customer updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Customer'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+    delete:
+      tags: [Customers]
+      summary: Delete customer (soft)
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Customer deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /customers/{id}/students:
+    get:
+      tags: [Customers]
+      summary: Get students of customer
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: List of students
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Student'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+    post:
+      tags: [Customers]
+      summary: Add student to customer
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentCreate'
+      responses:
+        '201':
+          description: Student created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Student'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+
+  # ==================
+  # MEETINGS (Example of complex entity)
+  # ==================
+  /meetings:
+    get:
+      tags: [Meetings]
+      summary: List meetings
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+        - name: cycleId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: instructorId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [scheduled, completed, cancelled, postponed]
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Start date filter
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+          description: End date filter
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Specific date filter
+      responses:
+        '200':
+          description: List of meetings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Meeting'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+
+  /meetings/{id}:
+    get:
+      tags: [Meetings]
+      summary: Get meeting by ID
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Meeting details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/MeetingFull'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+    put:
+      tags: [Meetings]
+      summary: Update meeting
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeetingUpdate'
+      responses:
+        '200':
+          description: Meeting updated
+
+  /meetings/{id}/complete:
+    post:
+      tags: [Meetings]
+      summary: Mark meeting as completed
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                topic:
+                  type: string
+                  description: Lesson topic
+                notes:
+                  type: string
+                  description: Notes about the meeting
+      responses:
+        '200':
+          description: Meeting marked as completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Meeting'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+
+  /meetings/{id}/attendance:
+    get:
+      tags: [Attendance]
+      summary: Get attendance for meeting
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Attendance list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Attendance'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+    post:
+      tags: [Attendance]
+      summary: Record attendance
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [attendance]
+              properties:
+                attendance:
+                  type: array
+                  items:
+                    type: object
+                    required: [studentId, status]
+                    properties:
+                      studentId:
+                        type: string
+                        format: uuid
+                      registrationId:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                        enum: [present, absent, late]
+                      isTrial:
+                        type: boolean
+                        default: false
+                      notes:
+                        type: string
+      responses:
+        '200':
+          description: Attendance recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Attendance'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+
+  # ==================
+  # PUBLIC ENDPOINTS
+  # ==================
+  /public/leads:
+    post:
+      tags: [Public]
+      summary: Submit lead from website
+      security:
+        - apiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, phone]
+              properties:
+                name:
+                  type: string
+                  example: ישראל ישראלי
+                phone:
+                  type: string
+                  example: "0501234567"
+                email:
+                  type: string
+                  format: email
+                course:
+                  type: string
+                  description: Requested course
+                message:
+                  type: string
+                source:
+                  type: string
+                  description: Lead source
+                  example: hai.tech website
+            example:
+              name: ישראל ישראלי
+              phone: "0501234567"
+              email: test@example.com
+              course: מיינקראפט
+              message: מעוניין בפרטים
+              source: hai.tech website
+      responses:
+        '200':
+          description: Lead received
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  customerId:
+                    type: string
+                    format: uuid
+              example:
+                success: true
+                message: Lead received and added to CRM
+                customerId: 123e4567-e89b-12d3-a456-426614174000
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        default: 20
+        maximum: 100
+    offset:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        default: 0
+
+  schemas:
+    # ==================
+    # COMMON
+    # ==================
+    Meta:
+      type: object
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+
+    Pagination:
+      type: object
+      properties:
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        hasMore:
+          type: boolean
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    # ==================
+    # USER
+    # ==================
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          type: string
+          enum: [admin, manager, instructor]
+        isActive:
+          type: boolean
+
+    # ==================
+    # CUSTOMER
+    # ==================
+    Customer:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        address:
+          type: string
+        city:
+          type: string
+        notes:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CustomerWithStudents:
+      allOf:
+        - $ref: '#/components/schemas/Customer'
+        - type: object
+          properties:
+            students:
+              type: array
+              items:
+                $ref: '#/components/schemas/Student'
+
+    CustomerCreate:
+      type: object
+      required: [name, phone]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        address:
+          type: string
+        city:
+          type: string
+        notes:
+          type: string
+
+    CustomerUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        address:
+          type: string
+        city:
+          type: string
+        notes:
+          type: string
+
+    # ==================
+    # STUDENT
+    # ==================
+    Student:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        birthDate:
+          type: string
+          format: date
+        grade:
+          type: string
+        notes:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    StudentCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        birthDate:
+          type: string
+          format: date
+        grade:
+          type: string
+        notes:
+          type: string
+
+    # ==================
+    # MEETING
+    # ==================
+    Meeting:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        cycleId:
+          type: string
+          format: uuid
+        instructorId:
+          type: string
+          format: uuid
+        scheduledDate:
+          type: string
+          format: date
+        startTime:
+          type: string
+          format: time
+        endTime:
+          type: string
+          format: time
+        status:
+          type: string
+          enum: [scheduled, completed, cancelled, postponed]
+        revenue:
+          type: number
+        instructorPayment:
+          type: number
+        profit:
+          type: number
+        topic:
+          type: string
+        notes:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    MeetingFull:
+      allOf:
+        - $ref: '#/components/schemas/Meeting'
+        - type: object
+          properties:
+            cycle:
+              type: object
+              properties:
+                id:
+                  type: string
+                name:
+                  type: string
+            instructor:
+              type: object
+              properties:
+                id:
+                  type: string
+                name:
+                  type: string
+            attendance:
+              type: array
+              items:
+                $ref: '#/components/schemas/Attendance'
+
+    MeetingUpdate:
+      type: object
+      properties:
+        instructorId:
+          type: string
+          format: uuid
+        scheduledDate:
+          type: string
+          format: date
+        startTime:
+          type: string
+          format: time
+        endTime:
+          type: string
+          format: time
+        topic:
+          type: string
+        notes:
+          type: string
+
+    # ==================
+    # ATTENDANCE
+    # ==================
+    Attendance:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        meetingId:
+          type: string
+          format: uuid
+        studentId:
+          type: string
+          format: uuid
+        registrationId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [present, absent, late]
+        isTrial:
+          type: boolean
+        notes:
+          type: string
+        student:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+
+  responses:
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: UNAUTHORIZED
+              message: Authentication required
+            meta:
+              requestId: abc123
+              timestamp: "2026-02-06T12:00:00Z"
+
+    Forbidden:
+      description: Access denied
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: FORBIDDEN
+              message: You don't have permission to perform this action
+            meta:
+              requestId: abc123
+              timestamp: "2026-02-06T12:00:00Z"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: NOT_FOUND
+              message: Customer not found
+            meta:
+              requestId: abc123
+              timestamp: "2026-02-06T12:00:00Z"
+
+    ValidationError:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Invalid input
+              details:
+                - field: email
+                  message: Invalid email format
+                - field: phone
+                  message: Phone is required
+            meta:
+              requestId: abc123
+              timestamp: "2026-02-06T12:00:00Z"
+
+    Conflict:
+      description: Conflict (e.g., duplicate)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: CONFLICT
+              message: Customer with this phone already exists
+            meta:
+              requestId: abc123
+              timestamp: "2026-02-06T12:00:00Z"

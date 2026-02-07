@@ -121,10 +121,12 @@ model User {
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
   // Relations
-  instructor       Instructor?
-  meetingUpdates   Meeting[]    @relation("MeetingStatusUpdater")
+  instructor        Instructor?
+  meetingUpdates    Meeting[]    @relation("MeetingStatusUpdater")
   attendanceRecords Attendance[]
-  savedViews       SavedView[]
+  savedViews        SavedView[]
+  apiKeys           ApiKey[]
+  webhooks          Webhook[]
 
   @@map("users")
 }
@@ -153,6 +155,7 @@ model Student {
   customerId String    @map("customer_id")
   name       String
   birthDate  DateTime? @map("birth_date") @db.Date
+  age        Int?
   grade      String?
   notes      String?
   createdAt  DateTime  @default(now()) @map("created_at")
@@ -396,10 +399,79 @@ model Attendance {
   @@map("attendance")
 }
 
+model ApiKey {
+  id          String    @id @default(uuid())
+  name        String                          // Friendly name (e.g., "n8n Integration")
+  keyHash     String    @unique @map("key_hash") // SHA-256 hash of the key
+  keyPrefix   String    @map("key_prefix")    // First 8 chars for identification (haitech_)
+  scopes      String[]  @default([])          // ["read:customers", "write:cycles", "*"]
+  rateLimit   Int       @default(1000) @map("rate_limit") // requests per hour
+  isActive    Boolean   @default(true) @map("is_active")
+  expiresAt   DateTime? @map("expires_at")
+  lastUsedAt  DateTime? @map("last_used_at")
+  lastUsedIp  String?   @map("last_used_ip")
+  createdById String    @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  auditLogs   AuditLog[]
+
+  @@index([keyPrefix])
+  @@index([isActive])
+  @@map("api_keys")
+}
+
+model Webhook {
+  id          String    @id @default(cuid())
+  name        String
+  url         String
+  events      String[]  // Array of event names (customer.created, meeting.completed, etc.)
+  secret      String?   // Secret for HMAC signature
+  headers     Json?     // Custom headers to include in webhook calls
+  status      String    @default("active") // active, paused, disabled
+  createdById String    @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  deliveries  WebhookDelivery[]
+
+  @@index([status])
+  @@map("webhooks")
+}
+
+model WebhookDelivery {
+  id            String    @id @default(cuid())
+  webhookId     String    @map("webhook_id")
+  event         String    // Event that triggered the delivery
+  payload       Json      // The payload sent
+  responseCode  Int?      @map("response_code")
+  responseBody  String?   @map("response_body")
+  success       Boolean   @default(false)
+  attempts      Int       @default(1)
+  nextRetryAt   DateTime? @map("next_retry_at")
+  completedAt   DateTime? @map("completed_at")
+  error         String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  webhook       Webhook   @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId])
+  @@index([event])
+  @@index([success])
+  @@index([nextRetryAt])
+  @@map("webhook_deliveries")
+}
+
 model AuditLog {
   id        String   @id @default(uuid())
   userId    String?  @map("user_id")
   userName  String?  @map("user_name")
+  apiKeyId  String?  @map("api_key_id")
   action    String   // CREATE, UPDATE, DELETE
   entity    String   // Customer, Cycle, Meeting, etc.
   entityId  String   @map("entity_id")
@@ -409,8 +481,12 @@ model AuditLog {
   userAgent String?  @map("user_agent")
   createdAt DateTime @default(now()) @map("created_at")
 
+  // Relations
+  apiKey    ApiKey?  @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+
   @@index([entity, entityId])
   @@index([userId])
+  @@index([apiKeyId])
   @@index([createdAt])
   @@map("audit_logs")
 }

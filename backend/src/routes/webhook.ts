@@ -149,15 +149,24 @@ webhookRouter.get('/cycles/:id/meetings', async (req, res, next) => {
 // POST /api/webhook/leads
 webhookRouter.post('/leads', async (req, res, next) => {
   try {
-    const { 
-      name, 
-      phone, 
-      email, 
-      city,
-      notes,
-      source = 'website',
-      students // Optional: array of { name, birthDate?, grade? }
-    } = req.body;
+    // Log incoming request for debugging
+    console.log('[WEBHOOK /leads] Received:', JSON.stringify(req.body, null, 2));
+    
+    // Support multiple field name variations
+    const body = req.body;
+    const name = body.name || body.parentName || body.parent_name;
+    const phone = body.phone || body.telephone || body.tel;
+    const email = body.email || body.mail;
+    const city = body.city;
+    const notes = body.notes;
+    const message = body.message || body.הודעה;
+    const source = body.source || 'website';
+    const students = body.students;
+    // Child fields - support multiple naming conventions
+    const childName = body.childName || body.child_name || body.studentName || body.student_name || body['שם הילד/ה'] || body['שם_הילד'];
+    const childAge = body.childAge || body.child_age || body.age || body['גיל הילד/ה'] || body['גיל_הילד'];
+    const childGrade = body.childGrade || body.child_grade || body.grade;
+    const interest = body.interest || body.topic || body['תחום עניין'] || body['תחום_עניין'] || body.subject;
 
     if (!name) {
       throw new AppError(400, 'name is required');
@@ -165,6 +174,44 @@ webhookRouter.post('/leads', async (req, res, next) => {
 
     if (!phone && !email) {
       throw new AppError(400, 'Either phone or email is required');
+    }
+
+    // Israel timezone timestamp
+    const israelTime = new Date().toLocaleString('he-IL', { 
+      timeZone: 'Asia/Jerusalem',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    // Build notes with all info
+    const noteParts: string[] = [];
+    noteParts.push(`[${israelTime}] מקור: ${source}`);
+    if (interest) noteParts.push(`תחום עניין: ${interest}`);
+    if (message) noteParts.push(`הודעה: ${message}`);
+    if (notes) noteParts.push(notes);
+    const fullNotes = noteParts.join('\n');
+
+    // Build students array - support both array and single child fields
+    let studentsToCreate: Array<{ name: string; birthDate?: Date | null; age?: number | null; grade?: string | null }> = [];
+    
+    if (students && Array.isArray(students) && students.length > 0) {
+      studentsToCreate = students.map((s: { name: string; birthDate?: string; grade?: string; age?: number }) => ({
+        name: s.name,
+        birthDate: s.birthDate ? new Date(s.birthDate) : null,
+        age: s.age || null,
+        grade: s.grade || null,
+      }));
+    } else if (childName) {
+      // Single child from direct fields
+      studentsToCreate = [{
+        name: childName,
+        birthDate: null,
+        age: childAge || null,
+        grade: childGrade || null,
+      }];
     }
 
     // Check if customer already exists by phone or email
@@ -182,17 +229,54 @@ webhookRouter.post('/leads', async (req, res, next) => {
 
     if (existingCustomer) {
       // Update existing customer with any new info
+      const updateData: any = {
+        notes: existingCustomer.notes 
+          ? `${existingCustomer.notes}\n---\n${fullNotes}`
+          : fullNotes,
+      };
+
+      // Add new students if provided and they don't exist
+      if (studentsToCreate.length > 0) {
+        const existingStudentNames = (await prisma.student.findMany({
+          where: { customerId: existingCustomer.id },
+          select: { name: true },
+        })).map(s => s.name.toLowerCase());
+
+        const newStudents = studentsToCreate.filter(
+          s => !existingStudentNames.includes(s.name.toLowerCase())
+        );
+
+        if (newStudents.length > 0) {
+          await prisma.student.createMany({
+            data: newStudents.map(s => ({
+              customerId: existingCustomer!.id,
+              name: s.name,
+              birthDate: s.birthDate,
+              age: s.age,
+              grade: s.grade,
+            })),
+          });
+        }
+      }
+
       const customer = await prisma.customer.update({
         where: { id: existingCustomer.id },
-        data: {
-          notes: existingCustomer.notes 
-            ? `${existingCustomer.notes}\n---\n[${new Date().toISOString()}] ${source}: ${notes || 'פנייה חדשה'}`
-            : `[${new Date().toISOString()}] ${source}: ${notes || 'פנייה חדשה'}`,
-        },
+        data: updateData,
         include: {
           students: true,
         },
       });
+
+      // Create audit log
+      await prisma.auditLog.create({
+        data: {
+          action: 'LEAD_UPDATE',
+          entity: 'Customer',
+          entityId: customer.id,
+          newValue: { source, interest, message, childName, childAge },
+          ipAddress: req.ip || 'webhook',
+        },
+      }).catch(() => {}); // Don't fail if audit log fails
 
       res.json({
         success: true,
@@ -202,6 +286,7 @@ webhookRouter.post('/leads', async (req, res, next) => {
           name: customer.name,
           phone: customer.phone,
           email: customer.email,
+          students: customer.students.map(s => ({ id: s.id, name: s.name })),
         },
         message: 'Customer already exists, notes updated',
       });
@@ -215,14 +300,10 @@ webhookRouter.post('/leads', async (req, res, next) => {
         phone: phone || null,
         email: email || null,
         city: city || null,
-        notes: notes ? `[${new Date().toISOString()}] ${source}: ${notes}` : `[${new Date().toISOString()}] ${source}: ליד חדש`,
-        students: students && Array.isArray(students) && students.length > 0 
+        notes: fullNotes,
+        students: studentsToCreate.length > 0 
           ? {
-              create: students.map((s: { name: string; birthDate?: string; grade?: string }) => ({
-                name: s.name,
-                birthDate: s.birthDate ? new Date(s.birthDate) : null,
-                grade: s.grade || null,
-              })),
+              create: studentsToCreate,
             }
           : undefined,
       },
@@ -230,6 +311,17 @@ webhookRouter.post('/leads', async (req, res, next) => {
         students: true,
       },
     });
+
+    // Create audit log
+    await prisma.auditLog.create({
+      data: {
+        action: 'LEAD_CREATE',
+        entity: 'Customer',
+        entityId: customer.id,
+        newValue: { source, interest, message, childName, childAge, studentsCount: studentsToCreate.length },
+        ipAddress: req.ip || 'webhook',
+      },
+    }).catch(() => {}); // Don't fail if audit log fails
 
     // Send welcome notifications (async, don't block response)
     sendWelcomeNotifications({

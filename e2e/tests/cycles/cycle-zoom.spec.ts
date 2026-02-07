@@ -20,7 +20,10 @@ test.describe('Cycle Zoom Integration', () => {
 
   test.describe('Zoom Section Visibility', () => {
     
-    test('Zoom section appears only for online cycles', async ({ page }) => {
+    test('Zoom section appears for online and private cycles', async ({ page, request }) => {
+      // API test: verify the condition exists in frontend code
+      // This test validates that the code change was deployed correctly
+      
       const cyclesPage = new CyclesPage(page);
       const cycleDetailPage = new CycleDetailPage(page);
       
@@ -33,18 +36,26 @@ test.describe('Cycle Zoom Integration', () => {
         await cyclesPage.openFirstCycle();
         await cycleDetailPage.waitForPageLoad();
         
-        // Check if Zoom section is present
+        // Get the cycle type badge from the page
+        const badges = page.locator('.badge');
+        const badgeTexts: string[] = [];
+        for (let i = 0; i < await badges.count(); i++) {
+          badgeTexts.push(await badges.nth(i).innerText());
+        }
+        
+        // Check if this cycle should have Zoom section
+        const isPrivate = badgeTexts.some(t => t.includes('פרטי'));
+        const isOnline = badgeTexts.some(t => t.includes('אונליין'));
         const hasZoom = await cycleDetailPage.hasZoomSection();
         
-        // Get activity type from page content
-        const pageText = await page.textContent('body');
-        const isOnline = pageText?.includes('אונליין') ?? false;
-        
-        // Zoom section should match activity type
-        if (isOnline) {
+        // If online or private, Zoom should be visible
+        // If not, Zoom should be hidden (both are valid)
+        if (isOnline || isPrivate) {
           expect(hasZoom).toBeTruthy();
+        } else {
+          // For other cycle types, just verify page loaded correctly
+          expect(await cycleDetailPage.isOnCycleDetailPage()).toBeTruthy();
         }
-        // Note: For non-online cycles, Zoom section might still be hidden
       }
     });
   });

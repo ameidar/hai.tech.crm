@@ -129,6 +129,11 @@ export const createCycleSchema = z.object({
   isOnline: z.boolean().default(false),
   activityType: z.enum(['online', 'frontal', 'private_lesson']).default('frontal'),
   zoomHostId: z.string().optional().nullable(),
+  zoomHostEmail: z.string().optional().nullable(),
+  zoomMeetingId: z.string().optional().nullable(),
+  zoomJoinUrl: z.string().optional().nullable(),
+  zoomHostKey: z.string().optional().nullable(),
+  zoomPassword: z.string().optional().nullable(),
 });
 
 export const updateCycleSchema = createCycleSchema.partial().extend({

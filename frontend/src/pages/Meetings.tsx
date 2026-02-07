@@ -483,6 +483,9 @@ export default function Meetings() {
 
           {stats && stats.total > 0 && (
             <div className="flex items-center gap-4 ms-auto text-sm">
+              <span className="flex items-center gap-1 font-semibold text-gray-700 bg-gray-100 px-2 py-1 rounded">
+                📅 {stats.total} פגישות ביום זה
+              </span>
               <span className="flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-green-500" />
                 {stats.completed} הושלמו

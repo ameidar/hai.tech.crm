@@ -567,8 +567,8 @@ export default function CycleDetail() {
               </div>
             </div>
 
-            {/* Zoom Card - Only for online cycles */}
-            {cycle.activityType === 'online' && (
+            {/* Zoom Card - For online or private cycles */}
+            {(cycle.activityType === 'online' || cycle.type === 'private') && (
               <div className="card" data-testid="zoom-section">
                 <div className="card-header flex items-center justify-between">
                   <div className="flex items-center gap-2">

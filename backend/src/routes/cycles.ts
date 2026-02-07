@@ -757,22 +757,20 @@ cyclesRouter.post('/:id/sync-progress', managerOrAdmin, async (req, res, next) =
       },
     });
 
-    // Count total meetings from meetings table
+    // Count total meetings from meetings table (for info only)
     const totalMeetingsFromTable = await prisma.meeting.count({
       where: { cycleId: id },
     });
 
-    // Use the larger of cycle.totalMeetings or actual meeting count
-    const totalMeetings = Math.max(cycle.totalMeetings, totalMeetingsFromTable);
-    const remainingMeetings = totalMeetings - completedMeetings;
+    // totalMeetings is fixed (set by payment), only update completed/remaining
+    const remainingMeetings = cycle.totalMeetings - completedMeetings;
 
-    // Update cycle with synced values
+    // Update cycle with synced values (don't change totalMeetings)
     const updated = await prisma.cycle.update({
       where: { id },
       data: {
         completedMeetings,
         remainingMeetings,
-        totalMeetings,
       },
       include: {
         course: { select: { id: true, name: true } },
@@ -786,7 +784,7 @@ cyclesRouter.post('/:id/sync-progress', managerOrAdmin, async (req, res, next) =
       synced: {
         completedMeetings,
         remainingMeetings,
-        totalMeetings,
+        totalMeetings: cycle.totalMeetings,
         meetingsInTable: totalMeetingsFromTable,
       },
     });

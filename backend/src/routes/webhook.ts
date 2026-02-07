@@ -23,6 +23,111 @@ const apiKeyAuth = (req: Request, _res: Response, next: NextFunction) => {
 
 webhookRouter.use(apiKeyAuth);
 
+// Search cycles by name
+// GET /api/webhook/cycles/search?name=xxx
+webhookRouter.get('/cycles/search', async (req, res, next) => {
+  try {
+    const name = req.query.name as string;
+    
+    if (!name) {
+      throw new AppError(400, 'name query parameter is required');
+    }
+
+    const cycles = await prisma.cycle.findMany({
+      where: {
+        name: {
+          contains: name,
+          mode: 'insensitive',
+        },
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        startDate: true,
+        endDate: true,
+        type: true,
+        course: { select: { id: true, name: true } },
+        branch: { select: { id: true, name: true } },
+        instructor: { select: { id: true, name: true } },
+        _count: { select: { meetings: true } },
+      },
+      orderBy: { startDate: 'desc' },
+      take: 10,
+    });
+
+    res.json({
+      success: true,
+      count: cycles.length,
+      cycles: cycles.map(c => ({
+        id: c.id,
+        name: c.name,
+        status: c.status,
+        startDate: c.startDate,
+        endDate: c.endDate,
+        type: c.type,
+        courseName: c.course?.name,
+        branchName: c.branch?.name,
+        instructorName: c.instructor?.name,
+        meetingsCount: c._count.meetings,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get next scheduled meeting for a cycle
+// GET /api/webhook/cycles/:id/next-meeting
+webhookRouter.get('/cycles/:id/next-meeting', async (req, res, next) => {
+  try {
+    const cycleId = req.params.id;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const meeting = await prisma.meeting.findFirst({
+      where: {
+        cycleId,
+        status: 'scheduled',
+        scheduledDate: { gte: today },
+      },
+      orderBy: { scheduledDate: 'asc' },
+      select: {
+        id: true,
+        scheduledDate: true,
+        startTime: true,
+        endTime: true,
+        status: true,
+        zoomJoinUrl: true,
+      },
+    });
+
+    if (!meeting) {
+      res.json({
+        success: true,
+        meeting: null,
+        message: 'No upcoming scheduled meetings found',
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      meeting: {
+        id: meeting.id,
+        scheduledDate: meeting.scheduledDate.toISOString().split('T')[0],
+        startTime: meeting.startTime,
+        endTime: meeting.endTime,
+        status: meeting.status,
+        hasZoomLink: !!meeting.zoomJoinUrl,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Update meeting Zoom link
 // POST /api/webhook/meetings/:id/zoom
 webhookRouter.post('/meetings/:id/zoom', async (req, res, next) => {

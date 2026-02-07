@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, Phone, Mail, MapPin, Plus, Edit, User, Trash2, BookOpen, MessageCircle, Send, ExternalLink, Clock } from 'lucide-react';
-import { useCustomer, useStudents, useCreateStudent, useUpdateCustomer, useUpdateStudent, useDeleteStudent, useCycles, useCreateRegistration, useSendWhatsApp, useSendEmail, useCourses, useBranches, useInstructors, useCreateCycle } from '../hooks/useApi';
+import { useCustomer, useStudents, useCreateStudent, useUpdateCustomer, useUpdateStudent, useDeleteStudent, useDeleteCustomer, useCycles, useCreateRegistration, useSendWhatsApp, useSendEmail, useCourses, useBranches, useInstructors, useCreateCycle } from '../hooks/useApi';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -12,6 +12,7 @@ import type { Customer, Student, Cycle, PaymentStatus, PaymentMethod } from '../
 
 export default function CustomerDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [showAddStudentModal, setShowAddStudentModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
@@ -28,6 +29,20 @@ export default function CustomerDetail() {
   const updateCustomer = useUpdateCustomer();
   const updateStudent = useUpdateStudent();
   const deleteStudent = useDeleteStudent();
+  const deleteCustomer = useDeleteCustomer();
+
+  const handleDeleteCustomer = async () => {
+    if (!customer) return;
+    if (window.confirm(`האם למחוק את הלקוח "${customer.name}"?\n\nפעולה זו תמחק גם את כל התלמידים המשויכים.`)) {
+      try {
+        await deleteCustomer.mutateAsync(id!);
+        navigate('/customers');
+      } catch (error) {
+        console.error('Failed to delete customer:', error);
+        alert('שגיאה במחיקת הלקוח');
+      }
+    }
+  };
 
   const handleDeleteStudent = async (studentId: string, studentName: string) => {
     if (window.confirm(`האם למחוק את התלמיד "${studentName}"?`)) {
@@ -142,6 +157,10 @@ export default function CustomerDetail() {
             <button onClick={() => setShowEditModal(true)} className="btn btn-primary">
               <Edit size={18} />
               עריכה
+            </button>
+            <button onClick={handleDeleteCustomer} className="btn btn-danger">
+              <Trash2 size={18} />
+              מחיקה
             </button>
           </div>
         }

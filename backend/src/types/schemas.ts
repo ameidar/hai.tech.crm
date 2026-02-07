@@ -179,6 +179,13 @@ export const updateMeetingSchema = z.object({
   scheduledDate: z.string().optional(),
   startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format').optional(),
   endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format').optional(),
+  // Zoom fields
+  zoomMeetingId: z.string().optional().nullable(),
+  zoomJoinUrl: z.string().url().optional().nullable(),
+  zoomStartUrl: z.string().url().optional().nullable(),
+  zoomPassword: z.string().optional().nullable(),
+  zoomHostKey: z.string().optional().nullable(),
+  zoomHostEmail: z.string().email().optional().nullable(),
 });
 
 export const postponeMeetingSchema = z.object({

@@ -156,16 +156,19 @@ function CustomerCard({ customer, onDelete }: { customer: Customer; onDelete: (i
         </div>
       </Link>
       
-      {/* Delete button - appears on hover */}
+      {/* Delete button - always visible */}
       <button
         onClick={(e) => {
+          e.preventDefault();
           e.stopPropagation();
-          onDelete(customer.id);
+          if (window.confirm(`האם למחוק את הלקוח "${customer.name}"?`)) {
+            onDelete(customer.id);
+          }
         }}
-        className="absolute top-3 left-3 p-2 text-gray-300 opacity-0 group-hover:opacity-100 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
+        className="absolute top-3 left-3 p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
         title="מחק לקוח"
       >
-        <Trash2 size={16} />
+        <Trash2 size={18} />
       </button>
     </div>
   );

@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { RefreshCw, Info } from 'lucide-react';
+import { RefreshCw, Info, Copy, Check } from 'lucide-react';
 import Modal from './ui/Modal';
 import { meetingStatusHebrew, cycleTypeHebrew, activityTypeHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
@@ -17,7 +18,15 @@ export default function MeetingDetailModal({
   onRecalculate,
   isRecalculating,
 }: MeetingDetailModalProps) {
+  const [copied, setCopied] = useState(false);
+
   if (!meeting) return null;
+
+  const copyMeetingId = async () => {
+    await navigator.clipboard.writeText(meeting.id);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const formatTime = (time: string) => {
     if (!time) return '--:--';
@@ -196,6 +205,24 @@ export default function MeetingDetailModal({
               </div>
             </div>
           )}
+        </div>
+
+        {/* Meeting ID */}
+        <div className="border-t pt-4">
+          <div className="flex items-center justify-between p-3 bg-gray-100 rounded-lg">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500">Meeting ID:</span>
+              <code className="text-xs bg-white px-2 py-1 rounded border font-mono">{meeting.id}</code>
+            </div>
+            <button
+              onClick={copyMeetingId}
+              className="btn btn-secondary btn-sm flex items-center gap-1"
+              title="העתק ID"
+            >
+              {copied ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+              {copied ? 'הועתק!' : 'העתק'}
+            </button>
+          </div>
         </div>
 
         {/* Cycle Link */}

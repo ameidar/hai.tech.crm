@@ -1130,7 +1130,7 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
     }
 
     // Allowed fields for bulk update
-    const allowedFields = ['status', 'activityType', 'topic', 'notes', 'scheduledDate', 'startTime', 'endTime'];
+    const allowedFields = ['status', 'activityType', 'topic', 'notes', 'scheduledDate', 'startTime', 'endTime', 'instructorId'];
     const updateData: Record<string, any> = {};
     
     for (const field of allowedFields) {

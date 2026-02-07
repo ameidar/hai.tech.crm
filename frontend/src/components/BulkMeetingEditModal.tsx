@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Modal from './ui/Modal';
 import { meetingStatusHebrew, activityTypeHebrew } from '../types';
+import { useInstructors } from '../hooks/useApi';
 import type { MeetingStatus, ActivityType } from '../types';
 
 interface BulkMeetingEditModalProps {
@@ -19,6 +20,7 @@ export interface BulkMeetingUpdateData {
   scheduledDate?: string;
   startTime?: string;
   endTime?: string;
+  instructorId?: string;
 }
 
 export default function BulkMeetingEditModal({ 
@@ -28,6 +30,7 @@ export default function BulkMeetingEditModal({
   onSave,
   isSaving,
 }: BulkMeetingEditModalProps) {
+  const { data: instructors } = useInstructors();
   const [enabledFields, setEnabledFields] = useState<Set<string>>(new Set());
   const [formData, setFormData] = useState<BulkMeetingUpdateData>({
     status: undefined,
@@ -37,6 +40,7 @@ export default function BulkMeetingEditModal({
     scheduledDate: '',
     startTime: '',
     endTime: '',
+    instructorId: '',
   });
 
   const toggleField = (field: string) => {
@@ -61,6 +65,7 @@ export default function BulkMeetingEditModal({
     if (enabledFields.has('scheduledDate') && formData.scheduledDate) dataToSend.scheduledDate = formData.scheduledDate;
     if (enabledFields.has('startTime') && formData.startTime) dataToSend.startTime = formData.startTime;
     if (enabledFields.has('endTime') && formData.endTime) dataToSend.endTime = formData.endTime;
+    if (enabledFields.has('instructorId') && formData.instructorId) dataToSend.instructorId = formData.instructorId;
 
     if (Object.keys(dataToSend).length === 0) {
       alert('יש לבחור לפחות שדה אחד לעדכון');
@@ -80,6 +85,7 @@ export default function BulkMeetingEditModal({
       scheduledDate: '',
       startTime: '',
       endTime: '',
+      instructorId: '',
     });
     onClose();
   };
@@ -141,6 +147,31 @@ export default function BulkMeetingEditModal({
               <option value="">בחר סוג</option>
               {Object.entries(activityTypeHebrew).map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Instructor */}
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            id="enable-instructorId"
+            checked={enabledFields.has('instructorId')}
+            onChange={() => toggleField('instructorId')}
+            className="mt-2"
+          />
+          <div className="flex-1">
+            <label htmlFor="enable-instructorId" className="block text-sm font-medium text-gray-700 mb-1">מדריך</label>
+            <select
+              value={formData.instructorId || ''}
+              onChange={(e) => setFormData({ ...formData, instructorId: e.target.value })}
+              className="input w-full"
+              disabled={!enabledFields.has('instructorId')}
+            >
+              <option value="">בחר מדריך</option>
+              {instructors?.map((instructor) => (
+                <option key={instructor.id} value={instructor.id}>{instructor.name}</option>
               ))}
             </select>
           </div>

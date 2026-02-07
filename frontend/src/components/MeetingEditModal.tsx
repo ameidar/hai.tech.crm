@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Modal from './ui/Modal';
 import { meetingStatusHebrew, activityTypeHebrew } from '../types';
+import { useInstructors } from '../hooks/useApi';
 import type { Meeting, MeetingStatus, ActivityType } from '../types';
 
 interface MeetingEditModalProps {
@@ -16,9 +17,11 @@ export default function MeetingEditModal({
   onSave,
   isSaving,
 }: MeetingEditModalProps) {
+  const { data: instructors } = useInstructors();
   const [formData, setFormData] = useState({
     status: 'scheduled' as MeetingStatus,
     activityType: 'frontal' as ActivityType,
+    instructorId: '',
     topic: '',
     notes: '',
     scheduledDate: '',
@@ -31,6 +34,7 @@ export default function MeetingEditModal({
       setFormData({
         status: meeting.status,
         activityType: meeting.activityType || meeting.cycle?.activityType || 'frontal',
+        instructorId: meeting.instructorId || '',
         topic: meeting.topic || '',
         notes: meeting.notes || '',
         scheduledDate: meeting.scheduledDate ? new Date(meeting.scheduledDate).toISOString().split('T')[0] : '',
@@ -62,6 +66,7 @@ export default function MeetingEditModal({
     await onSave(meeting.id, {
       status: formData.status,
       activityType: formData.activityType,
+      instructorId: formData.instructorId || undefined,
       topic: formData.topic || undefined,
       notes: formData.notes || undefined,
       scheduledDate: formData.scheduledDate,
@@ -110,6 +115,21 @@ export default function MeetingEditModal({
           >
             {Object.entries(activityTypeHebrew).map(([value, label]) => (
               <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Instructor */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">מדריך</label>
+          <select
+            value={formData.instructorId}
+            onChange={(e) => setFormData({ ...formData, instructorId: e.target.value })}
+            className="input w-full"
+          >
+            <option value="">בחר מדריך</option>
+            {instructors?.map((instructor) => (
+              <option key={instructor.id} value={instructor.id}>{instructor.name}</option>
             ))}
           </select>
         </div>

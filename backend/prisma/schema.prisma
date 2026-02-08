@@ -96,13 +96,6 @@ enum AttendanceStatus {
   late
 }
 
-enum InstructorRole {
-  primary
-  support
-
-  @@map("instructor_role")
-}
-
 enum ActivityType {
   online
   frontal
@@ -221,7 +214,6 @@ model Instructor {
   rateOnline      Decimal? @map("rate_online") @db.Decimal(10, 2)
   ratePrivate     Decimal? @map("rate_private") @db.Decimal(10, 2)
   ratePreparation Decimal? @map("rate_preparation") @db.Decimal(10, 2)
-  rateSupport     Decimal? @map("rate_support") @db.Decimal(10, 2)
   isActive        Boolean  @default(true) @map("is_active")
   notes           String?
   inviteToken     String?  @unique @map("invite_token")
@@ -269,10 +261,8 @@ model Cycle {
   name                 String
   courseId             String      @map("course_id")
   branchId             String      @map("branch_id")
-  instructorId           String      @map("instructor_id")
-  primaryInstructorId    String?     @map("primary_instructor_id")
-  instructorTotalBudget  Decimal?    @map("instructor_total_budget") @db.Decimal(10, 2)
-  institutionalOrderId   String?     @map("institutional_order_id")
+  instructorId         String      @map("instructor_id")
+  institutionalOrderId String?     @map("institutional_order_id")
   type                 CycleType
   startDate            DateTime    @map("start_date") @db.Date
   endDate              DateTime    @map("end_date") @db.Date
@@ -342,10 +332,9 @@ model Registration {
 
 model Meeting {
   id                String        @id @default(uuid())
-  cycleId           String         @map("cycle_id")
-  instructorId      String         @map("instructor_id")
-  instructorRole    InstructorRole? @map("instructor_role")
-  scheduledDate     DateTime       @map("scheduled_date") @db.Date
+  cycleId           String        @map("cycle_id")
+  instructorId      String        @map("instructor_id")
+  scheduledDate     DateTime      @map("scheduled_date") @db.Date
   startTime         DateTime      @map("start_time") @db.Time
   endTime           DateTime      @map("end_time") @db.Time
   status            MeetingStatus @default(scheduled)

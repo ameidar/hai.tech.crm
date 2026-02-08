@@ -2,13 +2,7 @@ import { useState, useEffect } from 'react';
 import Modal from './ui/Modal';
 import { meetingStatusHebrew, activityTypeHebrew } from '../types';
 import { useInstructors } from '../hooks/useApi';
-import type { Meeting, MeetingStatus, ActivityType, InstructorRole } from '../types';
-
-const instructorRoleHebrew: Record<InstructorRole | '', string> = {
-  '': 'לא מוגדר',
-  'primary': 'מדריך ראשי',
-  'support': 'תומך הוראה',
-};
+import type { Meeting, MeetingStatus, ActivityType } from '../types';
 
 interface MeetingEditModalProps {
   meeting: Meeting | null;
@@ -28,7 +22,6 @@ export default function MeetingEditModal({
     status: 'scheduled' as MeetingStatus,
     activityType: 'frontal' as ActivityType,
     instructorId: '',
-    instructorRole: '' as InstructorRole | '',
     topic: '',
     notes: '',
     scheduledDate: '',
@@ -42,7 +35,6 @@ export default function MeetingEditModal({
         status: meeting.status,
         activityType: meeting.activityType || meeting.cycle?.activityType || 'frontal',
         instructorId: meeting.instructorId || '',
-        instructorRole: meeting.instructorRole || '',
         topic: meeting.topic || '',
         notes: meeting.notes || '',
         scheduledDate: meeting.scheduledDate ? new Date(meeting.scheduledDate).toISOString().split('T')[0] : '',
@@ -75,7 +67,6 @@ export default function MeetingEditModal({
       status: formData.status,
       activityType: formData.activityType,
       instructorId: formData.instructorId || undefined,
-      instructorRole: formData.instructorRole || undefined,
       topic: formData.topic || undefined,
       notes: formData.notes || undefined,
       scheduledDate: formData.scheduledDate,
@@ -129,34 +120,18 @@ export default function MeetingEditModal({
         </div>
 
         {/* Instructor */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">מדריך</label>
-            <select
-              value={formData.instructorId}
-              onChange={(e) => setFormData({ ...formData, instructorId: e.target.value })}
-              className="input w-full"
-            >
-              <option value="">בחר מדריך</option>
-              {instructors?.map((instructor) => (
-                <option key={instructor.id} value={instructor.id}>{instructor.name}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Instructor Role */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">תפקיד</label>
-            <select
-              value={formData.instructorRole}
-              onChange={(e) => setFormData({ ...formData, instructorRole: e.target.value as InstructorRole | '' })}
-              className="input w-full"
-            >
-              {Object.entries(instructorRoleHebrew).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">מדריך</label>
+          <select
+            value={formData.instructorId}
+            onChange={(e) => setFormData({ ...formData, instructorId: e.target.value })}
+            className="input w-full"
+          >
+            <option value="">בחר מדריך</option>
+            {instructors?.map((instructor) => (
+              <option key={instructor.id} value={instructor.id}>{instructor.name}</option>
+            ))}
+          </select>
         </div>
 
         {/* Date and Time */}

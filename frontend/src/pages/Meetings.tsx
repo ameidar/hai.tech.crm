@@ -85,6 +85,13 @@ export default function Meetings() {
       label: 'מדריך',
       render: (m) => m.instructor?.name || '-'
     },
+    instructorRole: {
+      label: 'תפקיד',
+      render: (m) => {
+        if (!m.instructorRole) return '-';
+        return m.instructorRole === 'primary' ? 'מדריך ראשי' : 'תומך הוראה';
+      }
+    },
     status: {
       label: 'סטטוס',
       render: (m) => (
@@ -122,7 +129,7 @@ export default function Meetings() {
   };
   
   // Default columns when no view is selected
-  const defaultColumns = ['scheduledDate', 'startTime', 'cycle.name', 'cycle.course.name', 'cycle.branch.name', 'instructor.name', 'status', 'revenue', 'instructorPayment', 'profit'];
+  const defaultColumns = ['scheduledDate', 'startTime', 'cycle.name', 'cycle.course.name', 'cycle.branch.name', 'instructor.name', 'instructorRole', 'status', 'revenue', 'instructorPayment', 'profit'];
   
   // Get active columns (from view or default)
   const activeColumns = viewMode === 'view' && viewColumns.length > 0 ? viewColumns : defaultColumns;

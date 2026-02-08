@@ -150,10 +150,23 @@ app.use('/api', errorHandler);
 
 // Serve static frontend files
 const frontendPath = path.join(process.cwd(), 'frontend-dist');
-app.use(express.static(frontendPath));
+app.use(express.static(frontendPath, {
+  maxAge: '1d', // Cache assets for 1 day
+  setHeaders: (res, path) => {
+    // Don't cache index.html
+    if (path.endsWith('index.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  }
+}));
 
 // SPA fallback - serve index.html for all non-API routes
 app.get('*', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 

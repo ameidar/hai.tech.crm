@@ -1,6 +1,3 @@
-// HaiTech CRM - Prisma Schema
-// PostgreSQL database for managing coding education business
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,21 +7,355 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ===================
-// ENUMS
-// ===================
+model api_keys {
+  id           String    @id
+  name         String
+  key_hash     String    @unique
+  key_prefix   String
+  scopes       String[]  @default([])
+  rate_limit   Int       @default(1000)
+  is_active    Boolean   @default(true)
+  expires_at   DateTime?
+  last_used_at DateTime?
+  last_used_ip String?
+  created_by   String
+  created_at   DateTime  @default(now())
+  updated_at   DateTime
 
-enum UserRole {
-  admin
-  manager
-  instructor
+  @@index([is_active])
+  @@index([key_prefix])
 }
 
-enum CourseCategory {
-  programming
-  ai
-  robotics
-  printing_3d @map("3d_printing")
+model attendance {
+  id              String           @id
+  meeting_id      String
+  registration_id String?
+  status          AttendanceStatus
+  notes           String?
+  recorded_at     DateTime         @default(now())
+  recorded_by     String?
+  student_id      String?
+  guest_name      String?
+  is_trial        Boolean          @default(false)
+  meetings        meetings         @relation(fields: [meeting_id], references: [id], onDelete: Cascade)
+  registrations   registrations?   @relation(fields: [registration_id], references: [id], onDelete: Cascade)
+
+  @@unique([meeting_id, registration_id])
+  @@unique([meeting_id, student_id])
+}
+
+model audit_logs {
+  id         String   @id
+  user_id    String?
+  user_name  String?
+  action     String
+  entity     String
+  entity_id  String
+  old_value  Json?
+  new_value  Json?
+  ip_address String?
+  user_agent String?
+  created_at DateTime @default(now())
+  api_key_id String?
+
+  @@index([api_key_id])
+  @@index([created_at], map: "idx_audit_created")
+  @@index([entity, entity_id], map: "idx_audit_entity")
+  @@index([user_id], map: "idx_audit_user")
+}
+
+model branches {
+  id                   String                 @id
+  name                 String
+  type                 BranchType
+  address              String?
+  city                 String?
+  contact_name         String?
+  contact_phone        String?
+  contact_email        String?
+  is_active            Boolean                @default(true)
+  created_at           DateTime               @default(now())
+  updated_at           DateTime
+  cycles               cycles[]
+  institutional_orders institutional_orders[]
+}
+
+model courses {
+  id              String         @id
+  name            String
+  description     String?
+  target_audience String?
+  category        CourseCategory
+  is_active       Boolean        @default(true)
+  created_at      DateTime       @default(now())
+  updated_at      DateTime
+  cycles          cycles[]
+}
+
+model customers {
+  id         String     @id
+  name       String
+  email      String?
+  phone      String     @unique
+  address    String?
+  city       String?
+  notes      String?
+  created_at DateTime   @default(now())
+  updated_at DateTime
+  deleted_at DateTime?
+  deleted_by String?
+  students   students[]
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model cycles {
+  id                      String                @id
+  name                    String
+  course_id               String
+  branch_id               String
+  instructor_id           String
+  institutional_order_id  String?
+  type                    CycleType
+  start_date              DateTime              @db.Date
+  end_date                DateTime              @db.Date
+  day_of_week             DayOfWeek
+  start_time              DateTime              @db.Time(6)
+  end_time                DateTime              @db.Time(6)
+  duration_minutes        Int
+  total_meetings          Int
+  price_per_student       Decimal?              @db.Decimal(10, 2)
+  max_students            Int?
+  send_parent_reminders   Boolean               @default(false)
+  is_online               Boolean               @default(false)
+  zoom_host_id            String?
+  completed_meetings      Int                   @default(0)
+  remaining_meetings      Int                   @default(0)
+  status                  CycleStatus           @default(active)
+  created_at              DateTime              @default(now())
+  updated_at              DateTime
+  meeting_revenue         Decimal?              @db.Decimal(10, 2)
+  student_count           Int?
+  fireberry_id            String?               @unique
+  activity_type           activity_type         @default(frontal)
+  deleted_at              DateTime?
+  deleted_by              String?
+  zoom_meeting_id         String?
+  zoom_join_url           String?
+  zoom_host_key           String?
+  zoom_password           String?
+  zoom_host_email         String?
+  primary_instructor_id   String?
+  instructor_total_budget Decimal?              @db.Decimal(10, 2)
+  branches                branches              @relation(fields: [branch_id], references: [id])
+  courses                 courses               @relation(fields: [course_id], references: [id])
+  institutional_orders    institutional_orders? @relation(fields: [institutional_order_id], references: [id])
+  instructors             instructors           @relation(fields: [instructor_id], references: [id])
+  meetings                meetings[]
+  registrations           registrations[]
+}
+
+model institutional_orders {
+  id                 String      @id
+  branch_id          String
+  order_number       String?
+  order_date         DateTime?   @db.Date
+  start_date         DateTime    @db.Date
+  end_date           DateTime    @db.Date
+  price_per_meeting  Decimal     @db.Decimal(10, 2)
+  estimated_meetings Int?
+  estimated_total    Decimal?    @db.Decimal(10, 2)
+  contact_name       String
+  contact_phone      String
+  contact_email      String?
+  contract_file      String?
+  status             OrderStatus @default(draft)
+  notes              String?
+  created_at         DateTime    @default(now())
+  updated_at         DateTime
+  cycles             cycles[]
+  branches           branches    @relation(fields: [branch_id], references: [id], onDelete: Cascade)
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model instructors {
+  id                String     @id
+  user_id           String?    @unique
+  name              String
+  phone             String     @unique
+  email             String?
+  rate_frontal      Decimal?   @db.Decimal(10, 2)
+  rate_online       Decimal?   @db.Decimal(10, 2)
+  rate_preparation  Decimal?   @db.Decimal(10, 2)
+  is_active         Boolean    @default(true)
+  notes             String?
+  created_at        DateTime   @default(now())
+  updated_at        DateTime
+  invite_token      String?    @unique
+  invite_expires_at DateTime?
+  rate_private      Decimal?   @db.Decimal(10, 2)
+  rate_support      Decimal?   @db.Decimal(10, 2)
+  cycles            cycles[]
+  users             users?     @relation(fields: [user_id], references: [id])
+  meetings          meetings[]
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model meetings {
+  id                      String           @id
+  cycle_id                String
+  instructor_id           String
+  scheduled_date          DateTime         @db.Date
+  start_time              DateTime         @db.Time(6)
+  end_time                DateTime         @db.Time(6)
+  status                  MeetingStatus    @default(scheduled)
+  status_updated_at       DateTime?
+  status_updated_by       String?
+  revenue                 Decimal          @default(0) @db.Decimal(10, 2)
+  instructor_payment      Decimal          @default(0) @db.Decimal(10, 2)
+  profit                  Decimal          @default(0) @db.Decimal(10, 2)
+  topic                   String?
+  notes                   String?
+  zoom_meeting_id         String?
+  zoom_join_url           String?
+  zoom_start_url          String?
+  rescheduled_to_id       String?
+  created_at              DateTime         @default(now())
+  updated_at              DateTime
+  activity_type           activity_type?
+  deleted_at              DateTime?
+  deleted_by              String?
+  zoom_password           String?
+  zoom_host_key           String?
+  zoom_host_email         String?
+  zoom_recording_url      String?
+  zoom_recording_password String?
+  lesson_transcript       String?
+  lesson_summary          String?
+  instructor_role         instructor_role?
+  attendance              attendance[]
+  cycles                  cycles           @relation(fields: [cycle_id], references: [id], onDelete: Cascade)
+  instructors             instructors      @relation(fields: [instructor_id], references: [id])
+  meetings                meetings?        @relation("meetingsTomeetings", fields: [rescheduled_to_id], references: [id])
+  other_meetings          meetings[]       @relation("meetingsTomeetings")
+  users                   users?           @relation(fields: [status_updated_by], references: [id])
+}
+
+model registrations {
+  id                  String             @id
+  student_id          String
+  cycle_id            String
+  registration_date   DateTime           @default(now()) @db.Date
+  status              RegistrationStatus @default(registered)
+  amount              Decimal?           @db.Decimal(10, 2)
+  payment_status      PaymentStatus?
+  payment_method      PaymentMethod?
+  invoice_link        String?
+  cancellation_date   DateTime?          @db.Date
+  cancellation_reason String?
+  notes               String?
+  created_at          DateTime           @default(now())
+  updated_at          DateTime
+  deleted_at          DateTime?
+  deleted_by          String?
+  attendance          attendance[]
+  cycles              cycles             @relation(fields: [cycle_id], references: [id], onDelete: Cascade)
+  students            students           @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@unique([student_id, cycle_id])
+}
+
+model saved_views {
+  id         String   @id
+  name       String
+  entity     String
+  filters    Json
+  columns    Json
+  sort_by    String?
+  sort_order String?
+  is_default Boolean  @default(false)
+  is_public  Boolean  @default(false)
+  created_by String
+  created_at DateTime @default(now())
+  updated_at DateTime
+
+  @@index([created_by], map: "idx_saved_views_created_by")
+  @@index([entity], map: "idx_saved_views_entity")
+}
+
+model students {
+  id            String          @id
+  customer_id   String
+  name          String
+  birth_date    DateTime?       @db.Date
+  grade         String?
+  notes         String?
+  created_at    DateTime        @default(now())
+  updated_at    DateTime
+  deleted_at    DateTime?
+  deleted_by    String?
+  age           Int?
+  registrations registrations[]
+  customers     customers       @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+}
+
+model users {
+  id            String       @id
+  email         String       @unique
+  password_hash String
+  name          String
+  phone         String?
+  role          UserRole     @default(instructor)
+  is_active     Boolean      @default(true)
+  last_login    DateTime?
+  created_at    DateTime     @default(now())
+  updated_at    DateTime
+  instructors   instructors?
+  meetings      meetings[]
+  webhooks      webhooks[]
+}
+
+model webhook_deliveries {
+  id            String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  webhook_id    String
+  event         String    @db.VarChar(100)
+  payload       Json
+  response_code Int?
+  response_body String?
+  success       Boolean?  @default(false)
+  attempts      Int?      @default(1)
+  next_retry_at DateTime? @db.Timestamp(6)
+  completed_at  DateTime? @db.Timestamp(6)
+  error         String?
+  created_at    DateTime? @default(now()) @db.Timestamp(6)
+  webhooks      webhooks  @relation(fields: [webhook_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([event])
+  @@index([next_retry_at])
+  @@index([success])
+  @@index([webhook_id])
+}
+
+model webhooks {
+  id                 String               @id @default(dbgenerated("(gen_random_uuid())::text"))
+  name               String               @db.VarChar(255)
+  url                String
+  events             String[]             @default([])
+  secret             String?
+  headers            Json?
+  status             String?              @default("active") @db.VarChar(20)
+  created_by         String
+  created_at         DateTime?            @default(now()) @db.Timestamp(6)
+  updated_at         DateTime?            @default(now()) @db.Timestamp(6)
+  webhook_deliveries webhook_deliveries[]
+  users              users                @relation(fields: [created_by], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([status])
+}
+
+enum AttendanceStatus {
+  present
+  absent
+  late
 }
 
 enum BranchType {
@@ -34,8 +365,14 @@ enum BranchType {
   online
 }
 
-enum OrderStatus {
-  draft
+enum CourseCategory {
+  programming
+  ai
+  robotics
+  d_printing  @map("3d_printing")
+}
+
+enum CycleStatus {
   active
   completed
   cancelled
@@ -45,12 +382,6 @@ enum CycleType {
   private
   institutional_per_child
   institutional_fixed
-}
-
-enum CycleStatus {
-  active
-  completed
-  cancelled
 }
 
 enum DayOfWeek {
@@ -63,18 +394,18 @@ enum DayOfWeek {
   saturday
 }
 
-enum RegistrationStatus {
-  registered
+enum MeetingStatus {
+  scheduled
+  completed
+  cancelled
+  postponed
+}
+
+enum OrderStatus {
+  draft
   active
   completed
   cancelled
-  trial
-}
-
-enum PaymentStatus {
-  unpaid
-  partial
-  paid
 }
 
 enum PaymentMethod {
@@ -83,367 +414,33 @@ enum PaymentMethod {
   cash
 }
 
-enum MeetingStatus {
-  scheduled
+enum PaymentStatus {
+  unpaid
+  partial
+  paid
+}
+
+enum RegistrationStatus {
+  registered
+  active
   completed
   cancelled
-  postponed
+  trial
 }
 
-enum AttendanceStatus {
-  present
-  absent
-  late
+enum UserRole {
+  admin
+  manager
+  instructor
 }
 
-enum ActivityType {
+enum activity_type {
   online
   frontal
-  private_lesson @map("private")
-
-  @@map("activity_type")
+  private
 }
 
-enum InstructorRole {
+enum instructor_role {
   primary
   support
-
-  @@map("instructor_role")
-}
-
-// ===================
-// MODELS
-// ===================
-
-model User {
-  id           String    @id @default(uuid())
-  email        String    @unique
-  passwordHash String    @map("password_hash")
-  name         String
-  phone        String?
-  role         UserRole  @default(instructor)
-  isActive     Boolean   @default(true) @map("is_active")
-  lastLogin    DateTime? @map("last_login")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
-
-  // Relations
-  instructor       Instructor?
-  meetingUpdates   Meeting[]    @relation("MeetingStatusUpdater")
-  attendanceRecords Attendance[]
-  savedViews       SavedView[]
-
-  @@map("users")
-}
-
-model Customer {
-  id        String    @id @default(uuid())
-  name      String
-  email     String?   @unique
-  phone     String    @unique
-  address   String?
-  city      String?
-  notes     String?
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
-  deletedBy String?   @map("deleted_by")
-
-  // Relations
-  students Student[]
-
-  @@map("customers")
-}
-
-model Student {
-  id         String    @id @default(uuid())
-  customerId String    @map("customer_id")
-  name       String
-  birthDate  DateTime? @map("birth_date") @db.Date
-  grade      String?
-  notes      String?
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
-  deletedAt  DateTime? @map("deleted_at")
-  deletedBy  String?   @map("deleted_by")
-
-  // Relations
-  customer      Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  registrations Registration[]
-  attendance    Attendance[]
-
-  @@map("students")
-}
-
-model Course {
-  id             String         @id @default(uuid())
-  name           String
-  description    String?
-  targetAudience String?        @map("target_audience")
-  category       CourseCategory
-  isActive       Boolean        @default(true) @map("is_active")
-  createdAt      DateTime       @default(now()) @map("created_at")
-  updatedAt      DateTime       @updatedAt @map("updated_at")
-
-  // Relations
-  cycles Cycle[]
-
-  @@map("courses")
-}
-
-model Branch {
-  id           String     @id @default(uuid())
-  name         String
-  type         BranchType
-  address      String?
-  city         String?
-  contactName  String?    @map("contact_name")
-  contactPhone String?    @map("contact_phone")
-  contactEmail String?    @map("contact_email")
-  isActive     Boolean    @default(true) @map("is_active")
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
-
-  // Relations
-  institutionalOrders InstitutionalOrder[]
-  cycles              Cycle[]
-
-  @@map("branches")
-}
-
-model Instructor {
-  id              String   @id @default(uuid())
-  userId          String?  @unique @map("user_id")
-  name            String
-  phone           String   @unique
-  email           String?
-  rateFrontal     Decimal? @map("rate_frontal") @db.Decimal(10, 2)
-  rateOnline      Decimal? @map("rate_online") @db.Decimal(10, 2)
-  ratePrivate     Decimal? @map("rate_private") @db.Decimal(10, 2)
-  ratePreparation Decimal? @map("rate_preparation") @db.Decimal(10, 2)
-  rateSupport     Decimal? @map("rate_support") @db.Decimal(10, 2)
-  isActive        Boolean  @default(true) @map("is_active")
-  notes           String?
-  inviteToken     String?  @unique @map("invite_token")
-  inviteExpiresAt DateTime? @map("invite_expires_at")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-
-  // Relations
-  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
-  cycles   Cycle[]
-  meetings Meeting[]
-
-  @@map("instructors")
-}
-
-model InstitutionalOrder {
-  id                String      @id @default(uuid())
-  branchId          String      @map("branch_id")
-  orderNumber       String?     @map("order_number")
-  orderDate         DateTime?   @map("order_date") @db.Date
-  startDate         DateTime    @map("start_date") @db.Date
-  endDate           DateTime    @map("end_date") @db.Date
-  pricePerMeeting   Decimal     @map("price_per_meeting") @db.Decimal(10, 2)
-  estimatedMeetings Int?        @map("estimated_meetings")
-  estimatedTotal    Decimal?    @map("estimated_total") @db.Decimal(10, 2)
-  contactName       String      @map("contact_name")
-  contactPhone      String      @map("contact_phone")
-  contactEmail      String?     @map("contact_email")
-  contractFile      String?     @map("contract_file")
-  status            OrderStatus @default(draft)
-  notes             String?
-  createdAt         DateTime    @default(now()) @map("created_at")
-  updatedAt         DateTime    @updatedAt @map("updated_at")
-
-  // Relations
-  branch Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  cycles Cycle[]
-
-  @@map("institutional_orders")
-}
-
-model Cycle {
-  id                   String      @id @default(uuid())
-  fireberryId          String?     @unique @map("fireberry_id")
-  name                 String
-  courseId               String      @map("course_id")
-  branchId               String      @map("branch_id")
-  instructorId           String      @map("instructor_id")
-  primaryInstructorId    String?     @map("primary_instructor_id")
-  instructorTotalBudget  Decimal?    @map("instructor_total_budget") @db.Decimal(10, 2)
-  institutionalOrderId   String?     @map("institutional_order_id")
-  type                 CycleType
-  startDate            DateTime    @map("start_date") @db.Date
-  endDate              DateTime    @map("end_date") @db.Date
-  dayOfWeek            DayOfWeek   @map("day_of_week")
-  startTime            DateTime    @map("start_time") @db.Time
-  endTime              DateTime    @map("end_time") @db.Time
-  durationMinutes      Int         @map("duration_minutes")
-  totalMeetings        Int         @map("total_meetings")
-  pricePerStudent      Decimal?    @map("price_per_student") @db.Decimal(10, 2)
-  meetingRevenue       Decimal?    @map("meeting_revenue") @db.Decimal(10, 2)
-  studentCount         Int?        @map("student_count")
-  maxStudents          Int?        @map("max_students")
-  sendParentReminders  Boolean      @default(false) @map("send_parent_reminders")
-  isOnline             Boolean      @default(false) @map("is_online")
-  activityType         ActivityType @default(frontal) @map("activity_type")
-  zoomHostId           String?      @map("zoom_host_id")
-  zoomHostEmail        String?      @map("zoom_host_email")
-  zoomMeetingId        String?      @map("zoom_meeting_id")
-  zoomJoinUrl          String?      @map("zoom_join_url")
-  zoomHostKey          String?      @map("zoom_host_key")
-  zoomPassword         String?      @map("zoom_password")
-  completedMeetings    Int         @default(0) @map("completed_meetings")
-  remainingMeetings    Int         @default(0) @map("remaining_meetings")
-  status               CycleStatus  @default(active)
-  createdAt            DateTime     @default(now()) @map("created_at")
-  updatedAt            DateTime     @updatedAt @map("updated_at")
-  deletedAt            DateTime?    @map("deleted_at")
-  deletedBy            String?      @map("deleted_by")
-
-  // Relations
-  course             Course              @relation(fields: [courseId], references: [id], onDelete: Restrict)
-  branch             Branch              @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  instructor         Instructor          @relation(fields: [instructorId], references: [id], onDelete: Restrict)
-  institutionalOrder InstitutionalOrder? @relation(fields: [institutionalOrderId], references: [id], onDelete: SetNull)
-  registrations      Registration[]
-  meetings           Meeting[]
-
-  @@map("cycles")
-}
-
-model Registration {
-  id                 String              @id @default(uuid())
-  studentId          String              @map("student_id")
-  cycleId            String              @map("cycle_id")
-  registrationDate   DateTime            @default(now()) @map("registration_date") @db.Date
-  status             RegistrationStatus  @default(registered)
-  amount             Decimal?            @db.Decimal(10, 2)
-  paymentStatus      PaymentStatus?      @map("payment_status")
-  paymentMethod      PaymentMethod?      @map("payment_method")
-  invoiceLink        String?             @map("invoice_link")
-  cancellationDate   DateTime?           @map("cancellation_date") @db.Date
-  cancellationReason String?             @map("cancellation_reason")
-  notes              String?
-  createdAt          DateTime            @default(now()) @map("created_at")
-  updatedAt          DateTime            @updatedAt @map("updated_at")
-  deletedAt          DateTime?           @map("deleted_at")
-  deletedBy          String?             @map("deleted_by")
-
-  // Relations
-  student    Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  cycle      Cycle        @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  attendance Attendance[]
-
-  @@unique([studentId, cycleId])
-  @@map("registrations")
-}
-
-model Meeting {
-  id                String        @id @default(uuid())
-  cycleId           String         @map("cycle_id")
-  instructorId      String         @map("instructor_id")
-  instructorRole    InstructorRole? @map("instructor_role")
-  scheduledDate     DateTime       @map("scheduled_date") @db.Date
-  startTime         DateTime      @map("start_time") @db.Time
-  endTime           DateTime      @map("end_time") @db.Time
-  status            MeetingStatus @default(scheduled)
-  statusUpdatedAt   DateTime?     @map("status_updated_at")
-  statusUpdatedById String?       @map("status_updated_by")
-  revenue           Decimal       @default(0) @db.Decimal(10, 2)
-  instructorPayment Decimal       @default(0) @map("instructor_payment") @db.Decimal(10, 2)
-  profit            Decimal       @default(0) @db.Decimal(10, 2)
-  activityType      ActivityType? @map("activity_type")
-  topic             String?
-  notes             String?
-  zoomMeetingId     String?       @map("zoom_meeting_id")
-  zoomJoinUrl       String?       @map("zoom_join_url")
-  zoomStartUrl      String?       @map("zoom_start_url")
-  zoomPassword      String?       @map("zoom_password")
-  zoomHostKey       String?       @map("zoom_host_key")
-  zoomHostEmail     String?       @map("zoom_host_email")
-  zoomRecordingUrl  String?       @map("zoom_recording_url")
-  zoomRecordingPassword String?   @map("zoom_recording_password")
-  lessonTranscript  String?       @map("lesson_transcript")
-  lessonSummary     String?       @map("lesson_summary")
-  rescheduledToId   String?       @map("rescheduled_to_id")
-  createdAt         DateTime      @default(now()) @map("created_at")
-  updatedAt         DateTime      @updatedAt @map("updated_at")
-  deletedAt         DateTime?     @map("deleted_at")
-  deletedBy         String?       @map("deleted_by")
-
-  // Relations
-  cycle           Cycle        @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  instructor      Instructor   @relation(fields: [instructorId], references: [id], onDelete: Restrict)
-  statusUpdatedBy User?        @relation("MeetingStatusUpdater", fields: [statusUpdatedById], references: [id])
-  rescheduledTo   Meeting?     @relation("RescheduledMeetings", fields: [rescheduledToId], references: [id])
-  rescheduledFrom Meeting[]    @relation("RescheduledMeetings")
-  attendance      Attendance[]
-
-  @@map("meetings")
-}
-
-model Attendance {
-  id             String           @id @default(uuid())
-  meetingId      String           @map("meeting_id")
-  registrationId String?          @map("registration_id")
-  studentId      String?          @map("student_id")
-  guestName      String?          @map("guest_name")
-  status         AttendanceStatus
-  isTrial        Boolean          @default(false) @map("is_trial")
-  notes          String?
-  recordedAt     DateTime         @default(now()) @map("recorded_at")
-  recordedById   String?          @map("recorded_by")
-
-  // Relations
-  meeting      Meeting       @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  registration Registration? @relation(fields: [registrationId], references: [id], onDelete: Cascade)
-  student      Student?      @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  recordedBy   User?         @relation(fields: [recordedById], references: [id])
-
-  @@unique([meetingId, registrationId])
-  @@unique([meetingId, studentId])
-  @@map("attendance")
-}
-
-model AuditLog {
-  id        String   @id @default(uuid())
-  userId    String?  @map("user_id")
-  userName  String?  @map("user_name")
-  action    String   // CREATE, UPDATE, DELETE
-  entity    String   // Customer, Cycle, Meeting, etc.
-  entityId  String   @map("entity_id")
-  oldValue  Json?    @map("old_value")
-  newValue  Json?    @map("new_value")
-  ipAddress String?  @map("ip_address")
-  userAgent String?  @map("user_agent")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@index([entity, entityId])
-  @@index([userId])
-  @@index([createdAt])
-  @@map("audit_logs")
-}
-
-model SavedView {
-  id          String   @id @default(uuid())
-  name        String
-  entity      String   // meetings, cycles, customers, students, courses, branches, instructors, registrations
-  filters     Json     // Array of filter conditions
-  columns     Json     // Array of column names to display
-  sortBy      String?  @map("sort_by")
-  sortOrder   String?  @map("sort_order") // asc, desc
-  isDefault   Boolean  @default(false) @map("is_default")
-  isPublic    Boolean  @default(false) @map("is_public") // Shared with all users
-  createdById String   @map("created_by")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-
-  // Relations
-  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
-
-  @@index([entity])
-  @@index([createdById])
-  @@map("saved_views")
 }

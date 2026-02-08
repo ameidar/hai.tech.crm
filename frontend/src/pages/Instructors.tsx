@@ -261,7 +261,7 @@ function InstructorCard({ instructor, onEdit, onSendInvite, onResetPassword, isI
         </div>
 
         {/* Rates */}
-        <div className="grid grid-cols-4 gap-2 mb-4 p-3 bg-gradient-to-br from-gray-50 to-gray-100/50 rounded-xl text-center border border-gray-100">
+        <div className="grid grid-cols-5 gap-2 mb-4 p-3 bg-gradient-to-br from-gray-50 to-gray-100/50 rounded-xl text-center border border-gray-100">
           <div className="p-1">
             <p className="text-xs text-gray-500 mb-0.5">פרונטלי</p>
             <p className="font-semibold text-gray-900">{instructor.rateFrontal != null ? `₪${instructor.rateFrontal}` : '-'}</p>
@@ -277,6 +277,10 @@ function InstructorCard({ instructor, onEdit, onSendInvite, onResetPassword, isI
           <div className="p-1">
             <p className="text-xs text-gray-500 mb-0.5">הכנה</p>
             <p className="font-semibold text-gray-900">{instructor.ratePreparation != null ? `₪${instructor.ratePreparation}` : '-'}</p>
+          </div>
+          <div className="p-1">
+            <p className="text-xs text-gray-500 mb-0.5">תמיכה</p>
+            <p className="font-semibold text-gray-900">{instructor.rateSupport != null ? `₪${instructor.rateSupport}` : '-'}</p>
           </div>
         </div>
 
@@ -551,6 +555,7 @@ function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: Instructo
     rateOnline: instructor?.rateOnline || 120,
     ratePrivate: instructor?.ratePrivate || 150,
     ratePreparation: instructor?.ratePreparation || 50,
+    rateSupport: instructor?.rateSupport || 60,
     notes: instructor?.notes || '',
     isActive: instructor?.isActive ?? true,
   });
@@ -563,6 +568,7 @@ function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: Instructo
       rateOnline: Number(formData.rateOnline),
       ratePrivate: Number(formData.ratePrivate),
       ratePreparation: Number(formData.ratePreparation),
+      rateSupport: Number(formData.rateSupport),
     });
   };
 
@@ -607,7 +613,7 @@ function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: Instructo
 
       <div className="border-t pt-4">
         <h4 className="font-medium text-gray-700 mb-4">תעריפים (לשעה)</h4>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-5 gap-4">
           <div>
             <label className="form-label">פרונטלי</label>
             <div className="relative">
@@ -658,6 +664,20 @@ function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: Instructo
                 type="number"
                 value={formData.ratePreparation}
                 onChange={(e) => setFormData({ ...formData, ratePreparation: Number(e.target.value) })}
+                className="form-input pr-8"
+                min="0"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="form-label">תמיכה</label>
+            <div className="relative">
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+              <input
+                type="number"
+                value={formData.rateSupport}
+                onChange={(e) => setFormData({ ...formData, rateSupport: Number(e.target.value) })}
                 className="form-input pr-8"
                 min="0"
               />

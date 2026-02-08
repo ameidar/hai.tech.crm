@@ -20,7 +20,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { useMeetings, useCycles, useCustomers, useInstructors, useRecalculateMeeting } from '../hooks/useApi';
+import { useMeetings, useCyclesWithTotal, useCustomers, useInstructors, useRecalculateMeeting } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import MeetingDetailModal from '../components/MeetingDetailModal';
@@ -42,7 +42,9 @@ export default function Dashboard() {
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
 
   const { data: todayMeetings, isLoading: loadingMeetings } = useMeetings({ date: today });
-  const { data: cycles, isLoading: loadingCycles } = useCycles({ status: 'active' });
+  const { data: cyclesData, isLoading: loadingCycles } = useCyclesWithTotal({ status: 'active' });
+  const cycles = cyclesData?.data;
+  const cyclesTotal = cyclesData?.pagination?.total;
   const { data: customers, isLoading: loadingCustomers } = useCustomers();
   const { data: instructors, isLoading: loadingInstructors } = useInstructors();
   const recalculateMeeting = useRecalculateMeeting();
@@ -155,7 +157,7 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <KPICard
                 title="מחזורים פעילים"
-                value={cycles?.length || 0}
+                value={cyclesTotal || cycles?.length || 0}
                 icon={<RefreshCcw size={24} />}
                 gradient="from-blue-500 to-blue-600"
                 lightGradient="from-blue-50 to-blue-100"
@@ -419,7 +421,7 @@ export default function Dashboard() {
                     <div>
                       <h2 className="text-lg font-bold text-gray-900">מחזורים פעילים</h2>
                       <p className="text-sm text-gray-500">
-                        {cycles?.length || 0} מחזורים בתהליך
+                        {cyclesTotal || cycles?.length || 0} מחזורים בתהליך
                       </p>
                     </div>
                   </div>

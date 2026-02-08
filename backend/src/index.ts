@@ -25,6 +25,7 @@ import { communicationRouter } from './routes/communication.js';
 import zoomRouter from './routes/zoom.js';
 import zoomWebhookRouter from './routes/zoom-webhook.js';
 import { instructorMagicRouter } from './routes/instructor-magic.js';
+import { parentAppRouter } from './routes/parent-app.js';
 
 const app = express();
 
@@ -142,6 +143,7 @@ app.use('/api/communication', communicationRouter);
 app.use('/api/zoom', zoomRouter);
 app.use('/api/zoom-webhook', zoomWebhookRouter);
 app.use('/api/instructor-magic', instructorMagicRouter);
+app.use('/api/parent', parentAppRouter); // Parent mobile app API
 
 // Error handling for API routes
 app.use('/api', errorHandler);

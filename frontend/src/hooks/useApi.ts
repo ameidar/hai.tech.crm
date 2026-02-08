@@ -41,6 +41,18 @@ const fetchData = async <T>(url: string): Promise<T> => {
   return response.data as T;
 };
 
+// Fetch with pagination info - returns both data and pagination
+const fetchDataWithPagination = async <T>(url: string): Promise<{ data: T; pagination?: PaginationMeta }> => {
+  const response = await api.get<PaginatedResponse<T>>(url);
+  if (response.data && typeof response.data === 'object' && 'data' in response.data) {
+    return {
+      data: (response.data as PaginatedResponse<T>).data,
+      pagination: (response.data as PaginatedResponse<T>).pagination,
+    };
+  }
+  return { data: response.data as T };
+};
+
 // Generic mutation function
 const mutateData = async <T, D>(url: string, method: 'post' | 'put' | 'delete', data?: D): Promise<T> => {
   const response = await api[method]<T>(url, data);
@@ -286,6 +298,24 @@ export const useCycles = (params?: { branchId?: string; instructorId?: string; c
   return useQuery({
     queryKey: ['cycles', params],
     queryFn: () => fetchData<Cycle[]>(`/cycles${queryString}`),
+  });
+};
+
+// Returns cycles with total count from pagination
+export const useCyclesWithTotal = (params?: { branchId?: string; instructorId?: string; courseId?: string; status?: string; dayOfWeek?: string; search?: string; limit?: number }) => {
+  const searchParams = new URLSearchParams();
+  if (params?.branchId) searchParams.append('branchId', params.branchId);
+  if (params?.instructorId) searchParams.append('instructorId', params.instructorId);
+  if (params?.courseId) searchParams.append('courseId', params.courseId);
+  if (params?.status) searchParams.append('status', params.status);
+  if (params?.dayOfWeek) searchParams.append('dayOfWeek', params.dayOfWeek);
+  searchParams.append('limit', String(params?.limit || 100));
+  if (params?.search) searchParams.append('search', params.search);
+  const queryString = searchParams.toString() ? `?${searchParams.toString()}` : '';
+
+  return useQuery({
+    queryKey: ['cyclesWithTotal', params],
+    queryFn: () => fetchDataWithPagination<Cycle[]>(`/cycles${queryString}`),
   });
 };
 

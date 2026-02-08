@@ -110,6 +110,7 @@ export interface Instructor {
   rateOnline: number;
   ratePrivate: number;
   ratePreparation: number;
+  rateSupport?: number;
   userId?: string;
   isActive: boolean;
   notes?: string;
@@ -120,12 +121,16 @@ export interface Instructor {
   };
 }
 
+export type InstructorRole = 'primary' | 'support';
+
 export interface Cycle {
   id: string;
   name: string;
   courseId: string;
   branchId: string;
   instructorId: string;
+  primaryInstructorId?: string;
+  instructorTotalBudget?: number;
   institutionalOrderId?: string;
   type: CycleType;
   startDate: string;
@@ -161,6 +166,7 @@ export interface Meeting {
   id: string;
   cycleId: string;
   instructorId: string;
+  instructorRole?: InstructorRole;
   scheduledDate: string;
   startTime: string;
   endTime: string;

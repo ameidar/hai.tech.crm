@@ -742,6 +742,8 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     courseId: '',
     branchId: '',
     instructorId: '',
+    primaryInstructorId: '',
+    instructorTotalBudget: 0,
     type: 'private' as CycleType,
     startDate: '',
     endDate: '',
@@ -772,6 +774,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     const calculatedDuration = (endHour * 60 + endMin) - (startHour * 60 + startMin);
     const durationMinutes = calculatedDuration > 0 ? calculatedDuration : Number(formData.durationMinutes);
     
+    const budgetValue = Number(formData.instructorTotalBudget);
     const submitData: any = {
       ...formData,
       durationMinutes,
@@ -780,6 +783,8 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
       meetingRevenue: formData.type === 'institutional_fixed' && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
       studentCount: formData.type === 'institutional_per_child' && studentCountValue > 0 ? studentCountValue : undefined,
       maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
+      primaryInstructorId: formData.primaryInstructorId || undefined,
+      instructorTotalBudget: budgetValue > 0 ? budgetValue : undefined,
     };
     // Remove endDate if empty - it will be calculated automatically
     if (!submitData.endDate) {
@@ -865,6 +870,44 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
             <option value="institutional_per_child">מוסדי (פר ילד)</option>
             <option value="institutional_fixed">מוסדי (סכום קבוע)</option>
           </select>
+        </div>
+      </div>
+
+      {/* Budget Envelope Section */}
+      <div className="border-t pt-4">
+        <h4 className="font-medium text-gray-700 mb-4">מעטפת תקציב למדריך (אופציונלי)</h4>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="form-label">מדריך ראשי</label>
+            <select
+              value={formData.primaryInstructorId}
+              onChange={(e) => setFormData({ ...formData, primaryInstructorId: e.target.value })}
+              className="form-input"
+            >
+              <option value="">ללא מעטפת</option>
+              {instructors.map((instructor) => (
+                <option key={instructor.id} value={instructor.id}>
+                  {instructor.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="form-label">סכום מעטפת</label>
+            <div className="relative">
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+              <input
+                type="number"
+                value={formData.instructorTotalBudget || ''}
+                onChange={(e) => setFormData({ ...formData, instructorTotalBudget: Number(e.target.value) })}
+                className="form-input pr-8"
+                min="0"
+                placeholder="סכום כולל למחזור"
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-1">סכום שיחולק שווה בשווה בין הפגישות</p>
+          </div>
         </div>
       </div>
 
@@ -1080,6 +1123,8 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     courseId: cycle.courseId,
     branchId: cycle.branchId,
     instructorId: cycle.instructorId,
+    primaryInstructorId: cycle.primaryInstructorId || '',
+    instructorTotalBudget: cycle.instructorTotalBudget || 0,
     type: cycle.type,
     status: cycle.status,
     dayOfWeek: cycle.dayOfWeek,
@@ -1108,11 +1153,14 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     const calculatedDuration = (endHour * 60 + endMin) - (startHour * 60 + startMin);
     const durationMinutes = calculatedDuration > 0 ? calculatedDuration : 60; // default to 60 if invalid
     
+    const budgetValue = Number(formData.instructorTotalBudget);
     onSubmit({
       name: formData.name,
       courseId: formData.courseId,
       branchId: formData.branchId,
       instructorId: formData.instructorId,
+      primaryInstructorId: formData.primaryInstructorId || undefined,
+      instructorTotalBudget: budgetValue > 0 ? budgetValue : undefined,
       type: formData.type,
       status: formData.status,
       dayOfWeek: formData.dayOfWeek,
@@ -1193,6 +1241,40 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
               </option>
             ))}
           </select>
+        </div>
+
+        <div>
+          <label className="form-label">מדריך ראשי (מעטפת)</label>
+          <select
+            value={formData.primaryInstructorId}
+            onChange={(e) => setFormData({ ...formData, primaryInstructorId: e.target.value })}
+            className="form-input"
+          >
+            <option value="">ללא מעטפת</option>
+            {instructors.map((instructor) => (
+              <option key={instructor.id} value={instructor.id}>
+                {instructor.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="form-label">מעטפת תקציב למדריך</label>
+          <div className="relative">
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+            <input
+              type="number"
+              value={formData.instructorTotalBudget || ''}
+              onChange={(e) => setFormData({ ...formData, instructorTotalBudget: Number(e.target.value) })}
+              className="form-input pr-8"
+              min="0"
+              placeholder="סכום כולל למחזור"
+            />
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            סכום שיחולק באופן שווה בין כל הפגישות
+          </p>
         </div>
 
         <div>

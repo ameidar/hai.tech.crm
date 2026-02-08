@@ -734,6 +734,7 @@ meetingsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
 meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
+    const force = req.query.force === 'true' || req.body.force === true;
 
     const meeting = await prisma.meeting.findUnique({
       where: { id },
@@ -755,6 +756,16 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
 
     if (meeting.status !== 'completed') {
       throw new AppError(400, 'Can only recalculate completed meetings');
+    }
+
+    // Skip if already has financials calculated (unless force=true)
+    if (!force && meeting.revenue !== null && Number(meeting.revenue) > 0) {
+      return res.json({
+        success: true,
+        skipped: true,
+        message: 'Meeting already has financials. Use force=true to recalculate.',
+        meeting,
+      });
     }
 
     const cycleData = meeting.cycle;
@@ -844,13 +855,14 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
 // Bulk recalculate meetings
 meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) => {
   try {
-    const { ids } = req.body;
+    const { ids, force } = req.body;
     
     if (!Array.isArray(ids) || ids.length === 0) {
       throw new AppError(400, 'ids array is required');
     }
 
     let recalculated = 0;
+    let skipped = 0;
     
     for (const id of ids) {
       const meeting = await prisma.meeting.findUnique({
@@ -868,6 +880,12 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
       });
 
       if (!meeting || meeting.status !== 'completed') {
+        continue;
+      }
+
+      // Skip if already has financials calculated (unless force=true)
+      if (!force && meeting.revenue !== null && Number(meeting.revenue) > 0) {
+        skipped++;
         continue;
       }
 
@@ -938,7 +956,7 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
       recalculated++;
     }
 
-    res.json({ success: true, recalculated });
+    res.json({ success: true, recalculated, skipped });
   } catch (error) {
     next(error);
   }

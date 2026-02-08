@@ -26,7 +26,7 @@ const generateOtp = (): string => {
 };
 
 // Middleware to verify parent token
-const authenticateParent = async (req: any, res: any, next: any) => {
+const authenticateParent = async (req: any, _res: any, next: any) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
@@ -771,7 +771,7 @@ router.get('/dashboard', authenticateParent, async (req: any, res, next) => {
 // Notifications Routes
 // ==========================================
 
-router.get('/notifications', authenticateParent, async (req: any, res, next) => {
+router.get('/notifications', authenticateParent, async (_req: any, res, next) => {
   try {
     // For now, return empty array
     // In production, implement notification storage

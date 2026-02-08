@@ -64,7 +64,7 @@ export const createBranchSchema = z.object({
   city: z.string().optional().nullable(),
   contactName: z.string().optional().nullable(),
   contactPhone: z.string().optional().nullable(),
-  contactEmail: z.string().email().optional().nullable(),
+  contactEmail: z.string().email().optional().nullable().or(z.literal('')).transform(v => v || null),
   isActive: z.boolean().default(true),
 });
 

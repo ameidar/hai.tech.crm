@@ -26,6 +26,7 @@ import zoomRouter from './routes/zoom.js';
 import zoomWebhookRouter from './routes/zoom-webhook.js';
 import { instructorMagicRouter } from './routes/instructor-magic.js';
 import { parentAppRouter } from './routes/parent-app.js';
+import { messagingRouter } from './routes/messaging.js';
 
 const app = express();
 
@@ -132,6 +133,7 @@ app.use('/api/students', studentsRouter);
 app.use('/api/courses', coursesRouter);
 app.use('/api/branches', branchesRouter);
 app.use('/api/instructors', instructorsRouter);
+app.use('/api/messaging', messagingRouter);
 app.use('/api/cycles', cyclesRouter);
 app.use('/api/meetings', meetingsRouter);
 app.use('/api/registrations', registrationsRouter);

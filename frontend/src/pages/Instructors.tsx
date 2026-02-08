@@ -7,6 +7,7 @@ import { SkeletonCardGrid } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import ViewSelector from '../components/ViewSelector';
+import SendMessageModal from '../components/SendMessageModal';
 import type { Instructor } from '../types';
 
 export default function Instructors() {
@@ -15,6 +16,7 @@ export default function Instructors() {
   const [editingInstructor, setEditingInstructor] = useState<Instructor | null>(null);
   const [inviteModal, setInviteModal] = useState<{ instructor: Instructor; url: string } | null>(null);
   const [resetPasswordModal, setResetPasswordModal] = useState<{ instructor: Instructor; url: string } | null>(null);
+  const [messageInstructor, setMessageInstructor] = useState<Instructor | null>(null);
   const [searchFilter, setSearchFilter] = useState('');
 
   const { data: instructors, isLoading } = useInstructors();
@@ -118,6 +120,7 @@ export default function Instructors() {
                 instructor={instructor}
                 onEdit={() => setEditingInstructor(instructor)}
                 onSendInvite={() => handleSendInvite(instructor)}
+                onSendMessage={() => setMessageInstructor(instructor)}
                 onResetPassword={() => handleResetPassword(instructor)}
                 isInviteLoading={sendInvite.isPending}
                 isResetLoading={resetPassword.isPending}
@@ -201,6 +204,12 @@ export default function Instructors() {
           />
         )}
       </Modal>
+
+      {/* Send Message Modal */}
+      <SendMessageModal
+        instructor={messageInstructor}
+        onClose={() => setMessageInstructor(null)}
+      />
     </>
   );
 }
@@ -210,12 +219,13 @@ interface InstructorCardProps {
   instructor: Instructor;
   onEdit: () => void;
   onSendInvite: () => void;
+  onSendMessage: () => void;
   onResetPassword: () => void;
   isInviteLoading?: boolean;
   isResetLoading?: boolean;
 }
 
-function InstructorCard({ instructor, onEdit, onSendInvite, onResetPassword, isInviteLoading, isResetLoading }: InstructorCardProps) {
+function InstructorCard({ instructor, onEdit, onSendInvite, onSendMessage, onResetPassword, isInviteLoading, isResetLoading }: InstructorCardProps) {
   const hasAccount = !!instructor.userId;
 
   return (
@@ -320,6 +330,14 @@ function InstructorCard({ instructor, onEdit, onSendInvite, onResetPassword, isI
                 איפוס
               </button>
             )}
+            <button
+              onClick={onSendMessage}
+              className="text-green-600 hover:text-green-700 flex items-center gap-1.5 font-medium transition-colors"
+              title="שלח הודעה"
+            >
+              <MessageCircle size={14} />
+              הודעה
+            </button>
             <button
               onClick={onEdit}
               className="text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors"

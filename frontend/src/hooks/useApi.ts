@@ -883,5 +883,58 @@ export const useDeleteZoomMeeting = () => {
   });
 };
 
+// ==================== Messaging ====================
+
+export const useMessageTemplates = () => {
+  return useQuery({
+    queryKey: ['message-templates'],
+    queryFn: () => fetchData<any[]>('/messaging/templates'),
+  });
+};
+
+export const useSendMessage = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      instructorId: string;
+      channel: 'whatsapp' | 'email';
+      templateId?: string;
+      customMessage?: string;
+      customSubject?: string;
+      meetingId?: string;
+    }) => mutateData<{ success: boolean; messageId?: string }, typeof data>('/messaging/send', 'post', data),
+    onSuccess: (_, { instructorId }) => {
+      queryClient.invalidateQueries({ queryKey: ['message-logs', instructorId] });
+    },
+  });
+};
+
+export const useBulkSendMessage = () => {
+  return useMutation({
+    mutationFn: (data: {
+      instructorIds: string[];
+      channel: 'whatsapp' | 'email';
+      templateId: string;
+      customMessage?: string;
+    }) => mutateData<{ sent: number; failed: number; errors: string[] }, typeof data>('/messaging/bulk-send', 'post', data),
+  });
+};
+
+export const useMessageLogs = (instructorId?: string) => {
+  return useQuery({
+    queryKey: ['message-logs', instructorId],
+    queryFn: () => fetchData<any[]>(instructorId ? `/messaging/logs/${instructorId}` : '/messaging/logs'),
+    enabled: true,
+  });
+};
+
+export const useInstructorMeetings = (instructorId: string | undefined, date: string) => {
+  return useQuery({
+    queryKey: ['instructor-meetings', instructorId, date],
+    queryFn: () => fetchData<any[]>(`/meetings?instructorId=${instructorId}&date=${date}`),
+    enabled: !!instructorId,
+  });
+};
+
 // Re-export api for direct use in components
 export { api };

@@ -164,9 +164,10 @@ messagingRouter.post('/send', async (req, res, next) => {
     }
     
     // Log the message
+    const userId = (req.user as any)?.id || null;
     await prisma.$executeRaw`
       INSERT INTO message_logs (instructor_id, template_id, channel, recipient, subject, body, status, error_message, sent_by, meeting_id)
-      VALUES (${data.instructorId}, ${data.templateId || null}, ${data.channel}, ${recipient}, ${subject || null}, ${messageBody}, ${result.success ? 'sent' : 'failed'}, ${result.error || null}, ${req.user!.id}, ${data.meetingId || null})
+      VALUES (${data.instructorId}, ${data.templateId || null}, ${data.channel}, ${recipient}, ${subject || null}, ${messageBody}, ${result.success ? 'sent' : 'failed'}, ${result.error || null}, ${userId}, ${data.meetingId || null})
     `;
     
     if (!result.success) {
@@ -243,7 +244,7 @@ messagingRouter.post('/bulk-send', async (req, res, next) => {
         // Log
         await prisma.$executeRaw`
           INSERT INTO message_logs (instructor_id, template_id, channel, recipient, subject, body, status, error_message, sent_by)
-          VALUES (${instructor.id}, ${data.templateId}, ${data.channel}, ${recipient}, ${subject || null}, ${messageBody}, ${result.success ? 'sent' : 'failed'}, ${result.error || null}, ${req.user!.id})
+          VALUES (${instructor.id}, ${data.templateId}, ${data.channel}, ${recipient}, ${subject || null}, ${messageBody}, ${result.success ? 'sent' : 'failed'}, ${result.error || null}, ${(req.user as any)?.id || null})
         `;
         
         if (result.success) {

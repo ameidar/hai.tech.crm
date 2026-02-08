@@ -76,7 +76,7 @@ export async function sendWhatsApp(params: SendWhatsAppParams): Promise<MessageR
       }),
     });
 
-    const data = await response.json();
+    const data = await response.json() as { idMessage?: string; message?: string };
 
     if (data.idMessage) {
       return { success: true, messageId: data.idMessage };

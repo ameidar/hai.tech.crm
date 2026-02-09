@@ -3,6 +3,7 @@ import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { sendWhatsApp, sendEmail, replacePlaceholders, formatTimeForDisplay } from '../services/messaging.js';
+import { logAudit } from '../utils/audit.js';
 import { z } from 'zod';
 
 export const messagingRouter = Router();
@@ -174,6 +175,24 @@ messagingRouter.post('/send', async (req, res, next) => {
       throw new AppError(500, `Failed to send message: ${result.error}`);
     }
     
+    // Log to audit
+    await logAudit({
+      userId: userId,
+      userName: (req.user as any)?.name || (req.user as any)?.email,
+      action: 'CREATE',
+      entity: 'message',
+      entityId: data.instructorId,
+      newValue: {
+        channel: data.channel,
+        recipient,
+        templateId: data.templateId,
+        instructorName: instructor.name,
+        subject: subject || undefined,
+        bodyPreview: messageBody.substring(0, 100),
+      },
+      req,
+    });
+    
     res.json({ 
       success: true, 
       messageId: result.messageId,
@@ -261,6 +280,25 @@ messagingRouter.post('/bulk-send', async (req, res, next) => {
         results.failed++;
         results.errors.push(`${instructor.name}: ${err.message}`);
       }
+    }
+    
+    // Log bulk send to audit
+    if (results.sent > 0) {
+      await logAudit({
+        userId: (req.user as any)?.id,
+        userName: (req.user as any)?.name || (req.user as any)?.email,
+        action: 'CREATE',
+        entity: 'bulk_message',
+        entityId: data.templateId,
+        newValue: {
+          channel: data.channel,
+          templateId: data.templateId,
+          instructorCount: data.instructorIds.length,
+          sent: results.sent,
+          failed: results.failed,
+        },
+        req,
+      });
     }
     
     res.json(results);

@@ -153,10 +153,14 @@ app.use('/api', errorHandler);
 // Serve static frontend files
 const frontendPath = path.join(process.cwd(), 'frontend-dist');
 app.use(express.static(frontendPath, {
+  index: false, // Disable auto index.html serving, we handle it in SPA fallback
   setHeaders: (res, filePath) => {
-    // Don't cache index.html
-    if (filePath.endsWith('index.html')) {
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    // Don't cache HTML files
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, private');
+      res.setHeader('CDN-Cache-Control', 'no-store');
+      res.setHeader('Cloudflare-CDN-Cache-Control', 'no-store');
+      res.setHeader('Surrogate-Control', 'no-store');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
     }
@@ -165,9 +169,12 @@ app.use(express.static(frontendPath, {
 
 // SPA fallback - serve index.html for all non-API routes (no cache!)
 app.get('*', (_req, res) => {
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, private');
+  res.setHeader('CDN-Cache-Control', 'no-store');
+  res.setHeader('Cloudflare-CDN-Cache-Control', 'no-store');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 

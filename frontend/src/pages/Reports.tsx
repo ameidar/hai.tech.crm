@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { BarChart3, Calendar, TrendingUp, DollarSign, Building2, FileText, Download } from 'lucide-react';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
-import { useMeetings, useCycles, useInstructors, useBranches } from '../hooks/useApi';
+import { useMeetings, useCyclesWithTotal, useInstructors, useBranches } from '../hooks/useApi';
 
 export default function Reports() {
   const [dateRange, setDateRange] = useState(() => {
@@ -24,7 +24,7 @@ export default function Reports() {
     to: dateRange.to,
     branchId: branchFilter || undefined,
   });
-  const { data: cycles, isLoading: loadingCycles } = useCycles({ status: 'active' });
+  const { data: cyclesResponse, isLoading: loadingCycles } = useCyclesWithTotal({ status: 'active', limit: 1 });
   const { data: instructors, isLoading: loadingInstructors } = useInstructors();
 
   const stats = useMemo(() => {
@@ -302,7 +302,7 @@ export default function Reports() {
               <div className="bg-white rounded-lg p-6 shadow">
                 <h3 className="text-lg font-semibold mb-4">מחזורים פעילים</h3>
                 <p className="text-4xl font-bold text-blue-600">
-                  {Array.isArray(cycles) ? cycles.length : 0}
+                  {cyclesResponse?.pagination?.total ?? 0}
                 </p>
                 <p className="text-sm text-gray-500 mt-2">מחזורים בסטטוס פעיל</p>
               </div>

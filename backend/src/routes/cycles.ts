@@ -197,6 +197,24 @@ cyclesRouter.get('/', async (req, res, next) => {
   }
 });
 
+// Count cycles
+cyclesRouter.get('/count', async (req, res, next) => {
+  try {
+    const status = req.query.status as string | undefined;
+    const branchId = req.query.branchId as string | undefined;
+
+    const where = {
+      ...(status && { status: status as any }),
+      ...(branchId && { branchId }),
+    };
+
+    const total = await prisma.cycle.count({ where });
+    res.json({ total });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Get cycle by ID
 cyclesRouter.get('/:id', async (req, res, next) => {
   try {

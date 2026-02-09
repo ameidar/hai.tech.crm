@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react';
-import { BarChart3, Calendar, TrendingUp, DollarSign, Building2, FileText, Download } from 'lucide-react';
+import { BarChart3, Calendar, TrendingUp, DollarSign, Building2, FileText, Download, RefreshCw } from 'lucide-react';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
-import { useMeetings, useCyclesWithTotal, useInstructors, useBranches } from '../hooks/useApi';
+import { useMeetings, useCycles, useInstructors, useBranches } from '../hooks/useApi';
 
 export default function Reports() {
   const [dateRange, setDateRange] = useState(() => {
@@ -15,8 +15,9 @@ export default function Reports() {
     };
   });
   const [branchFilter, setBranchFilter] = useState('');
-  const [activeTab, setActiveTab] = useState<'overview' | 'billing'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'billing' | 'cycles'>('overview');
   const [detailBranchId, setDetailBranchId] = useState<string | null>(null);
+  const [cyclesLimit, setCyclesLimit] = useState(20);
 
   const { data: branches, isLoading: loadingBranches } = useBranches();
   const { data: meetings, isLoading: loadingMeetings } = useMeetings({
@@ -24,7 +25,11 @@ export default function Reports() {
     to: dateRange.to,
     branchId: branchFilter || undefined,
   });
-  const { data: cyclesResponse, isLoading: loadingCycles } = useCyclesWithTotal({ status: 'active', limit: 1 });
+  const { data: cycles, isLoading: loadingCycles } = useCycles({ 
+    status: 'active',
+    branchId: branchFilter || undefined,
+    limit: cyclesLimit,
+  });
   const { data: instructors, isLoading: loadingInstructors } = useInstructors();
 
   const stats = useMemo(() => {
@@ -206,6 +211,21 @@ export default function Reports() {
                 ))}
               </select>
             </div>
+            <div className="flex items-center gap-2">
+              <RefreshCw className="text-gray-400" size={18} />
+              <label className="text-sm text-gray-600">מחזורים:</label>
+              <select
+                value={cyclesLimit}
+                onChange={(e) => setCyclesLimit(Number(e.target.value))}
+                className="border rounded px-3 py-1.5 text-sm"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={200}>200</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -232,6 +252,17 @@ export default function Reports() {
           >
             <FileText size={18} className="inline me-2" />
             גבייה לפי סניף
+          </button>
+          <button
+            onClick={() => setActiveTab('cycles')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              activeTab === 'cycles'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <RefreshCw size={18} className="inline me-2" />
+            מחזורים ({cycles?.length || 0})
           </button>
         </div>
 
@@ -302,9 +333,9 @@ export default function Reports() {
               <div className="bg-white rounded-lg p-6 shadow">
                 <h3 className="text-lg font-semibold mb-4">מחזורים פעילים</h3>
                 <p className="text-4xl font-bold text-blue-600">
-                  {cyclesResponse?.pagination?.total ?? 0}
+                  {cycles?.length ?? 0}
                 </p>
-                <p className="text-sm text-gray-500 mt-2">מחזורים בסטטוס פעיל</p>
+                <p className="text-sm text-gray-500 mt-2">מחזורים בסטטוס פעיל (מוצגים {cyclesLimit})</p>
               </div>
 
               <div className="bg-white rounded-lg p-6 shadow">
@@ -434,6 +465,78 @@ export default function Reports() {
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'cycles' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow overflow-hidden">
+              <div className="p-4 border-b flex items-center justify-between">
+                <h3 className="text-lg font-semibold">מחזורים פעילים</h3>
+                <span className="text-sm text-gray-500">מציג {cycles?.length || 0} מחזורים</span>
+              </div>
+              
+              {cycles && cycles.length > 0 ? (
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-right p-3 font-medium text-gray-600">שם</th>
+                      <th className="text-right p-3 font-medium text-gray-600">קורס</th>
+                      <th className="text-right p-3 font-medium text-gray-600">סניף</th>
+                      <th className="text-right p-3 font-medium text-gray-600">מדריך</th>
+                      <th className="text-right p-3 font-medium text-gray-600">יום</th>
+                      <th className="text-right p-3 font-medium text-gray-600">שעה</th>
+                      <th className="text-right p-3 font-medium text-gray-600">תלמידים</th>
+                      <th className="text-right p-3 font-medium text-gray-600">התקדמות</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cycles.map((cycle) => {
+                      const dayNames: Record<string, string> = {
+                        sunday: 'ראשון',
+                        monday: 'שני',
+                        tuesday: 'שלישי',
+                        wednesday: 'רביעי',
+                        thursday: 'חמישי',
+                        friday: 'שישי',
+                        saturday: 'שבת',
+                      };
+                      const progress = cycle.totalMeetings > 0 
+                        ? Math.round((cycle.completedMeetings / cycle.totalMeetings) * 100) 
+                        : 0;
+                      return (
+                        <tr key={cycle.id} className="border-t hover:bg-gray-50">
+                          <td className="p-3 font-medium">{cycle.name}</td>
+                          <td className="p-3">{cycle.course?.name || '-'}</td>
+                          <td className="p-3">{cycle.branch?.name || '-'}</td>
+                          <td className="p-3">{cycle.instructor?.name || '-'}</td>
+                          <td className="p-3">{dayNames[cycle.dayOfWeek?.toLowerCase()] || cycle.dayOfWeek || '-'}</td>
+                          <td className="p-3">{cycle.startTime?.substring(0, 5) || '-'}</td>
+                          <td className="p-3">{cycle.studentCount || cycle._count?.registrations || 0}</td>
+                          <td className="p-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-24 bg-gray-200 rounded-full h-2">
+                                <div 
+                                  className="bg-blue-600 h-2 rounded-full" 
+                                  style={{ width: `${progress}%` }}
+                                />
+                              </div>
+                              <span className="text-sm text-gray-600">
+                                {cycle.completedMeetings}/{cycle.totalMeetings}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="p-8 text-center text-gray-500">
+                  אין מחזורים פעילים
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

@@ -301,6 +301,19 @@ export const useCycles = (params?: { branchId?: string; instructorId?: string; c
   });
 };
 
+// Returns just the count of cycles
+export const useCyclesCount = (params?: { status?: string; branchId?: string }) => {
+  const searchParams = new URLSearchParams();
+  if (params?.status) searchParams.append('status', params.status);
+  if (params?.branchId) searchParams.append('branchId', params.branchId);
+  const queryString = searchParams.toString() ? `?${searchParams.toString()}` : '';
+
+  return useQuery({
+    queryKey: ['cyclesCount', params],
+    queryFn: () => fetchData<{ total: number }>(`/cycles/count${queryString}`),
+  });
+};
+
 // Returns cycles with total count from pagination
 export const useCyclesWithTotal = (params?: { branchId?: string; instructorId?: string; courseId?: string; status?: string; dayOfWeek?: string; search?: string; limit?: number }) => {
   const searchParams = new URLSearchParams();

@@ -34,8 +34,8 @@ instructorsRouter.get('/', async (req, res, next) => {
         include: {
           _count: { 
             select: { 
-              cycles: { where: { status: 'active' } },
-              meetings: { where: { status: 'scheduled' } },
+              cycles: true,
+              meetings: true,
             } 
           },
         },
@@ -131,12 +131,31 @@ instructorsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
+    // Check for active cycles
     const activeCycles = await prisma.cycle.count({
       where: { instructorId: id, status: 'active' },
     });
 
     if (activeCycles > 0) {
-      throw new AppError(400, 'Cannot delete instructor with active cycles');
+      throw new AppError(400, `לא ניתן למחוק מדריך עם ${activeCycles} מחזורים פעילים`);
+    }
+
+    // Check for any meetings (completed or scheduled)
+    const meetingsCount = await prisma.meeting.count({
+      where: { instructorId: id },
+    });
+
+    if (meetingsCount > 0) {
+      throw new AppError(400, `לא ניתן למחוק מדריך עם ${meetingsCount} פגישות במערכת. יש להעביר את הפגישות למדריך אחר קודם`);
+    }
+
+    // Check for any cycles (even inactive)
+    const cyclesCount = await prisma.cycle.count({
+      where: { instructorId: id },
+    });
+
+    if (cyclesCount > 0) {
+      throw new AppError(400, `לא ניתן למחוק מדריך עם ${cyclesCount} מחזורים במערכת. יש להעביר את המחזורים למדריך אחר קודם`);
     }
 
     await prisma.instructor.delete({

@@ -11,8 +11,9 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  Calculator,
 } from 'lucide-react';
-import { useMeetings, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus, useUpdateMeeting, useBulkUpdateMeetings } from '../hooks/useApi';
+import { useMeetings, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus, useUpdateMeeting, useBulkUpdateMeetings, useBulkRecalculateMeetings } from '../hooks/useApi';
 import { useAuth } from '../context/AuthContext';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -150,6 +151,7 @@ export default function Meetings() {
   const bulkUpdateStatus = useBulkUpdateMeetingStatus();
   const updateMeeting = useUpdateMeeting();
   const bulkUpdateMeetings = useBulkUpdateMeetings();
+  const bulkRecalculate = useBulkRecalculateMeetings();
 
   // Sort handler
   const handleSort = (column: string) => {
@@ -362,6 +364,29 @@ export default function Meetings() {
     }
   };
 
+  const handleBulkRecalculate = async () => {
+    const idsToRecalculate = selectedIds.size > 0 
+      ? Array.from(selectedIds) 
+      : displayMeetings.map(m => m.id);
+    
+    if (idsToRecalculate.length === 0) return;
+    
+    const message = selectedIds.size > 0 
+      ? `לחשב מחדש ${selectedIds.size} פגישות נבחרות?`
+      : `לחשב מחדש את כל ${displayMeetings.length} הפגישות בתצוגה?`;
+    
+    if (!confirm(message)) return;
+
+    try {
+      const result = await bulkRecalculate.mutateAsync({ ids: idsToRecalculate, force: true });
+      alert(`חושבו מחדש ${result.recalculated} פגישות בהצלחה!`);
+      refetch();
+    } catch (error) {
+      console.error('Failed to bulk recalculate:', error);
+      alert('שגיאה בחישוב מחדש');
+    }
+  };
+
   const stats = displayMeetings.length > 0
     ? {
         total: displayMeetings.length,
@@ -415,6 +440,15 @@ export default function Meetings() {
             >
               <Edit size={16} />
               עריכה גורפת
+            </button>
+
+            <button
+              onClick={handleBulkRecalculate}
+              disabled={bulkRecalculate.isPending}
+              className="px-4 py-2 bg-purple-500 hover:bg-purple-600 disabled:opacity-50 rounded-lg font-medium transition-colors flex items-center gap-1"
+            >
+              <Calculator size={16} />
+              {bulkRecalculate.isPending ? 'מחשב...' : 'חישוב מחדש'}
             </button>
             
             <button
@@ -498,6 +532,17 @@ export default function Meetings() {
                 <span className="w-2 h-2 rounded-full bg-red-500" />
                 {stats.cancelled} בוטלו
               </span>
+              {isAdmin && (
+                <button
+                  onClick={handleBulkRecalculate}
+                  disabled={bulkRecalculate.isPending}
+                  className="btn btn-secondary flex items-center gap-1 text-sm"
+                  title="חישוב מחדש לכל הפגישות בתצוגה"
+                >
+                  <Calculator size={14} />
+                  {bulkRecalculate.isPending ? 'מחשב...' : 'חישוב מחדש'}
+                </button>
+              )}
             </div>
           )}
         </div>

@@ -67,7 +67,7 @@ app.use(cors({
 // Rate limiting with per-user tracking when authenticated
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // limit each IP/user to 1000 requests per windowMs
+  max: 10000, // limit each IP/user to 1000 requests per windowMs
   message: { error: 'Too many requests, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -168,6 +168,8 @@ app.use(express.static(frontendPath, {
 }));
 
 // SPA fallback - serve index.html for all non-API routes (no cache!)
+// Generate unique ETag based on server start time to force cache invalidation
+const serverStartTime = Date.now().toString(36);
 app.get('*', (_req, res) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, private');
   res.setHeader('CDN-Cache-Control', 'no-store');
@@ -175,6 +177,8 @@ app.get('*', (_req, res) => {
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
   res.setHeader('Surrogate-Control', 'no-store');
+  res.setHeader('ETag', `"${serverStartTime}"`);
+  res.setHeader('Last-Modified', new Date().toUTCString());
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 

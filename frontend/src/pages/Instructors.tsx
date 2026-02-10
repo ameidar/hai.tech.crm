@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound } from 'lucide-react';
-import { useInstructors, useCreateInstructor, useUpdateInstructor, useSendInstructorInvite, useResetInstructorPassword } from '../hooks/useApi';
+import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound, Trash2, AlertTriangle } from 'lucide-react';
+import { useInstructors, useCreateInstructor, useUpdateInstructor, useDeleteInstructor, useSendInstructorInvite, useResetInstructorPassword } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import { SkeletonCardGrid } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
@@ -17,6 +17,7 @@ export default function Instructors() {
   const [inviteModal, setInviteModal] = useState<{ instructor: Instructor; url: string } | null>(null);
   const [resetPasswordModal, setResetPasswordModal] = useState<{ instructor: Instructor; url: string } | null>(null);
   const [messageInstructor, setMessageInstructor] = useState<Instructor | null>(null);
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState<Instructor | null>(null);
   const [searchFilter, setSearchFilter] = useState('');
 
   const { data: instructors, isLoading } = useInstructors();
@@ -41,6 +42,7 @@ export default function Instructors() {
   });
   const createInstructor = useCreateInstructor();
   const updateInstructor = useUpdateInstructor();
+  const deleteInstructor = useDeleteInstructor();
   const sendInvite = useSendInstructorInvite();
   const resetPassword = useResetInstructorPassword();
 
@@ -78,6 +80,18 @@ export default function Instructors() {
       setEditingInstructor(null);
     } catch (error) {
       console.error('Failed to update instructor:', error);
+    }
+  };
+
+  const handleDeleteInstructor = async () => {
+    if (!deleteConfirmModal) return;
+    try {
+      await deleteInstructor.mutateAsync(deleteConfirmModal.id);
+      setDeleteConfirmModal(null);
+    } catch (error: any) {
+      console.error('Failed to delete instructor:', error);
+      const errorMessage = error?.response?.data?.error || error?.message || 'לא ניתן למחוק מדריך זה';
+      alert(errorMessage);
     }
   };
 
@@ -119,6 +133,7 @@ export default function Instructors() {
                 key={instructor.id}
                 instructor={instructor}
                 onEdit={() => setEditingInstructor(instructor)}
+                onDelete={() => setDeleteConfirmModal(instructor)}
                 onSendInvite={() => handleSendInvite(instructor)}
                 onSendMessage={() => setMessageInstructor(instructor)}
                 onResetPassword={() => handleResetPassword(instructor)}
@@ -210,6 +225,51 @@ export default function Instructors() {
         instructor={messageInstructor}
         onClose={() => setMessageInstructor(null)}
       />
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={!!deleteConfirmModal}
+        onClose={() => setDeleteConfirmModal(null)}
+        title="מחיקת מדריך"
+        size="sm"
+      >
+        {deleteConfirmModal && (
+          <div className="p-6">
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="text-red-600" size={28} />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-800">
+                האם למחוק את {deleteConfirmModal.name}?
+              </h3>
+              <p className="text-gray-500 text-sm mt-2">
+                פעולה זו אינה ניתנת לביטול. כל המידע על המדריך יימחק לצמיתות.
+              </p>
+              {deleteConfirmModal._count?.cycles ? (
+                <p className="text-amber-600 text-sm mt-2 font-medium">
+                  ⚠️ למדריך יש {deleteConfirmModal._count.cycles} מחזורים פעילים - לא ניתן למחוק
+                </p>
+              ) : null}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteConfirmModal(null)}
+                className="flex-1 btn btn-secondary"
+              >
+                ביטול
+              </button>
+              <button
+                onClick={handleDeleteInstructor}
+                disabled={deleteInstructor.isPending || (deleteConfirmModal._count?.cycles || 0) > 0}
+                className="flex-1 btn bg-red-600 text-white hover:bg-red-700 disabled:bg-red-300"
+              >
+                {deleteInstructor.isPending ? 'מוחק...' : 'מחק'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </>
   );
 }
@@ -218,6 +278,7 @@ export default function Instructors() {
 interface InstructorCardProps {
   instructor: Instructor;
   onEdit: () => void;
+  onDelete: () => void;
   onSendInvite: () => void;
   onSendMessage: () => void;
   onResetPassword: () => void;
@@ -225,7 +286,7 @@ interface InstructorCardProps {
   isResetLoading?: boolean;
 }
 
-function InstructorCard({ instructor, onEdit, onSendInvite, onSendMessage, onResetPassword, isInviteLoading, isResetLoading }: InstructorCardProps) {
+function InstructorCard({ instructor, onEdit, onDelete, onSendInvite, onSendMessage, onResetPassword, isInviteLoading, isResetLoading }: InstructorCardProps) {
   const hasAccount = !!instructor.userId;
 
   return (
@@ -343,6 +404,13 @@ function InstructorCard({ instructor, onEdit, onSendInvite, onSendMessage, onRes
               className="text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors"
             >
               עריכה
+            </button>
+            <button
+              onClick={onDelete}
+              className="text-red-500 hover:text-red-700 transition-colors"
+              title="מחק מדריך"
+            >
+              <Trash2 size={14} />
             </button>
           </div>
         </div>

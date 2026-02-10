@@ -60,11 +60,14 @@ const mutateData = async <T, D>(url: string, method: 'post' | 'put' | 'delete', 
 };
 
 // ==================== Customers ====================
-export const useCustomers = (params?: { search?: string }) => {
-  const searchParam = params?.search ? `?search=${encodeURIComponent(params.search)}` : '';
+export const useCustomers = (params?: { search?: string; limit?: number }) => {
+  const queryParams = new URLSearchParams();
+  if (params?.search) queryParams.append('search', params.search);
+  queryParams.append('limit', String(params?.limit || 500));
+  const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
   return useQuery({
-    queryKey: ['customers', params?.search],
-    queryFn: () => fetchData<Customer[]>(`/customers${searchParam}`),
+    queryKey: ['customers', params?.search, params?.limit],
+    queryFn: () => fetchData<Customer[]>(`/customers${queryString}`),
   });
 };
 
@@ -109,10 +112,11 @@ export const useDeleteCustomer = () => {
 };
 
 // ==================== Students ====================
-export const useStudents = (customerId?: string) => {
-  const url = customerId ? `/customers/${customerId}/students` : '/students';
+export const useStudents = (customerId?: string, limit: number = 500) => {
+  const baseUrl = customerId ? `/customers/${customerId}/students` : '/students';
+  const url = `${baseUrl}?limit=${limit}`;
   return useQuery({
-    queryKey: ['students', customerId],
+    queryKey: ['students', customerId, limit],
     queryFn: () => fetchData<Student[]>(url),
   });
 };
@@ -280,6 +284,17 @@ export const useResetInstructorPassword = () => {
   return useMutation({
     mutationFn: (instructorId: string) =>
       mutateData<{ resetUrl: string; expiresAt: string }, undefined>(`/instructors/${instructorId}/reset-password`, 'post'),
+  });
+};
+
+export const useDeleteInstructor = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (instructorId: string) =>
+      mutateData<void, undefined>(`/instructors/${instructorId}`, 'delete'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['instructors'] });
+    },
   });
 };
 
@@ -597,8 +612,8 @@ export const useRecalculateMeeting = () => {
 export const useBulkRecalculateMeetings = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (ids: string[]) =>
-      mutateData<{ success: boolean; recalculated: number }, { ids: string[] }>('/meetings/bulk-recalculate', 'post', { ids }),
+    mutationFn: ({ ids, force = true }: { ids: string[]; force?: boolean }) =>
+      mutateData<{ success: boolean; recalculated: number }, { ids: string[]; force: boolean }>('/meetings/bulk-recalculate', 'post', { ids, force }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['meetings'] });
       queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });

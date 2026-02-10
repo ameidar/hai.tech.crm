@@ -259,7 +259,7 @@ export default function CycleDetail() {
 
   const handleBulkRecalculate = async () => {
     try {
-      const result = await bulkRecalculateMeetings.mutateAsync(Array.from(selectedMeetingIds));
+      const result = await bulkRecalculateMeetings.mutateAsync({ ids: Array.from(selectedMeetingIds), force: true });
       alert(`חושבו מחדש ${result.recalculated} פגישות`);
       setSelectedMeetingIds(new Set());
       setShowBulkEditModal(false);

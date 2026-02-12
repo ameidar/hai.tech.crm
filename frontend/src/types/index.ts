@@ -101,6 +101,8 @@ export interface InstitutionalOrder {
   branch?: Branch;
 }
 
+export type EmploymentType = 'freelancer' | 'employee';
+
 export interface Instructor {
   id: string;
   name: string;
@@ -110,6 +112,7 @@ export interface Instructor {
   rateOnline: number;
   ratePrivate: number;
   ratePreparation: number;
+  employmentType: EmploymentType;
   userId?: string;
   isActive: boolean;
   notes?: string;
@@ -137,6 +140,7 @@ export interface Cycle {
   totalMeetings: number;
   pricePerStudent?: number;
   meetingRevenue?: number;
+  revenueIncludesVat?: boolean | null;
   studentCount?: number;
   maxStudents?: number;
   sendParentReminders: boolean;

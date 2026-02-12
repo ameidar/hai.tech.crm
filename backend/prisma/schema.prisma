@@ -121,10 +121,13 @@ model User {
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
   // Relations
-  instructor       Instructor?
-  meetingUpdates   Meeting[]    @relation("MeetingStatusUpdater")
-  attendanceRecords Attendance[]
-  savedViews       SavedView[]
+  instructor            Instructor?
+  meetingUpdates        Meeting[]        @relation("MeetingStatusUpdater")
+  attendanceRecords     Attendance[]
+  savedViews            SavedView[]
+  cycleExpenses         CycleExpense[]
+  submittedExpenses     MeetingExpense[] @relation("ExpenseSubmitter")
+  reviewedExpenses      MeetingExpense[] @relation("ExpenseReviewer")
 
   @@map("users")
 }
@@ -214,6 +217,7 @@ model Instructor {
   rateOnline      Decimal? @map("rate_online") @db.Decimal(10, 2)
   ratePrivate     Decimal? @map("rate_private") @db.Decimal(10, 2)
   ratePreparation Decimal? @map("rate_preparation") @db.Decimal(10, 2)
+  employmentType  String   @default("freelancer") @map("employment_type")  // freelancer or employee
   isActive        Boolean  @default(true) @map("is_active")
   notes           String?
   inviteToken     String?  @unique @map("invite_token")
@@ -222,9 +226,11 @@ model Instructor {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   // Relations
-  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
-  cycles   Cycle[]
-  meetings Meeting[]
+  user            User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  cycles          Cycle[]
+  meetings        Meeting[]
+  expenseRecords  MeetingExpense[]
+  cycleExpenses   CycleExpense[]
 
   @@map("instructors")
 }
@@ -273,6 +279,7 @@ model Cycle {
   totalMeetings        Int         @map("total_meetings")
   pricePerStudent      Decimal?    @map("price_per_student") @db.Decimal(10, 2)
   meetingRevenue       Decimal?    @map("meeting_revenue") @db.Decimal(10, 2)
+  revenueIncludesVat   Boolean?    @map("revenue_includes_vat")
   studentCount         Int?        @map("student_count")
   maxStudents          Int?        @map("max_students")
   sendParentReminders  Boolean      @default(false) @map("send_parent_reminders")
@@ -299,6 +306,7 @@ model Cycle {
   institutionalOrder InstitutionalOrder? @relation(fields: [institutionalOrderId], references: [id], onDelete: SetNull)
   registrations      Registration[]
   meetings           Meeting[]
+  expenses           CycleExpense[]
 
   @@map("cycles")
 }
@@ -363,12 +371,13 @@ model Meeting {
   deletedBy         String?       @map("deleted_by")
 
   // Relations
-  cycle           Cycle        @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  instructor      Instructor   @relation(fields: [instructorId], references: [id], onDelete: Restrict)
-  statusUpdatedBy User?        @relation("MeetingStatusUpdater", fields: [statusUpdatedById], references: [id])
-  rescheduledTo   Meeting?     @relation("RescheduledMeetings", fields: [rescheduledToId], references: [id])
-  rescheduledFrom Meeting[]    @relation("RescheduledMeetings")
+  cycle           Cycle            @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  instructor      Instructor       @relation(fields: [instructorId], references: [id], onDelete: Restrict)
+  statusUpdatedBy User?            @relation("MeetingStatusUpdater", fields: [statusUpdatedById], references: [id])
+  rescheduledTo   Meeting?         @relation("RescheduledMeetings", fields: [rescheduledToId], references: [id])
+  rescheduledFrom Meeting[]        @relation("RescheduledMeetings")
   attendance      Attendance[]
+  expenses        MeetingExpense[]
 
   @@map("meetings")
 }
@@ -435,4 +444,102 @@ model SavedView {
   @@index([entity])
   @@index([createdById])
   @@map("saved_views")
+}
+
+// ===================
+// EXPENSE TRACKING
+// ===================
+
+enum CycleExpenseType {
+  materials              // הכנת חומרים
+  wraparound_hours       // שעות מעטפת
+  equipment              // ציוד
+  travel_fixed           // נסיעות קבועות
+  additional_instructor  // מדריך נוסף
+  other
+
+  @@map("cycle_expense_type")
+}
+
+enum MeetingExpenseType {
+  travel             // נסיעות
+  taxi               // מונית
+  extra_instructor   // מדריך נוסף
+  materials          // חומרים
+  other
+
+  @@map("meeting_expense_type")
+}
+
+enum ExpenseStatus {
+  pending            // ממתין לאישור
+  approved           // מאושר
+  rejected           // נדחה
+
+  @@map("expense_status")
+}
+
+// Cycle-level expenses (spread across all meetings)
+model CycleExpense {
+  id            String           @id @default(dbgenerated("gen_random_uuid()::text"))
+  cycleId       String           @map("cycle_id")
+  type          CycleExpenseType
+  description   String?
+  amount        Decimal?         @db.Decimal(10, 2)
+  isPercentage  Boolean          @default(false) @map("is_percentage")
+  percentage    Decimal?         @db.Decimal(5, 2)
+  hours         Decimal?         @db.Decimal(5, 2)
+  rateType      String?          @map("rate_type")  // preparation, online, frontal
+  createdById   String           @map("created_by")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @default(now()) @map("updated_at")
+  
+  // Optional: link to instructor for materials/wraparound_hours
+  instructorId  String?          @map("instructor_id")
+
+  // Relations
+  cycle         Cycle            @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  createdBy     User             @relation(fields: [createdById], references: [id])
+  instructor    Instructor?      @relation(fields: [instructorId], references: [id])
+
+  @@index([cycleId])
+  @@map("cycle_expenses")
+}
+
+// Meeting-level expenses (one-time, submitted by instructor)
+model MeetingExpense {
+  id              String             @id @default(dbgenerated("gen_random_uuid()::text"))
+  meetingId       String             @map("meeting_id")
+  type            MeetingExpenseType
+  description     String?
+  amount          Decimal            @db.Decimal(10, 2)
+  status          ExpenseStatus      @default(approved)
+  
+  // Submitted by instructor
+  submittedById   String             @map("submitted_by")
+  submittedAt     DateTime           @default(now()) @map("submitted_at")
+  
+  // Approved/rejected by manager (kept for historical data)
+  reviewedById    String?            @map("reviewed_by")
+  reviewedAt      DateTime?          @map("reviewed_at")
+  rejectionReason String?            @map("rejection_reason")
+  
+  // For extra_instructor type: link to instructor and rate calculation
+  instructorId    String?            @map("instructor_id")
+  rateType        String?            @map("rate_type")  // preparation, online, frontal
+  hours           Decimal?           @db.Decimal(10, 2) @map("hours")
+
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @default(now()) @map("updated_at")
+
+  // Relations
+  meeting         Meeting            @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  submittedBy     User               @relation("ExpenseSubmitter", fields: [submittedById], references: [id])
+  reviewedBy      User?              @relation("ExpenseReviewer", fields: [reviewedById], references: [id])
+  instructor      Instructor?        @relation(fields: [instructorId], references: [id])
+
+  @@index([meetingId])
+  @@index([status])
+  @@index([submittedById])
+  @@map("meeting_expenses")
 }

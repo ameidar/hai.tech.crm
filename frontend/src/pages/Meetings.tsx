@@ -108,9 +108,20 @@ export default function Meetings() {
     },
     profit: {
       label: 'רווח',
-      render: (m) => m.status === 'completed'
-        ? <span className={m.profit >= 0 ? 'text-green-600' : 'text-red-600'}>{(m.profit || 0).toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}</span>
-        : '-'
+      render: (m) => {
+        if (m.status !== 'completed') return '-';
+        // Use adjustedProfit (includes cycle expenses share) if available, otherwise fall back to profit
+        const profitValue = (m as any).adjustedProfit !== undefined ? (m as any).adjustedProfit : (m.profit || 0);
+        const cycleExpenseShare = (m as any).cycleExpenseShare;
+        return (
+          <span 
+            className={profitValue >= 0 ? 'text-green-600' : 'text-red-600'}
+            title={cycleExpenseShare ? `לפני הוצאות מחזור: ₪${(m.profit || 0).toLocaleString()}, הוצאות מחזור: ₪${cycleExpenseShare.toLocaleString()}` : undefined}
+          >
+            {profitValue.toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}
+          </span>
+        );
+      }
     },
     subject: {
       label: 'נושא',
@@ -672,12 +683,12 @@ export default function Meetings() {
                         );
                       }
                       if (col === 'profit') {
+                        const totalProfit = displayMeetings
+                          .filter((m) => m.status === 'completed')
+                          .reduce((sum, m) => sum + Number((m as any).adjustedProfit !== undefined ? (m as any).adjustedProfit : (m.profit || 0)), 0);
                         return (
-                          <td key={col} className="text-green-600">
-                            {displayMeetings
-                              .filter((m) => m.status === 'completed')
-                              .reduce((sum, m) => sum + Number(m.profit || 0), 0)
-                              .toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}
+                          <td key={col} className={totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}>
+                            {totalProfit.toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}
                           </td>
                         );
                       }
@@ -703,6 +714,7 @@ export default function Meetings() {
         onClose={() => setSelectedMeeting(null)}
         onRecalculate={handleRecalculate}
         isRecalculating={recalculateMeeting.isPending}
+        isAdmin={isAdmin}
       />
 
       {/* Meeting Edit Modal */}
@@ -711,6 +723,7 @@ export default function Meetings() {
         onClose={() => setEditingMeeting(null)}
         onSave={handleEditSave}
         isSaving={updateMeeting.isPending}
+        isAdmin={isAdmin}
       />
 
       {/* Bulk Edit Modal */}

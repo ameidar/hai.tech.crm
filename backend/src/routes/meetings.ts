@@ -125,9 +125,40 @@ meetingsRouter.get('/', async (req, res, next) => {
       prisma.meeting.count({ where }),
     ]);
 
+    // Get unique cycle IDs from the meetings
+    const cycleIds = [...new Set(meetings.map(m => m.cycleId))];
+    
+    // Fetch cycle expenses for all relevant cycles
+    const cycleExpenses = await prisma.cycleExpense.groupBy({
+      by: ['cycleId'],
+      where: { cycleId: { in: cycleIds } },
+      _sum: { amount: true },
+    });
+    
+    // Create a map of cycle expenses
+    const cycleExpenseMap = new Map<string, number>();
+    for (const ce of cycleExpenses) {
+      cycleExpenseMap.set(ce.cycleId, Number(ce._sum.amount || 0));
+    }
+    
+    // Calculate adjusted profit for each meeting
+    const meetingsWithAdjustedProfit = meetings.map(meeting => {
+      const totalCycleExpenses = cycleExpenseMap.get(meeting.cycleId) || 0;
+      const totalMeetings = meeting.cycle?.totalMeetings || 1;
+      const cycleExpensePerMeeting = totalCycleExpenses / totalMeetings;
+      const baseProfit = Number(meeting.profit || 0);
+      const adjustedProfit = baseProfit - cycleExpensePerMeeting;
+      
+      return {
+        ...meeting,
+        adjustedProfit: Math.round(adjustedProfit * 100) / 100,
+        cycleExpenseShare: Math.round(cycleExpensePerMeeting * 100) / 100,
+      };
+    });
+
     const totalPages = Math.ceil(total / limit);
     res.json({
-      data: meetings,
+      data: meetingsWithAdjustedProfit,
       pagination: {
         page,
         limit,
@@ -252,7 +283,13 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
     } else {
       hourlyRate = Number(instructor.rateFrontal) || 0;
     }
-    const instructorPayment = Math.round(hourlyRate * (durationMinutes / 60));
+    let instructorPayment = Math.round(hourlyRate * (durationMinutes / 60));
+    
+    // Apply employer cost multiplier (1.3) for employees
+    if (instructor.employmentType === 'employee') {
+      instructorPayment = Math.round(instructorPayment * 1.3);
+    }
+    
     const profit = revenue - instructorPayment;
 
     // Create the meeting
@@ -468,10 +505,27 @@ meetingsRouter.put('/:id', async (req, res, next) => {
             
             const durationHours = durationMinutes / 60;
             instructorPayment = Math.round(hourlyRate * durationHours);
+            
+            // Apply employer cost multiplier (1.3) for employees
+            if (instructor.employmentType === 'employee') {
+              instructorPayment = Math.round(instructorPayment * 1.3);
+            }
           }
 
-          // Calculate profit
-          const profit = revenue - instructorPayment;
+          // Get approved meeting expenses
+          const approvedExpenses = await prisma.meetingExpense.aggregate({
+            where: {
+              meetingId: id,
+              status: 'approved',
+            },
+            _sum: {
+              amount: true,
+            },
+          });
+          const expensesTotal = Number(approvedExpenses._sum.amount || 0);
+
+          // Calculate profit (including approved expenses)
+          const profit = revenue - instructorPayment - expensesTotal;
 
           updateData.revenue = revenue;
           updateData.instructorPayment = instructorPayment;
@@ -823,9 +877,26 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
       
       const durationHours = durationMinutes / 60;
       instructorPayment = Math.round(hourlyRate * durationHours);
+      
+      // Apply employer cost multiplier (1.3) for employees
+      if (instructor.employmentType === 'employee') {
+        instructorPayment = Math.round(instructorPayment * 1.3);
+      }
     }
 
-    const profit = revenue - instructorPayment;
+    // Get approved meeting expenses
+    const approvedExpenses = await prisma.meetingExpense.aggregate({
+      where: {
+        meetingId: id,
+        status: 'approved',
+      },
+      _sum: {
+        amount: true,
+      },
+    });
+    const expensesTotal = Number(approvedExpenses._sum.amount || 0);
+
+    const profit = revenue - instructorPayment - expensesTotal;
 
     // Update meeting
     const updatedMeeting = await prisma.meeting.update({
@@ -944,6 +1015,11 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
         
         const durationHours = durationMinutes / 60;
         instructorPayment = Math.round(hourlyRate * durationHours);
+        
+        // Apply employer cost multiplier (1.3) for employees
+        if (instructor.employmentType === 'employee') {
+          instructorPayment = Math.round(instructorPayment * 1.3);
+        }
       }
 
       const profit = revenue - instructorPayment;
@@ -1059,6 +1135,11 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
               
               const durationHours = durationMinutes / 60;
               instructorPayment = Math.round(hourlyRate * durationHours);
+              
+              // Apply employer cost multiplier (1.3) for employees
+              if (instructor.employmentType === 'employee') {
+                instructorPayment = Math.round(instructorPayment * 1.3);
+              }
             }
 
             const profit = revenue - instructorPayment;
@@ -1234,6 +1315,11 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
                 default: rate = Number(meeting.instructor.rateFrontal || 0);
               }
               instructorPayment = Math.round(rate * (cycleData.durationMinutes / 60));
+              
+              // Apply employer cost multiplier (1.3) for employees
+              if (meeting.instructor.employmentType === 'employee') {
+                instructorPayment = Math.round(instructorPayment * 1.3);
+              }
             }
 
             await prisma.meeting.update({

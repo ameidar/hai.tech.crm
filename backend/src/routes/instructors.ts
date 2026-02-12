@@ -97,6 +97,7 @@ instructorsRouter.post('/', managerOrAdmin, async (req, res, next) => {
         rateFrontal: data.rateFrontal,
         rateOnline: data.rateOnline,
         ratePreparation: data.ratePreparation,
+        employmentType: data.employmentType || 'freelancer',
         userId: data.userId,
         isActive: data.isActive,
         notes: data.notes,
@@ -163,6 +164,45 @@ instructorsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
     });
 
     res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Bulk update instructors
+instructorsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
+  try {
+    const { instructorIds, data } = req.body;
+    
+    if (!Array.isArray(instructorIds) || instructorIds.length === 0) {
+      throw new AppError(400, 'instructorIds must be a non-empty array');
+    }
+    
+    // Validate data - only allow certain fields for bulk update
+    const allowedFields = ['employmentType', 'isActive'];
+    const updateData: Record<string, any> = {};
+    
+    for (const field of allowedFields) {
+      if (data[field] !== undefined) {
+        updateData[field] = data[field];
+      }
+    }
+    
+    if (Object.keys(updateData).length === 0) {
+      throw new AppError(400, 'No valid fields to update');
+    }
+    
+    // Update all instructors
+    const result = await prisma.instructor.updateMany({
+      where: { id: { in: instructorIds } },
+      data: updateData,
+    });
+    
+    res.json({ 
+      success: true, 
+      updated: result.count,
+      message: `עודכנו ${result.count} מדריכים`
+    });
   } catch (error) {
     next(error);
   }

@@ -32,7 +32,7 @@ interface PaginatedResponse<T> {
 export type { PaginationMeta, PaginatedResponse };
 
 // Generic fetch function - handles both paginated and direct responses
-const fetchData = async <T>(url: string): Promise<T> => {
+export const fetchData = async <T>(url: string): Promise<T> => {
   const response = await api.get<T | PaginatedResponse<T>>(url);
   // If response has data property with pagination, extract the data array
   if (response.data && typeof response.data === 'object' && 'data' in response.data && 'pagination' in response.data) {
@@ -54,7 +54,7 @@ const fetchDataWithPagination = async <T>(url: string): Promise<{ data: T; pagin
 };
 
 // Generic mutation function
-const mutateData = async <T, D>(url: string, method: 'post' | 'put' | 'delete', data?: D): Promise<T> => {
+export const mutateData = async <T, D>(url: string, method: 'post' | 'put' | 'delete', data?: D): Promise<T> => {
   const response = await api[method]<T>(url, data);
   return response.data;
 };
@@ -292,6 +292,17 @@ export const useDeleteInstructor = () => {
   return useMutation({
     mutationFn: (instructorId: string) =>
       mutateData<void, undefined>(`/instructors/${instructorId}`, 'delete'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['instructors'] });
+    },
+  });
+};
+
+export const useBulkUpdateInstructors = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { instructorIds: string[]; data: { employmentType?: string; isActive?: boolean } }) =>
+      mutateData<{ success: boolean; updated: number; message: string }, typeof params>('/instructors/bulk-update', 'post', params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['instructors'] });
     },
@@ -600,7 +611,7 @@ export const useRecalculateMeeting = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      mutateData<Meeting, object>(`/meetings/${id}/recalculate`, 'post', {}),
+      mutateData<Meeting, { force: boolean }>(`/meetings/${id}/recalculate`, 'post', { force: true }),
     onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ['meetings'] });
       queryClient.invalidateQueries({ queryKey: ['meeting', id] });

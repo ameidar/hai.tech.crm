@@ -1,0 +1,42 @@
+# HaiTech CRM - Docker Compose (Development)
+version: '3.8'
+
+services:
+  # Development API on port 3002
+  api-dev:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: haitech-api-dev
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://haitech:haitech_password@haitech-db:5432/haitech_crm?schema=public
+      PORT: 3002
+      NODE_ENV: development
+      JWT_SECRET: ${JWT_SECRET:-change-this-in-production}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-this-refresh-secret}
+      JWT_EXPIRES_IN: 1d
+      JWT_REFRESH_EXPIRES_IN: 7d
+      FRONTEND_URL: "*"
+      API_KEY: ${API_KEY:-haitech-crm-api-key-2026}
+      ZOOM_WEBHOOK_URL: https://hook.eu1.make.com/feok703p7eao5btbutcrwpnoyihdlrmg
+      GREEN_API_INSTANCE_ID: ${GREEN_API_INSTANCE_ID}
+      GREEN_API_TOKEN: ${GREEN_API_TOKEN}
+      GMAIL_USER: info@hai.tech
+      GMAIL_PASS: ${GMAIL_PASS}
+      ZOOM_ACCOUNT_ID: ${ZOOM_ACCOUNT_ID}
+      ZOOM_CLIENT_ID: ${ZOOM_CLIENT_ID}
+      ZOOM_CLIENT_SECRET: ${ZOOM_CLIENT_SECRET}
+      ZOOM_SECRET_TOKEN: ${ZOOM_SECRET_TOKEN}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    ports:
+      - "3002:3002"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3002/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  default:
+    name: haitech-network

@@ -27,7 +27,9 @@ import {
   Link as LinkIcon,
   Key,
   Lock,
+  Receipt,
 } from 'lucide-react';
+import MeetingExpenses from '../components/MeetingExpenses';
 import {
   useCycle,
   useCycleMeetings,
@@ -56,6 +58,9 @@ import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import AttendanceModal from '../components/AttendanceModal';
+import CycleExpenses from '../components/CycleExpenses';
+import { useCycleExpenses } from '../hooks/useExpenses';
+import type { CycleExpense } from '../hooks/useExpenses';
 import {
   cycleStatusHebrew,
   cycleTypeHebrew,
@@ -84,6 +89,7 @@ export default function CycleDetail() {
   const { data: cycle, isLoading } = useCycle(id!);
   const { data: meetings } = useCycleMeetings(id!);
   const { data: registrations } = useCycleRegistrations(id!);
+  const { data: cycleExpenses } = useCycleExpenses(id!);
   const { data: allStudents } = useStudents();
   const { data: instructors } = useInstructors();
   const { data: courses } = useCourses();
@@ -104,6 +110,31 @@ export default function CycleDetail() {
   const createMeeting = useCreateMeeting();
 
   const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  // Calculate total cycle expenses and expense per meeting
+  const calculateCycleExpensePerMeeting = () => {
+    if (!cycleExpenses || !cycle?.totalMeetings) return 0;
+    const meetingRevenue = Number(cycle.meetingRevenue) || 0;
+    const totalRevenue = meetingRevenue * cycle.totalMeetings;
+    
+    const totalExpenses = cycleExpenses.reduce((sum: number, expense: CycleExpense) => {
+      if (expense.isPercentage && expense.percentage) {
+        // Calculate percentage of total revenue
+        return sum + (totalRevenue * Number(expense.percentage) / 100);
+      }
+      return sum + Number(expense.amount || 0);
+    }, 0);
+    
+    return totalExpenses / cycle.totalMeetings;
+  };
+
+  const cycleExpensePerMeeting = calculateCycleExpensePerMeeting();
+
+  // Calculate adjusted profit for a meeting (including cycle expenses)
+  const getAdjustedProfit = (meeting: Meeting) => {
+    const baseProfit = Number(meeting.profit || 0);
+    return baseProfit - cycleExpensePerMeeting;
+  };
 
   const copyToClipboard = (text: string, field: string) => {
     navigator.clipboard.writeText(text);
@@ -779,6 +810,21 @@ export default function CycleDetail() {
                 </div>
               )}
             </div>
+
+            {/* Cycle Expenses */}
+            <div className="card mt-4" data-testid="cycle-expenses">
+              <div className="card-header">
+                <h2 className="font-semibold">הוצאות מחזור</h2>
+              </div>
+              <div className="p-4">
+                <CycleExpenses 
+                  cycleId={id!} 
+                  totalMeetings={cycle?.totalMeetings || 0}
+                  meetingRevenue={Number(cycle?.meetingRevenue) || 0}
+                  isAdmin={isAdmin}
+                />
+              </div>
+            </div>
           </div>
 
           {/* Meetings */}
@@ -1107,10 +1153,15 @@ export default function CycleDetail() {
                     <p className="text-2xl font-bold text-red-600">₪{Number(viewingMeeting.instructorPayment || 0).toLocaleString()}</p>
                   </div>
                   <div className="p-4 bg-blue-50 rounded-lg">
-                    <p className="text-sm text-gray-500">רווח</p>
-                    <p className={`text-2xl font-bold ${Number(viewingMeeting.profit || 0) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
-                      ₪{Number(viewingMeeting.profit || 0).toLocaleString()}
+                    <p className="text-sm text-gray-500">רווח (כולל הוצאות מחזור)</p>
+                    <p className={`text-2xl font-bold ${getAdjustedProfit(viewingMeeting) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                      ₪{getAdjustedProfit(viewingMeeting).toLocaleString()}
                     </p>
+                    {cycleExpensePerMeeting > 0 && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        (לפני הוצאות: ₪{Number(viewingMeeting.profit || 0).toLocaleString()}, הוצאות מחזור: ₪{cycleExpensePerMeeting.toFixed(0)})
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1867,6 +1918,19 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
         />
       </div>
 
+      {/* Meeting Expenses */}
+      <div className="border-t pt-4">
+        <h4 className="font-medium text-gray-900 flex items-center gap-2 mb-3">
+          <Receipt size={18} />
+          הוצאות נלוות
+        </h4>
+        <MeetingExpenses 
+          meetingId={meeting.id} 
+          isAdmin={isAdmin}
+          canSubmit={true}
+        />
+      </div>
+
       <div className="flex justify-end gap-3 pt-4 border-t">
         <button type="button" onClick={onCancel} className="btn btn-secondary">
           ביטול
@@ -2065,6 +2129,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     totalMeetings: cycle.totalMeetings,
     pricePerStudent: cycle.pricePerStudent || 0,
     meetingRevenue: cycle.meetingRevenue || 0,
+    includesVat: cycle.revenueIncludesVat ?? null,
     studentCount: cycle.studentCount || 0,
     maxStudents: cycle.maxStudents || 15,
     activityType: cycle.activityType || 'frontal',
@@ -2098,6 +2163,12 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Validate VAT selection for institutional_fixed
+    if (formData.type === 'institutional_fixed' && formData.includesVat === null) {
+      alert('יש לבחור האם הסכום כולל מע״מ או לא');
+      return;
+    }
+    
     // Calculate duration from times
     const [startHour, startMin] = formData.startTime.split(':').map(Number);
     const [endHour, endMin] = formData.endTime.split(':').map(Number);
@@ -2111,6 +2182,12 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
 
     // If schedule changed, regenerate meetings
     const shouldRegenerate = scheduleChanged && regenerateMeetings;
+    
+    // Calculate meeting revenue - if includes VAT, divide by 1.18
+    let meetingRevenueValue = Number(formData.meetingRevenue);
+    if (formData.type === 'institutional_fixed' && formData.includesVat === true && meetingRevenueValue > 0) {
+      meetingRevenueValue = Math.round((meetingRevenueValue / 1.18) * 100) / 100;
+    }
 
     onSubmit({
       name: formData.name,
@@ -2126,7 +2203,8 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
       durationMinutes: durationMinutes > 0 ? durationMinutes : 60,
       totalMeetings: Number(formData.totalMeetings),
       pricePerStudent: (formData.type === 'private' || formData.type === 'institutional_per_child') ? Number(formData.pricePerStudent) : undefined,
-      meetingRevenue: formData.type === 'institutional_fixed' ? Number(formData.meetingRevenue) : undefined,
+      meetingRevenue: formData.type === 'institutional_fixed' ? meetingRevenueValue : undefined,
+      revenueIncludesVat: formData.type === 'institutional_fixed' ? formData.includesVat : undefined,
       studentCount: formData.type === 'institutional_per_child' ? Number(formData.studentCount) : undefined,
       maxStudents: Number(formData.maxStudents),
       activityType: formData.activityType as ActivityType,
@@ -2331,16 +2409,48 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
         )}
 
         {formData.type === 'institutional_fixed' && (
-          <div>
-            <label className="form-label">הכנסה לפגישה (₪)</label>
-            <input
-              type="number"
-              value={formData.meetingRevenue}
-              onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
-              className="form-input"
-              min="0"
-            />
-          </div>
+          <>
+            <div>
+              <label className="form-label">הכנסה לפגישה (₪) *</label>
+              <input
+                type="number"
+                value={formData.meetingRevenue}
+                onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
+                className="form-input"
+                min="0"
+              />
+            </div>
+            <div>
+              <label className="form-label">מע״מ *</label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="detailIncludesVat"
+                    checked={formData.includesVat === false}
+                    onChange={() => setFormData({ ...formData, includesVat: false })}
+                    className="text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm">לפני מע״מ</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="detailIncludesVat"
+                    checked={formData.includesVat === true}
+                    onChange={() => setFormData({ ...formData, includesVat: true })}
+                    className="text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm">כולל מע״מ</span>
+                </label>
+              </div>
+              {formData.includesVat === true && formData.meetingRevenue > 0 && (
+                <p className="text-xs text-gray-500 mt-1">
+                  הכנסה לפני מע״מ: ₪{(formData.meetingRevenue / 1.18).toFixed(2)}
+                </p>
+              )}
+            </div>
+          </>
         )}
 
         <div>

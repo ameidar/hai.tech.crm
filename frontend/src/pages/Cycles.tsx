@@ -752,6 +752,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     totalMeetings: 12,
     pricePerStudent: 0,
     meetingRevenue: 0,
+    includesVat: null as boolean | null,
     studentCount: 0,
     maxStudents: 15,
     sendParentReminders: true,
@@ -761,10 +762,22 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate VAT selection for institutional_fixed
+    if (formData.type === 'institutional_fixed' && formData.includesVat === null) {
+      alert('יש לבחור האם הסכום כולל מע״מ או לא');
+      return;
+    }
+    
     const priceValue = Number(formData.pricePerStudent);
-    const meetingRevenueValue = Number(formData.meetingRevenue);
+    let meetingRevenueValue = Number(formData.meetingRevenue);
     const studentCountValue = Number(formData.studentCount);
     const maxStudentsValue = Number(formData.maxStudents);
+    
+    // If includes VAT, calculate the amount before VAT (divide by 1.18)
+    if (formData.type === 'institutional_fixed' && formData.includesVat === true && meetingRevenueValue > 0) {
+      meetingRevenueValue = Math.round((meetingRevenueValue / 1.18) * 100) / 100;
+    }
     
     // Calculate duration from start/end times
     const [startHour, startMin] = formData.startTime.split(':').map(Number);
@@ -781,6 +794,11 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
       studentCount: formData.type === 'institutional_per_child' && studentCountValue > 0 ? studentCountValue : undefined,
       maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
     };
+    // Send revenueIncludesVat for institutional_fixed
+    if (formData.type === 'institutional_fixed') {
+      submitData.revenueIncludesVat = formData.includesVat;
+    }
+    delete submitData.includesVat;
     // Remove endDate if empty - it will be calculated automatically
     if (!submitData.endDate) {
       delete submitData.endDate;
@@ -994,19 +1012,51 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
           )}
 
           {formData.type === 'institutional_fixed' && (
-            <div>
-              <label className="form-label">הכנסה למפגש</label>
-              <div className="relative">
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
-                <input
-                  type="number"
-                  value={formData.meetingRevenue}
-                  onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
-                  className="form-input pr-8"
-                  min="0"
-                />
+            <>
+              <div>
+                <label className="form-label">הכנסה למפגש *</label>
+                <div className="relative">
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+                  <input
+                    type="number"
+                    value={formData.meetingRevenue}
+                    onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
+                    className="form-input pr-8"
+                    min="0"
+                  />
+                </div>
               </div>
-            </div>
+              <div>
+                <label className="form-label">מע״מ *</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="createIncludesVat"
+                      checked={formData.includesVat === false}
+                      onChange={() => setFormData({ ...formData, includesVat: false })}
+                      className="text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm">לפני מע״מ</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="createIncludesVat"
+                      checked={formData.includesVat === true}
+                      onChange={() => setFormData({ ...formData, includesVat: true })}
+                      className="text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm">כולל מע״מ</span>
+                  </label>
+                </div>
+                {formData.includesVat === true && formData.meetingRevenue > 0 && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    הכנסה לפני מע״מ: ₪{(formData.meetingRevenue / 1.18).toFixed(2)}
+                  </p>
+                )}
+              </div>
+            </>
           )}
         </div>
 
@@ -1088,6 +1138,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     totalMeetings: cycle.totalMeetings,
     pricePerStudent: cycle.pricePerStudent || 0,
     meetingRevenue: cycle.meetingRevenue || 0,
+    includesVat: cycle.revenueIncludesVat ?? null,
     studentCount: cycle.studentCount || 0,
     maxStudents: cycle.maxStudents || 15,
     sendParentReminders: cycle.sendParentReminders,
@@ -1097,10 +1148,22 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate VAT selection for institutional_fixed
+    if (formData.type === 'institutional_fixed' && formData.includesVat === null) {
+      alert('יש לבחור האם הסכום כולל מע״מ או לא');
+      return;
+    }
+    
     const priceValue = Number(formData.pricePerStudent);
-    const meetingRevenueValue = Number(formData.meetingRevenue);
+    let meetingRevenueValue = Number(formData.meetingRevenue);
     const studentCountValue = Number(formData.studentCount);
     const maxStudentsValue = Number(formData.maxStudents);
+    
+    // If includes VAT, calculate the amount before VAT (divide by 1.18)
+    if (formData.type === 'institutional_fixed' && formData.includesVat === true && meetingRevenueValue > 0) {
+      meetingRevenueValue = Math.round((meetingRevenueValue / 1.18) * 100) / 100;
+    }
     
     // Calculate duration from start/end times
     const [startHour, startMin] = formData.startTime.split(':').map(Number);
@@ -1122,6 +1185,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
       totalMeetings: Number(formData.totalMeetings),
       pricePerStudent: (formData.type === 'private' || formData.type === 'institutional_per_child') && priceValue > 0 ? priceValue : undefined,
       meetingRevenue: formData.type === 'institutional_fixed' && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
+      revenueIncludesVat: formData.type === 'institutional_fixed' ? formData.includesVat : undefined,
       studentCount: formData.type === 'institutional_per_child' && studentCountValue > 0 ? studentCountValue : undefined,
       maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
       sendParentReminders: formData.sendParentReminders,
@@ -1318,19 +1382,51 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
           )}
 
           {formData.type === 'institutional_fixed' && (
-            <div>
-              <label className="form-label">הכנסה למפגש</label>
-              <div className="relative">
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
-                <input
-                  type="number"
-                  value={formData.meetingRevenue}
-                  onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
-                  className="form-input pr-8"
-                  min="0"
-                />
+            <>
+              <div>
+                <label className="form-label">הכנסה למפגש *</label>
+                <div className="relative">
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+                  <input
+                    type="number"
+                    value={formData.meetingRevenue}
+                    onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
+                    className="form-input pr-8"
+                    min="0"
+                  />
+                </div>
               </div>
-            </div>
+              <div>
+                <label className="form-label">מע״מ *</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="editIncludesVat"
+                      checked={formData.includesVat === false}
+                      onChange={() => setFormData({ ...formData, includesVat: false })}
+                      className="text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm">לפני מע״מ</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="editIncludesVat"
+                      checked={formData.includesVat === true}
+                      onChange={() => setFormData({ ...formData, includesVat: true })}
+                      className="text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm">כולל מע״מ</span>
+                  </label>
+                </div>
+                {formData.includesVat === true && formData.meetingRevenue > 0 && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    הכנסה לפני מע״מ: ₪{(formData.meetingRevenue / 1.18).toFixed(2)}
+                  </p>
+                )}
+              </div>
+            </>
           )}
         </div>
 

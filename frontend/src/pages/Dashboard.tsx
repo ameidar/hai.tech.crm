@@ -21,6 +21,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { useMeetings, useCyclesWithTotal, useCustomers, useInstructors, useRecalculateMeeting } from '../hooks/useApi';
+import { useAuth } from '../context/AuthContext';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import MeetingDetailModal from '../components/MeetingDetailModal';
@@ -38,6 +39,8 @@ const monthlyRevenueData = [
 ];
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
   const today = new Date().toISOString().split('T')[0];
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
 
@@ -529,6 +532,7 @@ export default function Dashboard() {
         onClose={() => setSelectedMeeting(null)}
         onRecalculate={handleRecalculate}
         isRecalculating={recalculateMeeting.isPending}
+        isAdmin={isAdmin}
       />
     </>
   );

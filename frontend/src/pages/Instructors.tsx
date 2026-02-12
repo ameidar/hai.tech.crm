@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound, Trash2, AlertTriangle } from 'lucide-react';
-import { useInstructors, useCreateInstructor, useUpdateInstructor, useDeleteInstructor, useSendInstructorInvite, useResetInstructorPassword } from '../hooks/useApi';
+import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound, Trash2, AlertTriangle, Edit, CheckSquare } from 'lucide-react';
+import { useInstructors, useCreateInstructor, useUpdateInstructor, useDeleteInstructor, useSendInstructorInvite, useResetInstructorPassword, useBulkUpdateInstructors } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import { SkeletonCardGrid } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
@@ -19,8 +19,12 @@ export default function Instructors() {
   const [messageInstructor, setMessageInstructor] = useState<Instructor | null>(null);
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<Instructor | null>(null);
   const [searchFilter, setSearchFilter] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkEditModal, setShowBulkEditModal] = useState(false);
+  const [bulkEmploymentType, setBulkEmploymentType] = useState<'freelancer' | 'employee'>('freelancer');
 
   const { data: instructors, isLoading } = useInstructors();
+  const bulkUpdate = useBulkUpdateInstructors();
 
   // Initialize search from URL params
   useEffect(() => {
@@ -95,22 +99,76 @@ export default function Instructors() {
     }
   };
 
+  const toggleSelectInstructor = (id: string) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (!filteredInstructors) return;
+    if (selectedIds.size === filteredInstructors.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredInstructors.map(i => i.id)));
+    }
+  };
+
+  const handleBulkUpdate = async () => {
+    if (selectedIds.size === 0) return;
+    try {
+      await bulkUpdate.mutateAsync({
+        instructorIds: Array.from(selectedIds),
+        data: { employmentType: bulkEmploymentType },
+      });
+      setSelectedIds(new Set());
+      setShowBulkEditModal(false);
+    } catch (error) {
+      console.error('Failed to bulk update:', error);
+      alert('שגיאה בעדכון מדריכים');
+    }
+  };
+
   return (
     <>
       <PageHeader
         title="מדריכים"
-        subtitle={`${instructors?.length || 0} מדריכים`}
+        subtitle={`${instructors?.length || 0} מדריכים${selectedIds.size > 0 ? ` (${selectedIds.size} נבחרו)` : ''}`}
         actions={
-          <button onClick={() => setShowAddModal(true)} className="btn btn-primary">
-            <Plus size={18} />
-            מדריך חדש
-          </button>
+          <div className="flex gap-2">
+            {selectedIds.size > 0 && (
+              <button 
+                onClick={() => setShowBulkEditModal(true)} 
+                className="btn btn-secondary"
+              >
+                <Edit size={18} />
+                עריכה גורפת ({selectedIds.size})
+              </button>
+            )}
+            <button onClick={() => setShowAddModal(true)} className="btn btn-primary">
+              <Plus size={18} />
+              מדריך חדש
+            </button>
+          </div>
         }
       />
 
       <div className="flex-1 p-6 overflow-auto">
         {/* Search & Views */}
         <div className="mb-4 flex gap-4 items-center">
+          <button
+            onClick={toggleSelectAll}
+            className={`btn btn-sm ${selectedIds.size === filteredInstructors?.length ? 'btn-primary' : 'btn-secondary'}`}
+            title={selectedIds.size === filteredInstructors?.length ? 'בטל בחירה' : 'בחר הכל'}
+          >
+            <CheckSquare size={18} />
+          </button>
           <div className="relative flex-1 max-w-md">
             <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -139,6 +197,8 @@ export default function Instructors() {
                 onResetPassword={() => handleResetPassword(instructor)}
                 isInviteLoading={sendInvite.isPending}
                 isResetLoading={resetPassword.isPending}
+                isSelected={selectedIds.has(instructor.id)}
+                onToggleSelect={() => toggleSelectInstructor(instructor.id)}
               />
             ))}
           </div>
@@ -270,6 +330,60 @@ export default function Instructors() {
           </div>
         )}
       </Modal>
+
+      {/* Bulk Edit Modal */}
+      <Modal
+        isOpen={showBulkEditModal}
+        onClose={() => setShowBulkEditModal(false)}
+        title={`עריכה גורפת (${selectedIds.size} מדריכים)`}
+        size="sm"
+      >
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">סוג העסקה</label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="employmentType"
+                  value="freelancer"
+                  checked={bulkEmploymentType === 'freelancer'}
+                  onChange={() => setBulkEmploymentType('freelancer')}
+                  className="text-blue-600"
+                />
+                <span>עצמאי</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="employmentType"
+                  value="employee"
+                  checked={bulkEmploymentType === 'employee'}
+                  onChange={() => setBulkEmploymentType('employee')}
+                  className="text-blue-600"
+                />
+                <span>שכיר</span>
+              </label>
+            </div>
+          </div>
+          
+          <div className="flex gap-3 pt-4">
+            <button
+              onClick={() => setShowBulkEditModal(false)}
+              className="flex-1 btn btn-secondary"
+            >
+              ביטול
+            </button>
+            <button
+              onClick={handleBulkUpdate}
+              disabled={bulkUpdate.isPending}
+              className="flex-1 btn btn-primary"
+            >
+              {bulkUpdate.isPending ? 'מעדכן...' : 'עדכן'}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </>
   );
 }
@@ -284,16 +398,25 @@ interface InstructorCardProps {
   onResetPassword: () => void;
   isInviteLoading?: boolean;
   isResetLoading?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }
 
-function InstructorCard({ instructor, onEdit, onDelete, onSendInvite, onSendMessage, onResetPassword, isInviteLoading, isResetLoading }: InstructorCardProps) {
+function InstructorCard({ instructor, onEdit, onDelete, onSendInvite, onSendMessage, onResetPassword, isInviteLoading, isResetLoading, isSelected, onToggleSelect }: InstructorCardProps) {
   const hasAccount = !!instructor.userId;
 
   return (
-    <div className="group bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-lg hover:border-gray-200 transition-all duration-200 hover:-translate-y-0.5">
+    <div className={`group bg-white rounded-xl border shadow-sm hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 ${isSelected ? 'border-blue-400 ring-2 ring-blue-100' : 'border-gray-100 hover:border-gray-200'}`}>
       <div className="p-6">
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
+            {/* Selection checkbox */}
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={onToggleSelect}
+              className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+            />
             <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-sm">
               <span className="text-lg font-bold text-white">
                 {instructor.name.charAt(0)}
@@ -637,6 +760,7 @@ function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: Instructo
     rateOnline: instructor?.rateOnline || 120,
     ratePrivate: instructor?.ratePrivate || 150,
     ratePreparation: instructor?.ratePreparation || 50,
+    employmentType: instructor?.employmentType || 'freelancer',
     notes: instructor?.notes || '',
     isActive: instructor?.isActive ?? true,
   });
@@ -649,6 +773,7 @@ function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: Instructo
       rateOnline: Number(formData.rateOnline),
       ratePrivate: Number(formData.ratePrivate),
       ratePreparation: Number(formData.ratePreparation),
+      employmentType: formData.employmentType,
     });
   };
 
@@ -749,6 +874,32 @@ function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: Instructo
               />
             </div>
           </div>
+        </div>
+      </div>
+
+      <div>
+        <label className="form-label">סוג העסקה</label>
+        <div className="flex gap-4">
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name="employmentType"
+              checked={formData.employmentType === 'freelancer'}
+              onChange={() => setFormData({ ...formData, employmentType: 'freelancer' })}
+              className="text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm">פרילנסר</span>
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name="employmentType"
+              checked={formData.employmentType === 'employee'}
+              onChange={() => setFormData({ ...formData, employmentType: 'employee' })}
+              className="text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm">שכיר (×1.3 עלות מעסיק)</span>
+          </label>
         </div>
       </div>
 

@@ -315,6 +315,7 @@ cyclesRouter.post('/', managerOrAdmin, async (req, res, next) => {
         totalMeetings: data.totalMeetings,
         pricePerStudent: data.pricePerStudent,
         meetingRevenue: data.meetingRevenue,
+        revenueIncludesVat: data.revenueIncludesVat,
         studentCount: data.studentCount,
         maxStudents: data.maxStudents,
         sendParentReminders: data.sendParentReminders,
@@ -627,6 +628,7 @@ cyclesRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
     if (data.courseId !== undefined) updateData.courseId = data.courseId;
     if (data.branchId !== undefined) updateData.branchId = data.branchId;
     if (data.meetingRevenue !== undefined) updateData.meetingRevenue = data.meetingRevenue;
+    if (data.revenueIncludesVat !== undefined) updateData.revenueIncludesVat = data.revenueIncludesVat;
     if (data.pricePerStudent !== undefined) updateData.pricePerStudent = data.pricePerStudent;
     if (data.studentCount !== undefined) updateData.studentCount = data.studentCount;
     if (data.sendParentReminders !== undefined) updateData.sendParentReminders = data.sendParentReminders;
@@ -660,6 +662,12 @@ cyclesRouter.get('/:id/meetings', async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
+    // Get cycle info for totalMeetings
+    const cycle = await prisma.cycle.findUnique({
+      where: { id },
+      select: { totalMeetings: true },
+    });
+
     const meetings = await prisma.meeting.findMany({
       where: { cycleId: id },
       include: {
@@ -677,7 +685,29 @@ cyclesRouter.get('/:id/meetings', async (req, res, next) => {
       orderBy: { scheduledDate: 'asc' },
     });
 
-    res.json(meetings);
+    // Get total cycle expenses
+    const cycleExpenses = await prisma.cycleExpense.aggregate({
+      where: { cycleId: id },
+      _sum: { amount: true },
+    });
+    
+    const totalCycleExpenses = Number(cycleExpenses._sum.amount || 0);
+    const totalMeetings = cycle?.totalMeetings || 1;
+    const cycleExpensePerMeeting = totalCycleExpenses / totalMeetings;
+    
+    // Add adjusted profit to each meeting
+    const meetingsWithAdjustedProfit = meetings.map(meeting => {
+      const baseProfit = Number(meeting.profit || 0);
+      const adjustedProfit = baseProfit - cycleExpensePerMeeting;
+      
+      return {
+        ...meeting,
+        adjustedProfit: Math.round(adjustedProfit * 100) / 100,
+        cycleExpenseShare: Math.round(cycleExpensePerMeeting * 100) / 100,
+      };
+    });
+
+    res.json(meetingsWithAdjustedProfit);
   } catch (error) {
     next(error);
   }

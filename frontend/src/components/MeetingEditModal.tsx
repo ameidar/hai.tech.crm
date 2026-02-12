@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
+import { Receipt } from 'lucide-react';
 import Modal from './ui/Modal';
+import MeetingExpenses from './MeetingExpenses';
 import { meetingStatusHebrew, activityTypeHebrew } from '../types';
 import { useInstructors } from '../hooks/useApi';
 import type { Meeting, MeetingStatus, ActivityType } from '../types';
@@ -9,6 +11,7 @@ interface MeetingEditModalProps {
   onClose: () => void;
   onSave: (id: string, data: Partial<Meeting>) => Promise<void>;
   isSaving: boolean;
+  isAdmin?: boolean;
 }
 
 export default function MeetingEditModal({ 
@@ -16,6 +19,7 @@ export default function MeetingEditModal({
   onClose, 
   onSave,
   isSaving,
+  isAdmin = false,
 }: MeetingEditModalProps) {
   const { data: instructors } = useInstructors();
   const [formData, setFormData] = useState({
@@ -186,6 +190,19 @@ export default function MeetingEditModal({
             className="input w-full"
             rows={3}
             placeholder="הערות לפגישה"
+          />
+        </div>
+
+        {/* Meeting Expenses */}
+        <div className="border-t pt-4">
+          <h4 className="font-medium text-gray-900 flex items-center gap-2 mb-3">
+            <Receipt size={18} />
+            הוצאות נלוות
+          </h4>
+          <MeetingExpenses 
+            meetingId={meeting.id} 
+            isAdmin={isAdmin}
+            canSubmit={true}
           />
         </div>
 

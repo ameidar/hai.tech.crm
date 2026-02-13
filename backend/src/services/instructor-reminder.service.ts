@@ -121,7 +121,8 @@ export async function getDailyMeetingsForInstructors(
   // Group by instructor
   const byInstructor = new Map<string, InstructorDailySummary>();
   
-  const baseUrl = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
+  const envUrl = process.env.FRONTEND_URL;
+  const baseUrl = (envUrl && envUrl !== '*') ? envUrl : 'http://129.159.133.209:3002';
   
   for (const meeting of meetings) {
     if (!meeting.instructor) continue;

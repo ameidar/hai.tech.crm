@@ -5,6 +5,9 @@ export type TemplateId =
   | 'management-summary'
   | 'newsletter';
 
+// Base URL from environment
+const getBaseUrl = () => process.env.FRONTEND_URL || 'http://localhost:3002';
+
 // Template data interfaces
 export interface InstructorReminderData {
   instructorName: string;
@@ -14,6 +17,10 @@ export interface InstructorReminderData {
   location: string;
   studentCount: number;
   zoomLink?: string;
+  meetingId?: string;
+  remainingMeetings?: number;
+  totalMeetings?: number;
+  completedMeetings?: number;
 }
 
 export interface ParentReminderData {
@@ -94,12 +101,22 @@ export const instructorReminderTemplate = (data: InstructorReminderData): string
         <p><strong>🕐 שעה:</strong> ${data.time}</p>
         <p><strong>📍 מיקום:</strong> ${data.location}</p>
         <p><strong>👥 מספר תלמידים:</strong> ${data.studentCount}</p>
+        ${data.remainingMeetings !== undefined ? `
+        <p><strong>📊 התקדמות:</strong> שיעור ${(data.completedMeetings || 0) + 1} מתוך ${data.totalMeetings || '?'} | נותרו <strong>${data.remainingMeetings}</strong> שיעורים</p>
+        ` : ''}
       </div>
       
       ${data.zoomLink ? `
       <div class="success">
         <p><strong>🔗 קישור לזום:</strong></p>
         <p><a href="${data.zoomLink}" class="btn">כניסה לשיעור</a></p>
+      </div>
+      ` : ''}
+      
+      ${data.meetingId ? `
+      <div style="background: #f0fdf4; border-right: 4px solid #22c55e; padding: 15px; margin: 15px 0; border-radius: 4px; text-align: center;">
+        <p><strong>📝 עדכון סטטוס הפגישה:</strong></p>
+        <p><a href="${getBaseUrl()}/meetings/${data.meetingId}" class="btn" style="background: #22c55e;">עדכן סטטוס פגישה</a></p>
       </div>
       ` : ''}
       

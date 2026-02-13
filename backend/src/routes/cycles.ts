@@ -6,6 +6,7 @@ import { createCycleSchema, updateCycleSchema, createRegistrationSchema, paginat
 import { fetchHolidays, dayNameToNumber, calculateCycleEndDate } from '../utils/holidays.js';
 import { config } from '../config.js';
 import { zoomService } from '../services/zoom.js';
+import { logAudit, logUpdateAudit } from '../utils/audit.js';
 
 // Trigger Zoom webhook when online cycle is created
 async function triggerZoomWebhook(cycleId: string) {
@@ -52,7 +53,7 @@ async function triggerZoomWebhook(cycleId: string) {
           ? m.endTime.toISOString().substring(11, 16) 
           : String(m.endTime).substring(0, 5),
       })),
-      callbackUrl: `${process.env.FRONTEND_URL || 'http://localhost:3001'}/api/webhook/cycles/${cycleId}/zoom`,
+      callbackUrl: `${(process.env.FRONTEND_URL && process.env.FRONTEND_URL !== '*') ? process.env.FRONTEND_URL : 'http://129.159.133.209:3002'}/api/webhook/cycles/${cycleId}/zoom`,
     };
 
     console.log('Triggering Zoom webhook:', config.zoomWebhookUrl);
@@ -334,6 +335,24 @@ cyclesRouter.post('/', managerOrAdmin, async (req, res, next) => {
     // Generate meetings
     await generateMeetingsForCycle(cycle.id);
 
+    // Audit log for cycle creation
+    await logAudit({
+      action: 'CREATE',
+      entity: 'Cycle',
+      entityId: cycle.id,
+      newValue: {
+        name: cycle.name,
+        courseName: cycle.course?.name,
+        branchName: cycle.branch?.name,
+        instructorName: cycle.instructor?.name,
+        type: cycle.type,
+        startDate: cycle.startDate,
+        totalMeetings: cycle.totalMeetings,
+        meetingRevenue: Number(cycle.meetingRevenue),
+      },
+      req,
+    });
+
     // Trigger Zoom webhook for online cycles
     if (cycle.isOnline) {
       // Run async - don't wait for it
@@ -354,6 +373,17 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     const id = uuidSchema.parse(req.params.id);
     const data = updateCycleSchema.parse(req.body);
 
+    // Get existing cycle for audit comparison
+    const existingCycle = await prisma.cycle.findUnique({
+      where: { id },
+      include: {
+        course: { select: { name: true } },
+        branch: { select: { name: true } },
+        instructor: { select: { name: true } },
+      },
+    });
+    if (!existingCycle) throw new AppError(404, 'Cycle not found');
+
     const updateData: any = { ...data };
     
     if (data.startDate) updateData.startDate = new Date(data.startDate);
@@ -363,12 +393,9 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
 
     // If totalMeetings or completedMeetings changed, recalculate remainingMeetings
     if (data.totalMeetings !== undefined || data.completedMeetings !== undefined) {
-      const existingCycle = await prisma.cycle.findUnique({ where: { id } });
-      if (existingCycle) {
-        const newTotal = data.totalMeetings ?? existingCycle.totalMeetings;
-        const newCompleted = data.completedMeetings ?? existingCycle.completedMeetings;
-        updateData.remainingMeetings = newTotal - newCompleted;
-      }
+      const newTotal = data.totalMeetings ?? existingCycle.totalMeetings;
+      const newCompleted = data.completedMeetings ?? existingCycle.completedMeetings;
+      updateData.remainingMeetings = newTotal - newCompleted;
     }
 
     // Check if we need to regenerate meetings
@@ -385,6 +412,47 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
         branch: { select: { id: true, name: true } },
         instructor: { select: { id: true, name: true } },
       },
+    });
+
+    // Audit log for cycle update
+    const oldRecord = {
+      name: existingCycle.name,
+      status: existingCycle.status,
+      type: existingCycle.type,
+      courseName: existingCycle.course?.name,
+      branchName: existingCycle.branch?.name,
+      instructorName: existingCycle.instructor?.name,
+      startDate: existingCycle.startDate,
+      endDate: existingCycle.endDate,
+      dayOfWeek: existingCycle.dayOfWeek,
+      totalMeetings: existingCycle.totalMeetings,
+      meetingRevenue: Number(existingCycle.meetingRevenue),
+      pricePerStudent: Number(existingCycle.pricePerStudent),
+      studentCount: existingCycle.studentCount,
+      activityType: existingCycle.activityType,
+    };
+    const newRecord = {
+      name: cycle.name,
+      status: cycle.status,
+      type: cycle.type,
+      courseName: cycle.course?.name,
+      branchName: cycle.branch?.name,
+      instructorName: cycle.instructor?.name,
+      startDate: cycle.startDate,
+      endDate: cycle.endDate,
+      dayOfWeek: cycle.dayOfWeek,
+      totalMeetings: cycle.totalMeetings,
+      meetingRevenue: Number(cycle.meetingRevenue),
+      pricePerStudent: Number(cycle.pricePerStudent),
+      studentCount: cycle.studentCount,
+      activityType: cycle.activityType,
+    };
+    await logUpdateAudit({
+      entity: 'Cycle',
+      entityId: id,
+      oldRecord,
+      newRecord,
+      req,
     });
 
     // If regenerateMeetings flag is set, delete all non-completed meetings and regenerate

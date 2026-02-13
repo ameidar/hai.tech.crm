@@ -3,7 +3,7 @@ import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { updateMeetingSchema, postponeMeetingSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
-import { logAudit } from '../utils/audit.js';
+import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { zoomService } from '../services/zoom.js';
 
 // Send WhatsApp alert for negative profit
@@ -606,18 +606,34 @@ meetingsRouter.put('/:id', async (req, res, next) => {
       },
     });
 
-    // Audit log for status changes
-    if (data.status && data.status !== existingMeeting.status) {
-      await logAudit({
-        userId: req.user?.userId,
-        action: 'UPDATE',
-        entity: 'Meeting',
-        entityId: meeting.id,
-        oldValue: { status: existingMeeting.status },
-        newValue: { status: data.status },
-        req,
-      });
-    }
+    // Audit log for meeting updates - capture all changed fields
+    const auditOldRecord = {
+      status: existingMeeting.status,
+      scheduledDate: existingMeeting.scheduledDate,
+      startTime: existingMeeting.startTime,
+      endTime: existingMeeting.endTime,
+      instructorId: existingMeeting.instructorId,
+      activityType: existingMeeting.activityType,
+      topic: existingMeeting.topic,
+      notes: existingMeeting.notes,
+    };
+    const auditNewRecord = {
+      status: meeting.status,
+      scheduledDate: meeting.scheduledDate,
+      startTime: meeting.startTime,
+      endTime: meeting.endTime,
+      instructorId: meeting.instructorId,
+      activityType: meeting.activityType,
+      topic: meeting.topic,
+      notes: meeting.notes,
+    };
+    await logUpdateAudit({
+      entity: 'Meeting',
+      entityId: meeting.id,
+      oldRecord: auditOldRecord,
+      newRecord: auditNewRecord,
+      req,
+    });
 
     res.json(meeting);
   } catch (error) {

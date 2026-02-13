@@ -5,6 +5,7 @@ import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createInstructorSchema, updateInstructorSchema, uuidSchema } from '../types/schemas.js';
 import { parsePaginationParams, paginatedResponse } from '../utils/pagination.js';
+import { logAudit, logUpdateAudit } from '../utils/audit.js';
 
 export const instructorsRouter = Router();
 
@@ -104,6 +105,23 @@ instructorsRouter.post('/', managerOrAdmin, async (req, res, next) => {
       },
     });
 
+    // Audit log
+    await logAudit({
+      action: 'CREATE',
+      entity: 'Instructor',
+      entityId: instructor.id,
+      newValue: {
+        name: instructor.name,
+        phone: instructor.phone,
+        email: instructor.email,
+        rateFrontal: Number(instructor.rateFrontal),
+        rateOnline: Number(instructor.rateOnline),
+        employmentType: instructor.employmentType,
+        isActive: instructor.isActive,
+      },
+      req,
+    });
+
     res.status(201).json(instructor);
   } catch (error) {
     next(error);
@@ -116,9 +134,42 @@ instructorsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     const id = uuidSchema.parse(req.params.id);
     const data = updateInstructorSchema.parse(req.body);
 
+    // Get existing instructor for audit
+    const existingInstructor = await prisma.instructor.findUnique({ where: { id } });
+    if (!existingInstructor) throw new AppError(404, 'Instructor not found');
+
     const instructor = await prisma.instructor.update({
       where: { id },
       data,
+    });
+
+    // Audit log
+    const oldRecord = {
+      name: existingInstructor.name,
+      phone: existingInstructor.phone,
+      email: existingInstructor.email,
+      rateFrontal: Number(existingInstructor.rateFrontal),
+      rateOnline: Number(existingInstructor.rateOnline),
+      ratePrivate: Number(existingInstructor.ratePrivate),
+      employmentType: existingInstructor.employmentType,
+      isActive: existingInstructor.isActive,
+    };
+    const newRecord = {
+      name: instructor.name,
+      phone: instructor.phone,
+      email: instructor.email,
+      rateFrontal: Number(instructor.rateFrontal),
+      rateOnline: Number(instructor.rateOnline),
+      ratePrivate: Number(instructor.ratePrivate),
+      employmentType: instructor.employmentType,
+      isActive: instructor.isActive,
+    };
+    await logUpdateAudit({
+      entity: 'Instructor',
+      entityId: id,
+      oldRecord,
+      newRecord,
+      req,
     });
 
     res.json(instructor);
@@ -131,6 +182,10 @@ instructorsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
 instructorsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
+
+    // Get instructor for audit
+    const instructor = await prisma.instructor.findUnique({ where: { id } });
+    if (!instructor) throw new AppError(404, 'Instructor not found');
 
     // Check for active cycles
     const activeCycles = await prisma.cycle.count({
@@ -158,6 +213,22 @@ instructorsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
     if (cyclesCount > 0) {
       throw new AppError(400, `לא ניתן למחוק מדריך עם ${cyclesCount} מחזורים במערכת. יש להעביר את המחזורים למדריך אחר קודם`);
     }
+
+    // Audit log before delete
+    await logAudit({
+      action: 'DELETE',
+      entity: 'Instructor',
+      entityId: id,
+      oldValue: {
+        name: instructor.name,
+        phone: instructor.phone,
+        email: instructor.email,
+        rateFrontal: Number(instructor.rateFrontal),
+        rateOnline: Number(instructor.rateOnline),
+        employmentType: instructor.employmentType,
+      },
+      req,
+    });
 
     await prisma.instructor.delete({
       where: { id },
@@ -325,8 +396,9 @@ instructorsRouter.post('/:id/invite', managerOrAdmin, async (req, res, next) => 
       },
     });
 
-    // Generate invite URL
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
+    // Generate invite URL (don't use "*" which is for CORS)
+    const envUrl = process.env.FRONTEND_URL;
+    const baseUrl = (envUrl && envUrl !== '*') ? envUrl : 'http://129.159.133.209:3002';
     const inviteUrl = `${baseUrl}/invite/${inviteToken}`;
 
     res.json({
@@ -381,8 +453,9 @@ instructorsRouter.post('/:id/reset-password', managerOrAdmin, async (req, res, n
       },
     });
 
-    // Generate reset URL
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
+    // Generate reset URL (don't use "*" which is for CORS)
+    const envUrl = process.env.FRONTEND_URL;
+    const baseUrl = (envUrl && envUrl !== '*') ? envUrl : 'http://129.159.133.209:3002';
     const resetUrl = `${baseUrl}/reset-password/${resetToken}`;
 
     res.json({

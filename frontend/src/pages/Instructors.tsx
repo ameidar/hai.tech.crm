@@ -11,28 +11,31 @@ import SendMessageModal from '../components/SendMessageModal';
 import type { Instructor } from '../types';
 
 export default function Instructors() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingInstructor, setEditingInstructor] = useState<Instructor | null>(null);
   const [inviteModal, setInviteModal] = useState<{ instructor: Instructor; url: string } | null>(null);
   const [resetPasswordModal, setResetPasswordModal] = useState<{ instructor: Instructor; url: string } | null>(null);
   const [messageInstructor, setMessageInstructor] = useState<Instructor | null>(null);
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<Instructor | null>(null);
-  const [searchFilter, setSearchFilter] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showBulkEditModal, setShowBulkEditModal] = useState(false);
   const [bulkEmploymentType, setBulkEmploymentType] = useState<'freelancer' | 'employee'>('freelancer');
 
+  // Read search from URL
+  const searchFilter = searchParams.get('search') || '';
+  const setSearchFilter = (value: string) => {
+    const newParams = new URLSearchParams(searchParams);
+    if (value) {
+      newParams.set('search', value);
+    } else {
+      newParams.delete('search');
+    }
+    setSearchParams(newParams, { replace: true });
+  };
+
   const { data: instructors, isLoading } = useInstructors();
   const bulkUpdate = useBulkUpdateInstructors();
-
-  // Initialize search from URL params
-  useEffect(() => {
-    const search = searchParams.get('search');
-    if (search) {
-      setSearchFilter(search);
-    }
-  }, [searchParams]);
 
   // Filter instructors
   const filteredInstructors = instructors?.filter((instructor) => {

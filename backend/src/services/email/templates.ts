@@ -1,0 +1,301 @@
+// Email template types
+export type TemplateId = 
+  | 'instructor-reminder'
+  | 'parent-reminder'
+  | 'management-summary'
+  | 'newsletter';
+
+// Template data interfaces
+export interface InstructorReminderData {
+  instructorName: string;
+  className: string;
+  date: string;
+  time: string;
+  location: string;
+  studentCount: number;
+  zoomLink?: string;
+}
+
+export interface ParentReminderData {
+  parentName: string;
+  studentName: string;
+  className: string;
+  date: string;
+  time: string;
+  location: string;
+  instructorName: string;
+  isOnline: boolean;
+  zoomLink?: string;
+}
+
+export interface ManagementSummaryData {
+  date: string;
+  totalClasses: number;
+  completedClasses: number;
+  cancelledClasses: number;
+  totalStudents: number;
+  attendanceRate: number;
+  upcomingClasses: Array<{
+    name: string;
+    date: string;
+    instructor: string;
+    students: number;
+  }>;
+  alerts: string[];
+}
+
+export interface NewsletterData {
+  title: string;
+  content: string;
+  ctaText?: string;
+  ctaLink?: string;
+}
+
+// Common styles
+const baseStyles = `
+  <style>
+    body { font-family: Arial, 'Helvetica Neue', sans-serif; line-height: 1.6; color: #1f2937; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+    .header { background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+    .header h1 { margin: 0; font-size: 24px; }
+    .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+    .footer { background: #f9fafb; padding: 20px; text-align: center; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; border-top: none; }
+    .btn { display: inline-block; background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; }
+    .btn:hover { background: #1d4ed8; }
+    .info-box { background: #eff6ff; border-right: 4px solid #2563eb; padding: 15px; margin: 15px 0; border-radius: 4px; }
+    .alert { background: #fef2f2; border-right: 4px solid #ef4444; padding: 15px; margin: 10px 0; border-radius: 4px; color: #991b1b; }
+    .success { background: #f0fdf4; border-right: 4px solid #22c55e; padding: 15px; margin: 10px 0; border-radius: 4px; color: #166534; }
+    table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+    th, td { padding: 12px; text-align: right; border-bottom: 1px solid #e5e7eb; }
+    th { background: #f9fafb; font-weight: bold; }
+  </style>
+`;
+
+// Instructor reminder template (24h before class)
+export const instructorReminderTemplate = (data: InstructorReminderData): string => `
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="UTF-8">
+  ${baseStyles}
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🎓 תזכורת שיעור - מחר</h1>
+    </div>
+    <div class="content">
+      <p>שלום ${data.instructorName},</p>
+      <p>זוהי תזכורת לשיעור שמתקיים <strong>מחר</strong>:</p>
+      
+      <div class="info-box">
+        <p><strong>📚 קורס:</strong> ${data.className}</p>
+        <p><strong>📅 תאריך:</strong> ${data.date}</p>
+        <p><strong>🕐 שעה:</strong> ${data.time}</p>
+        <p><strong>📍 מיקום:</strong> ${data.location}</p>
+        <p><strong>👥 מספר תלמידים:</strong> ${data.studentCount}</p>
+      </div>
+      
+      ${data.zoomLink ? `
+      <div class="success">
+        <p><strong>🔗 קישור לזום:</strong></p>
+        <p><a href="${data.zoomLink}" class="btn">כניסה לשיעור</a></p>
+      </div>
+      ` : ''}
+      
+      <p>אנא וודא/י שהכל מוכן לשיעור. בהצלחה! 🌟</p>
+    </div>
+    <div class="footer">
+      <p style="color: #6b7280; font-size: 12px;">
+        HaiTech - בית הספר לקוד<br>
+        מייל זה נשלח אוטומטית
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+// Parent reminder template (day before)
+export const parentReminderTemplate = (data: ParentReminderData): string => `
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="UTF-8">
+  ${baseStyles}
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📚 תזכורת שיעור - ${data.studentName}</h1>
+    </div>
+    <div class="content">
+      <p>שלום ${data.parentName},</p>
+      <p>תזכורת ל-${data.studentName} - יש שיעור <strong>מחר</strong>:</p>
+      
+      <div class="info-box">
+        <p><strong>📚 קורס:</strong> ${data.className}</p>
+        <p><strong>📅 תאריך:</strong> ${data.date}</p>
+        <p><strong>🕐 שעה:</strong> ${data.time}</p>
+        <p><strong>📍 מיקום:</strong> ${data.isOnline ? 'שיעור אונליין (זום)' : data.location}</p>
+        <p><strong>👨‍🏫 מדריך/ה:</strong> ${data.instructorName}</p>
+      </div>
+      
+      ${data.isOnline && data.zoomLink ? `
+      <div class="success">
+        <p><strong>🔗 קישור לשיעור:</strong></p>
+        <p><a href="${data.zoomLink}" class="btn">כניסה לזום</a></p>
+        <p style="font-size: 12px; color: #6b7280;">מומלץ להיכנס 5 דקות לפני תחילת השיעור</p>
+      </div>
+      ` : ''}
+      
+      <p>נשמח לראות את ${data.studentName} בשיעור! 🚀</p>
+    </div>
+    <div class="footer">
+      <p style="color: #6b7280; font-size: 12px;">
+        HaiTech - בית הספר לקוד<br>
+        לשאלות: info@hai.tech
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+// Management daily summary template
+export const managementSummaryTemplate = (data: ManagementSummaryData): string => `
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="UTF-8">
+  ${baseStyles}
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📊 סיכום יומי - ${data.date}</h1>
+    </div>
+    <div class="content">
+      <h2>סטטיסטיקות היום</h2>
+      
+      <table>
+        <tr>
+          <th>מדד</th>
+          <th>ערך</th>
+        </tr>
+        <tr>
+          <td>סה"כ שיעורים</td>
+          <td><strong>${data.totalClasses}</strong></td>
+        </tr>
+        <tr>
+          <td>שיעורים שהתקיימו</td>
+          <td style="color: #16a34a;">${data.completedClasses}</td>
+        </tr>
+        <tr>
+          <td>שיעורים שבוטלו</td>
+          <td style="color: #dc2626;">${data.cancelledClasses}</td>
+        </tr>
+        <tr>
+          <td>תלמידים שהשתתפו</td>
+          <td>${data.totalStudents}</td>
+        </tr>
+        <tr>
+          <td>אחוז נוכחות</td>
+          <td><strong>${data.attendanceRate}%</strong></td>
+        </tr>
+      </table>
+      
+      ${data.alerts.length > 0 ? `
+      <h2>⚠️ התראות</h2>
+      ${data.alerts.map(alert => `<div class="alert">${alert}</div>`).join('')}
+      ` : '<div class="success">✅ אין התראות להיום</div>'}
+      
+      ${data.upcomingClasses.length > 0 ? `
+      <h2>📅 שיעורים קרובים</h2>
+      <table>
+        <tr>
+          <th>קורס</th>
+          <th>תאריך</th>
+          <th>מדריך</th>
+          <th>תלמידים</th>
+        </tr>
+        ${data.upcomingClasses.map(cls => `
+        <tr>
+          <td>${cls.name}</td>
+          <td>${cls.date}</td>
+          <td>${cls.instructor}</td>
+          <td>${cls.students}</td>
+        </tr>
+        `).join('')}
+      </table>
+      ` : ''}
+      
+    </div>
+    <div class="footer">
+      <p style="color: #6b7280; font-size: 12px;">
+        HaiTech CRM - דוח אוטומטי<br>
+        ${new Date().toLocaleString('he-IL')}
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+// Newsletter/announcement template
+export const newsletterTemplate = (data: NewsletterData): string => `
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="UTF-8">
+  ${baseStyles}
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📣 ${data.title}</h1>
+    </div>
+    <div class="content">
+      ${data.content}
+      
+      ${data.ctaText && data.ctaLink ? `
+      <div style="text-align: center; margin-top: 30px;">
+        <a href="${data.ctaLink}" class="btn">${data.ctaText}</a>
+      </div>
+      ` : ''}
+    </div>
+    <div class="footer">
+      <p style="color: #6b7280; font-size: 12px;">
+        HaiTech - בית הספר לקוד<br>
+        <a href="https://hai.tech" style="color: #2563eb;">www.hai.tech</a>
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+// Template registry
+export const templates: Record<TemplateId, (data: any) => string> = {
+  'instructor-reminder': instructorReminderTemplate,
+  'parent-reminder': parentReminderTemplate,
+  'management-summary': managementSummaryTemplate,
+  'newsletter': newsletterTemplate,
+};
+
+// Get template by ID
+export const getTemplate = (templateId: TemplateId, data: any): string => {
+  const template = templates[templateId];
+  if (!template) {
+    throw new Error(`Template not found: ${templateId}`);
+  }
+  return template(data);
+};
+
+// List available templates
+export const listTemplates = () => [
+  { id: 'instructor-reminder', name: 'תזכורת למדריך', description: 'תזכורת 24 שעות לפני שיעור' },
+  { id: 'parent-reminder', name: 'תזכורת להורים', description: 'תזכורת יום לפני שיעור' },
+  { id: 'management-summary', name: 'סיכום יומי להנהלה', description: 'דוח סטטיסטי יומי' },
+  { id: 'newsletter', name: 'ניוזלטר / הודעה', description: 'הודעה כללית או פרסום' },
+];

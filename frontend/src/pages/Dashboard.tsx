@@ -157,6 +157,7 @@ export default function Dashboard() {
                 lightGradient="from-blue-50 to-blue-100"
                 trend="+12%"
                 trendUp={true}
+                link="/cycles"
               />
               <KPICard
                 title="לקוחות"
@@ -166,6 +167,7 @@ export default function Dashboard() {
                 lightGradient="from-emerald-50 to-teal-100"
                 trend="+8%"
                 trendUp={true}
+                link="/customers"
               />
               <KPICard
                 title="מדריכים פעילים"
@@ -175,6 +177,7 @@ export default function Dashboard() {
                 lightGradient="from-violet-50 to-purple-100"
                 trend="+3"
                 trendUp={true}
+                link="/instructors"
               />
               <KPICard
                 title="פגישות היום"
@@ -183,6 +186,7 @@ export default function Dashboard() {
                 gradient="from-orange-500 to-amber-500"
                 lightGradient="from-orange-50 to-amber-100"
                 subtext={stats ? `${stats.completed} הושלמו` : undefined}
+                link="/meetings"
               />
             </div>
 
@@ -471,11 +475,12 @@ interface KPICardProps {
   trend?: string;
   trendUp?: boolean;
   subtext?: string;
+  link?: string;
 }
 
-function KPICard({ title, value, icon, gradient, lightGradient, trend, trendUp, subtext }: KPICardProps) {
-  return (
-    <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${lightGradient} p-6 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg group`}>
+function KPICard({ title, value, icon, gradient, lightGradient, trend, trendUp, subtext, link }: KPICardProps) {
+  const content = (
+    <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${lightGradient} p-6 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg group cursor-pointer`}>
       {/* Background decoration */}
       <div className={`absolute -left-4 -top-4 w-24 h-24 rounded-full bg-gradient-to-br ${gradient} opacity-10 blur-2xl group-hover:opacity-20 transition-opacity duration-300`} />
       
@@ -501,6 +506,11 @@ function KPICard({ title, value, icon, gradient, lightGradient, trend, trendUp, 
       </div>
     </div>
   );
+
+  if (link) {
+    return <Link to={link}>{content}</Link>;
+  }
+  return content;
 }
 
 // Financial Summary Card

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Plus, Search, Phone, Mail, MapPin, Users, Trash2 } from 'lucide-react';
 import { useCustomers, useCreateCustomer, useDeleteCustomer } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
@@ -10,8 +10,20 @@ import ViewSelector from '../components/ViewSelector';
 import type { Customer } from '../types';
 
 export default function Customers() {
-  const [search, setSearch] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
   const [showAddModal, setShowAddModal] = useState(false);
+  
+  // Read search from URL
+  const search = searchParams.get('search') || '';
+  const setSearch = (value: string) => {
+    const newParams = new URLSearchParams(searchParams);
+    if (value) {
+      newParams.set('search', value);
+    } else {
+      newParams.delete('search');
+    }
+    setSearchParams(newParams, { replace: true });
+  };
 
   const { data: customers, isLoading } = useCustomers({ search });
   const createCustomer = useCreateCustomer();

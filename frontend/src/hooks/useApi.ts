@@ -975,5 +975,62 @@ export const useInstructorMeetings = (instructorId: string | undefined, date: st
   });
 };
 
+// ==================== Forecast ====================
+
+interface MonthlyData {
+  month: string;
+  monthName: string;
+  revenue: number;
+  instructorPayments: number;
+  cycleExpenses: number;
+  meetingExpenses: number;
+  totalExpenses: number;
+  profit: number;
+  meetingCount: number;
+  isHistorical: boolean;
+}
+
+interface ExpensePattern {
+  cycleId: string;
+  cycleName: string;
+  type: string;
+  description: string | null;
+  avgAmount: number;
+  frequency: number;
+  months: string[];
+}
+
+interface ForecastSummary {
+  avgMonthlyRevenue: number;
+  avgMonthlyExpenses: number;
+  avgMonthlyProfit: number;
+  revenueStdDev: number;
+  expensesStdDev: number;
+  profitStdDev: number;
+  forecastConfidence: number;
+}
+
+interface ForecastResult {
+  historical: MonthlyData[];
+  forecast: MonthlyData[];
+  patterns: ExpensePattern[];
+  summary: ForecastSummary;
+}
+
+export const useForecast = (historicalMonths = 6, forecastMonths = 3) => {
+  return useQuery({
+    queryKey: ['forecast', historicalMonths, forecastMonths],
+    queryFn: () => fetchData<ForecastResult>(`/forecast?historicalMonths=${historicalMonths}&forecastMonths=${forecastMonths}`),
+  });
+};
+
+export const useCycleForecast = (cycleId: string, forecastMonths = 3) => {
+  return useQuery({
+    queryKey: ['cycle-forecast', cycleId, forecastMonths],
+    queryFn: () => fetchData<any>(`/forecast/cycle/${cycleId}?forecastMonths=${forecastMonths}`),
+    enabled: !!cycleId,
+  });
+};
+
 // Re-export api for direct use in components
 export { api };

@@ -28,6 +28,7 @@ import { instructorMagicRouter } from './routes/instructor-magic.js';
 import { parentAppRouter } from './routes/parent-app.js';
 import { messagingRouter } from './routes/messaging.js';
 import expensesRouter from './routes/expenses.js';
+import { forecastRouter } from './routes/forecast.js';
 
 const app = express();
 
@@ -159,6 +160,7 @@ app.use('/api/zoom-webhook', zoomWebhookRouter);
 app.use('/api/instructor-magic', instructorMagicRouter);
 app.use('/api/parent', parentAppRouter); // Parent mobile app API
 app.use('/api/expenses', expensesRouter); // Expense tracking
+app.use('/api/forecast', forecastRouter); // Financial forecasting
 
 // Error handling for API routes
 app.use('/api', errorHandler);

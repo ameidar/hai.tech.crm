@@ -28,6 +28,9 @@ import { instructorMagicRouter } from './routes/instructor-magic.js';
 import { parentAppRouter } from './routes/parent-app.js';
 import { messagingRouter } from './routes/messaging.js';
 import expensesRouter from './routes/expenses.js';
+import { emailRouter } from './routes/email.js';
+import { initEmailQueue } from './services/email/queue.js';
+import { initEmailScheduler } from './services/email/scheduler.js';
 
 const app = express();
 
@@ -159,6 +162,7 @@ app.use('/api/zoom-webhook', zoomWebhookRouter);
 app.use('/api/instructor-magic', instructorMagicRouter);
 app.use('/api/parent', parentAppRouter); // Parent mobile app API
 app.use('/api/expenses', expensesRouter); // Expense tracking
+app.use('/api/email', emailRouter); // Email service
 
 // Error handling for API routes
 app.use('/api', errorHandler);
@@ -201,6 +205,10 @@ const start = async () => {
     // Test database connection
     await prisma.$connect();
     console.log('✅ Database connected');
+
+    // Initialize email services
+    initEmailQueue();
+    initEmailScheduler();
 
     app.listen(config.port, () => {
       console.log(`🚀 HaiTech CRM API running on port ${config.port}`);

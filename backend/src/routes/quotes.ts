@@ -11,6 +11,7 @@ import {
   generateContentPreview,
   convertToOrder,
 } from '../services/quotes.service.js';
+import { sendEmail } from '../services/email/sender.js';
 
 export const quotesRouter = Router();
 
@@ -76,12 +77,69 @@ quotesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
   }
 });
 
-// Send quote (update status to sent)
+// Send quote (send email + update status to sent)
 quotesRouter.post('/:id/send', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
-    const quote = await updateQuote(id, { status: 'sent' });
-    res.json(quote);
+    const quote = await getQuoteById(id);
+    if (!quote) {
+      return res.status(404).json({ error: 'הצעה לא נמצאה' });
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3002';
+    const publicUrl = `${frontendUrl}/public/quote/${id}`;
+    let emailSent = false;
+
+    if (quote.contactEmail) {
+      const itemsSummary = (quote.items || [])
+        .map((item: any) => `<li style="padding:4px 0;">${item.courseName || 'שירות'} — ₪${Number(item.subtotal).toLocaleString()}</li>`)
+        .join('');
+
+      const finalAmount = Number(quote.finalAmount || quote.totalAmount || 0);
+
+      const html = `
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head><meta charset="UTF-8"></head>
+<body style="font-family:Arial,sans-serif;margin:0;padding:0;background:#f3f4f6;">
+  <div style="max-width:600px;margin:0 auto;padding:20px;">
+    <div style="background:linear-gradient(135deg,#2563eb 0%,#06b6d4 100%);color:white;padding:30px;text-align:center;border-radius:12px 12px 0 0;">
+      <h1 style="margin:0;font-size:28px;">דרך ההייטק</h1>
+      <p style="margin:8px 0 0;opacity:0.9;font-size:14px;">חינוך טכנולוגי מתקדם</p>
+    </div>
+    <div style="background:white;padding:30px;border:1px solid #e5e7eb;">
+      <p style="font-size:18px;color:#1f2937;">שלום ${quote.contactName},</p>
+      <p style="color:#4b5563;">שמחים לשלוח לך את הצעת המחיר שהכנו עבור <strong>${quote.institutionName}</strong>.</p>
+      
+      <div style="background:#f0f9ff;border-right:4px solid #2563eb;padding:15px;margin:20px 0;border-radius:4px;">
+        <p style="margin:0 0 8px;font-weight:bold;color:#1e40af;">סיכום ההצעה:</p>
+        <ul style="margin:0;padding:0 20px;color:#374151;">${itemsSummary}</ul>
+        <p style="margin:12px 0 0;font-size:20px;font-weight:bold;color:#059669;">סה״כ: ₪${finalAmount.toLocaleString()}</p>
+      </div>
+
+      <div style="text-align:center;margin:30px 0;">
+        <a href="${publicUrl}" style="display:inline-block;background:linear-gradient(135deg,#2563eb,#06b6d4);color:white;padding:14px 40px;text-decoration:none;border-radius:8px;font-size:18px;font-weight:bold;">צפו בהצעה המלאה</a>
+      </div>
+
+      <p style="color:#6b7280;font-size:13px;">אם יש לכם שאלות, אנחנו כאן בשבילכם.</p>
+    </div>
+    <div style="background:#f9fafb;padding:20px;text-align:center;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none;">
+      <p style="color:#9ca3af;font-size:12px;margin:0;">דרך ההייטק — חינוך טכנולוגי מתקדם<br>info@hai.tech | 03-1234567</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+      const result = await sendEmail({
+        to: quote.contactEmail,
+        subject: `הצעת מחיר ${quote.quoteNumber} — דרך ההייטק`,
+        html,
+      });
+      emailSent = result.success;
+    }
+
+    const updated = await updateQuote(id, { status: 'sent' });
+    res.json({ ...updated, emailSent });
   } catch (error) {
     next(error);
   }

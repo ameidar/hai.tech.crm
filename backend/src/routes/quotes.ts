@@ -184,13 +184,45 @@ quotesRouter.post('/:id/generate-video', managerOrAdmin, async (req, res, next) 
     const id = uuidSchema.parse(req.params.id);
     const quote = await getQuoteById(id);
 
+    // Extract content from AI-generated text
+    const contentStr = typeof quote.content === 'string' ? quote.content : JSON.stringify(quote.content || '');
+    
+    // Extract highlights: lines starting with - or * that look like bullet points
+    const highlights: string[] = [];
+    const lines = contentStr.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if ((trimmed.startsWith('- ') || trimmed.startsWith('* ') || trimmed.startsWith('• ')) && trimmed.length > 10 && trimmed.length < 100) {
+        highlights.push(trimmed.replace(/^[-*•]\s*\*?\*?/, '').replace(/\*\*$/,'').trim());
+        if (highlights.length >= 4) break;
+      }
+    }
+
+    // Extract about text (first paragraph after intro header)
+    let aboutText = '';
+    const aboutMatch = contentStr.match(/(?:מבוא|על דרך|אודות)[^\n]*\n+([^\n#]{30,200})/);
+    if (aboutMatch) aboutText = aboutMatch[1].replace(/\*\*/g, '').trim();
+
+    // Extract closing text
+    let closingText = '';
+    const closingMatch = contentStr.match(/(?:סיכום|לסיכום|נשמח)[^\n]*?([^.!?\n]{15,50}[.!?])/);
+    if (closingMatch) closingText = closingMatch[1].replace(/\*\*/g, '').trim();
+
     const props = {
       institutionName: quote.institutionName,
       items: (quote.items || []).map((item: any) => ({
         courseName: item.courseName || 'שירות',
         type: (item.groups === 1 && item.meetingsPerGroup === 1 && item.description) ? 'project' : 'education',
+        description: item.description || undefined,
       })),
       totalAmount: Number(quote.finalAmount || quote.totalAmount || 0),
+      highlights: highlights.length > 0 ? highlights : [
+        'צוות מדריכים מקצועי ומנוסה',
+        'תוכניות מותאמות אישית',
+        'ניסיון עשיר בחינוך טכנולוגי',
+      ],
+      aboutText: aboutText || 'דרך ההייטק מתמחה בהכשרות טכנולוגיות ו-AI לבתי ספר וארגונים',
+      closingText: closingText || undefined,
     };
 
     setRenderStatus(id, 'rendering');

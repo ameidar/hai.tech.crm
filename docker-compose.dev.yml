@@ -31,6 +31,9 @@ services:
       ZOOM_CLIENT_SECRET: ${ZOOM_CLIENT_SECRET}
       ZOOM_SECRET_TOKEN: ${ZOOM_SECRET_TOKEN}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      VIDEO_RENDER_URL: http://172.17.0.1:3099
+    volumes:
+      - /tmp/quote-videos:/tmp/quote-videos
     ports:
       - "3002:3002"
     healthcheck:

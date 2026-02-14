@@ -24,13 +24,20 @@ interface InstitutionData {
   branchId: string;
 }
 
+type ItemType = 'education' | 'project';
+
 interface CourseItem {
+  type: ItemType;
   courseId: string;
   courseName: string;
+  description: string;
+  // Education fields
   groupsCount: number;
   meetingsPerGroup: number;
   durationMinutes: number;
   pricePerMeeting: number;
+  // Project fields
+  totalPrice: number;
 }
 
 export default function QuoteWizard() {
@@ -76,7 +83,7 @@ export default function QuoteWizard() {
 
   // Calculate totals
   const calculateSubtotal = (item: CourseItem) =>
-    item.groupsCount * item.meetingsPerGroup * item.pricePerMeeting;
+    item.type === 'project' ? item.totalPrice : item.groupsCount * item.meetingsPerGroup * item.pricePerMeeting;
 
   const subtotal = courseItems.reduce((sum, item) => sum + calculateSubtotal(item), 0);
   const discountAmount = (subtotal * discount) / 100;
@@ -85,7 +92,11 @@ export default function QuoteWizard() {
   // Validation
   const isStep1Valid = institution.institutionName && institution.contactName;
   const isStep2Valid = courseItems.length > 0 && courseItems.every(
-    (item) => (item.courseId || item.courseName) && item.groupsCount > 0 && item.meetingsPerGroup > 0 && item.pricePerMeeting > 0
+    (item) => {
+      if (!item.courseId && !item.courseName) return false;
+      if (item.type === 'project') return item.totalPrice > 0;
+      return item.groupsCount > 0 && item.meetingsPerGroup > 0 && item.pricePerMeeting > 0;
+    }
   );
 
   const canProceed = () => {
@@ -111,14 +122,17 @@ export default function QuoteWizard() {
     }
   };
 
-  const addCourseItem = () => {
+  const addCourseItem = (type: ItemType = 'education') => {
     setCourseItems([...courseItems, {
+      type,
       courseId: '',
       courseName: '',
+      description: '',
       groupsCount: 1,
       meetingsPerGroup: 12,
       durationMinutes: 90,
       pricePerMeeting: 0,
+      totalPrice: 0,
     }]);
   };
 
@@ -145,11 +159,13 @@ export default function QuoteWizard() {
         institutionName: institution.institutionName,
         contactName: institution.contactName,
         items: courseItems.map((item) => ({
+          type: item.type,
           courseName: item.courseName,
-          groupsCount: item.groupsCount,
-          meetingsPerGroup: item.meetingsPerGroup,
+          description: item.description,
+          groupsCount: item.type === 'project' ? 1 : item.groupsCount,
+          meetingsPerGroup: item.type === 'project' ? 1 : item.meetingsPerGroup,
           durationMinutes: item.durationMinutes,
-          pricePerMeeting: item.pricePerMeeting,
+          pricePerMeeting: item.type === 'project' ? item.totalPrice : item.pricePerMeeting,
           subtotal: calculateSubtotal(item),
         })),
       });
@@ -173,10 +189,12 @@ export default function QuoteWizard() {
       items: courseItems.map((item) => ({
         courseId: item.courseId || undefined,
         courseName: item.courseName,
-        groupsCount: item.groupsCount,
-        meetingsPerGroup: item.meetingsPerGroup,
+        description: item.description || undefined,
+        type: item.type,
+        groupsCount: item.type === 'project' ? 1 : item.groupsCount,
+        meetingsPerGroup: item.type === 'project' ? 1 : item.meetingsPerGroup,
         durationMinutes: item.durationMinutes,
-        pricePerMeeting: item.pricePerMeeting,
+        pricePerMeeting: item.type === 'project' ? item.totalPrice : item.pricePerMeeting,
       })),
       discount,
       generatedContent: generatedContent || undefined,
@@ -316,27 +334,44 @@ export default function QuoteWizard() {
               {currentStep === 2 && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold">בחירת קורסים</h3>
-                    <button onClick={addCourseItem} className="btn btn-primary text-sm">
-                      <Plus size={16} />
-                      הוסף קורס
-                    </button>
+                    <h3 className="text-lg font-semibold">פריטי ההצעה</h3>
+                    <div className="flex gap-2">
+                      <button onClick={() => addCourseItem('education')} className="btn btn-primary text-sm">
+                        <Plus size={16} />
+                        הדרכה / קורס
+                      </button>
+                      <button onClick={() => addCourseItem('project')} className="btn btn-secondary text-sm">
+                        <Plus size={16} />
+                        פרויקט / שירות
+                      </button>
+                    </div>
                   </div>
 
                   {courseItems.length === 0 ? (
                     <div className="text-center py-12 text-gray-500">
-                      <p className="mb-4">לא נבחרו קורסים</p>
-                      <button onClick={addCourseItem} className="btn btn-primary">
-                        <Plus size={16} />
-                        הוסף קורס ראשון
-                      </button>
+                      <p className="mb-4">לא נוספו פריטים</p>
+                      <div className="flex gap-3 justify-center">
+                        <button onClick={() => addCourseItem('education')} className="btn btn-primary">
+                          <Plus size={16} />
+                          הדרכה / קורס
+                        </button>
+                        <button onClick={() => addCourseItem('project')} className="btn btn-secondary">
+                          <Plus size={16} />
+                          פרויקט / שירות
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div className="space-y-4">
                       {courseItems.map((item, index) => (
-                        <div key={index} className="border border-gray-200 rounded-lg p-4">
+                        <div key={index} className={`border rounded-lg p-4 ${item.type === 'project' ? 'border-purple-200 bg-purple-50/30' : 'border-gray-200'}`}>
                           <div className="flex items-center justify-between mb-3">
-                            <h4 className="font-medium text-gray-700">קורס {index + 1}</h4>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${item.type === 'project' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                                {item.type === 'project' ? 'פרויקט / שירות' : 'הדרכה / קורס'}
+                              </span>
+                              <h4 className="font-medium text-gray-700">פריט {index + 1}</h4>
+                            </div>
                             <button
                               onClick={() => removeCourseItem(index)}
                               className="icon-btn icon-btn-danger"
@@ -345,21 +380,24 @@ export default function QuoteWizard() {
                               <Trash2 size={16} />
                             </button>
                           </div>
-                          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-                            <div className="col-span-2 md:col-span-2">
-                              <label className="form-label text-xs">קורס / נושא *</label>
+
+                          {/* Course/Topic name - shared */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                            <div>
+                              <label className="form-label text-xs">{item.type === 'project' ? 'שם השירות / פרויקט *' : 'קורס / נושא *'}</label>
                               <div className="flex gap-2">
-                                <select
-                                  value={item.courseId}
-                                  onChange={(e) => updateCourseItem(index, 'courseId', e.target.value)}
-                                  className="form-input text-sm flex-1"
-                                >
-                                  <option value="">בחר מהרשימה (אופציונלי)</option>
-                                  {courses?.map((course) => (
-                                    <option key={course.id} value={course.id}>{course.name}</option>
-                                  ))}
-                                </select>
-                                <span className="self-center text-xs text-gray-400">או</span>
+                                {item.type === 'education' && (
+                                  <select
+                                    value={item.courseId}
+                                    onChange={(e) => updateCourseItem(index, 'courseId', e.target.value)}
+                                    className="form-input text-sm flex-1"
+                                  >
+                                    <option value="">בחר מהרשימה</option>
+                                    {courses?.map((course) => (
+                                      <option key={course.id} value={course.id}>{course.name}</option>
+                                    ))}
+                                  </select>
+                                )}
                                 <input
                                   type="text"
                                   value={!item.courseId ? item.courseName : ''}
@@ -369,53 +407,83 @@ export default function QuoteWizard() {
                                     setCourseItems(updated);
                                   }}
                                   className="form-input text-sm flex-1"
-                                  placeholder="הזן נושא חופשי"
+                                  placeholder={item.type === 'project' ? 'לדוגמה: הטמעת AI לארגון' : 'או הזן נושא חופשי'}
                                   disabled={!!item.courseId}
                                 />
                               </div>
                             </div>
                             <div>
-                              <label className="form-label text-xs">קבוצות *</label>
+                              <label className="form-label text-xs">תיאור (אופציונלי)</label>
                               <input
-                                type="number"
-                                value={item.groupsCount}
-                                onChange={(e) => updateCourseItem(index, 'groupsCount', Number(e.target.value))}
+                                type="text"
+                                value={item.description}
+                                onChange={(e) => updateCourseItem(index, 'description', e.target.value)}
                                 className="form-input text-sm"
-                                min="1"
-                              />
-                            </div>
-                            <div>
-                              <label className="form-label text-xs">מפגשים לקבוצה *</label>
-                              <input
-                                type="number"
-                                value={item.meetingsPerGroup}
-                                onChange={(e) => updateCourseItem(index, 'meetingsPerGroup', Number(e.target.value))}
-                                className="form-input text-sm"
-                                min="1"
-                              />
-                            </div>
-                            <div>
-                              <label className="form-label text-xs">משך (דקות)</label>
-                              <input
-                                type="number"
-                                value={item.durationMinutes}
-                                onChange={(e) => updateCourseItem(index, 'durationMinutes', Number(e.target.value))}
-                                className="form-input text-sm"
-                                min="30"
-                                step="15"
-                              />
-                            </div>
-                            <div>
-                              <label className="form-label text-xs">מחיר למפגש (₪) *</label>
-                              <input
-                                type="number"
-                                value={item.pricePerMeeting}
-                                onChange={(e) => updateCourseItem(index, 'pricePerMeeting', Number(e.target.value))}
-                                className="form-input text-sm"
-                                min="0"
+                                placeholder="פירוט קצר..."
                               />
                             </div>
                           </div>
+
+                          {/* Type-specific fields */}
+                          {item.type === 'education' ? (
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                              <div>
+                                <label className="form-label text-xs">קבוצות *</label>
+                                <input
+                                  type="number"
+                                  value={item.groupsCount}
+                                  onChange={(e) => updateCourseItem(index, 'groupsCount', Number(e.target.value))}
+                                  className="form-input text-sm"
+                                  min="1"
+                                />
+                              </div>
+                              <div>
+                                <label className="form-label text-xs">מפגשים לקבוצה *</label>
+                                <input
+                                  type="number"
+                                  value={item.meetingsPerGroup}
+                                  onChange={(e) => updateCourseItem(index, 'meetingsPerGroup', Number(e.target.value))}
+                                  className="form-input text-sm"
+                                  min="1"
+                                />
+                              </div>
+                              <div>
+                                <label className="form-label text-xs">משך (דקות)</label>
+                                <input
+                                  type="number"
+                                  value={item.durationMinutes}
+                                  onChange={(e) => updateCourseItem(index, 'durationMinutes', Number(e.target.value))}
+                                  className="form-input text-sm"
+                                  min="30"
+                                  step="15"
+                                />
+                              </div>
+                              <div>
+                                <label className="form-label text-xs">מחיר למפגש (₪) *</label>
+                                <input
+                                  type="number"
+                                  value={item.pricePerMeeting}
+                                  onChange={(e) => updateCourseItem(index, 'pricePerMeeting', Number(e.target.value))}
+                                  className="form-input text-sm"
+                                  min="0"
+                                />
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div>
+                                <label className="form-label text-xs">מחיר כולל (₪) *</label>
+                                <input
+                                  type="number"
+                                  value={item.totalPrice}
+                                  onChange={(e) => updateCourseItem(index, 'totalPrice', Number(e.target.value))}
+                                  className="form-input text-sm"
+                                  min="0"
+                                />
+                              </div>
+                            </div>
+                          )}
+
                           <div className="mt-2 text-left text-sm text-gray-500">
                             סה״כ: <span className="font-semibold text-green-600">₪{calculateSubtotal(item).toLocaleString()}</span>
                           </div>
@@ -435,20 +503,27 @@ export default function QuoteWizard() {
                     <table>
                       <thead>
                         <tr>
-                          <th>קורס</th>
-                          <th>קבוצות</th>
-                          <th>מפגשים</th>
-                          <th>מחיר למפגש</th>
+                          <th>סוג</th>
+                          <th>שם</th>
+                          <th>פירוט</th>
                           <th>סה״כ</th>
                         </tr>
                       </thead>
                       <tbody>
                         {courseItems.map((item, index) => (
                           <tr key={index}>
+                            <td>
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${item.type === 'project' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                                {item.type === 'project' ? 'פרויקט' : 'הדרכה'}
+                              </span>
+                            </td>
                             <td className="font-medium">{item.courseName || 'לא נבחר'}</td>
-                            <td>{item.groupsCount}</td>
-                            <td>{item.meetingsPerGroup}</td>
-                            <td>₪{item.pricePerMeeting.toLocaleString()}</td>
+                            <td className="text-sm text-gray-500">
+                              {item.type === 'project'
+                                ? (item.description || 'מחיר כולל')
+                                : `${item.groupsCount} קבוצות × ${item.meetingsPerGroup} מפגשים × ₪${item.pricePerMeeting}`
+                              }
+                            </td>
                             <td className="font-semibold">₪{calculateSubtotal(item).toLocaleString()}</td>
                           </tr>
                         ))}

@@ -1,6 +1,7 @@
 import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { Prisma } from '@prisma/client';
+import { generateQuoteAIContent } from './quote-ai.service.js';
 
 interface ListQuotesFilters {
   status?: string;
@@ -281,12 +282,75 @@ export async function deleteQuote(id: string) {
 
 export async function generateQuoteContent(quoteId: string) {
   const quote = await getQuoteById(quoteId);
-  // Placeholder for AI integration
-  return {
-    quote,
-    generatedContent: null,
-    message: 'AI content generation will be available soon',
-  };
+
+  try {
+    const content = await generateQuoteAIContent({
+      institutionName: quote.institutionName,
+      contactName: quote.contactName,
+      contactRole: quote.contactRole,
+      finalAmount: Number(quote.finalAmount),
+      items: quote.items.map((item) => ({
+        courseName: item.courseName,
+        groups: item.groups,
+        meetingsPerGroup: item.meetingsPerGroup,
+        meetingDuration: item.meetingDuration,
+        pricePerMeeting: Number(item.pricePerMeeting),
+        subtotal: Number(item.subtotal),
+      })),
+    });
+
+    const updatedQuote = await prisma.quote.update({
+      where: { id: quoteId },
+      data: { content: { markdown: content } },
+      include: {
+        items: { orderBy: { sortOrder: 'asc' } },
+        branch: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    return { quote: updatedQuote, content };
+  } catch (error: any) {
+    console.error('[QuoteContent] AI generation failed:', error.message);
+    return {
+      quote,
+      content: null,
+      error: 'שגיאה ביצירת התוכן. ניתן לכתוב את התוכן באופן ידני.',
+    };
+  }
+}
+
+export async function generateContentPreview(data: {
+  institutionName: string;
+  contactName: string;
+  contactRole?: string;
+  items: Array<{
+    courseName: string;
+    groupsCount: number;
+    meetingsPerGroup: number;
+    durationMinutes: number;
+    pricePerMeeting: number;
+    subtotal: number;
+  }>;
+}) {
+  const finalAmount = data.items.reduce((sum, item) => sum + item.subtotal, 0);
+
+  const content = await generateQuoteAIContent({
+    institutionName: data.institutionName,
+    contactName: data.contactName,
+    contactRole: data.contactRole,
+    finalAmount,
+    items: data.items.map((item) => ({
+      courseName: item.courseName,
+      groups: item.groupsCount,
+      meetingsPerGroup: item.meetingsPerGroup,
+      meetingDuration: item.durationMinutes,
+      pricePerMeeting: item.pricePerMeeting,
+      subtotal: item.subtotal,
+    })),
+  });
+
+  return { content };
 }
 
 export async function convertToOrder(quoteId: string) {

@@ -8,6 +8,7 @@ import {
   updateQuote,
   deleteQuote,
   generateQuoteContent,
+  generateContentPreview,
   convertToOrder,
 } from '../services/quotes.service.js';
 
@@ -70,6 +71,16 @@ quotesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
     const id = uuidSchema.parse(req.params.id);
     await deleteQuote(id);
     res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Generate AI content preview (without saving to a quote)
+quotesRouter.post('/generate-content-preview', async (req, res, next) => {
+  try {
+    const result = await generateContentPreview(req.body);
+    res.json(result);
   } catch (error) {
     next(error);
   }

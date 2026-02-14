@@ -23,6 +23,7 @@ import AuditLog from './pages/AuditLog';
 import Quotes from './pages/Quotes';
 import QuoteWizard from './pages/QuoteWizard';
 import QuoteDetail from './pages/QuoteDetail';
+import QuoteEdit from './pages/QuoteEdit';
 
 // Mobile instructor pages
 import MobileMeetings from './pages/instructor/MobileMeetings';
@@ -127,6 +128,7 @@ function AppRoutes() {
         <Route path="quotes" element={<Quotes />} />
         <Route path="quotes/new" element={<QuoteWizard />} />
         <Route path="quotes/:id" element={<QuoteDetail />} />
+        <Route path="quotes/:id/edit" element={<QuoteEdit />} />
         <Route path="reports" element={<Reports />} />
         <Route path="audit" element={<AuditLog />} />
         <Route path="instructor" element={<InstructorDashboard />} />

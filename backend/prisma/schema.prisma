@@ -86,6 +86,11 @@ enum QuoteStatus {
   converted
 }
 
+enum QuoteClientType {
+  private
+  institutional
+}
+
 enum PaymentMethod {
   credit
   transfer
@@ -157,6 +162,7 @@ model Customer {
 
   // Relations
   students Student[]
+  quotes   Quote[]
 
   @@map("customers")
 }
@@ -575,6 +581,14 @@ model Quote {
   contactPhone    String      @map("contact_phone")
   contactEmail    String?     @map("contact_email")
   contactRole     String?     @map("contact_role")
+  clientType      QuoteClientType? @map("client_type")
+  customerId      String?          @map("customer_id")
+  
+  // Paying body (גוף משלם)
+  payingBodyName  String?          @map("paying_body_name")
+  payingBodyPhone String?          @map("paying_body_phone")
+  payingBodyEmail String?          @map("paying_body_email")
+  payingBodyNotes String?          @map("paying_body_notes")
   content         Json?
   totalAmount     Decimal     @map("total_amount") @db.Decimal(10, 2)
   discount        Decimal?    @default(0) @db.Decimal(10, 2)
@@ -589,6 +603,7 @@ model Quote {
 
   // Relations
   branch    Branch?             @relation(fields: [branchId], references: [id])
+  customer  Customer?           @relation(fields: [customerId], references: [id])
   items     QuoteItem[]
   order     InstitutionalOrder? @relation(fields: [orderId], references: [id])
   createdBy User                @relation(fields: [createdById], references: [id])

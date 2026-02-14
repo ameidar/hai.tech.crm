@@ -62,10 +62,10 @@ export default function Customers() {
         }
       />
 
-      <div className="flex-1 p-6 overflow-auto">
+      <div className="flex-1 p-4 md:p-6 overflow-auto">
         {/* Search & Views */}
-        <div className="mb-6 flex gap-4 items-center">
-          <div className="relative flex-1 max-w-md">
+        <div className="mb-4 md:mb-6 flex flex-wrap gap-2 md:gap-4 items-center">
+          <div className="relative flex-1 min-w-[200px] max-w-md">
             <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
@@ -85,7 +85,7 @@ export default function Customers() {
         {isLoading ? (
           <SkeletonCardGrid count={6} />
         ) : customers && customers.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-6">
             {customers.map((customer) => (
               <CustomerCard key={customer.id} customer={customer} onDelete={handleDeleteCustomer} />
             ))}

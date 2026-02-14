@@ -142,13 +142,13 @@ export default function Dashboard() {
         subtitle={formatDate(today)}
       />
 
-      <div className="flex-1 p-6 overflow-auto bg-gradient-to-br from-gray-50 to-gray-100/50">
+      <div className="flex-1 p-4 md:p-6 overflow-auto bg-gradient-to-br from-gray-50 to-gray-100/50">
         {isLoading ? (
           <Loading size="lg" text="טוען נתונים..." />
         ) : (
           <div className="space-y-6">
             {/* KPI Cards with Gradients */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
               <KPICard
                 title="מחזורים פעילים"
                 value={cyclesTotal || cycles?.length || 0}
@@ -192,7 +192,7 @@ export default function Dashboard() {
 
             {/* Today's Financial Summary */}
             {stats && stats.total > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-6">
                 <FinancialCard
                   title="הכנסות היום"
                   value={stats.totalRevenue}
@@ -237,7 +237,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                   {stats && (
-                    <div className="flex items-center gap-3 text-sm">
+                    <div className="hidden md:flex items-center gap-3 text-sm">
                       <StatusBadge color="emerald" count={stats.completed} label="הושלמו" />
                       <StatusBadge color="sky" count={stats.pending} label="ממתינים" />
                       <StatusBadge color="rose" count={stats.cancelled} label="בוטלו" />
@@ -245,99 +245,101 @@ export default function Dashboard() {
                   )}
                 </div>
               </div>
-              <div className="overflow-x-auto">
-                {todayMeetings && todayMeetings.length > 0 ? (
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-gray-50/80">
-                        <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          שעה
-                        </th>
-                        <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          מחזור
-                        </th>
-                        <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          מדריך
-                        </th>
-                        <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          סניף
-                        </th>
-                        <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          סטטוס
-                        </th>
-                        <th className="px-6 py-4"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {todayMeetings
-                        .sort((a, b) => a.startTime.localeCompare(b.startTime))
-                        .map((meeting, index) => {
-                          const statusConfig = getStatusConfig(meeting.status);
-                          return (
-                            <tr
-                              key={meeting.id}
-                              onClick={() => setSelectedMeeting(meeting)}
-                              className="cursor-pointer hover:bg-gradient-to-l hover:from-blue-50 hover:to-transparent transition-all duration-200 group"
-                              style={{ animationDelay: `${index * 50}ms` }}
-                            >
-                              <td className="px-6 py-4">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-                                  <span className="font-semibold text-gray-900">
-                                    {formatTime(meeting.startTime)}
-                                  </span>
-                                  <span className="text-gray-400">-</span>
-                                  <span className="text-gray-600">
-                                    {formatTime(meeting.endTime)}
-                                  </span>
-                                </div>
-                              </td>
-                              <td className="px-6 py-4">
-                                <Link
-                                  to={`/cycles/${meeting.cycleId}`}
-                                  className="text-blue-600 hover:text-blue-800 font-medium hover:underline underline-offset-2 transition-colors"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  {meeting.cycle?.name || '-'}
-                                </Link>
-                              </td>
-                              <td className="px-6 py-4">
-                                <span className="text-gray-700 font-medium">
-                                  {meeting.instructor?.name || '-'}
-                                </span>
-                              </td>
-                              <td className="px-6 py-4">
-                                <span className="text-gray-600">
-                                  {meeting.cycle?.branch?.name || '-'}
-                                </span>
-                              </td>
-                              <td className="px-6 py-4">
-                                <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${statusConfig.bg} ${statusConfig.text} transition-transform hover:scale-105`}>
-                                  <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot}`} />
-                                  {meetingStatusHebrew[meeting.status]}
-                                </span>
-                              </td>
-                              <td className="px-6 py-4">
-                                <ChevronLeft 
-                                  size={20} 
-                                  className="text-gray-400 group-hover:text-blue-500 group-hover:translate-x-[-4px] transition-all duration-200" 
-                                />
-                              </td>
-                            </tr>
-                          );
-                        })}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className="p-12 text-center">
-                    <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
-                      <Calendar size={32} className="text-gray-400" />
-                    </div>
-                    <p className="text-gray-500 font-medium">אין פגישות מתוכננות להיום</p>
-                    <p className="text-gray-400 text-sm mt-1">הפגישות הבאות יופיעו כאן</p>
+              {todayMeetings && todayMeetings.length > 0 ? (
+                <>
+                  {/* Mobile card view */}
+                  <div className="md:hidden divide-y divide-gray-100">
+                    {todayMeetings
+                      .sort((a, b) => a.startTime.localeCompare(b.startTime))
+                      .map((meeting) => {
+                        const statusConfig = getStatusConfig(meeting.status);
+                        return (
+                          <div
+                            key={meeting.id}
+                            onClick={() => setSelectedMeeting(meeting)}
+                            className="p-4 cursor-pointer active:bg-gray-50 transition-colors"
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-semibold text-gray-900 text-sm">
+                                {formatTime(meeting.startTime)} - {formatTime(meeting.endTime)}
+                              </span>
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${statusConfig.bg} ${statusConfig.text}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot}`} />
+                                {meetingStatusHebrew[meeting.status]}
+                              </span>
+                            </div>
+                            <p className="text-sm text-blue-600 font-medium">{meeting.cycle?.name || '-'}</p>
+                            <p className="text-sm text-gray-600 mt-0.5">{meeting.instructor?.name || '-'}</p>
+                          </div>
+                        );
+                      })}
                   </div>
-                )}
-              </div>
+
+                  {/* Desktop table view */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-gray-50/80">
+                          <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">שעה</th>
+                          <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">מחזור</th>
+                          <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">מדריך</th>
+                          <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">סניף</th>
+                          <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">סטטוס</th>
+                          <th className="px-6 py-4"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {todayMeetings
+                          .sort((a, b) => a.startTime.localeCompare(b.startTime))
+                          .map((meeting, index) => {
+                            const statusConfig = getStatusConfig(meeting.status);
+                            return (
+                              <tr
+                                key={meeting.id}
+                                onClick={() => setSelectedMeeting(meeting)}
+                                className="cursor-pointer hover:bg-gradient-to-l hover:from-blue-50 hover:to-transparent transition-all duration-200 group"
+                                style={{ animationDelay: `${index * 50}ms` }}
+                              >
+                                <td className="px-6 py-4">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                                    <span className="font-semibold text-gray-900">{formatTime(meeting.startTime)}</span>
+                                    <span className="text-gray-400">-</span>
+                                    <span className="text-gray-600">{formatTime(meeting.endTime)}</span>
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <Link to={`/cycles/${meeting.cycleId}`} className="text-blue-600 hover:text-blue-800 font-medium hover:underline underline-offset-2 transition-colors" onClick={(e) => e.stopPropagation()}>
+                                    {meeting.cycle?.name || '-'}
+                                  </Link>
+                                </td>
+                                <td className="px-6 py-4"><span className="text-gray-700 font-medium">{meeting.instructor?.name || '-'}</span></td>
+                                <td className="px-6 py-4"><span className="text-gray-600">{meeting.cycle?.branch?.name || '-'}</span></td>
+                                <td className="px-6 py-4">
+                                  <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${statusConfig.bg} ${statusConfig.text}`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot}`} />
+                                    {meetingStatusHebrew[meeting.status]}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <ChevronLeft size={20} className="text-gray-400 group-hover:text-blue-500 group-hover:translate-x-[-4px] transition-all duration-200" />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <div className="p-12 text-center">
+                  <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
+                    <Calendar size={32} className="text-gray-400" />
+                  </div>
+                  <p className="text-gray-500 font-medium">אין פגישות מתוכננות להיום</p>
+                  <p className="text-gray-400 text-sm mt-1">הפגישות הבאות יופיעו כאן</p>
+                </div>
+              )}
             </div>
 
             {/* Active Cycles - Enhanced */}
@@ -364,90 +366,74 @@ export default function Dashboard() {
                   </Link>
                 </div>
               </div>
-              <div className="overflow-x-auto">
-                {cycles && cycles.length > 0 ? (
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-gray-50/80">
-                        <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          שם המחזור
-                        </th>
-                        <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          קורס
-                        </th>
-                        <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          מדריך
-                        </th>
-                        <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          יום
-                        </th>
-                        <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          שעה
-                        </th>
-                        <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          התקדמות
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {cycles.slice(0, 5).map((cycle, index) => {
-                        const progress = (cycle.completedMeetings / cycle.totalMeetings) * 100;
-                        return (
-                          <tr 
-                            key={cycle.id}
-                            className="hover:bg-gradient-to-l hover:from-violet-50 hover:to-transparent transition-all duration-200"
-                            style={{ animationDelay: `${index * 50}ms` }}
-                          >
-                            <td className="px-6 py-4">
-                              <Link
-                                to={`/cycles/${cycle.id}`}
-                                className="text-violet-600 hover:text-violet-800 font-semibold hover:underline underline-offset-2 transition-colors"
-                              >
-                                {cycle.name}
-                              </Link>
-                            </td>
-                            <td className="px-6 py-4 text-gray-700">
-                              {cycle.course?.name || '-'}
-                            </td>
-                            <td className="px-6 py-4 text-gray-700 font-medium">
-                              {cycle.instructor?.name || '-'}
-                            </td>
-                            <td className="px-6 py-4">
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 text-sm font-medium">
-                                {dayOfWeekHebrew[cycle.dayOfWeek]}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 text-gray-600 font-mono">
-                              {formatTime(cycle.startTime)}
-                            </td>
-                            <td className="px-6 py-4">
-                              <div className="flex items-center gap-3">
-                                <div className="flex-1 h-2.5 bg-gray-200 rounded-full overflow-hidden min-w-[100px]">
-                                  <div
-                                    className="h-full rounded-full bg-gradient-to-l from-violet-500 to-purple-600 transition-all duration-500 ease-out"
-                                    style={{ width: `${progress}%` }}
-                                  />
-                                </div>
-                                <span className="text-sm text-gray-600 font-medium whitespace-nowrap">
-                                  {cycle.completedMeetings}/{cycle.totalMeetings}
-                                </span>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className="p-12 text-center">
-                    <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
-                      <RefreshCcw size={32} className="text-gray-400" />
-                    </div>
-                    <p className="text-gray-500 font-medium">אין מחזורים פעילים</p>
-                    <p className="text-gray-400 text-sm mt-1">מחזורים חדשים יופיעו כאן</p>
+              {cycles && cycles.length > 0 ? (
+                <>
+                  {/* Mobile card view */}
+                  <div className="md:hidden divide-y divide-gray-100">
+                    {cycles.slice(0, 5).map((cycle) => {
+                      const progress = (cycle.completedMeetings / cycle.totalMeetings) * 100;
+                      return (
+                        <Link key={cycle.id} to={`/cycles/${cycle.id}`} className="block p-4 active:bg-gray-50">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-semibold text-violet-600 text-sm">{cycle.name}</span>
+                            <span className="text-xs text-gray-500">{cycle.completedMeetings}/{cycle.totalMeetings}</span>
+                          </div>
+                          <p className="text-sm text-gray-600">{cycle.instructor?.name || '-'} • {dayOfWeekHebrew[cycle.dayOfWeek]} {formatTime(cycle.startTime)}</p>
+                          <div className="mt-2 h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full bg-gradient-to-l from-violet-500 to-purple-600" style={{ width: `${progress}%` }} />
+                          </div>
+                        </Link>
+                      );
+                    })}
                   </div>
-                )}
-              </div>
+
+                  {/* Desktop table view */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-gray-50/80">
+                          <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">שם המחזור</th>
+                          <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">קורס</th>
+                          <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">מדריך</th>
+                          <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">יום</th>
+                          <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">שעה</th>
+                          <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">התקדמות</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {cycles.slice(0, 5).map((cycle, index) => {
+                          const progress = (cycle.completedMeetings / cycle.totalMeetings) * 100;
+                          return (
+                            <tr key={cycle.id} className="hover:bg-gradient-to-l hover:from-violet-50 hover:to-transparent transition-all duration-200" style={{ animationDelay: `${index * 50}ms` }}>
+                              <td className="px-6 py-4"><Link to={`/cycles/${cycle.id}`} className="text-violet-600 hover:text-violet-800 font-semibold hover:underline underline-offset-2 transition-colors">{cycle.name}</Link></td>
+                              <td className="px-6 py-4 text-gray-700">{cycle.course?.name || '-'}</td>
+                              <td className="px-6 py-4 text-gray-700 font-medium">{cycle.instructor?.name || '-'}</td>
+                              <td className="px-6 py-4"><span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 text-sm font-medium">{dayOfWeekHebrew[cycle.dayOfWeek]}</span></td>
+                              <td className="px-6 py-4 text-gray-600 font-mono">{formatTime(cycle.startTime)}</td>
+                              <td className="px-6 py-4">
+                                <div className="flex items-center gap-3">
+                                  <div className="flex-1 h-2.5 bg-gray-200 rounded-full overflow-hidden min-w-[100px]">
+                                    <div className="h-full rounded-full bg-gradient-to-l from-violet-500 to-purple-600 transition-all duration-500 ease-out" style={{ width: `${progress}%` }} />
+                                  </div>
+                                  <span className="text-sm text-gray-600 font-medium whitespace-nowrap">{cycle.completedMeetings}/{cycle.totalMeetings}</span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <div className="p-12 text-center">
+                  <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
+                    <RefreshCcw size={32} className="text-gray-400" />
+                  </div>
+                  <p className="text-gray-500 font-medium">אין מחזורים פעילים</p>
+                  <p className="text-gray-400 text-sm mt-1">מחזורים חדשים יופיעו כאן</p>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -480,14 +466,14 @@ interface KPICardProps {
 
 function KPICard({ title, value, icon, gradient, lightGradient, trend, trendUp, subtext, link }: KPICardProps) {
   const content = (
-    <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${lightGradient} p-6 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg group cursor-pointer`}>
+    <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${lightGradient} p-4 md:p-6 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg group cursor-pointer`}>
       {/* Background decoration */}
       <div className={`absolute -left-4 -top-4 w-24 h-24 rounded-full bg-gradient-to-br ${gradient} opacity-10 blur-2xl group-hover:opacity-20 transition-opacity duration-300`} />
       
       <div className="relative flex items-start justify-between">
         <div className="space-y-2">
           <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="text-3xl font-bold text-gray-900 tracking-tight">
+          <p className="text-2xl md:text-3xl font-bold text-gray-900 tracking-tight">
             {typeof value === 'number' ? value.toLocaleString() : value}
           </p>
           {trend && (

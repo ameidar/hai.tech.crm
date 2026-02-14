@@ -14,6 +14,9 @@ import {
   User,
   Building2,
   Loader2,
+  Eye,
+  Copy,
+  ExternalLink,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { quotesApi, type Quote } from '../api/quotes';
@@ -43,6 +46,15 @@ export default function QuoteDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState(false);
+
+  const publicUrl = `${window.location.origin}/public/quote/${id}`;
+
+  const copyPublicUrl = () => {
+    navigator.clipboard.writeText(publicUrl);
+    setCopiedUrl(true);
+    setTimeout(() => setCopiedUrl(false), 2000);
+  };
 
   const { data: quote, isLoading } = useQuery({
     queryKey: ['quote', id],
@@ -116,6 +128,17 @@ export default function QuoteDetail() {
         title={`הצעת מחיר ${quote.quoteNumber}`}
         actions={
           <div className="flex gap-2 flex-wrap">
+            {/* Preview - available for all statuses */}
+            <a
+              href={publicUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-secondary"
+            >
+              <Eye size={16} />
+              תצוגה מקדימה
+            </a>
+
             {/* Edit - always available for draft/sent */}
             {(quote.status === 'draft' || quote.status === 'sent') && (
               <Link to={`/quotes/${id}/edit`} className="btn btn-secondary">
@@ -132,7 +155,7 @@ export default function QuoteDetail() {
                     if (quote.contactEmail) {
                       sendQuote.mutateAsync();
                     } else {
-                      if (confirm('לא הוגדר מייל לאיש הקשר. לסמן כנשלחה בכל זאת?')) {
+                      if (confirm('לא הוגדר מייל לאיש הקשר. ההצעה תסומן כנשלחה ללא שליחת מייל. להמשיך?')) {
                         sendQuote.mutateAsync();
                       }
                     }
@@ -141,7 +164,7 @@ export default function QuoteDetail() {
                   className="btn btn-primary"
                 >
                   {sendQuote.isPending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                  סמן כנשלחה
+                  {quote.contactEmail ? 'שלח במייל' : 'סמן כנשלחה'}
                 </button>
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
@@ -255,6 +278,27 @@ export default function QuoteDetail() {
                     {new Date(quote.createdAt).toLocaleDateString('he-IL')}
                   </span>
                 </div>
+
+                {/* Public URL */}
+                {(['sent', 'accepted', 'converted'] as string[]).includes(quote.status) && (
+                  <div className="pt-3 border-t">
+                    <p className="text-sm text-gray-500 mb-2">קישור ציבורי להצעה:</p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        readOnly
+                        value={publicUrl}
+                        className="input text-xs flex-1"
+                        dir="ltr"
+                      />
+                      <button onClick={copyPublicUrl} className="btn btn-secondary btn-sm" title="העתק">
+                        {copiedUrl ? <CheckCircle size={14} className="text-green-500" /> : <Copy size={14} />}
+                      </button>
+                      <a href={publicUrl} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm" title="פתח">
+                        <ExternalLink size={14} />
+                      </a>
+                    </div>
+                  </div>
+                )}
 
                 {/* Linked order */}
                 {quote.orderId && (

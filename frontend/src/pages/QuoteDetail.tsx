@@ -17,6 +17,8 @@ import {
   Eye,
   Copy,
   ExternalLink,
+  Film,
+  Download,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { quotesApi, type Quote } from '../api/quotes';
@@ -47,6 +49,9 @@ export default function QuoteDetail() {
   const queryClient = useQueryClient();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [videoRendering, setVideoRendering] = useState(false);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
 
   const publicUrl = `${window.location.origin}/public/quote/${id}`;
 
@@ -54,6 +59,38 @@ export default function QuoteDetail() {
     navigator.clipboard.writeText(publicUrl);
     setCopiedUrl(true);
     setTimeout(() => setCopiedUrl(false), 2000);
+  };
+
+  const handleGenerateVideo = async () => {
+    if (!id) return;
+    setVideoRendering(true);
+    setVideoError(null);
+    setVideoUrl(null);
+    try {
+      await quotesApi.generateVideo(id);
+      // Poll for video
+      const poll = setInterval(async () => {
+        try {
+          const res = await quotesApi.getVideoStatus(id);
+          if (res.status === 200 && res.data instanceof Blob && res.data.type.startsWith('video/')) {
+            clearInterval(poll);
+            const url = URL.createObjectURL(res.data);
+            setVideoUrl(url);
+            setVideoRendering(false);
+          }
+        } catch (err: any) {
+          if (err?.response?.status === 500) {
+            clearInterval(poll);
+            setVideoError('שגיאה ביצירת הסרטון');
+            setVideoRendering(false);
+          }
+          // 202 or 404 = still rendering, keep polling
+        }
+      }, 5000);
+    } catch {
+      setVideoError('שגיאה בהפעלת יצירת הסרטון');
+      setVideoRendering(false);
+    }
   };
 
   const { data: quote, isLoading } = useQuery({
@@ -205,6 +242,14 @@ export default function QuoteDetail() {
                 המר להזמנה
               </button>
             )}
+            <button
+              onClick={handleGenerateVideo}
+              disabled={videoRendering}
+              className="btn btn-secondary"
+            >
+              {videoRendering ? <Loader2 size={16} className="animate-spin" /> : <Film size={16} />}
+              {videoRendering ? 'מייצר סרטון...' : 'צור סרטון שיווקי'}
+            </button>
             <Link to="/quotes" className="btn btn-secondary">
               <ArrowRight size={18} />
               חזרה
@@ -405,6 +450,47 @@ export default function QuoteDetail() {
                 </div>
                 <div className="card-body">
                   <p className="text-sm text-gray-600">{quote.notes}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Video */}
+            {(videoRendering || videoUrl || videoError) && (
+              <div className="card">
+                <div className="card-header">
+                  <h2 className="font-semibold flex items-center gap-2">
+                    <Film size={18} />
+                    סרטון שיווקי
+                  </h2>
+                </div>
+                <div className="card-body">
+                  {videoRendering && (
+                    <div className="flex items-center gap-3 text-blue-600">
+                      <Loader2 size={20} className="animate-spin" />
+                      <span>מייצר סרטון... (עד דקה)</span>
+                    </div>
+                  )}
+                  {videoError && (
+                    <p className="text-red-500">{videoError}</p>
+                  )}
+                  {videoUrl && (
+                    <div className="space-y-3">
+                      <video
+                        src={videoUrl}
+                        controls
+                        className="w-full rounded-lg"
+                        style={{ maxHeight: 400 }}
+                      />
+                      <a
+                        href={videoUrl}
+                        download={`quote-${quote.quoteNumber}-video.mp4`}
+                        className="btn btn-secondary inline-flex items-center gap-2"
+                      >
+                        <Download size={16} />
+                        הורד סרטון
+                      </a>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

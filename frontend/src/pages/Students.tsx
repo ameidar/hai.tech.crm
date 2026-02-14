@@ -131,7 +131,7 @@ export default function Students() {
           title="תלמידים"
           subtitle="טוען..."
         />
-        <div className="flex-1 p-6 overflow-auto bg-gray-50">
+        <div className="flex-1 p-4 md:p-6 overflow-auto bg-gray-50">
           <div className="bg-white rounded-lg p-4 shadow mb-6">
             <div className="h-10 w-80 bg-gray-200 rounded-lg animate-pulse" />
           </div>
@@ -150,10 +150,10 @@ export default function Students() {
 
       <div className="flex-1 p-6 overflow-auto bg-gray-50">
         {/* Search & Views */}
-        <div className="bg-white rounded-lg p-4 shadow mb-6 flex gap-4 items-center justify-between">
-          <div className="flex gap-4 items-center">
-            <ViewSelector entity="students" onApplyView={() => {}} />
-            <div className="relative w-80">
+        <div className="bg-white rounded-lg p-3 md:p-4 shadow mb-4 md:mb-6 flex flex-wrap gap-2 md:gap-4 items-center justify-between">
+          <div className="flex flex-wrap gap-2 md:gap-4 items-center w-full md:w-auto">
+            <div className="hidden md:block"><ViewSelector entity="students" onApplyView={() => {}} /></div>
+            <div className="relative w-full md:w-80">
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
               <input
                 type="text"
@@ -190,7 +190,51 @@ export default function Students() {
 
         {/* Students List */}
         {filteredStudents.length > 0 ? (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <>
+          {/* Mobile card view */}
+          <div className="md:hidden space-y-2">
+            {filteredStudents.map((student) => (
+              <div key={student.id} className="bg-white rounded-lg border border-gray-100 p-4 shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 bg-gradient-to-br from-blue-100 to-blue-200 rounded-full flex items-center justify-center">
+                      <GraduationCap size={16} className="text-blue-600" />
+                    </div>
+                    <span className="font-medium text-gray-900 text-sm">{student.name}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setEditStudent(student)} className="p-2 text-blue-600 min-w-[44px] min-h-[44px] flex items-center justify-center"><Edit size={16} /></button>
+                    <button onClick={() => setRegisterStudent(student)} className="p-2 text-green-600 min-w-[44px] min-h-[44px] flex items-center justify-center"><Plus size={16} /></button>
+                  </div>
+                </div>
+                {student.customer && (
+                  <Link to={`/customers/${student.customer.id}`} className="text-sm text-blue-600">{student.customer.name}</Link>
+                )}
+                {student.grade && <span className="text-xs text-gray-500 mr-2">כיתה {student.grade}</span>}
+                {student.registrations && student.registrations.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {student.registrations.map((reg) => (
+                      <button
+                        key={reg.id}
+                        onClick={() => setEditPayment({ student, registration: reg })}
+                        className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 border min-h-[32px] ${
+                          reg.paymentStatus === 'paid' ? 'bg-green-50 text-green-700 border-green-200' :
+                          reg.paymentStatus === 'partial' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
+                          'bg-red-50 text-red-700 border-red-200'
+                        }`}
+                      >
+                        <CreditCard size={10} />
+                        {reg.cycle?.course?.name?.substring(0, 12) || 'מחזור'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop table view */}
+          <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="overflow-x-auto">
               <table>
                 <thead>
@@ -297,6 +341,7 @@ export default function Students() {
               </table>
             </div>
           </div>
+          </>
         ) : (
           <EmptyState
             icon={<User size={40} />}

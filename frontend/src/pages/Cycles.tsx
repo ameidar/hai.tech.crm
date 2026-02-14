@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square, ArrowUpDown, ArrowUp, ArrowDown, Filter } from 'lucide-react';
 import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useBulkGenerateMeetings, useViewData } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading, { SkeletonTable } from '../components/ui/Loading';
@@ -265,12 +265,12 @@ export default function Cycles() {
         }
       />
 
-      <div className="flex-1 p-6 overflow-auto">
+      <div className="flex-1 p-4 md:p-6 overflow-auto">
         {/* Filters */}
-        <div className="mb-6 space-y-4">
-          <div className="flex flex-wrap gap-4 items-center">
-            {/* Search by name */}
-            <div className="relative flex-1 min-w-[200px] max-w-md">
+        <div className="mb-4 md:mb-6 space-y-4">
+          {/* Search - always visible */}
+          <div className="flex flex-wrap gap-2 md:gap-4 items-center">
+            <div className="relative flex-1 min-w-[150px] max-w-md">
               <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
@@ -282,61 +282,53 @@ export default function Cycles() {
               />
             </div>
 
-            {/* Instructor filter */}
-            <div className="w-36">
-              <select
-                value={instructorFilter}
-                onChange={(e) => setInstructorFilter(e.target.value)}
-                className="form-input"
+            {/* Mobile filter toggle */}
+            <button
+              onClick={() => {
+                const el = document.getElementById('cycles-filters');
+                if (el) el.classList.toggle('hidden');
+              }}
+              className="md:hidden btn btn-secondary flex items-center gap-1 min-h-[44px]"
+            >
+              <Filter size={16} />
+              סינון
+              {hasActiveFilters && <span className="w-2 h-2 rounded-full bg-blue-500" />}
+            </button>
+
+            {/* Clear filters button */}
+            {hasActiveFilters && (
+              <button
+                onClick={clearFilters}
+                className="btn btn-secondary flex items-center gap-1 min-h-[44px]"
               >
+                <X size={16} />
+                <span className="hidden md:inline">נקה סינון</span>
+              </button>
+            )}
+          </div>
+
+          {/* Collapsible filters - hidden on mobile by default */}
+          <div id="cycles-filters" className="hidden md:flex flex-wrap gap-2 md:gap-4 items-center">
+            <div className="w-full md:w-36">
+              <select value={instructorFilter} onChange={(e) => setInstructorFilter(e.target.value)} className="form-input w-full">
                 <option value="">כל המדריכים</option>
-                {instructors?.map((instructor) => (
-                  <option key={instructor.id} value={instructor.id}>
-                    {instructor.name}
-                  </option>
-                ))}
+                {instructors?.map((instructor) => (<option key={instructor.id} value={instructor.id}>{instructor.name}</option>))}
               </select>
             </div>
-
-            {/* Branch filter */}
-            <div className="w-36">
-              <select
-                value={branchFilter}
-                onChange={(e) => setBranchFilter(e.target.value)}
-                className="form-input"
-              >
+            <div className="w-full md:w-36">
+              <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="form-input w-full">
                 <option value="">כל הסניפים</option>
-                {branches?.map((branch) => (
-                  <option key={branch.id} value={branch.id}>
-                    {branch.name}
-                  </option>
-                ))}
+                {branches?.map((branch) => (<option key={branch.id} value={branch.id}>{branch.name}</option>))}
               </select>
             </div>
-
-            {/* Course filter */}
-            <div className="w-36">
-              <select
-                value={courseFilter}
-                onChange={(e) => setCourseFilter(e.target.value)}
-                className="form-input"
-              >
+            <div className="w-full md:w-36">
+              <select value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)} className="form-input w-full">
                 <option value="">כל הקורסים</option>
-                {courses?.map((course) => (
-                  <option key={course.id} value={course.id}>
-                    {course.name}
-                  </option>
-                ))}
+                {courses?.map((course) => (<option key={course.id} value={course.id}>{course.name}</option>))}
               </select>
             </div>
-
-            {/* Day filter */}
-            <div className="w-28">
-              <select
-                value={dayFilter}
-                onChange={(e) => setDayFilter(e.target.value as DayOfWeek | '')}
-                className="form-input"
-              >
+            <div className="w-1/2 md:w-28">
+              <select value={dayFilter} onChange={(e) => setDayFilter(e.target.value as DayOfWeek | '')} className="form-input w-full">
                 <option value="">כל הימים</option>
                 <option value="sunday">ראשון</option>
                 <option value="monday">שני</option>
@@ -346,59 +338,25 @@ export default function Cycles() {
                 <option value="friday">שישי</option>
               </select>
             </div>
-
-            {/* Status filter */}
-            <div className="w-32">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as CycleStatus | '')}
-                className="form-input"
-              >
+            <div className="w-1/2 md:w-32">
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as CycleStatus | '')} className="form-input w-full">
                 <option value="">כל הסטטוסים</option>
                 <option value="active">פעיל</option>
                 <option value="completed">הושלם</option>
                 <option value="cancelled">בוטל</option>
               </select>
             </div>
-
-            {/* Page size selector */}
-            <div className="w-28">
-              <select
-                value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-                className="form-input"
-              >
+            <div className="hidden md:block w-28">
+              <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="form-input">
                 <option value={50}>50</option>
                 <option value={100}>100</option>
                 <option value={200}>200</option>
                 <option value={500}>הכל</option>
               </select>
             </div>
-
-            {/* View Selector */}
-            <ViewSelector
-              entity="cycles"
-              onApplyView={() => {}}
-              onViewSelect={(viewId) => {
-                setActiveViewId(viewId);
-                if (viewId) {
-                  setViewMode('view');
-                } else {
-                  setViewMode('filters');
-                }
-              }}
-            />
-
-            {/* Clear filters button */}
-            {hasActiveFilters && (
-              <button
-                onClick={clearFilters}
-                className="btn btn-secondary flex items-center gap-1"
-              >
-                <X size={16} />
-                נקה סינון
-              </button>
-            )}
+            <div className="hidden md:block">
+              <ViewSelector entity="cycles" onApplyView={() => {}} onViewSelect={(viewId) => { setActiveViewId(viewId); if (viewId) { setViewMode('view'); } else { setViewMode('filters'); } }} />
+            </div>
           </div>
         </div>
 
@@ -450,7 +408,38 @@ export default function Cycles() {
         {displayLoading ? (
           <SkeletonTable rows={8} columns={11} />
         ) : displayCycles && displayCycles.length > 0 ? (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <>
+          {/* Mobile card view */}
+          <div className="md:hidden space-y-2">
+            {displayCycles.map((cycle) => {
+              const progress = cycle.totalMeetings > 0 ? (cycle.completedMeetings / cycle.totalMeetings) * 100 : 0;
+              return (
+                <Link
+                  key={cycle.id}
+                  to={`/cycles/${cycle.id}`}
+                  className="block bg-white rounded-lg border border-gray-100 p-4 shadow-sm active:bg-gray-50"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-semibold text-blue-600 text-sm">{cycle.name}</span>
+                    <span className={`badge text-xs ${cycle.status === 'active' ? 'badge-success' : cycle.status === 'completed' ? 'badge-info' : 'badge-danger'}`}>
+                      {cycleStatusHebrew[cycle.status]}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-600">{cycle.instructor?.name || '-'} • {cycle.branch?.name || '-'}</p>
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="text-xs text-gray-500">{dayOfWeekHebrew[cycle.dayOfWeek]} {formatTime(cycle.startTime)}</span>
+                    <span className="text-xs text-gray-500">{cycle.completedMeetings}/{cycle.totalMeetings} מפגשים</span>
+                  </div>
+                  <div className="mt-2 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full" style={{ width: `${progress}%` }} />
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+
+          {/* Desktop table view */}
+          <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="overflow-x-auto">
               <table data-testid="cycles-table">
                 <thead>
@@ -667,6 +656,7 @@ export default function Cycles() {
               </table>
             </div>
           </div>
+          </>
         ) : (
           <EmptyState
             icon={<RefreshCcw size={40} />}

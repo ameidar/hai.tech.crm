@@ -12,6 +12,7 @@ import {
   ArrowUp,
   ArrowDown,
   Calculator,
+  Filter,
 } from 'lucide-react';
 import { useMeetings, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus, useUpdateMeeting, useBulkUpdateMeetings, useBulkRecalculateMeetings } from '../hooks/useApi';
 import { useAuth } from '../context/AuthContext';
@@ -423,7 +424,7 @@ export default function Meetings() {
         subtitle={formatDate(selectedDate)}
       />
 
-      <div className="flex-1 p-6 overflow-auto">
+      <div className="flex-1 p-4 md:p-6 overflow-auto">
         {/* Bulk Actions Bar - Admin only */}
         {someSelected && isAdmin && (
           <div className="mb-4 p-4 bg-blue-600 text-white rounded-lg flex items-center gap-4 flex-wrap animate-in slide-in-from-top">
@@ -479,11 +480,11 @@ export default function Meetings() {
         )}
 
         {/* Date Navigation */}
-        <div className="mb-6 flex items-center gap-4">
-          <div className="flex items-center gap-2 bg-white rounded-lg border p-1">
+        <div className="mb-4 md:mb-6 flex flex-wrap items-center gap-2 md:gap-4">
+          <div className="flex items-center gap-1 md:gap-2 bg-white rounded-lg border p-1">
             <button
               onClick={() => changeDate(-1)}
-              className="p-2 rounded hover:bg-gray-100 transition-colors"
+              className="p-2 rounded hover:bg-gray-100 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
             >
               <ChevronRight size={20} />
             </button>
@@ -494,11 +495,11 @@ export default function Meetings() {
                 setSelectedDate(e.target.value);
                 setSelectedIds(new Set());
               }}
-              className="px-3 py-2 border-0 focus:ring-0"
+              className="px-2 md:px-3 py-2 border-0 focus:ring-0 text-sm md:text-base"
             />
             <button
               onClick={() => changeDate(1)}
-              className="p-2 rounded hover:bg-gray-100 transition-colors"
+              className="p-2 rounded hover:bg-gray-100 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
             >
               <ChevronLeft size={20} />
             </button>
@@ -509,13 +510,13 @@ export default function Meetings() {
               setSelectedDate(new Date().toISOString().split('T')[0]);
               setSelectedIds(new Set());
             }}
-            className="btn btn-secondary"
+            className="btn btn-secondary min-h-[44px]"
           >
             היום
           </button>
 
           {/* View Selector */}
-          <div className="me-auto">
+          <div className="hidden md:block me-auto">
             <ViewSelector
               entity="meetings"
               onApplyView={handleApplyView}
@@ -525,7 +526,7 @@ export default function Meetings() {
                   setViewMode('view');
                 } else {
                   setViewMode('date');
-                  setViewColumns([]); // Reset columns when no view selected
+                  setViewColumns([]);
                 }
                 setSelectedIds(new Set());
               }}
@@ -533,7 +534,7 @@ export default function Meetings() {
           </div>
 
           {stats && stats.total > 0 && (
-            <div className="flex items-center gap-4 ms-auto text-sm">
+            <div className="hidden md:flex items-center gap-4 ms-auto text-sm">
               <span className="flex items-center gap-1 font-semibold text-gray-700 bg-gray-100 px-2 py-1 rounded">
                 📅 {stats.total} פגישות ביום זה
               </span>
@@ -562,13 +563,54 @@ export default function Meetings() {
               )}
             </div>
           )}
+          {/* Mobile stats summary */}
+          {stats && stats.total > 0 && (
+            <div className="md:hidden w-full flex items-center gap-3 text-xs mt-1">
+              <span className="font-semibold text-gray-700">{stats.total} פגישות</span>
+              <span className="text-green-600">{stats.completed} ✓</span>
+              <span className="text-blue-600">{stats.pending} ⏳</span>
+              <span className="text-red-600">{stats.cancelled} ✗</span>
+            </div>
+          )}
         </div>
 
         {/* Meetings List */}
         {displayLoading ? (
           <Loading size="lg" text="טוען פגישות..." />
         ) : displayMeetings && displayMeetings.length > 0 ? (
-          <div className="card overflow-hidden">
+          <>
+          {/* Mobile card view */}
+          <div className="md:hidden space-y-2">
+            {displayMeetings.map((meeting) => {
+              return (
+                <div
+                  key={meeting.id}
+                  onClick={() => setSelectedMeeting(meeting)}
+                  className="bg-white rounded-lg border border-gray-100 p-4 cursor-pointer active:bg-gray-50 shadow-sm"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-semibold text-gray-900 text-sm">
+                      {meeting.scheduledDate ? new Date(meeting.scheduledDate).toLocaleDateString('he-IL') : ''}{' '}
+                      {formatTime(meeting.startTime)} - {formatTime(meeting.endTime)}
+                    </span>
+                    <span className={`badge ${getStatusBadgeClass(meeting.status)} text-xs`}>
+                      {meetingStatusHebrew[meeting.status]}
+                    </span>
+                  </div>
+                  <p className="text-sm text-blue-600 font-medium">{meeting.cycle?.name || '-'}</p>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-sm text-gray-600">{meeting.instructor?.name || '-'}</span>
+                    {meeting.status === 'completed' && (
+                      <span className="text-xs text-green-600">₪{(meeting.revenue || 0).toLocaleString()}</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop table view */}
+          <div className="hidden md:block card overflow-hidden">
             <table>
               <thead>
                 <tr>
@@ -705,6 +747,7 @@ export default function Meetings() {
               )}
             </table>
           </div>
+          </>
         ) : (
           <EmptyState
             icon={<Calendar size={64} />}

@@ -5,7 +5,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { quotesApi, type QuoteItem, type CreateQuoteData } from '../api/quotes';
 import { fetchData } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
-import type { Course, Branch } from '../types';
+import type { Course, Branch, Customer } from '../types';
 
 const steps = [
   { label: 'פרטי מוסד', number: 1 },
@@ -16,12 +16,18 @@ const steps = [
 ];
 
 interface InstitutionData {
+  clientType: 'private' | 'institutional';
   institutionName: string;
+  customerId: string;
+  branchId: string;
   contactName: string;
   contactPhone: string;
   contactEmail: string;
   contactRole: string;
-  branchId: string;
+  payingBodyName: string;
+  payingBodyPhone: string;
+  payingBodyEmail: string;
+  payingBodyNotes: string;
 }
 
 type ItemType = 'education' | 'project';
@@ -46,13 +52,22 @@ export default function QuoteWizard() {
 
   // Step 1
   const [institution, setInstitution] = useState<InstitutionData>({
+    clientType: 'institutional',
     institutionName: '',
+    customerId: '',
+    branchId: '',
     contactName: '',
     contactPhone: '',
     contactEmail: '',
     contactRole: '',
-    branchId: '',
+    payingBodyName: '',
+    payingBodyPhone: '',
+    payingBodyEmail: '',
+    payingBodyNotes: '',
   });
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [branchSearch, setBranchSearch] = useState('');
+  const [showPayingBody, setShowPayingBody] = useState(false);
 
   // Step 2
   const [courseItems, setCourseItems] = useState<CourseItem[]>([]);
@@ -74,6 +89,13 @@ export default function QuoteWizard() {
     queryFn: () => fetchData<Branch[]>('/branches'),
   });
 
+  const { data: customersData } = useQuery({
+    queryKey: ['customers', customerSearch],
+    queryFn: () => fetchData<{ data: Customer[] }>(`/customers?search=${encodeURIComponent(customerSearch)}&limit=20`),
+    enabled: institution.clientType === 'private' && customerSearch.length >= 2,
+  });
+  const customers = (customersData as any)?.data || customersData || [];
+
   const createQuote = useMutation({
     mutationFn: (data: CreateQuoteData) => quotesApi.create(data),
     onSuccess: (quote) => {
@@ -90,7 +112,7 @@ export default function QuoteWizard() {
   const totalAmount = subtotal - discountAmount;
 
   // Validation
-  const isStep1Valid = institution.institutionName && institution.contactName;
+  const isStep1Valid = institution.institutionName && institution.contactName && (institution.contactPhone || institution.contactEmail);
   const isStep2Valid = courseItems.length > 0 && courseItems.every(
     (item) => {
       if (!item.courseId && !item.courseName) return false;
@@ -179,13 +201,19 @@ export default function QuoteWizard() {
   };
 
   const handleSave = async (status: 'draft' | 'sent') => {
-    const data: CreateQuoteData = {
+    const data: any = {
       institutionName: institution.institutionName,
       contactName: institution.contactName,
       contactPhone: institution.contactPhone || undefined,
       contactEmail: institution.contactEmail || undefined,
       contactRole: institution.contactRole || undefined,
       branchId: institution.branchId || undefined,
+      clientType: institution.clientType || undefined,
+      customerId: institution.customerId || undefined,
+      payingBodyName: institution.payingBodyName || undefined,
+      payingBodyPhone: institution.payingBodyPhone || undefined,
+      payingBodyEmail: institution.payingBodyEmail || undefined,
+      payingBodyNotes: institution.payingBodyNotes || undefined,
       items: courseItems.map((item) => ({
         courseId: item.courseId || undefined,
         courseName: item.courseName,
@@ -260,31 +288,118 @@ export default function QuoteWizard() {
               {/* Step 1: Institution Details */}
               {currentStep === 1 && (
                 <div className="space-y-4">
-                  <h3 className="text-lg font-semibold mb-4">פרטי המוסד</h3>
+                  <h3 className="text-lg font-semibold mb-4">פרטי לקוח</h3>
+
+                  {/* Client Type Selector */}
+                  <div className="flex gap-4 mb-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="clientType"
+                        checked={institution.clientType === 'institutional'}
+                        onChange={() => setInstitution({ ...institution, clientType: 'institutional', customerId: '' })}
+                        className="w-4 h-4 text-blue-600"
+                      />
+                      <span className="font-medium">מוסדי</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="clientType"
+                        checked={institution.clientType === 'private'}
+                        onChange={() => setInstitution({ ...institution, clientType: 'private', branchId: '' })}
+                        className="w-4 h-4 text-blue-600"
+                      />
+                      <span className="font-medium">פרטי</span>
+                    </label>
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="col-span-2 md:col-span-1">
-                      <label className="form-label">שם המוסד *</label>
+                    {/* Institutional: Branch search */}
+                    {institution.clientType === 'institutional' && (
+                      <div className="col-span-2 md:col-span-1">
+                        <label className="form-label">סניף / מוסד</label>
+                        <select
+                          value={institution.branchId}
+                          onChange={(e) => {
+                            const branch = branches?.find(b => b.id === e.target.value);
+                            setInstitution({
+                              ...institution,
+                              branchId: e.target.value,
+                              institutionName: branch ? branch.name : institution.institutionName,
+                              contactName: branch?.contactName || institution.contactName,
+                              contactPhone: branch?.contactPhone || institution.contactPhone,
+                              contactEmail: branch?.contactEmail || institution.contactEmail,
+                            });
+                          }}
+                          className="form-input"
+                        >
+                          <option value="">לקוח חדש / בחר סניף</option>
+                          {branches?.map((branch) => (
+                            <option key={branch.id} value={branch.id}>{branch.name} - {branch.city || ''}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Private: Customer search */}
+                    {institution.clientType === 'private' && (
+                      <div className="col-span-2 md:col-span-1">
+                        <label className="form-label">חיפוש לקוח קיים</label>
+                        <input
+                          type="text"
+                          value={customerSearch}
+                          onChange={(e) => setCustomerSearch(e.target.value)}
+                          className="form-input"
+                          placeholder="הקלד שם או טלפון..."
+                        />
+                        {Array.isArray(customers) && customers.length > 0 && customerSearch.length >= 2 && (
+                          <div className="border rounded-lg mt-1 max-h-40 overflow-y-auto bg-white shadow-lg">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setInstitution({ ...institution, customerId: '' });
+                                setCustomerSearch('');
+                              }}
+                              className="w-full text-right px-3 py-2 hover:bg-gray-100 text-sm text-blue-600 font-medium border-b"
+                            >
+                              + לקוח חדש
+                            </button>
+                            {(customers as Customer[]).map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onClick={() => {
+                                  setInstitution({
+                                    ...institution,
+                                    customerId: c.id,
+                                    institutionName: c.name,
+                                    contactName: c.name,
+                                    contactPhone: c.phone || '',
+                                    contactEmail: c.email || '',
+                                  });
+                                  setCustomerSearch('');
+                                }}
+                                className="w-full text-right px-3 py-2 hover:bg-gray-100 text-sm"
+                              >
+                                {c.name} - {c.phone}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className={institution.clientType === 'institutional' ? '' : 'col-span-2 md:col-span-1'}>
+                      <label className="form-label">{institution.clientType === 'private' ? 'שם הלקוח *' : 'שם המוסד *'}</label>
                       <input
                         type="text"
                         value={institution.institutionName}
                         onChange={(e) => setInstitution({ ...institution, institutionName: e.target.value })}
                         className="form-input"
-                        placeholder="לדוגמה: בית ספר אורט"
+                        placeholder={institution.clientType === 'private' ? 'שם הלקוח' : 'לדוגמה: בית ספר אורט'}
                         required
                       />
-                    </div>
-                    <div>
-                      <label className="form-label">קישור לסניף (אופציונלי)</label>
-                      <select
-                        value={institution.branchId}
-                        onChange={(e) => setInstitution({ ...institution, branchId: e.target.value })}
-                        className="form-input"
-                      >
-                        <option value="">ללא קישור</option>
-                        {branches?.map((branch) => (
-                          <option key={branch.id} value={branch.id}>{branch.name}</option>
-                        ))}
-                      </select>
                     </div>
                     <div>
                       <label className="form-label">שם איש קשר *</label>
@@ -307,7 +422,7 @@ export default function QuoteWizard() {
                       />
                     </div>
                     <div>
-                      <label className="form-label">טלפון</label>
+                      <label className="form-label">טלפון {!institution.contactEmail && '*'}</label>
                       <input
                         type="tel"
                         value={institution.contactPhone}
@@ -317,7 +432,7 @@ export default function QuoteWizard() {
                       />
                     </div>
                     <div>
-                      <label className="form-label">אימייל</label>
+                      <label className="form-label">אימייל {!institution.contactPhone && '*'}</label>
                       <input
                         type="email"
                         value={institution.contactEmail}
@@ -326,6 +441,63 @@ export default function QuoteWizard() {
                         dir="ltr"
                       />
                     </div>
+                  </div>
+                  {!institution.contactPhone && !institution.contactEmail && (
+                    <p className="text-sm text-red-500">יש להזין טלפון או אימייל</p>
+                  )}
+
+                  {/* Paying Body - Collapsible */}
+                  <div className="border rounded-lg mt-4">
+                    <button
+                      type="button"
+                      onClick={() => setShowPayingBody(!showPayingBody)}
+                      className="w-full text-right px-4 py-3 font-medium text-gray-700 hover:bg-gray-50 flex items-center justify-between"
+                    >
+                      <span>גוף משלם (אופציונלי)</span>
+                      <span className="text-gray-400">{showPayingBody ? '▲' : '▼'}</span>
+                    </button>
+                    {showPayingBody && (
+                      <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="form-label">שם גוף משלם</label>
+                          <input
+                            type="text"
+                            value={institution.payingBodyName}
+                            onChange={(e) => setInstitution({ ...institution, payingBodyName: e.target.value })}
+                            className="form-input"
+                          />
+                        </div>
+                        <div>
+                          <label className="form-label">טלפון</label>
+                          <input
+                            type="tel"
+                            value={institution.payingBodyPhone}
+                            onChange={(e) => setInstitution({ ...institution, payingBodyPhone: e.target.value })}
+                            className="form-input"
+                            dir="ltr"
+                          />
+                        </div>
+                        <div>
+                          <label className="form-label">מייל</label>
+                          <input
+                            type="email"
+                            value={institution.payingBodyEmail}
+                            onChange={(e) => setInstitution({ ...institution, payingBodyEmail: e.target.value })}
+                            className="form-input"
+                            dir="ltr"
+                          />
+                        </div>
+                        <div>
+                          <label className="form-label">הערות</label>
+                          <input
+                            type="text"
+                            value={institution.payingBodyNotes}
+                            onChange={(e) => setInstitution({ ...institution, payingBodyNotes: e.target.value })}
+                            className="form-input"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

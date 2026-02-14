@@ -60,6 +60,7 @@ export async function getQuoteById(id: string) {
     include: {
       items: { orderBy: { sortOrder: 'asc' } },
       branch: { select: { id: true, name: true } },
+      customer: { select: { id: true, name: true, phone: true, email: true } },
       createdBy: { select: { id: true, name: true, email: true } },
       order: { select: { id: true, orderNumber: true, status: true } },
     },
@@ -112,6 +113,12 @@ export async function createQuote(data: {
   contactPhone?: string;
   contactEmail?: string;
   contactRole?: string;
+  clientType?: string;
+  customerId?: string;
+  payingBodyName?: string;
+  payingBodyPhone?: string;
+  payingBodyEmail?: string;
+  payingBodyNotes?: string;
   validUntil?: string;
   discount?: number;
   notes?: string;
@@ -161,6 +168,12 @@ export async function createQuote(data: {
         contactPhone: quoteData.contactPhone || '',
         contactEmail: quoteData.contactEmail || undefined,
         contactRole: quoteData.contactRole || undefined,
+        clientType: quoteData.clientType as any || undefined,
+        customerId: quoteData.customerId || undefined,
+        payingBodyName: quoteData.payingBodyName || undefined,
+        payingBodyPhone: quoteData.payingBodyPhone || undefined,
+        payingBodyEmail: quoteData.payingBodyEmail || undefined,
+        payingBodyNotes: quoteData.payingBodyNotes || undefined,
         content: quoteData.content || undefined,
         totalAmount,
         discount,
@@ -191,6 +204,12 @@ export async function updateQuote(id: string, data: {
   contactPhone?: string;
   contactEmail?: string;
   contactRole?: string;
+  clientType?: string;
+  customerId?: string;
+  payingBodyName?: string;
+  payingBodyPhone?: string;
+  payingBodyEmail?: string;
+  payingBodyNotes?: string;
   validUntil?: string;
   discount?: number;
   notes?: string;
@@ -250,6 +269,12 @@ export async function updateQuote(id: string, data: {
     if (fields.contactPhone !== undefined) updateData.contactPhone = fields.contactPhone;
     if (fields.contactEmail !== undefined) updateData.contactEmail = fields.contactEmail;
     if (fields.contactRole !== undefined) updateData.contactRole = fields.contactRole;
+    if (fields.clientType !== undefined) updateData.clientType = fields.clientType as any || null;
+    if (fields.customerId !== undefined) updateData.customerId = fields.customerId || null;
+    if (fields.payingBodyName !== undefined) updateData.payingBodyName = fields.payingBodyName || null;
+    if (fields.payingBodyPhone !== undefined) updateData.payingBodyPhone = fields.payingBodyPhone || null;
+    if (fields.payingBodyEmail !== undefined) updateData.payingBodyEmail = fields.payingBodyEmail || null;
+    if (fields.payingBodyNotes !== undefined) updateData.payingBodyNotes = fields.payingBodyNotes || null;
     if (fields.validUntil !== undefined) updateData.validUntil = new Date(fields.validUntil);
     if (fields.notes !== undefined) updateData.notes = fields.notes;
     if (fields.content !== undefined) updateData.content = fields.content;

@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { RefreshCw, Info, Copy, Check, Receipt, Users } from 'lucide-react';
+import { RefreshCw, Info, Copy, Check, Receipt, Users, MessageSquare, Mail } from 'lucide-react';
 import Modal from './ui/Modal';
 import MeetingExpenses from './MeetingExpenses';
+import SendMessageModal from './SendMessageModal';
 import { useMeetingExpenses } from '../hooks/useExpenses';
 import { meetingStatusHebrew, cycleTypeHebrew, activityTypeHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
@@ -29,6 +30,7 @@ export default function MeetingDetailModal({
   isAdmin = false,
 }: MeetingDetailModalProps) {
   const [copied, setCopied] = useState(false);
+  const [showMessageModal, setShowMessageModal] = useState(false);
   const { data: expenses } = useMeetingExpenses(meeting?.id || '');
 
   if (!meeting) return null;
@@ -128,7 +130,18 @@ export default function MeetingDetailModal({
           </div>
           <div>
             <span className="text-sm text-gray-500">מדריך</span>
-            <p className="font-medium">{meeting.instructor?.name || '-'}</p>
+            <div className="flex items-center gap-2">
+              <p className="font-medium">{meeting.instructor?.name || '-'}</p>
+              {meeting.instructor && (
+                <button
+                  onClick={() => setShowMessageModal(true)}
+                  className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                  title="שלח הודעה למדריך"
+                >
+                  <MessageSquare size={16} />
+                </button>
+              )}
+            </div>
           </div>
           <div>
             <span className="text-sm text-gray-500">סוג מחזור</span>
@@ -322,6 +335,14 @@ export default function MeetingDetailModal({
           </Link>
         </div>
       </div>
+
+      {/* Send Message Modal */}
+      {showMessageModal && meeting.instructor && (
+        <SendMessageModal
+          instructor={meeting.instructor}
+          onClose={() => setShowMessageModal(false)}
+        />
+      )}
     </Modal>
   );
 }

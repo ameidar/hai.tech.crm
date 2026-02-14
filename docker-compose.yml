@@ -31,7 +31,11 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       DATABASE_URL: postgresql://haitech:haitech_password@db:5432/haitech_crm?schema=public
       PORT: 3001
       NODE_ENV: production
@@ -64,6 +68,7 @@ services:
     image: redis:7-alpine
     container_name: haitech-redis
     restart: unless-stopped
+    command: redis-server --save 60 1 --replicaof no one
     ports:
       - "6379:6379"
     volumes:

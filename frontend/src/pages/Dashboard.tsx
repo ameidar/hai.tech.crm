@@ -25,18 +25,9 @@ import { useAuth } from '../context/AuthContext';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import MeetingDetailModal from '../components/MeetingDetailModal';
+import ForecastChart from '../components/ForecastChart';
 import { meetingStatusHebrew, dayOfWeekHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
-
-// Mock data for monthly revenue chart (in a real app, this would come from API)
-const monthlyRevenueData = [
-  { month: 'ינואר', revenue: 45000, costs: 28000 },
-  { month: 'פברואר', revenue: 52000, costs: 31000 },
-  { month: 'מרץ', revenue: 48000, costs: 29000 },
-  { month: 'אפריל', revenue: 61000, costs: 35000 },
-  { month: 'מאי', revenue: 55000, costs: 32000 },
-  { month: 'יוני', revenue: 67000, costs: 38000 },
-];
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -166,6 +157,7 @@ export default function Dashboard() {
                 lightGradient="from-blue-50 to-blue-100"
                 trend="+12%"
                 trendUp={true}
+                link="/cycles"
               />
               <KPICard
                 title="לקוחות"
@@ -175,6 +167,7 @@ export default function Dashboard() {
                 lightGradient="from-emerald-50 to-teal-100"
                 trend="+8%"
                 trendUp={true}
+                link="/customers"
               />
               <KPICard
                 title="מדריכים פעילים"
@@ -184,6 +177,7 @@ export default function Dashboard() {
                 lightGradient="from-violet-50 to-purple-100"
                 trend="+3"
                 trendUp={true}
+                link="/instructors"
               />
               <KPICard
                 title="פגישות היום"
@@ -192,6 +186,7 @@ export default function Dashboard() {
                 gradient="from-orange-500 to-amber-500"
                 lightGradient="from-orange-50 to-amber-100"
                 subtext={stats ? `${stats.completed} הושלמו` : undefined}
+                link="/meetings"
               />
             </div>
 
@@ -223,76 +218,8 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Monthly Revenue Chart */}
-            <div className="card overflow-hidden">
-              <div className="card-header bg-gradient-to-l from-gray-50 to-white border-b border-gray-100">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-lg font-bold text-gray-900">מגמת הכנסות חודשית</h2>
-                    <p className="text-sm text-gray-500 mt-1">השוואת הכנסות ועלויות</p>
-                  </div>
-                  <div className="flex items-center gap-4 text-sm">
-                    <span className="flex items-center gap-2">
-                      <span className="w-3 h-3 rounded-full bg-emerald-500" />
-                      הכנסות
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <span className="w-3 h-3 rounded-full bg-rose-400" />
-                      עלויות
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <div className="p-6">
-                <div className="h-80" dir="ltr">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart
-                      data={monthlyRevenueData}
-                      margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
-                    >
-                      <defs>
-                        <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                        </linearGradient>
-                        <linearGradient id="colorCosts" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis 
-                        dataKey="month" 
-                        stroke="#9ca3af"
-                        tick={{ fill: '#6b7280', fontSize: 12 }}
-                      />
-                      <YAxis 
-                        stroke="#9ca3af"
-                        tick={{ fill: '#6b7280', fontSize: 12 }}
-                        tickFormatter={(value) => `₪${(value / 1000).toFixed(0)}K`}
-                      />
-                      <Tooltip content={<CustomTooltip />} />
-                      <Area
-                        type="monotone"
-                        dataKey="revenue"
-                        stroke="#10b981"
-                        strokeWidth={3}
-                        fillOpacity={1}
-                        fill="url(#colorRevenue)"
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="costs"
-                        stroke="#f43f5e"
-                        strokeWidth={3}
-                        fillOpacity={1}
-                        fill="url(#colorCosts)"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
+            {/* Financial Forecast Chart */}
+            <ForecastChart />
 
             {/* Today's Meetings - Enhanced Table */}
             <div className="card overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-300">
@@ -548,11 +475,12 @@ interface KPICardProps {
   trend?: string;
   trendUp?: boolean;
   subtext?: string;
+  link?: string;
 }
 
-function KPICard({ title, value, icon, gradient, lightGradient, trend, trendUp, subtext }: KPICardProps) {
-  return (
-    <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${lightGradient} p-6 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg group`}>
+function KPICard({ title, value, icon, gradient, lightGradient, trend, trendUp, subtext, link }: KPICardProps) {
+  const content = (
+    <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${lightGradient} p-6 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg group cursor-pointer`}>
       {/* Background decoration */}
       <div className={`absolute -left-4 -top-4 w-24 h-24 rounded-full bg-gradient-to-br ${gradient} opacity-10 blur-2xl group-hover:opacity-20 transition-opacity duration-300`} />
       
@@ -578,6 +506,11 @@ function KPICard({ title, value, icon, gradient, lightGradient, trend, trendUp, 
       </div>
     </div>
   );
+
+  if (link) {
+    return <Link to={link}>{content}</Link>;
+  }
+  return content;
 }
 
 // Financial Summary Card

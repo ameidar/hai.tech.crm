@@ -94,12 +94,14 @@ async function generateQuoteNumber(): Promise<string> {
 interface QuoteItemInput {
   id?: string;
   courseId?: string;
-  courseName: string;
+  courseName?: string;
   description?: string;
-  groups: number;
+  groups?: number;
+  groupsCount?: number;
   meetingsPerGroup: number;
   pricePerMeeting: number;
   meetingDuration?: number;
+  durationMinutes?: number;
   sortOrder?: number;
 }
 
@@ -107,17 +109,22 @@ export async function createQuote(data: {
   branchId?: string;
   institutionName: string;
   contactName: string;
-  contactPhone: string;
+  contactPhone?: string;
   contactEmail?: string;
   contactRole?: string;
   validUntil?: string;
   discount?: number;
   notes?: string;
   content?: any;
+  generatedContent?: string;
   items?: QuoteItemInput[];
   createdById: string;
 }) {
-  const { items, ...quoteData } = data;
+  const { items, generatedContent, ...quoteData } = data;
+  // Accept generatedContent as content
+  if (generatedContent && !quoteData.content) {
+    quoteData.content = generatedContent;
+  }
 
   const quote = await prisma.$transaction(async (tx) => {
     const quoteNumber = await generateQuoteNumber();
@@ -125,16 +132,18 @@ export async function createQuote(data: {
     // Calculate totals
     let totalAmount = 0;
     const itemsCreate = items?.map((item, idx) => {
-      const subtotal = item.groups * item.meetingsPerGroup * item.pricePerMeeting;
+      const groups = item.groups || item.groupsCount || 1;
+      const duration = item.meetingDuration || item.durationMinutes || 90;
+      const subtotal = groups * item.meetingsPerGroup * item.pricePerMeeting;
       totalAmount += subtotal;
       return {
         courseId: item.courseId || undefined,
-        courseName: item.courseName,
+        courseName: item.courseName || '',
         description: item.description || undefined,
-        groups: item.groups,
+        groups,
         meetingsPerGroup: item.meetingsPerGroup,
         pricePerMeeting: item.pricePerMeeting,
-        meetingDuration: item.meetingDuration || 90,
+        meetingDuration: duration,
         subtotal,
         sortOrder: item.sortOrder ?? idx,
       };
@@ -149,7 +158,7 @@ export async function createQuote(data: {
         branchId: quoteData.branchId || undefined,
         institutionName: quoteData.institutionName,
         contactName: quoteData.contactName,
-        contactPhone: quoteData.contactPhone,
+        contactPhone: quoteData.contactPhone || '',
         contactEmail: quoteData.contactEmail || undefined,
         contactRole: quoteData.contactRole || undefined,
         content: quoteData.content || undefined,
@@ -209,17 +218,19 @@ export async function updateQuote(id: string, data: {
       totalAmount = 0;
       for (let idx = 0; idx < items.length; idx++) {
         const item = items[idx];
-        const subtotal = item.groups * item.meetingsPerGroup * item.pricePerMeeting;
+        const groups = item.groups || item.groupsCount || 1;
+        const duration = item.meetingDuration || item.durationMinutes || 90;
+        const subtotal = groups * item.meetingsPerGroup * item.pricePerMeeting;
         totalAmount += subtotal;
 
         const itemData = {
-          courseName: item.courseName,
+          courseName: item.courseName || '',
           courseId: item.courseId || undefined,
           description: item.description || undefined,
-          groups: item.groups,
+          groups,
           meetingsPerGroup: item.meetingsPerGroup,
           pricePerMeeting: item.pricePerMeeting,
-          meetingDuration: item.meetingDuration || 90,
+          meetingDuration: duration,
           subtotal,
           sortOrder: item.sortOrder ?? idx,
         };

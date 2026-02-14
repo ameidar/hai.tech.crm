@@ -12,12 +12,14 @@ services:
     environment:
       DATABASE_URL: postgresql://haitech:haitech_password@haitech-db:5432/haitech_crm?schema=public
       PORT: 3002
+      REDIS_HOST: haitech-redis
+      REDIS_PORT: 6379
       NODE_ENV: development
       JWT_SECRET: ${JWT_SECRET:-change-this-in-production}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-this-refresh-secret}
       JWT_EXPIRES_IN: 1d
       JWT_REFRESH_EXPIRES_IN: 7d
-      FRONTEND_URL: "*"
+      FRONTEND_URL: "http://129.159.133.209:3002"
       API_KEY: ${API_KEY:-haitech-crm-api-key-2026}
       ZOOM_WEBHOOK_URL: https://hook.eu1.make.com/feok703p7eao5btbutcrwpnoyihdlrmg
       GREEN_API_INSTANCE_ID: ${GREEN_API_INSTANCE_ID}

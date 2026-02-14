@@ -65,8 +65,12 @@ export default function SendMessageModal({ instructor, onClose }: SendMessageMod
         text = text.replace(/{{course_name}}/g, meeting.cycle?.course?.name || '');
         text = text.replace(/{{meeting_time}}/g, formatTime(meeting.startTime));
         text = text.replace(/{{meeting_date}}/g, new Date(meeting.scheduledDate).toLocaleDateString('he-IL'));
+        text = text.replace(/{{meeting_link}}/g, `${window.location.origin}/instructor/meeting/${meeting.id}`);
       }
     }
+    
+    // Replace instructor link
+    text = text.replace(/{{instructor_link}}/g, `${window.location.origin}/instructor`);
     
     setPreview(text);
   }, [selectedTemplate, instructor, customMessage, selectedMeetingId, todayMeetings]);
@@ -88,7 +92,7 @@ export default function SendMessageModal({ instructor, onClose }: SendMessageMod
         instructorId: instructor.id,
         channel,
         templateId: templateId || undefined,
-        customMessage: templateId === 'tpl-free-text' ? customMessage : undefined,
+        customMessage: customMessage || undefined,
         customSubject: channel === 'email' ? customSubject : undefined,
         meetingId: selectedMeetingId || undefined,
       });
@@ -210,8 +214,8 @@ export default function SendMessageModal({ instructor, onClose }: SendMessageMod
           </div>
         )}
 
-        {/* Custom Message (for free text template) */}
-        {templateId === 'tpl-free-text' && (
+        {/* Custom Message (for templates that need it) */}
+        {(templateId === 'tpl-free-text' || templateId === 'tpl-general-whatsapp' || templateId === 'tpl-general-email') && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">הודעה</label>
             <textarea

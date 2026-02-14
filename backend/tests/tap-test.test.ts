@@ -426,4 +426,318 @@ describe('HaiTech CRM - Tap Tests', () => {
       expect(data.database).toBe('connected');
     });
   });
+
+  // =============================================
+  // Email Service Tests
+  // =============================================
+  describe('Email Service', () => {
+    test('should list email templates', async () => {
+      const data = await api('GET', '/email/templates');
+      expect(Array.isArray(data)).toBe(true);
+      // Each template should have id and name
+      if (data.length > 0) {
+        expect(data[0].id).toBeTruthy();
+        expect(data[0].name).toBeTruthy();
+      }
+    });
+
+    test('should reject send email without required fields', async () => {
+      const res = await fetch(`${BASE_URL}/api/email/send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({})
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test('should reject send email without content (no html/text/templateId)', async () => {
+      const res = await fetch(`${BASE_URL}/api/email/send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          to: 'test@example.com',
+          subject: 'Test Subject'
+        })
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test('should accept valid send email request (queue may fail without Redis)', async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      try {
+        const res = await fetch(`${BASE_URL}/api/email/send`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+          },
+          body: JSON.stringify({
+            to: 'taptest@example.com',
+            subject: `${TEST_PREFIX}Test Email`,
+            text: 'This is a tap test email'
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+        // Accept 200 (queued) or 500 (Redis not available) - not 400
+        expect([200, 500]).toContain(res.status);
+        const data = await res.json();
+        if (res.status === 200) {
+          expect(data.success).toBe(true);
+          expect(data.jobId).toBeTruthy();
+        }
+      } catch (e: any) {
+        clearTimeout(timeout);
+        // AbortError means Redis connection hung - that's acceptable
+        if (e.name === 'AbortError') {
+          console.log('Email send timed out (Redis likely unavailable) - OK');
+        } else {
+          throw e;
+        }
+      }
+    });
+
+    test('should reject bulk email without required fields', async () => {
+      const res = await fetch(`${BASE_URL}/api/email/bulk`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({})
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test('should accept valid bulk email request', async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      try {
+        const res = await fetch(`${BASE_URL}/api/email/bulk`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+          },
+          body: JSON.stringify({
+            recipients: [
+              { email: 'taptest1@example.com', name: 'Test 1', data: {} },
+              { email: 'taptest2@example.com', name: 'Test 2', data: {} }
+            ],
+            subject: `${TEST_PREFIX}Bulk Test`,
+            templateId: 'newsletter'
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+        // 200 (queued) or 500 (Redis/template issue)
+        expect([200, 500]).toContain(res.status);
+      } catch (e: any) {
+        clearTimeout(timeout);
+        if (e.name === 'AbortError') {
+          console.log('Bulk email timed out (Redis likely unavailable) - OK');
+        } else {
+          throw e;
+        }
+      }
+    });
+
+    test('should get queue stats (or 500 if Redis unavailable)', async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      try {
+        const res = await fetch(`${BASE_URL}/api/email/queue/status`, {
+          headers: { 'Authorization': `Bearer ${authToken}` },
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+        expect([200, 500]).toContain(res.status);
+        if (res.status === 200) {
+          const data = await res.json();
+          expect(data).toBeTruthy();
+        }
+      } catch (e: any) {
+        clearTimeout(timeout);
+        if (e.name === 'AbortError') {
+          console.log('Queue stats timed out (Redis likely unavailable) - OK');
+        } else {
+          throw e;
+        }
+      }
+    });
+
+    test('should reject test email without address', async () => {
+      const res = await fetch(`${BASE_URL}/api/email/test`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({})
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test('should reject test email with invalid format', async () => {
+      const res = await fetch(`${BASE_URL}/api/email/test`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({ to: 'not-an-email' })
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test('should accept test email request', async () => {
+      const res = await fetch(`${BASE_URL}/api/email/test`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({ to: 'taptest@example.com' })
+      });
+      // 200 (sent) or 500 (SMTP not configured)
+      expect([200, 500]).toContain(res.status);
+    });
+
+    test('should reject unauthenticated email requests', async () => {
+      const res = await fetch(`${BASE_URL}/api/email/templates`);
+      expect(res.status).toBe(401);
+    });
+  });
+
+  // =============================================
+  // Messaging System Tests
+  // =============================================
+  describe('Messaging System', () => {
+    test('should get message templates', async () => {
+      const data = await api('GET', '/messaging/templates');
+      expect(Array.isArray(data)).toBe(true);
+    });
+
+    test('should get all message logs', async () => {
+      const data = await api('GET', '/messaging/logs');
+      expect(Array.isArray(data)).toBe(true);
+    });
+
+    test('should get message logs with channel filter', async () => {
+      const data = await api('GET', '/messaging/logs?channel=whatsapp&limit=10');
+      expect(Array.isArray(data)).toBe(true);
+    });
+
+    test('should get message logs for specific instructor', async () => {
+      if (!existingInstructorId) {
+        console.log('Skipping - no existing instructor');
+        return;
+      }
+      const data = await api('GET', `/messaging/logs/${existingInstructorId}?limit=10`);
+      expect(Array.isArray(data)).toBe(true);
+    });
+
+    test('should reject send message without required fields', async () => {
+      const res = await fetch(`${BASE_URL}/api/messaging/send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({})
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test('should reject send message with invalid instructorId', async () => {
+      const res = await fetch(`${BASE_URL}/api/messaging/send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          instructorId: '00000000-0000-0000-0000-000000000000',
+          channel: 'email',
+          customMessage: 'Test message',
+          customSubject: 'Test'
+        })
+      });
+      // 404 (instructor not found) or 500
+      expect([404, 500]).toContain(res.status);
+    });
+
+    test('should accept send message with valid instructor (may fail on delivery)', async () => {
+      if (!existingInstructorId) {
+        console.log('Skipping - no existing instructor');
+        return;
+      }
+      const res = await fetch(`${BASE_URL}/api/messaging/send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          instructorId: existingInstructorId,
+          channel: 'email',
+          customMessage: `${TEST_PREFIX}Test message - please ignore`,
+          customSubject: `${TEST_PREFIX}Test Subject`
+        })
+      });
+      // 200 (sent), 400 (no email on instructor), or 500 (SMTP/delivery failure)
+      expect([200, 400, 500]).toContain(res.status);
+    });
+
+    test('should reject bulk-send without required fields', async () => {
+      const res = await fetch(`${BASE_URL}/api/messaging/bulk-send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({})
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test('should reject bulk-send with invalid channel', async () => {
+      const res = await fetch(`${BASE_URL}/api/messaging/bulk-send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          instructorIds: ['00000000-0000-0000-0000-000000000000'],
+          channel: 'sms',
+          templateId: 'some-template'
+        })
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test('should get pending status meetings', async () => {
+      const data = await api('GET', '/messaging/pending-status');
+      expect(Array.isArray(data)).toBe(true);
+      // Each meeting should have instructor and cycle info
+      if (data.length > 0) {
+        expect(data[0].id).toBeTruthy();
+        expect(data[0].instructor).toBeTruthy();
+        expect(data[0].cycle).toBeTruthy();
+      }
+    });
+
+    test('should reject unauthenticated messaging requests', async () => {
+      const res = await fetch(`${BASE_URL}/api/messaging/templates`);
+      expect(res.status).toBe(401);
+    });
+  });
 });

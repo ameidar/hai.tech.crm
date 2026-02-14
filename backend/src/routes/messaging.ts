@@ -4,6 +4,7 @@ import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { sendWhatsApp, sendEmail, replacePlaceholders, formatTimeForDisplay } from '../services/messaging.js';
 import { logAudit } from '../utils/audit.js';
+import { config } from '../config.js';
 import { z } from 'zod';
 
 export const messagingRouter = Router();
@@ -61,22 +62,28 @@ messagingRouter.get('/logs/:instructorId', async (req, res, next) => {
 // Get all message logs (with filters)
 messagingRouter.get('/logs', async (req, res, next) => {
   try {
-    const limit = parseInt(req.query.limit as string) || 100;
+    const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 100, 1), 500);
     const channel = req.query.channel as string;
     
-    let query = `
-      SELECT ml.*, i.name as instructor_name 
-      FROM message_logs ml
-      LEFT JOIN instructors i ON ml.instructor_id = i.id
-    `;
-    
+    let logs;
     if (channel) {
-      query += ` WHERE ml.channel = '${channel}'`;
+      logs = await prisma.$queryRaw`
+        SELECT ml.*, i.name as instructor_name 
+        FROM message_logs ml
+        LEFT JOIN instructors i ON ml.instructor_id = i.id
+        WHERE ml.channel = ${channel}
+        ORDER BY ml.created_at DESC
+        LIMIT ${limit}
+      `;
+    } else {
+      logs = await prisma.$queryRaw`
+        SELECT ml.*, i.name as instructor_name 
+        FROM message_logs ml
+        LEFT JOIN instructors i ON ml.instructor_id = i.id
+        ORDER BY ml.created_at DESC
+        LIMIT ${limit}
+      `;
     }
-    
-    query += ` ORDER BY ml.created_at DESC LIMIT ${limit}`;
-    
-    const logs = await prisma.$queryRawUnsafe(query);
     res.json(logs);
   } catch (error) {
     next(error);
@@ -134,8 +141,15 @@ messagingRouter.post('/send', async (req, res, next) => {
         placeholderData.meeting_date = meeting.scheduledDate 
           ? new Date(meeting.scheduledDate).toLocaleDateString('he-IL')
           : '';
+        // Add meeting link
+        const baseUrl = config.frontendUrl || 'http://localhost:3002';
+        placeholderData.meeting_link = `${baseUrl}/instructor/meeting/${meeting.id}`;
       }
     }
+    
+    // Add instructor portal link
+    const baseUrl = config.frontendUrl || 'http://localhost:3002';
+    placeholderData.instructor_link = `${baseUrl}/instructor`;
     
     // Build message
     let messageBody = data.customMessage || '';

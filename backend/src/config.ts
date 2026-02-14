@@ -28,6 +28,9 @@ export const config = {
   // CORS
   corsOrigins: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:5173'],
   
+  // Frontend URL for links in messages
+  frontendUrl: process.env.FRONTEND_URL || 'http://129.159.133.209:3002',
+  
   // Admin seed
   admin: {
     email: process.env.ADMIN_EMAIL || 'admin@haitech.co.il',

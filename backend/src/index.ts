@@ -31,38 +31,17 @@ import expensesRouter from './routes/expenses.js';
 import { emailRouter } from './routes/email.js';
 import { initEmailQueue } from './services/email/queue.js';
 import { initEmailScheduler } from './services/email/scheduler.js';
+import { forecastRouter } from './routes/forecast.js';
 
 const app = express();
 
-// Security middleware with proper CSP
-// Disable security headers in development for HTTP testing
-if (process.env.NODE_ENV === 'production') {
-  app.use(helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
-        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-        imgSrc: ["'self'", "data:", "https:"],
-        fontSrc: ["'self'", "https:", "data:"],
-        connectSrc: ["'self'", "https:"],
-        frameSrc: ["'none'"],
-        objectSrc: ["'none'"],
-        baseUri: ["'self'"],
-        formAction: ["'self'"],
-        upgradeInsecureRequests: [],
-      },
-    },
-  }));
-} else {
-  // Minimal security in development - allow HTTP
-  app.use(helmet({
-    contentSecurityPolicy: false,
-    strictTransportSecurity: false,
-    crossOriginOpenerPolicy: false,
-    crossOriginResourcePolicy: false,
-  }));
-}
+// Security middleware - disabled for HTTP dev access
+app.use(helmet({
+  contentSecurityPolicy: false,
+  strictTransportSecurity: false,
+  crossOriginOpenerPolicy: false,
+  crossOriginResourcePolicy: false,
+}));
 // Permissive CORS for webhook routes (API key protected)
 app.use('/api/webhook', cors({
   origin: '*',
@@ -163,6 +142,7 @@ app.use('/api/instructor-magic', instructorMagicRouter);
 app.use('/api/parent', parentAppRouter); // Parent mobile app API
 app.use('/api/expenses', expensesRouter); // Expense tracking
 app.use('/api/email', emailRouter); // Email service
+app.use('/api/forecast', forecastRouter); // Financial forecasting
 
 // Error handling for API routes
 app.use('/api', errorHandler);

@@ -28,33 +28,39 @@ import type { Meeting, MeetingStatus } from '../types';
 export default function Meetings() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'manager';
-  const [searchParams] = useSearchParams();
-  const [selectedDate, setSelectedDate] = useState(() => {
-    return new Date().toISOString().split('T')[0];
-  });
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'date' | 'view'>('date');
   const [viewColumns, setViewColumns] = useState<string[]>([]);
-  const [instructorFilter, setInstructorFilter] = useState('');
-  
-  // Sorting state
-  const [sortColumn, setSortColumn] = useState<string>('startTime');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkStatus, setBulkStatus] = useState<string>('');
   const [showBulkEditModal, setShowBulkEditModal] = useState(false);
 
-  // Initialize filter from URL params
-  useEffect(() => {
-    const instructorId = searchParams.get('instructorId');
-    if (instructorId) {
-      setInstructorFilter(instructorId);
+  // Read filters from URL
+  const selectedDate = searchParams.get('date') || new Date().toISOString().split('T')[0];
+  const instructorFilter = searchParams.get('instructorId') || '';
+  const sortColumn = searchParams.get('sort') || 'startTime';
+  const sortDirection = (searchParams.get('dir') as 'asc' | 'desc') || 'asc';
+
+  // Helper to update URL params
+  const updateFilter = (key: string, value: string) => {
+    const newParams = new URLSearchParams(searchParams);
+    if (value) {
+      newParams.set(key, value);
+    } else {
+      newParams.delete(key);
     }
-  }, [searchParams]);
+    setSearchParams(newParams, { replace: true });
+  };
+
+  const setSelectedDate = (v: string) => updateFilter('date', v);
+  const setInstructorFilter = (v: string) => updateFilter('instructorId', v);
+  const setSortColumn = (v: string) => updateFilter('sort', v);
+  const setSortDirection = (v: 'asc' | 'desc') => updateFilter('dir', v);
   
   // Column definitions for meetings
   const allColumns: Record<string, { label: string; render: (m: Meeting) => React.ReactNode }> = {

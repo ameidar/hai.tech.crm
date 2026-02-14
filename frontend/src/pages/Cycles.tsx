@@ -12,33 +12,47 @@ import type { Cycle, CycleType, CycleStatus, DayOfWeek, ActivityType } from '../
 import { activityTypeHebrew } from '../types';
 
 export default function Cycles() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingCycle, setEditingCycle] = useState<Cycle | null>(null);
   const [showBulkEditModal, setShowBulkEditModal] = useState(false);
   const [selectedCycles, setSelectedCycles] = useState<Set<string>>(new Set());
-  const [statusFilter, setStatusFilter] = useState<CycleStatus | ''>('');
-  const [instructorFilter, setInstructorFilter] = useState('');
-  const [branchFilter, setBranchFilter] = useState('');
-  const [courseFilter, setCourseFilter] = useState('');
-  const [dayFilter, setDayFilter] = useState<DayOfWeek | ''>('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'filters' | 'view'>('filters');
-  const [pageSize, setPageSize] = useState<number>(100);
-  const [sortField, setSortField] = useState<string>('name');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
 
-  // Initialize filters from URL params
-  useEffect(() => {
-    const branchId = searchParams.get('branchId');
-    const instructorId = searchParams.get('instructorId');
-    const courseId = searchParams.get('courseId');
-    if (branchId) setBranchFilter(branchId);
-    if (instructorId) setInstructorFilter(instructorId);
-    if (courseId) setCourseFilter(courseId);
-  }, [searchParams]);
+  // Read filters from URL
+  const statusFilter = (searchParams.get('status') as CycleStatus) || '';
+  const instructorFilter = searchParams.get('instructorId') || '';
+  const branchFilter = searchParams.get('branchId') || '';
+  const courseFilter = searchParams.get('courseId') || '';
+  const dayFilter = (searchParams.get('day') as DayOfWeek) || '';
+  const searchQuery = searchParams.get('search') || '';
+  const pageSize = parseInt(searchParams.get('limit') || '100');
+  const sortField = searchParams.get('sort') || 'name';
+  const sortDirection = (searchParams.get('dir') as 'asc' | 'desc') || 'asc';
+
+  // Helper to update URL params
+  const updateFilter = (key: string, value: string) => {
+    const newParams = new URLSearchParams(searchParams);
+    if (value) {
+      newParams.set(key, value);
+    } else {
+      newParams.delete(key);
+    }
+    setSearchParams(newParams, { replace: true });
+  };
+
+  // Filter setters that update URL
+  const setStatusFilter = (v: CycleStatus | '') => updateFilter('status', v);
+  const setInstructorFilter = (v: string) => updateFilter('instructorId', v);
+  const setBranchFilter = (v: string) => updateFilter('branchId', v);
+  const setCourseFilter = (v: string) => updateFilter('courseId', v);
+  const setDayFilter = (v: DayOfWeek | '') => updateFilter('day', v);
+  const setSearchQuery = (v: string) => updateFilter('search', v);
+  const setPageSize = (v: number) => updateFilter('limit', v.toString());
+  const setSortField = (v: string) => updateFilter('sort', v);
+  const setSortDirection = (v: 'asc' | 'desc') => updateFilter('dir', v);
 
   // Debounce search
   useMemo(() => {
@@ -141,7 +155,7 @@ export default function Cycles() {
   // Toggle sort
   const handleSort = (field: string) => {
     if (sortField === field) {
-      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
       setSortField(field);
       setSortDirection('asc');

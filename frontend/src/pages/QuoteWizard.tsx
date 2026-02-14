@@ -85,7 +85,7 @@ export default function QuoteWizard() {
   // Validation
   const isStep1Valid = institution.institutionName && institution.contactName;
   const isStep2Valid = courseItems.length > 0 && courseItems.every(
-    (item) => item.courseId && item.groupsCount > 0 && item.meetingsPerGroup > 0 && item.pricePerMeeting > 0
+    (item) => (item.courseId || item.courseName) && item.groupsCount > 0 && item.meetingsPerGroup > 0 && item.pricePerMeeting > 0
   );
 
   const canProceed = () => {
@@ -171,7 +171,8 @@ export default function QuoteWizard() {
       contactRole: institution.contactRole || undefined,
       branchId: institution.branchId || undefined,
       items: courseItems.map((item) => ({
-        courseId: item.courseId,
+        courseId: item.courseId || undefined,
+        courseName: item.courseName,
         groupsCount: item.groupsCount,
         meetingsPerGroup: item.meetingsPerGroup,
         durationMinutes: item.durationMinutes,
@@ -344,20 +345,34 @@ export default function QuoteWizard() {
                               <Trash2 size={16} />
                             </button>
                           </div>
-                          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                            <div className="col-span-2 md:col-span-1">
-                              <label className="form-label text-xs">קורס *</label>
-                              <select
-                                value={item.courseId}
-                                onChange={(e) => updateCourseItem(index, 'courseId', e.target.value)}
-                                className="form-input text-sm"
-                                required
-                              >
-                                <option value="">בחר קורס</option>
-                                {courses?.map((course) => (
-                                  <option key={course.id} value={course.id}>{course.name}</option>
-                                ))}
-                              </select>
+                          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+                            <div className="col-span-2 md:col-span-2">
+                              <label className="form-label text-xs">קורס / נושא *</label>
+                              <div className="flex gap-2">
+                                <select
+                                  value={item.courseId}
+                                  onChange={(e) => updateCourseItem(index, 'courseId', e.target.value)}
+                                  className="form-input text-sm flex-1"
+                                >
+                                  <option value="">בחר מהרשימה (אופציונלי)</option>
+                                  {courses?.map((course) => (
+                                    <option key={course.id} value={course.id}>{course.name}</option>
+                                  ))}
+                                </select>
+                                <span className="self-center text-xs text-gray-400">או</span>
+                                <input
+                                  type="text"
+                                  value={!item.courseId ? item.courseName : ''}
+                                  onChange={(e) => {
+                                    const updated = [...courseItems];
+                                    updated[index] = { ...updated[index], courseId: '', courseName: e.target.value };
+                                    setCourseItems(updated);
+                                  }}
+                                  className="form-input text-sm flex-1"
+                                  placeholder="הזן נושא חופשי"
+                                  disabled={!!item.courseId}
+                                />
+                              </div>
                             </div>
                             <div>
                               <label className="form-label text-xs">קבוצות *</label>

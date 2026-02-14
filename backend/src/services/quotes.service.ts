@@ -231,9 +231,6 @@ export async function updateQuote(id: string, data: {
       }
     }
 
-    const discount = data.discount ?? Number(existing.discount);
-    const finalAmount = totalAmount - discount;
-
     const updateData: any = {};
     if (fields.branchId !== undefined) updateData.branchId = fields.branchId || undefined;
     if (fields.institutionName !== undefined) updateData.institutionName = fields.institutionName;
@@ -245,10 +242,14 @@ export async function updateQuote(id: string, data: {
     if (fields.notes !== undefined) updateData.notes = fields.notes;
     if (fields.content !== undefined) updateData.content = fields.content;
     if (fields.status !== undefined) updateData.status = fields.status;
-    if (items) {
+    if (data.discount !== undefined) updateData.discount = data.discount;
+
+    // Recalculate finalAmount if items or discount changed
+    if (items || data.discount !== undefined) {
+      const currentDiscount = data.discount ?? Number(existing.discount);
       updateData.totalAmount = totalAmount;
-      updateData.discount = discount;
-      updateData.finalAmount = finalAmount;
+      updateData.finalAmount = totalAmount - currentDiscount;
+      updateData.discount = currentDiscount;
     }
 
     return tx.quote.update({

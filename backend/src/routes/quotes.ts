@@ -12,6 +12,7 @@ import {
   convertToOrder,
 } from '../services/quotes.service.js';
 import { sendEmail } from '../services/email/sender.js';
+import { renderQuoteVideo, getVideoPath, setRenderStatus, getRenderStatus } from '../services/video.service.js';
 
 export const quotesRouter = Router();
 
@@ -194,6 +195,61 @@ quotesRouter.post('/:id/convert', managerOrAdmin, async (req, res, next) => {
     const id = uuidSchema.parse(req.params.id);
     const result = await convertToOrder(id);
     res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Generate marketing video for quote
+quotesRouter.post('/:id/generate-video', managerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+    const quote = await getQuoteById(id);
+    if (!quote) {
+      return res.status(404).json({ error: 'הצעה לא נמצאה' });
+    }
+
+    // Build props for Remotion
+    const props = {
+      institutionName: quote.institutionName,
+      items: (quote.items || []).map((item: any) => ({
+        courseName: item.courseName || 'שירות',
+        type: (item.groups === 1 && item.meetingsPerGroup === 1 && item.description) ? 'project' : 'education',
+      })),
+      totalAmount: Number(quote.finalAmount || quote.totalAmount || 0),
+    };
+
+    // Start render in background
+    setRenderStatus(id, 'rendering');
+    renderQuoteVideo(id, props)
+      .then(() => setRenderStatus(id, 'done'))
+      .catch((err) => {
+        console.error('Video render failed:', err);
+        setRenderStatus(id, 'error');
+      });
+
+    res.json({ status: 'rendering', message: 'הסרטון בהכנה...' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get video status / serve video
+quotesRouter.get('/:id/video', async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+    const status = getRenderStatus(id);
+    const videoPath = await getVideoPath(id);
+
+    if (videoPath) {
+      res.sendFile(videoPath);
+    } else if (status === 'rendering') {
+      res.status(202).json({ status: 'rendering', message: 'הסרטון עדיין בהכנה...' });
+    } else if (status === 'error') {
+      res.status(500).json({ status: 'error', message: 'שגיאה ביצירת הסרטון' });
+    } else {
+      res.status(404).json({ status: 'not_found', message: 'סרטון לא נמצא' });
+    }
   } catch (error) {
     next(error);
   }

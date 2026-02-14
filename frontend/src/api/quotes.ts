@@ -111,4 +111,14 @@ export const quotesApi = {
     const res = await api.post<{ content: string }>('/quotes/generate-content-preview', data);
     return res.data;
   },
+
+  generateVideo: async (id: string) => {
+    const res = await api.post<{ status: string; message: string }>(`/quotes/${id}/generate-video`);
+    return res.data;
+  },
+
+  getVideoStatus: async (id: string) => {
+    const res = await api.get(`/quotes/${id}/video`, { responseType: 'blob' });
+    return res;
+  },
 };

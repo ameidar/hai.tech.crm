@@ -37,12 +37,24 @@ export default function PublicQuoteView() {
   const [quote, setQuote] = useState<PublicQuote | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
     axios
       .get(`${API_BASE}/public/quotes/${id}`)
-      .then((res) => setQuote(res.data))
+      .then((res) => {
+        setQuote(res.data);
+        // Check if video exists
+        axios
+          .get(`${API_BASE}/quotes/${id}/video`, { responseType: 'blob' })
+          .then((vRes) => {
+            if (vRes.data instanceof Blob && vRes.data.type.startsWith('video/')) {
+              setVideoUrl(URL.createObjectURL(vRes.data));
+            }
+          })
+          .catch(() => {}); // No video, that's fine
+      })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, [id]);
@@ -105,6 +117,22 @@ export default function PublicQuoteView() {
           </p>
         </div>
       </section>
+
+      {/* Video */}
+      {videoUrl && (
+        <section className="max-w-5xl mx-auto px-4 py-8">
+          <div className="bg-black rounded-2xl overflow-hidden shadow-2xl">
+            <video
+              src={videoUrl}
+              controls
+              autoPlay
+              muted
+              className="w-full"
+              style={{ maxHeight: 540 }}
+            />
+          </div>
+        </section>
+      )}
 
       {/* About */}
       <section className="max-w-5xl mx-auto px-4 py-12 md:py-16">

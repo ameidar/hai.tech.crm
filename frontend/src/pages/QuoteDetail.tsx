@@ -27,6 +27,7 @@ const statusHebrew: Record<string, string> = {
   sent: 'נשלחה',
   accepted: 'אושרה',
   rejected: 'נדחתה',
+  converted: 'הומרה להזמנה',
 };
 
 const statusBadgeClass: Record<string, string> = {
@@ -34,6 +35,7 @@ const statusBadgeClass: Record<string, string> = {
   sent: 'badge-info',
   accepted: 'badge-success',
   rejected: 'badge-danger',
+  converted: 'badge-success',
 };
 
 export default function QuoteDetail() {
@@ -65,7 +67,7 @@ export default function QuoteDetail() {
 
   const convertToOrder = useMutation({
     mutationFn: () => quotesApi.convertToOrder(id!),
-    onSuccess: (result) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['quote', id] });
       alert('ההצעה הומרה להזמנה בהצלחה!');
     },
@@ -103,22 +105,43 @@ export default function QuoteDetail() {
     );
   }
 
+  // Calculate financials from items
+  const itemsTotal = (quote.items || []).reduce((sum: number, item: any) => sum + Number(item.subtotal || 0), 0);
+  const discountValue = Number(quote.discount || 0);
+  const finalAmount = Number(quote.finalAmount || quote.totalAmount || 0);
+
   return (
     <>
       <PageHeader
-        title={`הצעת מחיר #${quote.quoteNumber}`}
+        title={`הצעת מחיר ${quote.quoteNumber}`}
         actions={
-          <div className="flex gap-2">
-            {/* Actions based on status */}
+          <div className="flex gap-2 flex-wrap">
+            {/* Edit - always available for draft/sent */}
+            {(quote.status === 'draft' || quote.status === 'sent') && (
+              <Link to={`/quotes/${id}/edit`} className="btn btn-secondary">
+                <Edit size={16} />
+                עריכה
+              </Link>
+            )}
+
+            {/* Status actions */}
             {quote.status === 'draft' && (
               <>
                 <button
-                  onClick={() => sendQuote.mutateAsync()}
+                  onClick={() => {
+                    if (quote.contactEmail) {
+                      sendQuote.mutateAsync();
+                    } else {
+                      if (confirm('לא הוגדר מייל לאיש הקשר. לסמן כנשלחה בכל זאת?')) {
+                        sendQuote.mutateAsync();
+                      }
+                    }
+                  }}
                   disabled={sendQuote.isPending}
                   className="btn btn-primary"
                 >
                   {sendQuote.isPending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                  שלח
+                  סמן כנשלחה
                 </button>
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
@@ -225,23 +248,24 @@ export default function QuoteDetail() {
                 )}
 
                 <div className="pt-4 border-t flex items-center justify-between">
-                  <span className={`badge ${statusBadgeClass[quote.status]}`}>
-                    {statusHebrew[quote.status]}
+                  <span className={`badge ${statusBadgeClass[quote.status] || 'badge-info'}`}>
+                    {statusHebrew[quote.status] || quote.status}
                   </span>
                   <span className="text-sm text-gray-500">
                     {new Date(quote.createdAt).toLocaleDateString('he-IL')}
                   </span>
                 </div>
 
+                {/* Linked order */}
                 {quote.orderId && (
                   <div className="pt-3 border-t">
-                    <Link
-                      to={`/orders/${quote.orderId}`}
-                      className="flex items-center gap-2 text-blue-600 hover:text-blue-800"
-                    >
-                      <ShoppingCart size={16} />
-                      <span>צפה בהזמנה המקושרת</span>
-                    </Link>
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                      <p className="text-sm text-green-700 font-medium mb-1">✅ הזמנה מקושרת</p>
+                      <p className="text-xs text-green-600">
+                        ההצעה הומרה להזמנה מוסדית
+                      </p>
+                      {/* TODO: link to order detail page when it exists */}
+                    </div>
                   </div>
                 )}
               </div>
@@ -254,22 +278,18 @@ export default function QuoteDetail() {
               </div>
               <div className="card-body space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-gray-500">סה״כ לפני הנחה:</span>
-                  <span className="font-medium">
-                    ₪{((quote.totalAmount || 0) / (1 - (quote.discount || 0) / 100)).toLocaleString()}
-                  </span>
+                  <span className="text-gray-500">סה״כ פריטים:</span>
+                  <span className="font-medium">₪{itemsTotal.toLocaleString()}</span>
                 </div>
-                {quote.discount > 0 && (
+                {discountValue > 0 && (
                   <div className="flex items-center justify-between text-red-600">
-                    <span>הנחה ({quote.discount}%):</span>
-                    <span>
-                      -₪{(((quote.totalAmount || 0) / (1 - quote.discount / 100)) * quote.discount / 100).toLocaleString()}
-                    </span>
+                    <span>הנחה:</span>
+                    <span>-₪{discountValue.toLocaleString()}</span>
                   </div>
                 )}
                 <div className="flex items-center justify-between text-lg font-bold border-t pt-3">
                   <span>סה״כ:</span>
-                  <span className="text-green-600">₪{Number(quote.totalAmount || 0).toLocaleString()}</span>
+                  <span className="text-green-600">₪{finalAmount.toLocaleString()}</span>
                 </div>
               </div>
             </div>
@@ -287,25 +307,27 @@ export default function QuoteDetail() {
                   <table>
                     <thead>
                       <tr>
-                        <th>קורס</th>
-                        <th>קבוצות</th>
-                        <th>מפגשים</th>
-                        <th>משך</th>
-                        <th>מחיר למפגש</th>
+                        <th>שם</th>
+                        <th>פירוט</th>
                         <th>סה״כ</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {quote.items.map((item, index) => (
-                        <tr key={item.id || index}>
-                          <td className="font-medium">{item.courseName || '-'}</td>
-                          <td>{item.groupsCount}</td>
-                          <td>{item.meetingsPerGroup}</td>
-                          <td>{item.durationMinutes} דקות</td>
-                          <td>₪{Number(item.pricePerMeeting).toLocaleString()}</td>
-                          <td className="font-semibold">₪{Number(item.subtotal).toLocaleString()}</td>
-                        </tr>
-                      ))}
+                      {quote.items.map((item: any, index: number) => {
+                        const isProject = item.groups === 1 && item.meetingsPerGroup === 1 && item.description;
+                        return (
+                          <tr key={item.id || index}>
+                            <td className="font-medium">{item.courseName || '-'}</td>
+                            <td className="text-sm text-gray-500">
+                              {isProject
+                                ? (item.description || 'מחיר כולל')
+                                : `${item.groups} קבוצות × ${item.meetingsPerGroup} מפגשים × ₪${Number(item.pricePerMeeting).toLocaleString()}`
+                              }
+                            </td>
+                            <td className="font-semibold">₪{Number(item.subtotal).toLocaleString()}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -318,15 +340,27 @@ export default function QuoteDetail() {
             </div>
 
             {/* Generated Content */}
-            {quote.generatedContent && (
+            {(quote.generatedContent || quote.content) && (
               <div className="card">
                 <div className="card-header">
                   <h2 className="font-semibold">תוכן ההצעה</h2>
                 </div>
                 <div className="card-body">
-                  <div className="whitespace-pre-wrap text-sm leading-relaxed bg-gray-50 rounded-lg p-4">
-                    {quote.generatedContent}
+                  <div className="whitespace-pre-wrap text-sm leading-relaxed bg-gray-50 rounded-lg p-4" dir="rtl">
+                    {typeof quote.content === 'string' ? quote.content : quote.generatedContent || ''}
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Notes */}
+            {quote.notes && (
+              <div className="card">
+                <div className="card-header">
+                  <h2 className="font-semibold">הערות</h2>
+                </div>
+                <div className="card-body">
+                  <p className="text-sm text-gray-600">{quote.notes}</p>
                 </div>
               </div>
             )}
@@ -343,7 +377,7 @@ export default function QuoteDetail() {
       >
         <div className="p-6">
           <p className="text-gray-600 mb-6">
-            האם למחוק את הצעת מחיר #{quote.quoteNumber}? פעולה זו לא ניתנת לביטול.
+            האם למחוק את הצעת מחיר {quote.quoteNumber}? פעולה זו לא ניתנת לביטול.
           </p>
           <div className="flex justify-end gap-3">
             <button onClick={() => setShowDeleteConfirm(false)} className="btn btn-secondary">

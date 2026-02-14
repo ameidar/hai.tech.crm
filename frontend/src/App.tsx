@@ -20,6 +20,9 @@ import InviteSetup from './pages/InviteSetup';
 import ResetPassword from './pages/ResetPassword';
 import MeetingStatus from './pages/MeetingStatus';
 import AuditLog from './pages/AuditLog';
+import Quotes from './pages/Quotes';
+import QuoteWizard from './pages/QuoteWizard';
+import QuoteDetail from './pages/QuoteDetail';
 
 // Mobile instructor pages
 import MobileMeetings from './pages/instructor/MobileMeetings';
@@ -121,6 +124,9 @@ function AppRoutes() {
         <Route path="cycles" element={<Cycles />} />
         <Route path="cycles/:id" element={<CycleDetail />} />
         <Route path="meetings" element={<Meetings />} />
+        <Route path="quotes" element={<Quotes />} />
+        <Route path="quotes/new" element={<QuoteWizard />} />
+        <Route path="quotes/:id" element={<QuoteDetail />} />
         <Route path="reports" element={<Reports />} />
         <Route path="audit" element={<AuditLog />} />
         <Route path="instructor" element={<InstructorDashboard />} />

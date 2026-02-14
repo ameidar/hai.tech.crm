@@ -12,6 +12,7 @@ import {
   Calendar,
   BarChart3,
   FileText,
+  Receipt,
   LogOut,
   Menu,
   X,
@@ -28,6 +29,7 @@ const adminNavItems = [
   { path: '/instructors', icon: UserCheck, label: 'מדריכים', testId: 'nav-instructors' },
   { path: '/cycles', icon: RefreshCcw, label: 'מחזורים', testId: 'nav-cycles' },
   { path: '/meetings', icon: Calendar, label: 'פגישות', testId: 'nav-meetings' },
+  { path: '/quotes', icon: Receipt, label: 'הצעות מחיר', testId: 'nav-quotes' },
   { path: '/reports', icon: BarChart3, label: 'דוחות', testId: 'nav-reports' },
   { path: '/audit', icon: FileText, label: 'יומן פעילות', testId: 'nav-audit' },
 ];

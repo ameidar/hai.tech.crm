@@ -76,6 +76,39 @@ quotesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
   }
 });
 
+// Send quote (update status to sent)
+quotesRouter.post('/:id/send', managerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+    const quote = await updateQuote(id, { status: 'sent' });
+    res.json(quote);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Accept quote
+quotesRouter.post('/:id/accept', managerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+    const quote = await updateQuote(id, { status: 'accepted' });
+    res.json(quote);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Reject quote
+quotesRouter.post('/:id/reject', managerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+    const quote = await updateQuote(id, { status: 'rejected' });
+    res.json(quote);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Generate AI content preview (without saving to a quote)
 quotesRouter.post('/generate-content-preview', async (req, res, next) => {
   try {

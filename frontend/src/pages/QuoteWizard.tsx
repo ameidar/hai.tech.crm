@@ -11,7 +11,7 @@ const steps = [
   { label: 'פרטי מוסד', number: 1 },
   { label: 'בחירת קורסים', number: 2 },
   { label: 'תמחור', number: 3 },
-  { label: 'תוכן AI', number: 4 },
+  { label: 'תוכן הצעה', number: 4 },
   { label: 'תצוגה מקדימה', number: 5 },
 ];
 
@@ -471,53 +471,49 @@ export default function QuoteWizard() {
                 </div>
               )}
 
-              {/* Step 4: AI Content */}
+              {/* Step 4: Content (AI or Manual) */}
               {currentStep === 4 && (
                 <div className="space-y-4">
-                  <h3 className="text-lg font-semibold mb-4">יצירת תוכן עם AI</h3>
+                  <h3 className="text-lg font-semibold mb-4">תוכן הצעת המחיר</h3>
+                  <p className="text-sm text-gray-500 mb-4">
+                    ניתן ליצור תוכן אוטומטית עם AI או לכתוב תוכן ידנית. שלב זה אופציונלי — ניתן לדלג.
+                  </p>
 
-                  {!generatedContent ? (
-                    <div className="text-center py-12">
-                      <Sparkles size={48} className="mx-auto mb-4 text-purple-400" />
-                      <p className="text-gray-500 mb-6">
-                        לחצו על הכפתור כדי ליצור הצעת מחיר מקצועית באמצעות בינה מלאכותית
-                      </p>
-                      <button
-                        onClick={handleGenerateContent}
-                        disabled={isGenerating}
-                        className="btn btn-primary text-lg px-8 py-3"
-                      >
-                        {isGenerating ? (
-                          <>
-                            <Loader2 size={20} className="animate-spin" />
-                            יוצר תוכן...
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles size={20} />
-                            צור תוכן הצעה
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="text-sm text-gray-500">התוכן נוצר בהצלחה</span>
-                        <button
-                          onClick={handleGenerateContent}
-                          disabled={isGenerating}
-                          className="btn btn-secondary text-sm"
-                        >
-                          {isGenerating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                          צור מחדש
-                        </button>
-                      </div>
-                      <div className="bg-gray-50 border rounded-lg p-4 whitespace-pre-wrap text-sm leading-relaxed max-h-96 overflow-y-auto">
-                        {generatedContent}
-                      </div>
-                    </div>
-                  )}
+                  {/* AI Generate Button */}
+                  <div className="flex items-center gap-3 mb-4">
+                    <button
+                      onClick={handleGenerateContent}
+                      disabled={isGenerating}
+                      className="btn btn-primary"
+                    >
+                      {isGenerating ? (
+                        <>
+                          <Loader2 size={18} className="animate-spin" />
+                          מייצר תוכן...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={18} />
+                          צור תוכן עם AI
+                        </>
+                      )}
+                    </button>
+                    {generatedContent && (
+                      <span className="text-sm text-green-600">✓ תוכן קיים</span>
+                    )}
+                  </div>
+
+                  {/* Content Textarea - always visible */}
+                  <div>
+                    <label className="form-label">תוכן ההצעה (Markdown)</label>
+                    <textarea
+                      value={generatedContent}
+                      onChange={(e) => setGeneratedContent(e.target.value)}
+                      className="form-input w-full min-h-[400px] text-sm leading-relaxed font-mono"
+                      dir="rtl"
+                      placeholder="כתוב כאן את תוכן ההצעה, או לחץ על 'צור תוכן עם AI' למעלה..."
+                    />
+                  </div>
                 </div>
               )}
 
@@ -546,16 +542,17 @@ export default function QuoteWizard() {
                     </div>
                   </div>
 
-                  {/* Editable content */}
+                  {/* Generated content preview */}
                   {generatedContent && (
                     <div>
-                      <label className="form-label">תוכן ההצעה (ניתן לעריכה)</label>
-                      <textarea
-                        value={generatedContent}
-                        onChange={(e) => setGeneratedContent(e.target.value)}
-                        className="form-input min-h-[300px] text-sm whitespace-pre-wrap"
+                      <label className="form-label">תוכן ההצעה</label>
+                      <div
+                        className="bg-white border rounded-lg p-6 text-sm leading-relaxed max-h-[500px] overflow-y-auto prose prose-sm max-w-none"
                         dir="rtl"
-                      />
+                        style={{ whiteSpace: 'pre-wrap' }}
+                      >
+                        {generatedContent}
+                      </div>
                     </div>
                   )}
                 </div>

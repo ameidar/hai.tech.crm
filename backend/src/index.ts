@@ -32,6 +32,7 @@ import { emailRouter } from './routes/email.js';
 import { initEmailQueue } from './services/email/queue.js';
 import { initEmailScheduler } from './services/email/scheduler.js';
 import { forecastRouter } from './routes/forecast.js';
+import { quotesRouter } from './routes/quotes.js';
 
 const app = express();
 
@@ -143,6 +144,7 @@ app.use('/api/parent', parentAppRouter); // Parent mobile app API
 app.use('/api/expenses', expensesRouter); // Expense tracking
 app.use('/api/email', emailRouter); // Email service
 app.use('/api/forecast', forecastRouter); // Financial forecasting
+app.use('/api/quotes', quotesRouter); // Quote management
 
 // Error handling for API routes
 app.use('/api', errorHandler);

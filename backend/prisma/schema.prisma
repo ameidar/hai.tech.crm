@@ -77,6 +77,15 @@ enum PaymentStatus {
   paid
 }
 
+enum QuoteStatus {
+  draft
+  sent
+  accepted
+  rejected
+  expired
+  converted
+}
+
 enum PaymentMethod {
   credit
   transfer
@@ -128,6 +137,7 @@ model User {
   cycleExpenses         CycleExpense[]
   submittedExpenses     MeetingExpense[] @relation("ExpenseSubmitter")
   reviewedExpenses      MeetingExpense[] @relation("ExpenseReviewer")
+  quotes                Quote[]
 
   @@map("users")
 }
@@ -182,7 +192,8 @@ model Course {
   updatedAt      DateTime       @updatedAt @map("updated_at")
 
   // Relations
-  cycles Cycle[]
+  cycles     Cycle[]
+  quoteItems QuoteItem[]
 
   @@map("courses")
 }
@@ -203,6 +214,7 @@ model Branch {
   // Relations
   institutionalOrders InstitutionalOrder[]
   cycles              Cycle[]
+  quotes              Quote[]
 
   @@map("branches")
 }
@@ -251,12 +263,18 @@ model InstitutionalOrder {
   contractFile      String?     @map("contract_file")
   status            OrderStatus @default(draft)
   notes             String?
+  totalAmount       Decimal?    @map("total_amount") @db.Decimal(10, 2)
+  invoiceNumber     String?     @map("invoice_number")
+  invoiceLink       String?     @map("invoice_link")
+  paymentStatus     PaymentStatus? @map("payment_status")
+  paidAmount        Decimal?    @default(0) @map("paid_amount") @db.Decimal(10, 2)
   createdAt         DateTime    @default(now()) @map("created_at")
   updatedAt         DateTime    @updatedAt @map("updated_at")
 
   // Relations
   branch Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
   cycles Cycle[]
+  quote  Quote?
 
   @@map("institutional_orders")
 }
@@ -542,4 +560,58 @@ model MeetingExpense {
   @@index([status])
   @@index([submittedById])
   @@map("meeting_expenses")
+}
+
+// ===================
+// QUOTES
+// ===================
+
+model Quote {
+  id              String      @id @default(uuid())
+  quoteNumber     String      @unique @map("quote_number")
+  branchId        String?     @map("branch_id")
+  institutionName String      @map("institution_name")
+  contactName     String      @map("contact_name")
+  contactPhone    String      @map("contact_phone")
+  contactEmail    String?     @map("contact_email")
+  contactRole     String?     @map("contact_role")
+  content         Json?
+  totalAmount     Decimal     @map("total_amount") @db.Decimal(10, 2)
+  discount        Decimal?    @default(0) @db.Decimal(10, 2)
+  finalAmount     Decimal     @map("final_amount") @db.Decimal(10, 2)
+  validUntil      DateTime?   @map("valid_until") @db.Date
+  status          QuoteStatus @default(draft)
+  notes           String?
+  orderId         String?     @unique @map("order_id")
+  createdById     String      @map("created_by")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  // Relations
+  branch    Branch?             @relation(fields: [branchId], references: [id])
+  items     QuoteItem[]
+  order     InstitutionalOrder? @relation(fields: [orderId], references: [id])
+  createdBy User                @relation(fields: [createdById], references: [id])
+
+  @@map("quotes")
+}
+
+model QuoteItem {
+  id              String  @id @default(uuid())
+  quoteId         String  @map("quote_id")
+  courseId         String? @map("course_id")
+  courseName      String  @map("course_name")
+  description     String?
+  groups          Int
+  meetingsPerGroup Int    @map("meetings_per_group")
+  pricePerMeeting Decimal @map("price_per_meeting") @db.Decimal(10, 2)
+  meetingDuration Int     @default(90) @map("meeting_duration")
+  subtotal        Decimal @db.Decimal(10, 2)
+  sortOrder       Int     @default(0) @map("sort_order")
+
+  // Relations
+  quote  Quote  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  course Course? @relation(fields: [courseId], references: [id])
+
+  @@map("quote_items")
 }

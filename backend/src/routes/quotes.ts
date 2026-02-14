@@ -11,8 +11,8 @@ import {
   generateContentPreview,
   convertToOrder,
 } from '../services/quotes.service.js';
+import { renderQuoteVideo, getVideoStatus, getVideoUrl, setRenderStatus } from '../services/video.service.js';
 import { sendEmail } from '../services/email/sender.js';
-import { renderQuoteVideo, getVideoPath, setRenderStatus, getRenderStatus } from '../services/video.service.js';
 
 export const quotesRouter = Router();
 
@@ -78,65 +78,43 @@ quotesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
   }
 });
 
-// Send quote (send email + update status to sent)
+// Send quote (update status + email)
 quotesRouter.post('/:id/send', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
     const quote = await getQuoteById(id);
-    if (!quote) {
-      return res.status(404).json({ error: 'הצעה לא נמצאה' });
-    }
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3002';
-    const publicUrl = `${frontendUrl}/public/quote/${id}`;
     let emailSent = false;
-
     if (quote.contactEmail) {
-      const itemsSummary = (quote.items || [])
-        .map((item: any) => `<li style="padding:4px 0;">${item.courseName || 'שירות'} — ₪${Number(item.subtotal).toLocaleString()}</li>`)
-        .join('');
+      const frontendUrl = process.env.FRONTEND_URL || 'http://129.159.133.209:3002';
+      const publicUrl = `${frontendUrl}/public/quote/${id}`;
 
-      const finalAmount = Number(quote.finalAmount || quote.totalAmount || 0);
-
-      const html = `
-<!DOCTYPE html>
-<html dir="rtl" lang="he">
-<head><meta charset="UTF-8"></head>
-<body style="font-family:Arial,sans-serif;margin:0;padding:0;background:#f3f4f6;">
-  <div style="max-width:600px;margin:0 auto;padding:20px;">
-    <div style="background:linear-gradient(135deg,#2563eb 0%,#06b6d4 100%);color:white;padding:30px;text-align:center;border-radius:12px 12px 0 0;">
-      <h1 style="margin:0;font-size:28px;">דרך ההייטק</h1>
-      <p style="margin:8px 0 0;opacity:0.9;font-size:14px;">חינוך טכנולוגי מתקדם</p>
-    </div>
-    <div style="background:white;padding:30px;border:1px solid #e5e7eb;">
-      <p style="font-size:18px;color:#1f2937;">שלום ${quote.contactName},</p>
-      <p style="color:#4b5563;">שמחים לשלוח לך את הצעת המחיר שהכנו עבור <strong>${quote.institutionName}</strong>.</p>
-      
-      <div style="background:#f0f9ff;border-right:4px solid #2563eb;padding:15px;margin:20px 0;border-radius:4px;">
-        <p style="margin:0 0 8px;font-weight:bold;color:#1e40af;">סיכום ההצעה:</p>
-        <ul style="margin:0;padding:0 20px;color:#374151;">${itemsSummary}</ul>
-        <p style="margin:12px 0 0;font-size:20px;font-weight:bold;color:#059669;">סה״כ: ₪${finalAmount.toLocaleString()}</p>
-      </div>
-
-      <div style="text-align:center;margin:30px 0;">
-        <a href="${publicUrl}" style="display:inline-block;background:linear-gradient(135deg,#2563eb,#06b6d4);color:white;padding:14px 40px;text-decoration:none;border-radius:8px;font-size:18px;font-weight:bold;">צפו בהצעה המלאה</a>
-      </div>
-
-      <p style="color:#6b7280;font-size:13px;">אם יש לכם שאלות, אנחנו כאן בשבילכם.</p>
-    </div>
-    <div style="background:#f9fafb;padding:20px;text-align:center;border-radius:0 0 12px 12px;border:1px solid #e5e7eb;border-top:none;">
-      <p style="color:#9ca3af;font-size:12px;margin:0;">דרך ההייטק — חינוך טכנולוגי מתקדם<br>info@hai.tech | 03-1234567</p>
-    </div>
-  </div>
-</body>
-</html>`;
-
-      const result = await sendEmail({
+      await sendEmail({
         to: quote.contactEmail,
-        subject: `הצעת מחיר ${quote.quoteNumber} — דרך ההייטק`,
-        html,
+        subject: `הצעת מחיר מדרך ההייטק - ${quote.institutionName}`,
+        html: `
+          <div dir="rtl" style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+            <div style="background:linear-gradient(135deg,#0891b2,#06b6d4);padding:24px;text-align:center;border-radius:12px 12px 0 0;">
+              <h1 style="color:white;margin:0;font-size:24px;">דרך ההייטק</h1>
+              <p style="color:#e0f2fe;margin:8px 0 0;">הצעת מחיר מיוחדת עבורכם</p>
+            </div>
+            <div style="padding:24px;background:#f8fafc;border:1px solid #e2e8f0;">
+              <p style="font-size:16px;">שלום ${quote.contactName},</p>
+              <p>הכנו עבורכם הצעת מחיר מותאמת אישית.</p>
+              <div style="text-align:center;margin:24px 0;">
+                <a href="${publicUrl}" style="display:inline-block;background:#0891b2;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;">
+                  צפו בהצעה המלאה →
+                </a>
+              </div>
+              <p style="color:#64748b;font-size:14px;">סה״כ: ₪${Number(quote.finalAmount || quote.totalAmount).toLocaleString()}</p>
+            </div>
+            <div style="padding:16px;text-align:center;color:#94a3b8;font-size:12px;">
+              דרך ההייטק | hai.tech
+            </div>
+          </div>
+        `,
       });
-      emailSent = result.success;
+      emailSent = true;
     }
 
     const updated = await updateQuote(id, { status: 'sent' });
@@ -200,16 +178,12 @@ quotesRouter.post('/:id/convert', managerOrAdmin, async (req, res, next) => {
   }
 });
 
-// Generate marketing video for quote
+// Generate video
 quotesRouter.post('/:id/generate-video', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
     const quote = await getQuoteById(id);
-    if (!quote) {
-      return res.status(404).json({ error: 'הצעה לא נמצאה' });
-    }
 
-    // Build props for Remotion
     const props = {
       institutionName: quote.institutionName,
       items: (quote.items || []).map((item: any) => ({
@@ -219,7 +193,6 @@ quotesRouter.post('/:id/generate-video', managerOrAdmin, async (req, res, next) 
       totalAmount: Number(quote.finalAmount || quote.totalAmount || 0),
     };
 
-    // Start render in background
     setRenderStatus(id, 'rendering');
     renderQuoteVideo(id, props)
       .then(() => setRenderStatus(id, 'done'))
@@ -234,15 +207,32 @@ quotesRouter.post('/:id/generate-video', managerOrAdmin, async (req, res, next) 
   }
 });
 
-// Get video status / serve video
+// Get video status / proxy video
 quotesRouter.get('/:id/video', async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
-    const status = getRenderStatus(id);
-    const videoPath = await getVideoPath(id);
-
-    if (videoPath) {
-      res.sendFile(videoPath);
+    
+    // Check render server status
+    const status = await getVideoStatus(id);
+    
+    if (status === 'done') {
+      // Proxy the video from render server
+      const videoUrl = getVideoUrl(id);
+      const videoRes = await fetch(videoUrl);
+      if (videoRes.ok && videoRes.body) {
+        res.setHeader('Content-Type', 'video/mp4');
+        const reader = videoRes.body.getReader();
+        const pump = async () => {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) { res.end(); break; }
+            res.write(value);
+          }
+        };
+        await pump();
+      } else {
+        res.status(404).json({ status: 'not_found' });
+      }
     } else if (status === 'rendering') {
       res.status(202).json({ status: 'rendering', message: 'הסרטון עדיין בהכנה...' });
     } else if (status === 'error') {

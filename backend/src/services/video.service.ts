@@ -1,38 +1,35 @@
-import { exec } from 'child_process';
-import { promises as fs } from 'fs';
-import path from 'path';
+// Video render server runs on the host (outside Docker)
+const RENDER_SERVER = process.env.VIDEO_RENDER_URL || 'http://host.docker.internal:3099';
 
-const VIDEO_DIR = '/tmp/quote-videos';
-const RENDER_SCRIPT = '/home/opc/clawd/projects/hai-tech-video/render-quote.sh';
-
-export async function renderQuoteVideo(quoteId: string, props: any): Promise<string> {
-  await fs.mkdir(VIDEO_DIR, { recursive: true });
-  const outputPath = path.join(VIDEO_DIR, `${quoteId}.mp4`);
-  const propsJson = JSON.stringify(props);
-
-  return new Promise((resolve, reject) => {
-    exec(
-      `bash ${RENDER_SCRIPT} '${propsJson.replace(/'/g, "'\\''")}' '${outputPath}'`,
-      { timeout: 120000 },
-      (error, _stdout, _stderr) => {
-        if (error) reject(error);
-        else resolve(outputPath);
-      }
-    );
+export async function renderQuoteVideo(quoteId: string, props: any): Promise<void> {
+  const response = await fetch(`${RENDER_SERVER}/render`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ quoteId, props }),
   });
-}
 
-export async function getVideoPath(quoteId: string): Promise<string | null> {
-  const outputPath = path.join(VIDEO_DIR, `${quoteId}.mp4`);
-  try {
-    await fs.access(outputPath);
-    return outputPath;
-  } catch {
-    return null;
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Render server error: ${err}`);
   }
 }
 
-// Track rendering status in memory
+export async function getVideoStatus(quoteId: string): Promise<'rendering' | 'done' | 'error' | 'none'> {
+  try {
+    const response = await fetch(`${RENDER_SERVER}/status/${quoteId}`);
+    if (!response.ok) return 'none';
+    const data = await response.json() as any;
+    return data.status || 'none';
+  } catch {
+    return 'none';
+  }
+}
+
+export function getVideoUrl(quoteId: string): string {
+  return `${RENDER_SERVER}/video/${quoteId}`;
+}
+
+// Track rendering status in memory (fallback)
 const renderingStatus = new Map<string, 'rendering' | 'done' | 'error'>();
 
 export function setRenderStatus(quoteId: string, status: 'rendering' | 'done' | 'error') {

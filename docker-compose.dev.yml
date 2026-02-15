@@ -10,7 +10,7 @@ services:
     container_name: haitech-api-dev
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://haitech:haitech_password@haitech-db:5432/haitech_crm?schema=public
+      DATABASE_URL: postgresql://haitech:haitech_password@haitech-db:5432/haitech_crm_dev?schema=public
       PORT: 3002
       REDIS_HOST: haitech-redis
       REDIS_PORT: 6379

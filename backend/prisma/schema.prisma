@@ -674,6 +674,7 @@ model LeadAppointment {
   callSummary     String?   @map("call_summary")
   callDuration    Int?      @map("call_duration")
   callEndedReason String?   @map("call_ended_reason")
+  callRecordingUrl String?  @map("call_recording_url")
 
   // Appointment details (extracted from call)
   appointmentDate   DateTime? @map("appointment_date")

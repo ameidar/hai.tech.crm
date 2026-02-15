@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { sendEmail, sendWhatsAppMessage } from '../services/notifications.js';
+import { deleteMeeting as deleteZoomMeeting } from '../services/zoom.js';
 
 export const publicCancelRouter = Router();
 
@@ -104,6 +105,30 @@ publicCancelRouter.post('/:token', async (req, res, next) => {
         cancellationReason: reason,
       },
     });
+
+    // Cascade: check if cycle should be cancelled (import inline to avoid circular)
+    const cycleId = cancellationRequest.registration.cycleId;
+    const activeCount = await prisma.registration.count({
+      where: { cycleId, status: { in: ['registered', 'active'] } },
+    });
+    if (activeCount === 0) {
+      await prisma.cycle.update({ where: { id: cycleId }, data: { status: 'cancelled' } });
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const futureMeetings = await prisma.meeting.findMany({
+        where: { cycleId, status: 'scheduled', scheduledDate: { gte: today } },
+      });
+      for (const m of futureMeetings) {
+        await prisma.meeting.update({
+          where: { id: m.id },
+          data: { status: 'cancelled', zoomMeetingId: null, zoomJoinUrl: null, zoomStartUrl: null },
+        });
+        if (m.zoomMeetingId) {
+          deleteZoomMeeting(m.zoomMeetingId).catch(err =>
+            console.error(`[CANCEL CASCADE] Failed to delete Zoom ${m.zoomMeetingId}:`, err)
+          );
+        }
+      }
+    }
 
     const reg = cancellationRequest.registration;
     const courseName = reg.cycle.course?.name || reg.cycle.name;

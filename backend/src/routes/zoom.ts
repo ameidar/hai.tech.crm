@@ -80,10 +80,10 @@ router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Cycle not found' });
     }
 
-    // Check if cycle is online
-    if (cycle.activityType !== 'online') {
+    // Check if cycle supports Zoom (online or private lesson)
+    if (cycle.activityType !== 'online' && cycle.activityType !== 'private_lesson' && cycle.type !== 'private') {
       return res.status(400).json({ 
-        error: 'Zoom meetings can only be created for online cycles' 
+        error: 'Zoom meetings can only be created for online or private lesson cycles' 
       });
     }
 

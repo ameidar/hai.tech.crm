@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { isBusinessHoursInIsrael } from '../vapi.js';
 
 // We can't easily test initiateVapiCall without mocking prisma + fetch,
@@ -39,11 +39,15 @@ describe('isBusinessHoursInIsrael', () => {
     expect(isBusinessHoursInIsrael()).toBe(false);
   });
 
-  // Note: currently hour < 24 (extended for testing), so late night hours 21-23 return true
-  // After reverting to hour < 21, these would return false
-  it('returns true at 22:00 Israel time (extended testing hours)', () => {
-    // 22:00 IST = 20:00 UTC
-    vi.setSystemTime(new Date('2026-01-15T20:00:00Z'));
+  it('returns false at 21:00 Israel time (after business hours)', () => {
+    // 21:00 IST = 19:00 UTC
+    vi.setSystemTime(new Date('2026-01-15T19:00:00Z'));
+    expect(isBusinessHoursInIsrael()).toBe(false);
+  });
+
+  it('returns true at 20:59 Israel time (just before closing)', () => {
+    // 20:59 IST = 18:59 UTC
+    vi.setSystemTime(new Date('2026-01-15T18:59:00Z'));
     expect(isBusinessHoursInIsrael()).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -70,6 +70,217 @@ import {
 } from '../types';
 import type { Meeting, MeetingStatus, Registration, RegistrationStatus, PaymentStatus, PaymentMethod, ActivityType, Cycle, Course, Branch, Instructor, CycleStatus, CycleType, DayOfWeek } from '../types';
 import { paymentStatusHebrew, activityTypeHebrew } from '../types';
+
+// Add Student Modal with search + create new
+function AddStudentModal({
+  isOpen,
+  onClose,
+  availableStudents,
+  onSelectStudent,
+  isLoading,
+  cycleId,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  availableStudents: any[];
+  onSelectStudent: (studentId: string) => void;
+  isLoading: boolean;
+  cycleId: string;
+}) {
+  const [search, setSearch] = useState('');
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newCustomerName, setNewCustomerName] = useState('');
+  const [newCustomerPhone, setNewCustomerPhone] = useState('');
+  const [newCustomerEmail, setNewCustomerEmail] = useState('');
+  const [newStudentName, setNewStudentName] = useState('');
+  const [newStudentGrade, setNewStudentGrade] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return availableStudents;
+    const q = search.trim().toLowerCase();
+    return availableStudents.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.customer?.name?.toLowerCase().includes(q) ||
+        s.customer?.phone?.includes(q)
+    );
+  }, [search, availableStudents]);
+
+  const handleCreate = async () => {
+    if (!newStudentName.trim() || !newCustomerName.trim()) return;
+    setCreating(true);
+    try {
+      // Create customer
+      const customer = await api.post('/customers', {
+        name: newCustomerName,
+        phone: newCustomerPhone || undefined,
+        email: newCustomerEmail || undefined,
+      });
+      // Create student under customer
+      const student = await api.post(`/customers/${customer.data.id}/students`, {
+        name: newStudentName,
+        grade: newStudentGrade || undefined,
+      });
+      // Add to cycle
+      onSelectStudent(student.data.id);
+      // Reset form
+      setShowCreateForm(false);
+      setNewCustomerName('');
+      setNewCustomerPhone('');
+      setNewCustomerEmail('');
+      setNewStudentName('');
+      setNewStudentGrade('');
+    } catch (err: any) {
+      alert(err?.response?.data?.message || 'שגיאה ביצירת תלמיד');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleClose = () => {
+    setSearch('');
+    setShowCreateForm(false);
+    onClose();
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={handleClose} title="הוסף תלמיד למחזור">
+      <div className="p-6">
+        {!showCreateForm ? (
+          <>
+            {/* Search */}
+            <div className="mb-4">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="חיפוש לפי שם תלמיד, הורה או טלפון..."
+                className="w-full p-3 border rounded-lg text-right focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                autoFocus
+              />
+            </div>
+
+            {/* Student list */}
+            {filtered.length > 0 ? (
+              <div className="space-y-2 max-h-72 overflow-y-auto">
+                {filtered.map((student) => (
+                  <button
+                    key={student.id}
+                    onClick={() => onSelectStudent(student.id)}
+                    disabled={isLoading}
+                    className="w-full p-3 text-right border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors disabled:opacity-50"
+                  >
+                    <p className="font-medium">{student.name}</p>
+                    <p className="text-sm text-gray-500">
+                      {student.customer?.name} • {student.grade || 'לא צוין כיתה'}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-6">
+                <p className="text-gray-500 mb-2">
+                  {search ? 'לא נמצאו תלמידים תואמים' : 'כל התלמידים כבר רשומים למחזור'}
+                </p>
+              </div>
+            )}
+
+            {/* Create new button */}
+            <div className="mt-4 pt-4 border-t flex justify-between items-center">
+              <button
+                onClick={() => setShowCreateForm(true)}
+                className="btn btn-primary flex items-center gap-2"
+              >
+                <Plus size={16} />
+                תלמיד + לקוח חדש
+              </button>
+              <button onClick={handleClose} className="btn btn-secondary">
+                סגור
+              </button>
+            </div>
+          </>
+        ) : (
+          /* Create new student + customer form */
+          <div className="space-y-4">
+            <h3 className="font-bold text-lg mb-2">לקוח חדש</h3>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">שם הורה *</label>
+              <input
+                type="text"
+                value={newCustomerName}
+                onChange={(e) => setNewCustomerName(e.target.value)}
+                className="w-full p-2 border rounded-lg text-right"
+                autoFocus
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">טלפון</label>
+                <input
+                  type="tel"
+                  value={newCustomerPhone}
+                  onChange={(e) => setNewCustomerPhone(e.target.value)}
+                  className="w-full p-2 border rounded-lg text-right"
+                  dir="ltr"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">אימייל</label>
+                <input
+                  type="email"
+                  value={newCustomerEmail}
+                  onChange={(e) => setNewCustomerEmail(e.target.value)}
+                  className="w-full p-2 border rounded-lg text-right"
+                  dir="ltr"
+                />
+              </div>
+            </div>
+
+            <h3 className="font-bold text-lg mt-4 mb-2">תלמיד/ה</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">שם תלמיד/ה *</label>
+                <input
+                  type="text"
+                  value={newStudentName}
+                  onChange={(e) => setNewStudentName(e.target.value)}
+                  className="w-full p-2 border rounded-lg text-right"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">כיתה</label>
+                <input
+                  type="text"
+                  value={newStudentGrade}
+                  onChange={(e) => setNewStudentGrade(e.target.value)}
+                  className="w-full p-2 border rounded-lg text-right"
+                  placeholder="לדוגמא: ד׳"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 pt-4 border-t flex justify-between items-center">
+              <button
+                onClick={handleCreate}
+                disabled={creating || !newStudentName.trim() || !newCustomerName.trim()}
+                className="btn btn-primary disabled:opacity-50"
+              >
+                {creating ? 'יוצר...' : 'צור והוסף למחזור'}
+              </button>
+              <button
+                onClick={() => setShowCreateForm(false)}
+                className="btn btn-secondary"
+              >
+                חזרה לחיפוש
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
 
 export default function CycleDetail() {
   const { id } = useParams<{ id: string }>();
@@ -1315,48 +1526,14 @@ export default function CycleDetail() {
       </Modal>
 
       {/* Add Student Modal */}
-      <Modal
+      <AddStudentModal
         isOpen={showAddStudentModal}
         onClose={() => setShowAddStudentModal(false)}
-        title="הוסף תלמיד למחזור"
-      >
-        <div className="p-6">
-          {availableStudents.length > 0 ? (
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {availableStudents.map((student) => (
-                <button
-                  key={student.id}
-                  onClick={() => handleAddStudent(student.id)}
-                  disabled={createRegistration.isPending}
-                  className="w-full p-3 text-right border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors disabled:opacity-50"
-                >
-                  <p className="font-medium">{student.name}</p>
-                  <p className="text-sm text-gray-500">
-                    {student.customer?.name} • {student.grade || 'לא צוין כיתה'}
-                  </p>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8">
-              <Users size={48} className="mx-auto mb-4 text-gray-300" />
-              <p className="text-gray-500">
-                {allStudents?.length === 0
-                  ? 'אין תלמידים במערכת. הוסף תלמידים דרך דף הלקוחות.'
-                  : 'כל התלמידים כבר רשומים למחזור זה.'}
-              </p>
-            </div>
-          )}
-          <div className="mt-4 pt-4 border-t flex justify-end">
-            <button
-              onClick={() => setShowAddStudentModal(false)}
-              className="btn btn-secondary"
-            >
-              סגור
-            </button>
-          </div>
-        </div>
-      </Modal>
+        availableStudents={availableStudents}
+        onSelectStudent={handleAddStudent}
+        isLoading={createRegistration.isPending}
+        cycleId={id!}
+      />
 
       {/* Payment Edit Modal */}
       <Modal

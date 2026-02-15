@@ -25,6 +25,8 @@ export interface Quote {
   items: QuoteItem[];
   discount: number;
   totalAmount: number;
+  finalAmount?: number;
+  content?: any;
   generatedContent?: string;
   notes?: string;
   videoPath?: string;

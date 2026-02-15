@@ -38,6 +38,7 @@ export default function PublicQuoteView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [vimeoUrl, setVimeoUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -47,9 +48,12 @@ export default function PublicQuoteView() {
         setQuote(res.data);
         // Check if video exists
         axios
-          .get(`${API_BASE}/quotes/${id}/video`, { responseType: 'blob' })
+          .get(`${API_BASE}/quotes/${id}/video`)
           .then((vRes) => {
-            if (vRes.data instanceof Blob && vRes.data.type.startsWith('video/')) {
+            // Vimeo JSON response
+            if (vRes.data && typeof vRes.data === 'object' && vRes.data.vimeoUrl) {
+              setVimeoUrl(vRes.data.vimeoUrl);
+            } else if (vRes.data instanceof Blob && vRes.data.type.startsWith('video/')) {
               setVideoUrl(URL.createObjectURL(vRes.data));
             }
           })
@@ -119,17 +123,29 @@ export default function PublicQuoteView() {
       </section>
 
       {/* Video */}
-      {videoUrl && (
+      {(videoUrl || vimeoUrl) && (
         <section className="max-w-5xl mx-auto px-4 py-8">
           <div className="bg-black rounded-2xl overflow-hidden shadow-2xl">
-            <video
-              src={videoUrl}
-              controls
-              autoPlay
-              muted
-              className="w-full"
-              style={{ maxHeight: 540 }}
-            />
+            {vimeoUrl ? (
+              <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
+                <iframe
+                  src={`${vimeoUrl}?autoplay=1&muted=1`}
+                  className="absolute inset-0 w-full h-full"
+                  frameBorder="0"
+                  allow="autoplay; fullscreen; picture-in-picture"
+                  allowFullScreen
+                />
+              </div>
+            ) : (
+              <video
+                src={videoUrl!}
+                controls
+                autoPlay
+                muted
+                className="w-full"
+                style={{ maxHeight: 540 }}
+              />
+            )}
           </div>
         </section>
       )}

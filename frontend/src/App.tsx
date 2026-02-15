@@ -25,6 +25,8 @@ import QuoteWizard from './pages/QuoteWizard';
 import QuoteDetail from './pages/QuoteDetail';
 import QuoteEdit from './pages/QuoteEdit';
 import PublicQuoteView from './pages/PublicQuoteView';
+import PublicCancelForm from './pages/PublicCancelForm';
+import LeadAppointments from './pages/LeadAppointments';
 
 // Mobile instructor pages
 import MobileMeetings from './pages/instructor/MobileMeetings';
@@ -88,6 +90,7 @@ function AppRoutes() {
       <Route path="/invite/:token" element={<InviteSetup />} />
       <Route path="/reset-password/:token" element={<ResetPassword />} />
       <Route path="/public/quote/:id" element={<PublicQuoteView />} />
+      <Route path="/cancel/:token" element={<PublicCancelForm />} />
       <Route path="/m/:meetingId/:token" element={<MeetingStatus />} />
       <Route path="/i/:meetingId/:token" element={<InstructorMagicMeeting />} />
       
@@ -131,6 +134,7 @@ function AppRoutes() {
         <Route path="quotes/new" element={<QuoteWizard />} />
         <Route path="quotes/:id" element={<QuoteDetail />} />
         <Route path="quotes/:id/edit" element={<QuoteEdit />} />
+        <Route path="lead-appointments" element={<LeadAppointments />} />
         <Route path="reports" element={<Reports />} />
         <Route path="audit" element={<AuditLog />} />
         <Route path="instructor" element={<InstructorDashboard />} />

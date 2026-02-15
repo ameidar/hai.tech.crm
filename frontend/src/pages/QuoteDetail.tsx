@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
@@ -51,6 +51,7 @@ export default function QuoteDetail() {
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [videoRendering, setVideoRendering] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [vimeoUrl, setVimeoUrl] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
 
   const publicUrl = `${window.location.origin}/public/quote/${id}`;
@@ -66,17 +67,32 @@ export default function QuoteDetail() {
     setVideoRendering(true);
     setVideoError(null);
     setVideoUrl(null);
+    setVimeoUrl(null);
     try {
       await quotesApi.generateVideo(id);
       // Poll for video
       const poll = setInterval(async () => {
         try {
           const res = await quotesApi.getVideoStatus(id);
-          if (res.status === 200 && res.data instanceof Blob && res.data.type.startsWith('video/')) {
-            clearInterval(poll);
-            const url = URL.createObjectURL(res.data);
-            setVideoUrl(url);
-            setVideoRendering(false);
+          if (res.status === 200 && res.data instanceof Blob) {
+            // If JSON response (vimeo URL), parse it
+            if (res.data.type === 'application/json') {
+              const text = await res.data.text();
+              const json = JSON.parse(text);
+              if (json.vimeoUrl) {
+                clearInterval(poll);
+                setVimeoUrl(json.vimeoUrl);
+                setVideoRendering(false);
+                return;
+              }
+            }
+            // Video blob
+            if (res.data.type.startsWith('video/')) {
+              clearInterval(poll);
+              const url = URL.createObjectURL(res.data);
+              setVideoUrl(url);
+              setVideoRendering(false);
+            }
           }
         } catch (err: any) {
           if (err?.response?.status === 500) {
@@ -98,6 +114,33 @@ export default function QuoteDetail() {
     queryFn: () => quotesApi.get(id!),
     enabled: !!id,
   });
+
+  // If quote has a persisted video, fetch it to determine type
+  useEffect(() => {
+    if (quote?.videoPath && id && !videoUrl && !vimeoUrl && !videoRendering) {
+      if (quote.videoPath.startsWith('https://player.vimeo.com/')) {
+        setVimeoUrl(quote.videoPath);
+      } else {
+        // Fetch the video endpoint to check if it returns Vimeo JSON or MP4
+        fetch(`/api/quotes/${id}/video`, {
+          headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        }).then(async (res) => {
+          const ct = res.headers.get('content-type') || '';
+          if (ct.includes('application/json')) {
+            const json = await res.json();
+            if (json.vimeoUrl) {
+              setVimeoUrl(json.vimeoUrl);
+              return;
+            }
+          }
+          if (ct.startsWith('video/')) {
+            const blob = await res.blob();
+            setVideoUrl(URL.createObjectURL(blob));
+          }
+        }).catch(() => {});
+      }
+    }
+  }, [quote?.videoPath, id]);
 
   const sendQuote = useMutation({
     mutationFn: () => quotesApi.send(id!),
@@ -455,7 +498,7 @@ export default function QuoteDetail() {
             )}
 
             {/* Video */}
-            {(videoRendering || videoUrl || videoError) && (
+            {(videoRendering || videoUrl || vimeoUrl || videoError) && (
               <div className="card">
                 <div className="card-header">
                   <h2 className="font-semibold flex items-center gap-2">
@@ -467,13 +510,54 @@ export default function QuoteDetail() {
                   {videoRendering && (
                     <div className="flex items-center gap-3 text-blue-600">
                       <Loader2 size={20} className="animate-spin" />
-                      <span>מייצר סרטון... (עד דקה)</span>
+                      <span>מייצר סרטון ומעלה ל-Vimeo... (עד 2 דקות)</span>
                     </div>
                   )}
                   {videoError && (
                     <p className="text-red-500">{videoError}</p>
                   )}
-                  {videoUrl && (
+                  {vimeoUrl && (
+                    <div className="space-y-3">
+                      <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
+                        <iframe
+                          src={vimeoUrl}
+                          className="absolute inset-0 w-full h-full rounded-lg"
+                          frameBorder="0"
+                          allow="autoplay; fullscreen; picture-in-picture"
+                          allowFullScreen
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <a
+                          href={vimeoUrl.replace('player.vimeo.com/video', 'vimeo.com')}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-secondary inline-flex items-center gap-2"
+                        >
+                          <ExternalLink size={16} />
+                          פתח ב-Vimeo
+                        </a>
+                        <button
+                          onClick={async () => {
+                            if (!confirm('למחוק את הסרטון השיווקי? הפעולה תמחק גם מ-Vimeo.')) return;
+                            try {
+                              await quotesApi.deleteVideo(id!);
+                              setVimeoUrl(null);
+                              setVideoUrl(null);
+                              queryClient.invalidateQueries({ queryKey: ['quote', id] });
+                            } catch {
+                              alert('שגיאה במחיקת הסרטון');
+                            }
+                          }}
+                          className="btn btn-danger inline-flex items-center gap-2"
+                        >
+                          <Trash2 size={16} />
+                          מחק סרטון
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {videoUrl && !vimeoUrl && (
                     <div className="space-y-3">
                       <video
                         src={videoUrl}
@@ -481,14 +565,33 @@ export default function QuoteDetail() {
                         className="w-full rounded-lg"
                         style={{ maxHeight: 400 }}
                       />
-                      <a
-                        href={videoUrl}
-                        download={`quote-${quote.quoteNumber}-video.mp4`}
-                        className="btn btn-secondary inline-flex items-center gap-2"
-                      >
-                        <Download size={16} />
-                        הורד סרטון
-                      </a>
+                      <div className="flex gap-2">
+                        <a
+                          href={videoUrl}
+                          download={`quote-${quote.quoteNumber}-video.mp4`}
+                          className="btn btn-secondary inline-flex items-center gap-2"
+                        >
+                          <Download size={16} />
+                          הורד סרטון
+                        </a>
+                        <button
+                          onClick={async () => {
+                            if (!confirm('למחוק את הסרטון השיווקי?')) return;
+                            try {
+                              await quotesApi.deleteVideo(id!);
+                              setVimeoUrl(null);
+                              setVideoUrl(null);
+                              queryClient.invalidateQueries({ queryKey: ['quote', id] });
+                            } catch {
+                              alert('שגיאה במחיקת הסרטון');
+                            }
+                          }}
+                          className="btn btn-danger inline-flex items-center gap-2"
+                        >
+                          <Trash2 size={16} />
+                          מחק סרטון
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>

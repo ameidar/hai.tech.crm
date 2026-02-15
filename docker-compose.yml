@@ -55,6 +55,9 @@ services:
       ZOOM_CLIENT_SECRET: ${ZOOM_CLIENT_SECRET}
       ZOOM_SECRET_TOKEN: ${ZOOM_SECRET_TOKEN}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      VIMEO_ACCESS_TOKEN: ${VIMEO_ACCESS_TOKEN}
+    volumes:
+      - ./backend/uploads:/app/uploads
     ports:
       - "3001:3001"
     healthcheck:

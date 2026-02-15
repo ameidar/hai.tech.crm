@@ -1,10 +1,12 @@
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { updateRegistrationSchema, uuidSchema } from '../types/schemas.js';
 import { z } from 'zod';
 import { parsePaginationParams, paginatedResponse } from '../utils/pagination.js';
+import { sendEmail, sendWhatsAppMessage } from '../services/notifications.js';
 
 export const registrationsRouter = Router();
 
@@ -161,6 +163,117 @@ registrationsRouter.post('/:id/cancel', managerOrAdmin, async (req, res, next) =
     });
 
     res.json(registration);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Send cancellation form to customer
+registrationsRouter.post('/:id/send-cancellation-form', managerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+
+    const registration = await prisma.registration.findUnique({
+      where: { id },
+      include: {
+        student: {
+          include: {
+            customer: { select: { id: true, name: true, phone: true, email: true } },
+          },
+        },
+        cycle: {
+          include: {
+            course: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+
+    if (!registration) {
+      throw new AppError(404, 'Registration not found');
+    }
+
+    const customer = registration.student.customer;
+    if (!customer) {
+      throw new AppError(400, 'לא נמצא לקוח להרשמה זו');
+    }
+
+    const token = randomUUID();
+    const courseName = registration.cycle.course?.name || registration.cycle.name;
+
+    await prisma.cancellationRequest.create({
+      data: {
+        registrationId: id,
+        customerName: customer.name,
+        studentName: registration.student.name,
+        token,
+        status: 'pending',
+      },
+    });
+
+    const formUrl = `https://dev.crm.orma-ai.com/cancel/${token}`;
+
+    // Send email
+    if (customer.email) {
+      const emailHtml = `
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5;">
+  <table role="presentation" style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 40px 0;">
+        <table role="presentation" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+          <tr>
+            <td style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); padding: 40px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 28px;">🎯 Hai.Tech</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 40px;">
+              <h2 style="color: #1f2937;">שלום ${customer.name},</h2>
+              <p style="color: #4b5563; font-size: 16px; line-height: 1.6;">
+                קיבלנו את פנייתך בנוגע לביטול הקורס <strong>${courseName}</strong> עבור ${registration.student.name}.
+              </p>
+              <p style="color: #4b5563; font-size: 16px; line-height: 1.6;">
+                על מנת להשלים את תהליך הביטול, נא למלא את הטופס הבא:
+              </p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${formUrl}" style="display: inline-block; background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 8px; font-size: 16px; font-weight: 600;">
+                  מילוי טופס ביטול →
+                </a>
+              </div>
+              <p style="color: #9ca3af; font-size: 14px;">אם לא ביקשת ביטול, ניתן להתעלם מהודעה זו.</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #f9fafb; padding: 30px; text-align: center; border-top: 1px solid #e5e7eb;">
+              <p style="color: #9ca3af; font-size: 12px; margin: 0;">📧 info@hai.tech | 🌐 hai.tech</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+      await sendEmail(customer.email, `טופס ביטול - ${courseName} - Hai.Tech`, emailHtml);
+    }
+
+    // Send WhatsApp
+    if (customer.phone) {
+      const whatsappMessage = `שלום ${customer.name},
+
+קיבלנו את פנייתך בנוגע לביטול הקורס ${courseName} עבור ${registration.student.name}.
+
+למילוי טופס הביטול:
+${formUrl}
+
+צוות Hai.Tech 💙`;
+      await sendWhatsAppMessage(customer.phone, whatsappMessage);
+    }
+
+    res.json({ success: true, token, message: 'טופס ביטול נשלח ללקוח' });
   } catch (error) {
     next(error);
   }

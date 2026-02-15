@@ -148,7 +148,7 @@ export const createRegistrationSchema = z.object({
   studentId: z.string().uuid('Invalid student ID'),
   cycleId: z.string().uuid('Invalid cycle ID'),
   registrationDate: z.string().optional(),
-  status: z.enum(['registered', 'active', 'completed', 'cancelled']).default('registered'),
+  status: z.enum(['registered', 'active', 'completed', 'pending_cancellation', 'cancelled']).default('registered'),
   amount: z.number().positive().optional().nullable(),
   paymentStatus: z.enum(['unpaid', 'partial', 'paid']).optional().nullable(),
   paymentMethod: z.enum(['credit', 'transfer', 'cash']).optional().nullable(),

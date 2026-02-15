@@ -27,6 +27,7 @@ export interface Quote {
   totalAmount: number;
   generatedContent?: string;
   notes?: string;
+  videoPath?: string;
   orderId?: string;
   sentAt?: string;
   acceptedAt?: string;
@@ -120,5 +121,10 @@ export const quotesApi = {
   getVideoStatus: async (id: string) => {
     const res = await api.get(`/quotes/${id}/video`, { responseType: 'blob' });
     return res;
+  },
+
+  deleteVideo: async (id: string) => {
+    const res = await api.delete(`/quotes/${id}/video`);
+    return res.data;
   },
 };

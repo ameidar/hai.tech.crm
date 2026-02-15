@@ -31,9 +31,13 @@ import expensesRouter from './routes/expenses.js';
 import { emailRouter } from './routes/email.js';
 import { initEmailQueue } from './services/email/queue.js';
 import { initEmailScheduler } from './services/email/scheduler.js';
+import { initCancellationScheduler } from './services/cancellation-scheduler.js';
 import { forecastRouter } from './routes/forecast.js';
 import { quotesRouter } from './routes/quotes.js';
 import { publicQuoteRouter } from './routes/public-quote.js';
+import { publicCancelRouter } from './routes/public-cancel.js';
+import { vapiWebhookRouter } from './routes/vapi-webhook.js';
+import { leadAppointmentsRouter } from './routes/lead-appointments.js';
 
 const app = express();
 
@@ -44,6 +48,14 @@ app.use(helmet({
   crossOriginOpenerPolicy: false,
   crossOriginResourcePolicy: false,
 }));
+// Permissive CORS for Vapi webhook (no auth)
+app.use('/api/vapi-webhook', cors({
+  origin: '*',
+  credentials: false,
+  allowedHeaders: ['Content-Type'],
+  methods: ['POST', 'OPTIONS'],
+}));
+
 // Permissive CORS for webhook routes (API key protected)
 app.use('/api/webhook', cors({
   origin: '*',
@@ -146,7 +158,10 @@ app.use('/api/expenses', expensesRouter); // Expense tracking
 app.use('/api/email', emailRouter); // Email service
 app.use('/api/forecast', forecastRouter); // Financial forecasting
 app.use('/api/public/quotes', publicQuoteRouter); // Public quote view (no auth)
+app.use('/api/public/cancel', publicCancelRouter); // Public cancellation form (no auth)
 app.use('/api/quotes', quotesRouter); // Quote management
+app.use('/api/vapi-webhook', vapiWebhookRouter); // Vapi AI webhook (no auth)
+app.use('/api/lead-appointments', leadAppointmentsRouter); // Lead appointment management
 
 // Error handling for API routes
 app.use('/api', errorHandler);
@@ -193,6 +208,7 @@ const start = async () => {
     // Initialize email services
     initEmailQueue();
     initEmailScheduler();
+    initCancellationScheduler();
 
     app.listen(config.port, () => {
       console.log(`🚀 HaiTech CRM API running on port ${config.port}`);

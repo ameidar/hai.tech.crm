@@ -9,7 +9,7 @@ export function isBusinessHoursInIsrael(): boolean {
   const now = new Date();
   const israelTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }));
   const hour = israelTime.getHours();
-  return hour >= 8 && hour < 24; // Temporarily extended for testing (was 21)
+  return hour >= 8 && hour < 21;
 }
 
 // Format phone number for Vapi (needs +972 format)

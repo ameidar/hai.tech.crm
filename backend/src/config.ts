@@ -44,7 +44,7 @@ export const config = {
   
   // Gmail SMTP
   gmailUser: process.env.GMAIL_USER || '',
-  gmailAppPassword: process.env.GMAIL_APP_PASSWORD || '',
+  gmailAppPassword: process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASS || '',
   
   // Green API (WhatsApp)
   greenApiInstanceId: process.env.GREEN_API_INSTANCE_ID || '',

@@ -550,7 +550,24 @@ cyclesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
       }
     });
 
-    // Delete the cycle (cascade will delete meetings)
+    // Delete related records before the cycle
+    await prisma.cancellationRequest.deleteMany({
+      where: { registration: { cycleId: id } },
+    });
+    await prisma.attendance.deleteMany({
+      where: { meeting: { cycleId: id } },
+    });
+    await prisma.registration.deleteMany({
+      where: { cycleId: id },
+    });
+    await prisma.meeting.deleteMany({
+      where: { cycleId: id },
+    });
+    await prisma.cycleExpense.deleteMany({
+      where: { cycleId: id },
+    });
+
+    // Delete the cycle
     await prisma.cycle.delete({
       where: { id },
     });

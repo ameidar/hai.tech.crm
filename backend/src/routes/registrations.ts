@@ -211,7 +211,7 @@ registrationsRouter.post('/:id/send-cancellation-form', managerOrAdmin, async (r
       },
     });
 
-    const formUrl = `https://dev.crm.orma-ai.com/cancel/${token}`;
+    const formUrl = `http://129.159.133.209:3002/cancel/${token}`;
 
     // Send email
     if (customer.email) {

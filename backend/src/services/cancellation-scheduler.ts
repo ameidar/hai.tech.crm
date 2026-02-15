@@ -45,7 +45,7 @@ async function sendCancellationSummary() {
     const cancDate = reg.cancellationDate
       ? new Date(reg.cancellationDate).toLocaleDateString('he-IL')
       : '-';
-    const crmLink = `https://dev.crm.orma-ai.com/cycles/${reg.cycleId}`;
+    const crmLink = `http://129.159.133.209:3002/cycles/${reg.cycleId}`;
     const invoiceLink = reg.invoiceLink
       ? `<a href="${reg.invoiceLink}">חשבונית</a>`
       : '-';

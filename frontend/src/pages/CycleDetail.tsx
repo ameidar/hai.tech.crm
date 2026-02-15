@@ -789,7 +789,7 @@ export default function CycleDetail() {
                             {paymentStatusHebrew[reg.paymentStatus || 'unpaid']}
                           </span>
                         </div>
-                        {cycle?.type === 'private' && ['active', 'registered'].includes(reg.status) && isAdmin && (
+                        {['active', 'registered'].includes(reg.status) && isAdmin && (
                           <button
                             onClick={async () => {
                               if (confirm('לשלוח טופס ביטול ללקוח?')) {

@@ -107,7 +107,7 @@ publicCancelRouter.post('/:token', async (req, res, next) => {
 
     const reg = cancellationRequest.registration;
     const courseName = reg.cycle.course?.name || reg.cycle.name;
-    const crmLink = `https://dev.crm.orma-ai.com/cycles/${reg.cycleId}`;
+    const crmLink = `http://129.159.133.209:3002/cycles/${reg.cycleId}`;
 
     // Send email to admin
     const adminEmailHtml = `

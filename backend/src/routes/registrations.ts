@@ -25,11 +25,29 @@ async function handleCycleCascadeOnCancellation(cycleId: string): Promise<void> 
 
   console.log(`[CANCEL CASCADE] Cycle ${cycleId} has 0 active registrations — cancelling cycle`);
 
-  // Cancel the cycle
+  // Cancel the cycle and clear its Zoom data
+  const cycle = await prisma.cycle.findUnique({ where: { id: cycleId }, select: { zoomMeetingId: true } });
   await prisma.cycle.update({
     where: { id: cycleId },
-    data: { status: 'cancelled' },
+    data: {
+      status: 'cancelled',
+      zoomMeetingId: null,
+      zoomJoinUrl: null,
+      zoomHostEmail: null,
+      zoomHostKey: null,
+      zoomPassword: null,
+    },
   });
+
+  // Delete cycle-level Zoom meeting
+  if (cycle?.zoomMeetingId) {
+    try {
+      await deleteZoomMeeting(cycle.zoomMeetingId);
+      console.log(`[CANCEL CASCADE] Deleted cycle Zoom meeting ${cycle.zoomMeetingId}`);
+    } catch (err) {
+      console.error(`[CANCEL CASCADE] Failed to delete cycle Zoom:`, err);
+    }
+  }
 
   // Get future scheduled meetings
   const today = new Date();

@@ -7,6 +7,67 @@ import { updateRegistrationSchema, uuidSchema } from '../types/schemas.js';
 import { z } from 'zod';
 import { parsePaginationParams, paginatedResponse } from '../utils/pagination.js';
 import { sendEmail, sendWhatsAppMessage } from '../services/notifications.js';
+import { deleteMeeting as deleteZoomMeeting } from '../services/zoom.js';
+
+/**
+ * Check if a cycle has no active registrations left after a cancellation.
+ * If so: cancel the cycle, cancel future meetings, delete their Zoom links.
+ */
+async function handleCycleCascadeOnCancellation(cycleId: string): Promise<void> {
+  const activeCount = await prisma.registration.count({
+    where: {
+      cycleId,
+      status: { in: ['registered', 'active'] },
+    },
+  });
+
+  if (activeCount > 0) return;
+
+  console.log(`[CANCEL CASCADE] Cycle ${cycleId} has 0 active registrations — cancelling cycle`);
+
+  // Cancel the cycle
+  await prisma.cycle.update({
+    where: { id: cycleId },
+    data: { status: 'cancelled' },
+  });
+
+  // Get future scheduled meetings
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const futureMeetings = await prisma.meeting.findMany({
+    where: {
+      cycleId,
+      status: 'scheduled',
+      scheduledDate: { gte: today },
+    },
+  });
+
+  // Cancel future meetings and delete their Zoom
+  for (const meeting of futureMeetings) {
+    await prisma.meeting.update({
+      where: { id: meeting.id },
+      data: {
+        status: 'cancelled',
+        zoomMeetingId: null,
+        zoomJoinUrl: null,
+        zoomStartUrl: null,
+      },
+    });
+
+    // Delete Zoom meeting if exists
+    if (meeting.zoomMeetingId) {
+      try {
+        await deleteZoomMeeting(meeting.zoomMeetingId);
+        console.log(`[CANCEL CASCADE] Deleted Zoom meeting ${meeting.zoomMeetingId}`);
+      } catch (err) {
+        console.error(`[CANCEL CASCADE] Failed to delete Zoom ${meeting.zoomMeetingId}:`, err);
+      }
+    }
+  }
+
+  console.log(`[CANCEL CASCADE] Cancelled ${futureMeetings.length} future meetings for cycle ${cycleId}`);
+}
 
 export const registrationsRouter = Router();
 
@@ -108,7 +169,7 @@ registrationsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
       where: { id },
       data: {
         ...data,
-        cancellationDate: data.status === 'cancelled' ? new Date() : undefined,
+        cancellationDate: data.status === 'cancelled' || data.status === 'pending_cancellation' ? new Date() : undefined,
       },
       include: {
         student: {
@@ -121,6 +182,13 @@ registrationsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
         },
       },
     });
+
+    // Cascade: if cancelled/pending_cancellation and no active students left, cancel cycle
+    if (data.status === 'cancelled' || data.status === 'pending_cancellation') {
+      handleCycleCascadeOnCancellation(registration.cycle.id).catch(err =>
+        console.error('[CANCEL CASCADE] Error:', err)
+      );
+    }
 
     res.json(registration);
   } catch (error) {
@@ -158,9 +226,14 @@ registrationsRouter.post('/:id/cancel', managerOrAdmin, async (req, res, next) =
       },
       include: {
         student: { select: { name: true } },
-        cycle: { select: { name: true } },
+        cycle: { select: { id: true, name: true } },
       },
     });
+
+    // Cascade: check if cycle should be cancelled
+    handleCycleCascadeOnCancellation(registration.cycle.id).catch(err =>
+      console.error('[CANCEL CASCADE] Error:', err)
+    );
 
     res.json(registration);
   } catch (error) {

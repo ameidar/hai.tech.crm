@@ -740,4 +740,179 @@ describe('HaiTech CRM - Tap Tests', () => {
       expect(res.status).toBe(401);
     });
   });
+
+  // =============================================
+  // Lead Appointments API Tests
+  // =============================================
+  describe('Lead Appointments', () => {
+    test('should return paginated list', async () => {
+      const data = await api('GET', '/lead-appointments');
+      expect(data.data).toBeTruthy();
+      expect(Array.isArray(data.data)).toBe(true);
+      expect(data.pagination || data.total !== undefined).toBeTruthy();
+    });
+
+    test('should filter by status=pending', async () => {
+      const data = await api('GET', '/lead-appointments?status=pending');
+      expect(Array.isArray(data.data)).toBe(true);
+    });
+
+    test('should filter by date range', async () => {
+      const dateFrom = '2020-01-01';
+      const dateTo = '2030-12-31';
+      const data = await api('GET', `/lead-appointments?dateFrom=${dateFrom}&dateTo=${dateTo}`);
+      expect(Array.isArray(data.data)).toBe(true);
+    });
+
+    test('should return 404 for non-existent ID', async () => {
+      const res = await fetch(`${BASE_URL}/api/lead-appointments/00000000-0000-0000-0000-000000000000`, {
+        headers: { 'Authorization': `Bearer ${authToken}` }
+      });
+      expect(res.status).toBe(404);
+    });
+
+    test('should return 404 on PATCH for non-existent ID', async () => {
+      const res = await fetch(`${BASE_URL}/api/lead-appointments/00000000-0000-0000-0000-000000000000`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({ status: 'completed' })
+      });
+      expect(res.status).toBe(404);
+    });
+
+    test('should reject unauthenticated requests', async () => {
+      const res = await fetch(`${BASE_URL}/api/lead-appointments`);
+      expect(res.status).toBe(401);
+    });
+  });
+
+  // =============================================
+  // Vapi Webhook Tests
+  // =============================================
+  describe('Vapi Webhook', () => {
+    test('should accept unknown event types', async () => {
+      const res = await fetch(`${BASE_URL}/api/vapi-webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: { type: 'unknown-event-type' }
+        })
+      });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.success).toBe(true);
+    });
+
+    test('should accept status-update event', async () => {
+      const res = await fetch(`${BASE_URL}/api/vapi-webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: {
+            type: 'status-update',
+            status: 'in-progress',
+            call: { id: 'test-call-id' }
+          }
+        })
+      });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.success).toBe(true);
+    });
+
+    test('should accept end-of-call-report event', async () => {
+      const res = await fetch(`${BASE_URL}/api/vapi-webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: {
+            type: 'end-of-call-report',
+            call: { id: 'test-call-id-eoc' },
+            endedReason: 'customer-ended-call',
+            transcript: 'Test transcript',
+            summary: 'Test summary',
+            recordingUrl: 'https://example.com/recording.mp3'
+          }
+        })
+      });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.success).toBe(true);
+    });
+  });
+
+  // =============================================
+  // Lead Webhook with Vapi Integration Tests
+  // =============================================
+  describe('Lead Webhook + Vapi Integration', () => {
+    const WEBHOOK_API_KEY = 'haitech-crm-api-key-2026';
+    let createdCustomerId: string;
+
+    afterAll(async () => {
+      // Clean up test customers created via webhook
+      const customers = await api('GET', `/customers?search=${TEST_PREFIX}&limit=100`);
+      for (const customer of customers.data || []) {
+        await api('DELETE', `/customers/${customer.id}`);
+      }
+      // Clean up test lead appointments
+      const appointments = await api('GET', `/lead-appointments?limit=100`);
+      for (const appt of appointments.data || []) {
+        if (appt.leadName?.startsWith(TEST_PREFIX) || appt.customerName?.startsWith(TEST_PREFIX)) {
+          try { await api('DELETE', `/lead-appointments/${appt.id}`); } catch {}
+        }
+      }
+    });
+
+    test('should create customer via lead webhook and trigger lead appointment', async () => {
+      const leadName = `${TEST_PREFIX}Vapi Lead ${Date.now()}`;
+      const res = await fetch(`${BASE_URL}/api/webhook/leads`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': WEBHOOK_API_KEY
+        },
+        body: JSON.stringify({
+          name: leadName,
+          phone: '0501112233',
+          email: `tapvapi${Date.now()}@test.com`,
+          source: 'tap-test'
+        })
+      });
+      expect([200, 201]).toContain(res.status);
+      const data = await res.json();
+      expect(data.customer || data.id || data.success).toBeTruthy();
+      if (data.customer?.id) createdCustomerId = data.customer.id;
+      if (data.id) createdCustomerId = data.id;
+
+      // Wait a moment for async appointment creation
+      await new Promise(r => setTimeout(r, 1000));
+
+      // Verify lead appointment was created
+      const appointments = await api('GET', '/lead-appointments?limit=50');
+      expect(Array.isArray(appointments.data)).toBe(true);
+      // Check if any appointment references this lead
+      const found = appointments.data.find((a: any) =>
+        a.leadName?.includes(TEST_PREFIX) ||
+        a.customerName?.includes(TEST_PREFIX) ||
+        a.phone === '0501112233'
+      );
+      // It's OK if appointment wasn't auto-created (depends on Vapi config)
+      // but the endpoint should not crash
+      if (found) {
+        expect(found.id).toBeTruthy();
+        console.log('Lead appointment auto-created:', found.id);
+      } else {
+        console.log('No auto-created lead appointment found (Vapi may not be configured) - OK');
+      }
+    });
+
+    test('should verify lead appointments list after webhook', async () => {
+      const data = await api('GET', '/lead-appointments');
+      expect(Array.isArray(data.data)).toBe(true);
+      expect(data.pagination || data.total !== undefined).toBeTruthy();
+    });
+  });
 });

@@ -11,7 +11,9 @@ import {
   generateContentPreview,
   convertToOrder,
 } from '../services/quotes.service.js';
-import { renderQuoteVideo, getVideoStatus, getVideoUrl, setRenderStatus } from '../services/video.service.js';
+import { renderQuoteVideo, getVideoStatus, getVideoUrl, setRenderStatus, persistVideo, getPersistedVideoPath, isVimeoUrl } from '../services/video.service.js';
+import fs from 'fs';
+import { prisma } from '../utils/prisma.js';
 import { sendEmail } from '../services/email/sender.js';
 
 export const quotesRouter = Router();
@@ -100,10 +102,10 @@ quotesRouter.post('/:id/send', managerOrAdmin, async (req, res, next) => {
             </div>
             <div style="padding:24px;background:#f8fafc;border:1px solid #e2e8f0;">
               <p style="font-size:16px;">שלום ${quote.contactName},</p>
-              <p>הכנו עבורכם הצעת מחיר מותאמת אישית.</p>
+              <p>הכנו עבורכם הצעת מחיר מותאמת אישית${(quote as any).videoPath ? ', כולל סרטון שיווקי קצר' : ''}.</p>
               <div style="text-align:center;margin:24px 0;">
                 <a href="${publicUrl}" style="display:inline-block;background:#0891b2;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;">
-                  צפו בהצעה המלאה →
+                  ${(quote as any).videoPath ? '🎬 צפו בהצעה ובסרטון →' : 'צפו בהצעה המלאה →'}
                 </a>
               </div>
               <p style="color:#64748b;font-size:14px;">סה״כ: ₪${Number(quote.finalAmount || quote.totalAmount).toLocaleString()}</p>
@@ -227,7 +229,11 @@ quotesRouter.post('/:id/generate-video', managerOrAdmin, async (req, res, next) 
 
     setRenderStatus(id, 'rendering');
     renderQuoteVideo(id, props)
-      .then(() => setRenderStatus(id, 'done'))
+      .then(async () => {
+        setRenderStatus(id, 'done');
+        // Upload to Vimeo and save URL in DB
+        await persistVideo(id, quote.institutionName);
+      })
       .catch((err) => {
         console.error('Video render failed:', err);
         setRenderStatus(id, 'error');
@@ -244,7 +250,22 @@ quotesRouter.get('/:id/video', async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
     
-    // Check render server status
+    // First check for persisted video (Vimeo or local)
+    const videoPath = await getPersistedVideoPath(id);
+    if (videoPath) {
+      if (isVimeoUrl(videoPath)) {
+        // Return Vimeo embed URL as JSON (frontend will use iframe/player)
+        res.json({ status: 'done', vimeoUrl: videoPath });
+        return;
+      }
+      // Local file fallback
+      res.setHeader('Content-Type', 'video/mp4');
+      const stream = fs.createReadStream(videoPath);
+      stream.pipe(res);
+      return;
+    }
+
+    // Fall back to render server
     const status = await getVideoStatus(id);
     
     if (status === 'done') {
@@ -262,6 +283,8 @@ quotesRouter.get('/:id/video', async (req, res, next) => {
           }
         };
         await pump();
+        // Upload to Vimeo for future requests
+        persistVideo(id).catch(() => {});
       } else {
         res.status(404).json({ status: 'not_found' });
       }
@@ -272,6 +295,50 @@ quotesRouter.get('/:id/video', async (req, res, next) => {
     } else {
       res.status(404).json({ status: 'not_found', message: 'סרטון לא נמצא' });
     }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Delete video (from Vimeo and DB)
+quotesRouter.delete('/:id/video', managerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+    const quote = await prisma.quote.findUnique({
+      where: { id },
+      select: { videoPath: true },
+    });
+
+    if (!quote?.videoPath) {
+      return res.status(404).json({ message: 'אין סרטון להצעה זו' });
+    }
+
+    // Delete from Vimeo if it's a Vimeo URL
+    if (isVimeoUrl(quote.videoPath)) {
+      const videoId = quote.videoPath.split('/').pop();
+      const vimeoToken = process.env.VIMEO_ACCESS_TOKEN;
+      if (vimeoToken && videoId) {
+        try {
+          await fetch(`https://api.vimeo.com/videos/${videoId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `bearer ${vimeoToken}` },
+          });
+        } catch (err) {
+          console.error('Failed to delete from Vimeo:', err);
+        }
+      }
+    } else if (fs.existsSync(quote.videoPath)) {
+      // Delete local file
+      fs.unlinkSync(quote.videoPath);
+    }
+
+    // Clear videoPath in DB
+    await prisma.quote.update({
+      where: { id },
+      data: { videoPath: null },
+    });
+
+    res.json({ message: 'הסרטון נמחק בהצלחה' });
   } catch (error) {
     next(error);
   }

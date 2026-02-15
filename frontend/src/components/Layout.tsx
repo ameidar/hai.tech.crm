@@ -13,6 +13,7 @@ import {
   BarChart3,
   FileText,
   Receipt,
+  PhoneCall,
   LogOut,
   Menu,
   X,
@@ -30,6 +31,7 @@ const adminNavItems = [
   { path: '/cycles', icon: RefreshCcw, label: 'מחזורים', testId: 'nav-cycles' },
   { path: '/meetings', icon: Calendar, label: 'פגישות', testId: 'nav-meetings' },
   { path: '/quotes', icon: Receipt, label: 'הצעות מחיר', testId: 'nav-quotes' },
+  { path: '/lead-appointments', icon: PhoneCall, label: 'יומן לידים', testId: 'nav-lead-appointments' },
   { path: '/reports', icon: BarChart3, label: 'דוחות', testId: 'nav-reports' },
   { path: '/audit', icon: FileText, label: 'יומן פעילות', testId: 'nav-audit' },
 ];

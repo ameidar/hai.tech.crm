@@ -4,6 +4,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { config } from '../config.js';
 import { sendWelcomeNotifications, notifyAdminNewLead } from '../services/notifications.js';
 import { logAudit } from '../utils/audit.js';
+import { initiateVapiCall } from '../services/vapi.js';
 
 export const webhookRouter = Router();
 
@@ -395,6 +396,19 @@ webhookRouter.post('/leads', async (req, res, next) => {
         }
       }
 
+      // Trigger Vapi AI call for returning customer with phone
+      if (customer.phone) {
+        initiateVapiCall({
+          customerId: customer.id,
+          customerName: customer.name,
+          customerPhone: customer.phone,
+          customerEmail: customer.email || undefined,
+          childName: childName || undefined,
+          interest: interest || undefined,
+          source,
+        }).catch(err => console.error('[WEBHOOK] Failed to initiate Vapi call:', err));
+      }
+
       res.json({
         success: true,
         isNew: false,
@@ -460,6 +474,19 @@ webhookRouter.post('/leads', async (req, res, next) => {
       interest: interest || undefined,
       source,
     }).catch(err => console.error('[WEBHOOK] Failed to notify admin:', err));
+
+    // Trigger Vapi AI call for new customer with phone
+    if (customer.phone) {
+      initiateVapiCall({
+        customerId: customer.id,
+        customerName: customer.name,
+        customerPhone: customer.phone,
+        customerEmail: customer.email || undefined,
+        childName: childName || undefined,
+        interest: interest || undefined,
+        source,
+      }).catch(err => console.error('[WEBHOOK] Failed to initiate Vapi call:', err));
+    }
 
     // Create audit log
     logAudit({

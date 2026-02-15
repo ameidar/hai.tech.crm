@@ -52,6 +52,7 @@ import {
   useGenerateMeetings,
   useSyncCycleProgress,
   useCreateMeeting,
+  api,
 } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -768,6 +769,9 @@ export default function CycleDetail() {
                           {reg.status === 'cancelled' && (
                             <span className="badge badge-danger text-xs">בוטל</span>
                           )}
+                          {reg.status === 'pending_cancellation' && (
+                            <span className="badge badge-warning text-xs">ממתין לביטול</span>
+                          )}
                         </div>
                         <p className="text-sm text-gray-500">
                           {reg.student?.customer?.name}
@@ -785,6 +789,24 @@ export default function CycleDetail() {
                             {paymentStatusHebrew[reg.paymentStatus || 'unpaid']}
                           </span>
                         </div>
+                        {cycle?.type === 'private' && ['active', 'registered'].includes(reg.status) && isAdmin && (
+                          <button
+                            onClick={async () => {
+                              if (confirm('לשלוח טופס ביטול ללקוח?')) {
+                                try {
+                                  await api.post(`/registrations/${reg.id}/send-cancellation-form`);
+                                  alert('טופס ביטול נשלח ללקוח בהצלחה');
+                                } catch (error: any) {
+                                  alert(error?.response?.data?.message || 'שגיאה בשליחת טופס ביטול');
+                                }
+                              }
+                            }}
+                            className="p-1.5 text-orange-500 hover:bg-orange-50 rounded-lg transition-colors"
+                            title="שלח טופס ביטול"
+                          >
+                            <Mail size={18} />
+                          </button>
+                        )}
                         <button
                           onClick={() => setEditingRegistration(reg)}
                           className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
@@ -1478,9 +1500,11 @@ export default function CycleDetail() {
                   <p className="text-gray-500">סטטוס</p>
                   <span className={`badge ${
                     viewingRegistration.status === 'active' ? 'badge-success' :
+                    viewingRegistration.status === 'pending_cancellation' ? 'badge-warning' :
                     viewingRegistration.status === 'cancelled' ? 'badge-danger' : 'badge-secondary'
                   }`}>
                     {viewingRegistration.status === 'active' ? 'פעיל' :
+                     viewingRegistration.status === 'pending_cancellation' ? 'ממתין לביטול' :
                      viewingRegistration.status === 'cancelled' ? 'בוטל' :
                      viewingRegistration.status === 'registered' ? 'נרשם' : viewingRegistration.status}
                   </span>
@@ -1636,6 +1660,7 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
           <option value="registered">נרשם</option>
           <option value="active">פעיל</option>
           <option value="completed">הושלם</option>
+          <option value="pending_cancellation">ממתין לביטול</option>
           <option value="cancelled">בוטל</option>
         </select>
       </div>

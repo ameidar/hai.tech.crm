@@ -67,6 +67,7 @@ enum RegistrationStatus {
   registered
   active
   completed
+  pending_cancellation
   cancelled
   trial
 }
@@ -161,8 +162,9 @@ model Customer {
   deletedBy String?   @map("deleted_by")
 
   // Relations
-  students Student[]
-  quotes   Quote[]
+  students         Student[]
+  quotes           Quote[]
+  leadAppointments LeadAppointment[]
 
   @@map("customers")
 }
@@ -354,12 +356,31 @@ model Registration {
   deletedBy          String?             @map("deleted_by")
 
   // Relations
-  student    Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  cycle      Cycle        @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  attendance Attendance[]
+  student               Student               @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  cycle                 Cycle                  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  attendance            Attendance[]
+  cancellationRequests  CancellationRequest[]
 
   @@unique([studentId, cycleId])
   @@map("registrations")
+}
+
+model CancellationRequest {
+  id             String    @id @default(uuid())
+  registrationId String    @map("registration_id")
+  customerName   String    @map("customer_name")
+  studentName    String    @map("student_name")
+  reason         String?
+  signature      String?
+  submittedAt    DateTime? @map("submitted_at")
+  status         String    @default("pending") // pending, submitted, processed
+  token          String    @unique
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  registration Registration @relation(fields: [registrationId], references: [id])
+
+  @@map("cancellation_requests")
 }
 
 model Meeting {
@@ -596,6 +617,7 @@ model Quote {
   validUntil      DateTime?   @map("valid_until") @db.Date
   status          QuoteStatus @default(draft)
   notes           String?
+  videoPath       String?     @map("video_path")
   orderId         String?     @unique @map("order_id")
   createdById     String      @map("created_by")
   createdAt       DateTime    @default(now()) @map("created_at")
@@ -629,4 +651,44 @@ model QuoteItem {
   course Course? @relation(fields: [courseId], references: [id])
 
   @@map("quote_items")
+}
+
+// ===================
+// LEAD APPOINTMENTS (Vapi AI Calling)
+// ===================
+
+model LeadAppointment {
+  id              String    @id @default(uuid())
+  customerId      String?   @map("customer_id")
+  customerName    String    @map("customer_name")
+  customerPhone   String    @map("customer_phone")
+  customerEmail   String?   @map("customer_email")
+  childName       String?   @map("child_name")
+  interest        String?
+  source          String    @default("website")
+
+  // Vapi call details
+  vapiCallId      String?   @map("vapi_call_id")
+  callStatus      String?   @map("call_status")
+  callTranscript  String?   @map("call_transcript")
+  callSummary     String?   @map("call_summary")
+  callDuration    Int?      @map("call_duration")
+  callEndedReason String?   @map("call_ended_reason")
+
+  // Appointment details (extracted from call)
+  appointmentDate   DateTime? @map("appointment_date")
+  appointmentTime   String?   @map("appointment_time")
+  appointmentNotes  String?   @map("appointment_notes")
+  appointmentStatus String    @default("pending") @map("appointment_status")
+
+  // Notifications
+  whatsappSent Boolean @default(false) @map("whatsapp_sent")
+  emailSent    Boolean @default(false) @map("email_sent")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  @@map("lead_appointments")
 }

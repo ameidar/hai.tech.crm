@@ -49,4 +49,9 @@ export const config = {
   // Green API (WhatsApp)
   greenApiInstanceId: process.env.GREEN_API_INSTANCE_ID || '',
   greenApiToken: process.env.GREEN_API_TOKEN || '',
+
+  // Vapi AI Calling
+  vapiApiKey: process.env.VAPI_API_KEY || '',
+  vapiAssistantId: process.env.VAPI_ASSISTANT_ID || '',
+  vapiPhoneNumberId: process.env.VAPI_PHONE_NUMBER_ID || '',
 };

@@ -31,9 +31,14 @@ services:
       ZOOM_CLIENT_SECRET: ${ZOOM_CLIENT_SECRET}
       ZOOM_SECRET_TOKEN: ${ZOOM_SECRET_TOKEN}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      VIMEO_ACCESS_TOKEN: ${VIMEO_ACCESS_TOKEN}
       VIDEO_RENDER_URL: http://172.17.0.1:3099
+      VAPI_API_KEY: ${VAPI_API_KEY}
+      VAPI_ASSISTANT_ID: ${VAPI_ASSISTANT_ID}
+      VAPI_PHONE_NUMBER_ID: ${VAPI_PHONE_NUMBER_ID}
     volumes:
       - /tmp/quote-videos:/tmp/quote-videos
+      - /tmp/haitech-uploads:/app/uploads
     ports:
       - "3002:3002"
     healthcheck:

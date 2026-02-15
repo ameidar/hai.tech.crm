@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Phone, X, ChevronDown, ChevronUp, Eye, Save } from 'lucide-react';
+import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Play } from 'lucide-react';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -18,6 +18,7 @@ interface LeadAppointment {
   callStatus?: string;
   callTranscript?: string;
   callSummary?: string;
+  callRecordingUrl?: string;
   callDuration?: number;
   appointmentDate?: string;
   appointmentTime?: string;
@@ -319,6 +320,17 @@ function LeadDetailModal({
             <div>
               <h3 className="text-sm font-medium text-gray-700 mb-1">סיכום שיחה</h3>
               <p className="text-sm bg-gray-50 rounded p-3">{lead.callSummary}</p>
+            </div>
+          )}
+
+          {/* Call Recording */}
+          {lead.callRecordingUrl && (
+            <div>
+              <h3 className="text-sm font-medium text-gray-700 mb-1">🎙️ הקלטת שיחה</h3>
+              <audio controls className="w-full" preload="metadata">
+                <source src={lead.callRecordingUrl} />
+                הדפדפן לא תומך בנגן אודיו.
+              </audio>
             </div>
           )}
 

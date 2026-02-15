@@ -37,6 +37,7 @@ import { quotesRouter } from './routes/quotes.js';
 import { publicQuoteRouter } from './routes/public-quote.js';
 import { publicCancelRouter } from './routes/public-cancel.js';
 import { vapiWebhookRouter } from './routes/vapi-webhook.js';
+import { vapiToolsRouter } from './routes/vapi-tools.js';
 import { leadAppointmentsRouter } from './routes/lead-appointments.js';
 
 const app = express();
@@ -50,6 +51,14 @@ app.use(helmet({
 }));
 // Permissive CORS for Vapi webhook (no auth)
 app.use('/api/vapi-webhook', cors({
+  origin: '*',
+  credentials: false,
+  allowedHeaders: ['Content-Type'],
+  methods: ['POST', 'OPTIONS'],
+}));
+
+// Permissive CORS for Vapi tools (no auth)
+app.use('/api/vapi-tools', cors({
   origin: '*',
   credentials: false,
   allowedHeaders: ['Content-Type'],
@@ -161,6 +170,7 @@ app.use('/api/public/quotes', publicQuoteRouter); // Public quote view (no auth)
 app.use('/api/public/cancel', publicCancelRouter); // Public cancellation form (no auth)
 app.use('/api/quotes', quotesRouter); // Quote management
 app.use('/api/vapi-webhook', vapiWebhookRouter); // Vapi AI webhook (no auth)
+app.use('/api/vapi-tools', vapiToolsRouter); // Vapi AI tool calls - Google Calendar (no auth)
 app.use('/api/lead-appointments', leadAppointmentsRouter); // Lead appointment management
 
 // Error handling for API routes

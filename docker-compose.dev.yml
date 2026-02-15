@@ -39,6 +39,7 @@ services:
     volumes:
       - /tmp/quote-videos:/tmp/quote-videos
       - /tmp/haitech-uploads:/app/uploads
+      - /home/opc/clawd/projects/haitech-crm/backend/google-calendar-sa.json:/app/google-calendar-sa.json:ro
     ports:
       - "3002:3002"
     healthcheck:

@@ -9,7 +9,7 @@ export function isBusinessHoursInIsrael(): boolean {
   const now = new Date();
   const israelTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }));
   const hour = israelTime.getHours();
-  return hour >= 8 && hour < 21;
+  return hour >= 8 && hour < 24; // Temporarily extended for testing (was 21)
 }
 
 // Format phone number for Vapi (needs +972 format)
@@ -81,6 +81,74 @@ export async function initiateVapiCall(data: {
     const phoneNumber = formatPhoneForVapi(data.customerPhone);
     const firstMessage = buildFirstMessage({ name: data.customerName, childName: data.childName, interest: data.interest });
 
+    // Build context for the assistant about this specific lead
+    // Current date/time in Israel timezone
+    const now = new Date();
+    const israelFormatter = new Intl.DateTimeFormat('he-IL', {
+      timeZone: 'Asia/Jerusalem',
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+    const israelDate = israelFormatter.format(now);
+    const isoDate = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' }); // YYYY-MM-DD
+    const israelTime = now.toLocaleTimeString('he-IL', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit' });
+
+    const leadContext = [];
+    leadContext.push(`היום: ${israelDate} (${isoDate})`);
+    leadContext.push(`השעה עכשיו: ${israelTime}`);
+    leadContext.push(`שם הלקוח: ${data.customerName}`);
+    if (data.childName) leadContext.push(`שם הילד/ה: ${data.childName}`);
+    if (data.interest) leadContext.push(`תחום עניין: ${data.interest}`);
+    if (data.source) leadContext.push(`מקור הפנייה: ${data.source}`);
+
+    // Fetch the assistant's original system prompt and append lead context + date
+    const SYSTEM_PROMPT = `את נועה, נציגה טלפונית של דרך ההייטק.
+
+את מתקשרת לאנשים שהשאירו פרטים באתר. המטרה שלך: להבין מה מעניין אותם ולקבוע פגישה ביומן.
+
+חשוב מאוד - פנייה בלשון הנכונה:
+לפי השם של הלקוח, תזהי אם מדובר בגבר או אישה ותפני בהתאם.
+שמות נשיים נפוצים: נועה, מיכל, שרה, רחל, אינה, יעל, דנה, טלי, ליאת, אורלי, הילה, שירה, רונית, אורית.
+שמות גבריים נפוצים: עמי, דוד, יוסי, אבי, משה, ישראל, חיים, רון, גיל, אלון.
+אם לא בטוחה - תפני בלשון נקבה כברירת מחדל.
+
+רקע על דרך ההייטק:
+ארגון שמציע חינוך טכנולוגי לילדים ונוער: תכנות, בינה מלאכותית, רובוטיקה, מיינקראפט, רובלוקס. וגם הטמעת בינה מלאכותית בעסקים.
+
+מה לברר בשיחה:
+1. מה מעניין אותם
+2. שם הילד או הילדה
+3. גיל הילד או הילדה
+4. האם יש ניסיון קודם בתחום
+5. לקבוע פגישה - להשתמש בכלי checkAvailability כדי לבדוק זמינות ואז bookAppointment כדי לקבוע
+
+קביעת פגישה:
+אחרי שהבנת מה מעניין אותם, תציעי לקבוע פגישת היכרות. תשאלי באיזה יום נוח להם. אז תבדקי זמינות ביומן עם checkAvailability ותציעי שעות פנויות. אחרי שבחרו שעה, תקבעי עם bookAppointment.
+חשוב: כשאת קוראת ל-checkAvailability, השתמשי בפורמט YYYY-MM-DD. התאריך חייב להיות עתידי (היום או אחרי).
+
+איך לדבר:
+בקצרה ובטבעיות. כאילו את חברה שמתקשרת. שאלה אחת בכל פעם.
+
+סיום:
+אחרי שנקבעה פגישה, סכמי: מעולה, אז קבענו פגישה ביום X בשעה Y. תודה רבה ויום נעים.
+
+כללים:
+זו שיחת טלפון. בלי אימוגים, כוכביות, סוגריים או סימנים מיוחדים.
+אל תמציאי מידע.
+שיחה עד 3 דקות.
+
+=== מידע נוכחי ===
+התאריך היום: ${israelDate} (${isoDate})
+השעה עכשיו: ${israelTime}
+כשמישהו אומר "מחר" הכוונה ליום שאחרי ${isoDate}.
+
+=== פרטי הליד ===
+${leadContext.join('\n')}
+
+השתמשי בפרטי הליד בשיחה. אם יש שם ילד/ה ותחום עניין, התייחסי אליהם ישירות ואל תשאלי שאלות שכבר יש לך תשובות עליהן.`;
+
     const response = await fetch(`${VAPI_API_BASE}/call/phone`, {
       method: 'POST',
       headers: {
@@ -91,7 +159,14 @@ export async function initiateVapiCall(data: {
         assistantId: config.vapiAssistantId,
         phoneNumberId: config.vapiPhoneNumberId,
         customer: { number: phoneNumber },
-        assistantOverrides: { firstMessage },
+        assistantOverrides: {
+          firstMessage,
+          model: {
+            model: 'gpt-4o',
+            provider: 'openai',
+            messages: [{ role: 'system', content: SYSTEM_PROMPT }],
+          },
+        },
       }),
     });
 
@@ -145,6 +220,7 @@ export async function handleEndOfCallReport(payload: any): Promise<void> {
   // Extract data from payload
   const transcript = payload.transcript || null;
   const summary = payload.summary || null;
+  const recordingUrl = payload.recordingUrl || payload.artifact?.recordingUrl || payload.call?.recordingUrl || null;
   const structuredData = payload.analysis?.structuredData || null;
   const duration = payload.call?.duration || payload.durationSeconds || null;
   const endedReason = payload.endedReason || payload.call?.endedReason || null;
@@ -185,6 +261,7 @@ export async function handleEndOfCallReport(payload: any): Promise<void> {
       callStatus: 'ended',
       callTranscript: transcript,
       callSummary: summary,
+      callRecordingUrl: recordingUrl,
       callDuration: duration ? Math.round(duration) : null,
       callEndedReason: endedReason,
       appointmentDate,

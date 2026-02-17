@@ -44,7 +44,9 @@ export default function Customers() {
     try {
       await createCustomer.mutateAsync(data);
       setShowAddModal(false);
-    } catch (error) {
+    } catch (error: any) {
+      const message = error?.response?.data?.message || error?.response?.data?.error || 'שגיאה ביצירת לקוח';
+      alert(message);
       console.error('Failed to create customer:', error);
     }
   };

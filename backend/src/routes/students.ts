@@ -3,6 +3,7 @@ import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createStudentSchema, updateStudentSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
+import { logAudit, logUpdateAudit } from '../utils/audit.js';
 
 export const studentsRouter = Router();
 
@@ -132,6 +133,8 @@ studentsRouter.post('/', managerOrAdmin, async (req, res, next) => {
       },
     });
 
+    await logAudit({ action: 'CREATE', entity: 'Student', entityId: student.id, newValue: { name: student.name, customerId: student.customerId, grade: student.grade }, req });
+
     res.status(201).json(student);
   } catch (error) {
     next(error);
@@ -144,6 +147,8 @@ studentsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     const id = uuidSchema.parse(req.params.id);
     const data = updateStudentSchema.parse(req.body);
 
+    const oldStudent = await prisma.student.findUnique({ where: { id } });
+
     const student = await prisma.student.update({
       where: { id },
       data: {
@@ -154,6 +159,10 @@ studentsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
         customer: { select: { id: true, name: true, phone: true } },
       },
     });
+
+    if (oldStudent) {
+      await logUpdateAudit({ entity: 'Student', entityId: id, oldRecord: oldStudent, newRecord: student, req });
+    }
 
     res.json(student);
   } catch (error) {
@@ -166,9 +175,15 @@ studentsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
+    const oldStudent = await prisma.student.findUnique({ where: { id } });
+
     await prisma.student.delete({
       where: { id },
     });
+
+    if (oldStudent) {
+      await logAudit({ action: 'DELETE', entity: 'Student', entityId: id, oldValue: { name: oldStudent.name, customerId: oldStudent.customerId }, req });
+    }
 
     res.status(204).send();
   } catch (error) {

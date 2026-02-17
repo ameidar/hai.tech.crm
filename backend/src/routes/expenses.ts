@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authenticate } from '../middleware/auth.js';
+import { logAudit } from '../utils/audit.js';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -171,6 +172,8 @@ router.post('/cycle', authenticate, async (req: Request, res: Response) => {
       },
     });
 
+    await logAudit({ action: 'CREATE', entity: 'CycleExpense', entityId: expense.id, newValue: { cycleId, type, amount: expense.amount, description }, req });
+
     res.status(201).json(expense);
   } catch (error) {
     console.error('Error creating cycle expense:', error);
@@ -187,10 +190,16 @@ router.delete('/cycle/:id', authenticate, async (req: Request, res: Response) =>
     }
 
     const { id } = req.params;
+
+    const oldExpense = await prisma.cycleExpense.findUnique({ where: { id } });
     
     await prisma.cycleExpense.delete({
       where: { id },
     });
+
+    if (oldExpense) {
+      await logAudit({ action: 'DELETE', entity: 'CycleExpense', entityId: id, oldValue: { cycleId: oldExpense.cycleId, type: oldExpense.type, amount: oldExpense.amount }, req });
+    }
 
     res.status(204).send();
   } catch (error) {
@@ -315,6 +324,8 @@ router.post('/meeting', authenticate, async (req: Request, res: Response) => {
       },
     });
 
+    await logAudit({ action: 'CREATE', entity: 'MeetingExpense', entityId: expense.id, newValue: { meetingId, type, amount: expense.amount, description }, req });
+
     // Update meeting profit since expense is auto-approved
     const meeting = await prisma.meeting.findUnique({
       where: { id: meetingId },
@@ -373,6 +384,8 @@ router.delete('/meeting/:id', authenticate, async (req: Request, res: Response) 
 
     const wasApproved = expense.status === 'approved';
     const meetingId = expense.meetingId;
+
+    await logAudit({ action: 'DELETE', entity: 'MeetingExpense', entityId: id, oldValue: { meetingId: expense.meetingId, type: expense.type, amount: expense.amount }, req });
 
     await prisma.meetingExpense.delete({
       where: { id },

@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { parsePaginationParams, paginatedResponse } from '../utils/pagination.js';
 import { sendEmail, sendWhatsAppMessage } from '../services/notifications.js';
 import { deleteMeeting as deleteZoomMeeting } from '../services/zoom.js';
+import { logAudit, logUpdateAudit } from '../utils/audit.js';
 
 /**
  * Check if a cycle has no active registrations left after a cancellation.
@@ -183,6 +184,8 @@ registrationsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     const id = uuidSchema.parse(req.params.id);
     const data = updateRegistrationSchema.parse(req.body);
 
+    const oldRegistration = await prisma.registration.findUnique({ where: { id } });
+
     const registration = await prisma.registration.update({
       where: { id },
       data: {
@@ -200,6 +203,11 @@ registrationsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
         },
       },
     });
+
+    // Audit log
+    if (oldRegistration) {
+      await logUpdateAudit({ entity: 'Registration', entityId: id, oldRecord: oldRegistration, newRecord: registration, req });
+    }
 
     // Cascade: if cancelled/pending_cancellation and no active students left, cancel cycle
     if (data.status === 'cancelled' || data.status === 'pending_cancellation') {
@@ -219,9 +227,15 @@ registrationsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
+    const oldRegistration = await prisma.registration.findUnique({ where: { id } });
+
     await prisma.registration.delete({
       where: { id },
     });
+
+    if (oldRegistration) {
+      await logAudit({ action: 'DELETE', entity: 'Registration', entityId: id, oldValue: { status: oldRegistration.status, studentId: oldRegistration.studentId, cycleId: oldRegistration.cycleId }, req });
+    }
 
     res.status(204).send();
   } catch (error) {
@@ -235,6 +249,8 @@ registrationsRouter.post('/:id/cancel', managerOrAdmin, async (req, res, next) =
     const id = uuidSchema.parse(req.params.id);
     const { reason } = z.object({ reason: z.string().optional() }).parse(req.body);
 
+    const oldRegistration = await prisma.registration.findUnique({ where: { id } });
+
     const registration = await prisma.registration.update({
       where: { id },
       data: {
@@ -247,6 +263,11 @@ registrationsRouter.post('/:id/cancel', managerOrAdmin, async (req, res, next) =
         cycle: { select: { id: true, name: true } },
       },
     });
+
+    // Audit log
+    if (oldRegistration) {
+      await logUpdateAudit({ entity: 'Registration', entityId: id, oldRecord: oldRegistration, newRecord: registration, req });
+    }
 
     // Cascade: check if cycle should be cancelled
     handleCycleCascadeOnCancellation(registration.cycle.id).catch(err =>
@@ -381,6 +402,8 @@ registrationsRouter.post('/:id/payment', managerOrAdmin, async (req, res, next) 
       invoiceLink: z.string().optional(),
     }).parse(req.body);
 
+    const oldRegistration = await prisma.registration.findUnique({ where: { id } });
+
     const registration = await prisma.registration.update({
       where: { id },
       data,
@@ -389,6 +412,11 @@ registrationsRouter.post('/:id/payment', managerOrAdmin, async (req, res, next) 
         cycle: { select: { name: true } },
       },
     });
+
+    // Audit log
+    if (oldRegistration) {
+      await logUpdateAudit({ entity: 'Registration', entityId: id, oldRecord: oldRegistration, newRecord: registration, req });
+    }
 
     res.json(registration);
   } catch (error) {

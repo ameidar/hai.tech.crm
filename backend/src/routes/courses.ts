@@ -3,6 +3,7 @@ import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createCourseSchema, updateCourseSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
+import { logAudit, logUpdateAudit } from '../utils/audit.js';
 
 export const coursesRouter = Router();
 
@@ -88,6 +89,8 @@ coursesRouter.post('/', managerOrAdmin, async (req, res, next) => {
       data,
     });
 
+    await logAudit({ action: 'CREATE', entity: 'Course', entityId: course.id, newValue: { name: course.name, category: course.category }, req });
+
     res.status(201).json(course);
   } catch (error) {
     next(error);
@@ -100,10 +103,16 @@ coursesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     const id = uuidSchema.parse(req.params.id);
     const data = updateCourseSchema.parse(req.body);
 
+    const oldCourse = await prisma.course.findUnique({ where: { id } });
+
     const course = await prisma.course.update({
       where: { id },
       data,
     });
+
+    if (oldCourse) {
+      await logUpdateAudit({ entity: 'Course', entityId: id, oldRecord: oldCourse, newRecord: course, req });
+    }
 
     res.json(course);
   } catch (error) {
@@ -125,9 +134,15 @@ coursesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
       throw new AppError(400, 'Cannot delete course with active cycles');
     }
 
+    const oldCourse = await prisma.course.findUnique({ where: { id } });
+
     await prisma.course.delete({
       where: { id },
     });
+
+    if (oldCourse) {
+      await logAudit({ action: 'DELETE', entity: 'Course', entityId: id, oldValue: { name: oldCourse.name, category: oldCourse.category }, req });
+    }
 
     res.status(204).send();
   } catch (error) {

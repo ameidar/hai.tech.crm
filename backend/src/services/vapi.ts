@@ -1,6 +1,6 @@
 import { config } from '../config.js';
 import { prisma } from '../utils/prisma.js';
-import { sendWhatsAppMessage, sendEmail } from './notifications.js';
+import { sendWhatsAppMessage } from './notifications.js';
 
 const VAPI_API_BASE = 'https://api.vapi.ai';
 
@@ -296,22 +296,13 @@ export async function handleEndOfCallReport(payload: any): Promise<void> {
     console.error('[VAPI WEBHOOK] WhatsApp notification failed:', err);
   }
 
-  // Send email notification
-  try {
-    const emailSent = await sendEmail(
-      'info@hai.tech',
-      `🤖 סיכום שיחת AI - ${leadAppointment.customerName}`,
-      buildEmailHtml(leadAppointment, { summary, structuredData, appointmentDate, appointmentTime, appointmentStatus, duration })
-    );
-    if (emailSent) {
-      await prisma.leadAppointment.update({
-        where: { id: leadAppointment.id },
-        data: { emailSent: true },
-      });
-    }
-  } catch (err) {
-    console.error('[VAPI WEBHOOK] Email notification failed:', err);
-  }
+  // Email notification disabled (2026-02-16) - Ami requested removal
+  // WhatsApp notification is sufficient
+  console.log(`[VAPI WEBHOOK] Email notification skipped (disabled)`);
+  await prisma.leadAppointment.update({
+    where: { id: leadAppointment.id },
+    data: { emailSent: false },
+  });
 
   console.log(`[VAPI WEBHOOK] Processed end-of-call for appointment ${leadAppointment.id}`);
 }
@@ -355,7 +346,8 @@ function translateStatus(status: string): string {
   return map[status] || status;
 }
 
-function buildEmailHtml(
+// @ts-ignore - kept for potential future use
+function _buildEmailHtml(
   lead: { customerName: string; customerPhone: string; childName?: string | null; interest?: string | null },
   data: { summary?: string; structuredData?: any; appointmentDate?: Date | null; appointmentTime?: string | null; appointmentStatus: string; duration?: number | null }
 ): string {

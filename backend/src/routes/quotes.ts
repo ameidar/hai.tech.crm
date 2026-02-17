@@ -15,6 +15,7 @@ import { renderQuoteVideo, getVideoStatus, getVideoUrl, setRenderStatus, persist
 import fs from 'fs';
 import { prisma } from '../utils/prisma.js';
 import { sendEmail } from '../services/email/sender.js';
+import { logAudit, logUpdateAudit } from '../utils/audit.js';
 
 export const quotesRouter = Router();
 
@@ -52,6 +53,9 @@ quotesRouter.post('/', managerOrAdmin, async (req, res, next) => {
       ...req.body,
       createdById: req.user?.userId,
     });
+
+    await logAudit({ action: 'CREATE', entity: 'Quote', entityId: quote.id, newValue: { institutionName: quote.institutionName, status: quote.status, totalAmount: quote.totalAmount }, req });
+
     res.status(201).json(quote);
   } catch (error) {
     next(error);
@@ -62,7 +66,9 @@ quotesRouter.post('/', managerOrAdmin, async (req, res, next) => {
 quotesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
+    const oldQuote = await getQuoteById(id);
     const quote = await updateQuote(id, req.body);
+    await logUpdateAudit({ entity: 'Quote', entityId: id, oldRecord: oldQuote, newRecord: quote, req });
     res.json(quote);
   } catch (error) {
     next(error);
@@ -73,7 +79,9 @@ quotesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
 quotesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
+    const oldQuote = await getQuoteById(id);
     await deleteQuote(id);
+    await logAudit({ action: 'DELETE', entity: 'Quote', entityId: id, oldValue: { institutionName: oldQuote.institutionName, status: oldQuote.status, totalAmount: oldQuote.totalAmount }, req });
     res.status(204).send();
   } catch (error) {
     next(error);

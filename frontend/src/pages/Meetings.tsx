@@ -173,12 +173,14 @@ export default function Meetings() {
 
   // Sort handler
   const handleSort = (column: string) => {
+    const newParams = new URLSearchParams(searchParams);
     if (sortColumn === column) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+      newParams.set('dir', sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
-      setSortColumn(column);
-      setSortDirection('asc');
+      newParams.set('sort', column);
+      newParams.set('dir', 'asc');
     }
+    setSearchParams(newParams, { replace: true });
   };
 
   // Get nested value from object

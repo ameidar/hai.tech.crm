@@ -126,12 +126,26 @@ router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
     const msPerWeek = 7 * 24 * 60 * 60 * 1000;
     const weeksCount = Math.ceil((lastDate.getTime() - firstDate.getTime()) / msPerWeek) + 1;
 
+    // Validate dayOfWeek mapping
+    const zoomDayOfWeek = dayOfWeekToZoom[cycle.dayOfWeek];
+    if (!zoomDayOfWeek) {
+      return res.status(400).json({
+        error: `Invalid dayOfWeek value: "${cycle.dayOfWeek}". Expected one of: ${Object.keys(dayOfWeekToZoom).join(', ')}`
+      });
+    }
+
+    if (!cycle.durationMinutes || cycle.durationMinutes <= 0) {
+      return res.status(400).json({
+        error: `Invalid durationMinutes: ${cycle.durationMinutes}`
+      });
+    }
+
     // Create the meeting using actual meeting dates
     const result = await zoomService.createCycleMeeting({
       cycleName: `${cycle.course.name} - ${cycle.name}`,
       startDate: firstDate,
       endDate: lastDate,
-      dayOfWeek: dayOfWeekToZoom[cycle.dayOfWeek],
+      dayOfWeek: zoomDayOfWeek,
       startTime: startTimeStr,
       durationMinutes: cycle.durationMinutes,
       totalOccurrences: Math.max(weeksCount, meetings.length)
@@ -188,9 +202,12 @@ router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('Failed to create Zoom meeting:', error);
+    const zoomErrorData = error.response?.data;
+    console.error('Zoom API error details:', JSON.stringify(zoomErrorData, null, 2));
     res.status(500).json({ 
       error: 'Failed to create Zoom meeting',
-      details: error.message 
+      details: error.message,
+      zoomError: zoomErrorData || null
     });
   }
 });

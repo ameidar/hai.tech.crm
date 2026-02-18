@@ -144,6 +144,8 @@ model User {
   submittedExpenses     MeetingExpense[] @relation("ExpenseSubmitter")
   reviewedExpenses      MeetingExpense[] @relation("ExpenseReviewer")
   quotes                Quote[]
+  apiKeys               ApiKey[]
+  webhooks              Webhook[]
 
   @@map("users")
 }
@@ -165,6 +167,7 @@ model Customer {
   students         Student[]
   quotes           Quote[]
   leadAppointments LeadAppointment[]
+  upsellLeads      UpsellLead[]
 
   @@map("customers")
 }
@@ -174,6 +177,7 @@ model Student {
   customerId String    @map("customer_id")
   name       String
   birthDate  DateTime? @map("birth_date") @db.Date
+  age        Int?
   grade      String?
   notes      String?
   createdAt  DateTime  @default(now()) @map("created_at")
@@ -246,11 +250,12 @@ model Instructor {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   // Relations
-  user            User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
-  cycles          Cycle[]
-  meetings        Meeting[]
-  expenseRecords  MeetingExpense[]
-  cycleExpenses   CycleExpense[]
+  user                  User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  cycles                Cycle[]
+  meetings              Meeting[]
+  expenseRecords        MeetingExpense[]
+  cycleExpenses         CycleExpense[]
+  meetingChangeRequests MeetingChangeRequest[]
 
   @@map("instructors")
 }
@@ -333,6 +338,7 @@ model Cycle {
   registrations      Registration[]
   meetings           Meeting[]
   expenses           CycleExpense[]
+  upsellLeads        UpsellLead[]
 
   @@map("cycles")
 }
@@ -360,6 +366,7 @@ model Registration {
   cycle                 Cycle                  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   attendance            Attendance[]
   cancellationRequests  CancellationRequest[]
+  upsellLeads           UpsellLead[]
 
   @@unique([studentId, cycleId])
   @@map("registrations")
@@ -423,6 +430,7 @@ model Meeting {
   rescheduledFrom Meeting[]        @relation("RescheduledMeetings")
   attendance      Attendance[]
   expenses        MeetingExpense[]
+  meetingChangeRequests MeetingChangeRequest[]
 
   @@map("meetings")
 }
@@ -450,10 +458,79 @@ model Attendance {
   @@map("attendance")
 }
 
+model ApiKey {
+  id          String    @id @default(uuid())
+  name        String                          // Friendly name (e.g., "n8n Integration")
+  keyHash     String    @unique @map("key_hash") // SHA-256 hash of the key
+  keyPrefix   String    @map("key_prefix")    // First 8 chars for identification (haitech_)
+  scopes      String[]  @default([])          // ["read:customers", "write:cycles", "*"]
+  rateLimit   Int       @default(1000) @map("rate_limit") // requests per hour
+  isActive    Boolean   @default(true) @map("is_active")
+  expiresAt   DateTime? @map("expires_at")
+  lastUsedAt  DateTime? @map("last_used_at")
+  lastUsedIp  String?   @map("last_used_ip")
+  createdById String    @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  auditLogs   AuditLog[]
+
+  @@index([keyPrefix])
+  @@index([isActive])
+  @@map("api_keys")
+}
+
+model Webhook {
+  id          String    @id @default(cuid())
+  name        String
+  url         String
+  events      String[]  // Array of event names (customer.created, meeting.completed, etc.)
+  secret      String?   // Secret for HMAC signature
+  headers     Json?     // Custom headers to include in webhook calls
+  status      String    @default("active") // active, paused, disabled
+  createdById String    @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  deliveries  WebhookDelivery[]
+
+  @@index([status])
+  @@map("webhooks")
+}
+
+model WebhookDelivery {
+  id            String    @id @default(cuid())
+  webhookId     String    @map("webhook_id")
+  event         String    // Event that triggered the delivery
+  payload       Json      // The payload sent
+  responseCode  Int?      @map("response_code")
+  responseBody  String?   @map("response_body")
+  success       Boolean   @default(false)
+  attempts      Int       @default(1)
+  nextRetryAt   DateTime? @map("next_retry_at")
+  completedAt   DateTime? @map("completed_at")
+  error         String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  webhook       Webhook   @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId])
+  @@index([event])
+  @@index([success])
+  @@index([nextRetryAt])
+  @@map("webhook_deliveries")
+}
+
 model AuditLog {
   id        String   @id @default(uuid())
   userId    String?  @map("user_id")
   userName  String?  @map("user_name")
+  apiKeyId  String?  @map("api_key_id")
   action    String   // CREATE, UPDATE, DELETE
   entity    String   // Customer, Cycle, Meeting, etc.
   entityId  String   @map("entity_id")
@@ -463,8 +540,12 @@ model AuditLog {
   userAgent String?  @map("user_agent")
   createdAt DateTime @default(now()) @map("created_at")
 
+  // Relations
+  apiKey    ApiKey?  @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+
   @@index([entity, entityId])
   @@index([userId])
+  @@index([apiKeyId])
   @@index([createdAt])
   @@map("audit_logs")
 }
@@ -692,4 +773,48 @@ model LeadAppointment {
   customer Customer? @relation(fields: [customerId], references: [id])
 
   @@map("lead_appointments")
+}
+
+model MeetingChangeRequest {
+  id           String    @id @default(uuid())
+  meetingId    String    @map("meeting_id")
+  instructorId String    @map("instructor_id")
+  type         String    // cancel, postpone, replacement
+  reason       String
+  status       String    @default("pending") // pending, approved, rejected
+  reviewedBy   String?   @map("reviewed_by")
+  reviewedAt   DateTime? @map("reviewed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  meeting    Meeting    @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  instructor Instructor @relation(fields: [instructorId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId])
+  @@index([instructorId])
+  @@index([status])
+  @@map("meeting_change_requests")
+}
+
+model UpsellLead {
+  id              Int       @id @default(autoincrement())
+  registrationId  String    @map("registration_id")
+  cycleId         String    @map("cycle_id")
+  customerId      String    @map("customer_id")
+  completedCourse String    @map("completed_course")
+  status          String    @default("new") // new, contacted, converted, dismissed
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  cycle        Cycle        @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([customerId])
+  @@index([cycleId])
+  @@map("upsell_leads")
 }

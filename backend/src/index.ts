@@ -40,6 +40,9 @@ import { vapiWebhookRouter } from './routes/vapi-webhook.js';
 import { vapiToolsRouter } from './routes/vapi-tools.js';
 import { leadAppointmentsRouter } from './routes/lead-appointments.js';
 
+// API v1 Router
+import { apiV1Router } from './api/v1/index.js';
+
 const app = express();
 
 // Security middleware - disabled for HTTP dev access
@@ -112,6 +115,15 @@ app.use('/api', limiter);
 // Body parsing
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// =============================================================================
+// API v1 Routes (new versioned API layer)
+// =============================================================================
+app.use('/api/v1', apiV1Router);
+
+// =============================================================================
+// Legacy Routes (existing, backward compatible)
+// =============================================================================
 
 // Health check with database connectivity test
 app.get('/api/health', async (_req, res) => {

@@ -119,6 +119,9 @@ export async function createQuote(data: {
   payingBodyPhone?: string;
   payingBodyEmail?: string;
   payingBodyNotes?: string;
+  includesVat?: boolean;
+  cancellationTerms?: string;
+  paymentTerms?: string;
   validUntil?: string;
   discount?: number;
   notes?: string;
@@ -131,6 +134,45 @@ export async function createQuote(data: {
   // Accept generatedContent as content
   if (generatedContent && !quoteData.content) {
     quoteData.content = generatedContent;
+  }
+
+  // Auto-create branch/customer if new name provided without existing ID
+  if (!quoteData.branchId && quoteData.institutionName && quoteData.clientType === 'institutional') {
+    const existing = await prisma.branch.findFirst({
+      where: { name: { equals: quoteData.institutionName, mode: 'insensitive' } }
+    });
+    if (existing) {
+      quoteData.branchId = existing.id;
+    } else {
+      const newBranch = await prisma.branch.create({
+        data: {
+          name: quoteData.institutionName,
+          type: 'frontal',
+          contactName: quoteData.contactName || undefined,
+          contactPhone: quoteData.contactPhone || undefined,
+          contactEmail: quoteData.contactEmail || undefined,
+        }
+      });
+      quoteData.branchId = newBranch.id;
+    }
+  }
+
+  if (!quoteData.customerId && quoteData.institutionName && quoteData.clientType === 'private') {
+    const existing = await prisma.customer.findFirst({
+      where: { name: { equals: quoteData.institutionName, mode: 'insensitive' } }
+    });
+    if (existing) {
+      quoteData.customerId = existing.id;
+    } else {
+      const newCustomer = await prisma.customer.create({
+        data: {
+          name: quoteData.institutionName,
+          phone: quoteData.contactPhone || '',
+          email: quoteData.contactEmail || undefined,
+        }
+      });
+      quoteData.customerId = newCustomer.id;
+    }
   }
 
   const quote = await prisma.$transaction(async (tx) => {
@@ -174,6 +216,9 @@ export async function createQuote(data: {
         payingBodyPhone: quoteData.payingBodyPhone || undefined,
         payingBodyEmail: quoteData.payingBodyEmail || undefined,
         payingBodyNotes: quoteData.payingBodyNotes || undefined,
+        includesVat: quoteData.includesVat || false,
+        cancellationTerms: quoteData.cancellationTerms || undefined,
+        paymentTerms: quoteData.paymentTerms || undefined,
         content: quoteData.content || undefined,
         totalAmount,
         discount,
@@ -210,6 +255,9 @@ export async function updateQuote(id: string, data: {
   payingBodyPhone?: string;
   payingBodyEmail?: string;
   payingBodyNotes?: string;
+  includesVat?: boolean;
+  cancellationTerms?: string;
+  paymentTerms?: string;
   validUntil?: string;
   discount?: number;
   notes?: string;
@@ -275,6 +323,9 @@ export async function updateQuote(id: string, data: {
     if (fields.payingBodyPhone !== undefined) updateData.payingBodyPhone = fields.payingBodyPhone || null;
     if (fields.payingBodyEmail !== undefined) updateData.payingBodyEmail = fields.payingBodyEmail || null;
     if (fields.payingBodyNotes !== undefined) updateData.payingBodyNotes = fields.payingBodyNotes || null;
+    if (fields.includesVat !== undefined) updateData.includesVat = fields.includesVat;
+    if (fields.cancellationTerms !== undefined) updateData.cancellationTerms = fields.cancellationTerms || null;
+    if (fields.paymentTerms !== undefined) updateData.paymentTerms = fields.paymentTerms || null;
     if (fields.validUntil !== undefined) updateData.validUntil = new Date(fields.validUntil);
     if (fields.notes !== undefined) updateData.notes = fields.notes;
     if (fields.content !== undefined) updateData.content = fields.content;
@@ -327,6 +378,8 @@ export async function generateQuoteContent(quoteId: string) {
       finalAmount: Number(quote.finalAmount),
       items: quote.items.map((item) => ({
         courseName: item.courseName,
+        type: (item.groups === 1 && item.meetingsPerGroup === 1 && item.description) ? 'project' as const : 'education' as const,
+        description: item.description || undefined,
         groups: item.groups,
         meetingsPerGroup: item.meetingsPerGroup,
         meetingDuration: item.meetingDuration,
@@ -360,8 +413,11 @@ export async function generateContentPreview(data: {
   institutionName: string;
   contactName: string;
   contactRole?: string;
+  includesVat?: boolean;
   items: Array<{
     courseName: string;
+    type?: 'education' | 'project';
+    description?: string;
     groupsCount: number;
     meetingsPerGroup: number;
     durationMinutes: number;
@@ -375,9 +431,12 @@ export async function generateContentPreview(data: {
     institutionName: data.institutionName,
     contactName: data.contactName,
     contactRole: data.contactRole,
+    includesVat: data.includesVat,
     finalAmount,
     items: data.items.map((item) => ({
       courseName: item.courseName,
+      type: item.type || ((item.groupsCount === 1 && item.meetingsPerGroup === 1) ? 'project' : 'education'),
+      description: item.description,
       groups: item.groupsCount,
       meetingsPerGroup: item.meetingsPerGroup,
       meetingDuration: item.durationMinutes,

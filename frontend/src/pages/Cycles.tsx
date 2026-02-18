@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square, ArrowUpDown, ArrowUp, ArrowDown, Filter } from 'lucide-react';
+import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square, ArrowUpDown, ArrowUp, ArrowDown, Filter, Columns } from 'lucide-react';
 import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useBulkGenerateMeetings, useViewData } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading, { SkeletonTable } from '../components/ui/Loading';
@@ -20,6 +20,42 @@ export default function Cycles() {
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'filters' | 'view'>('filters');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [showColumnPicker, setShowColumnPicker] = useState(false);
+
+  // Column visibility
+  const COLUMN_KEYS = ['name', 'course', 'branch', 'instructor', 'startDate', 'dayOfWeek', 'type', 'pricePerStudent', 'meetingRevenue', 'progress', 'status', 'zoom'] as const;
+  const COLUMN_LABELS: Record<string, string> = {
+    name: 'שם המחזור',
+    course: 'קורס',
+    branch: 'סניף',
+    instructor: 'מדריך',
+    startDate: 'תאריך התחלה',
+    dayOfWeek: 'יום ושעה',
+    type: 'סוג',
+    pricePerStudent: 'מחיר לתלמיד',
+    meetingRevenue: 'הכנסה למפגש',
+    progress: 'התקדמות',
+    status: 'סטטוס',
+    zoom: 'זום',
+  };
+
+  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('cycles-column-visibility');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return Object.fromEntries(COLUMN_KEYS.map(k => [k, true]));
+  });
+
+  useEffect(() => {
+    localStorage.setItem('cycles-column-visibility', JSON.stringify(columnVisibility));
+  }, [columnVisibility]);
+
+  const toggleColumn = (key: string) => {
+    setColumnVisibility(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const isColVisible = (key: string) => columnVisibility[key] !== false;
 
   // Read filters from URL
   const statusFilter = (searchParams.get('status') as CycleStatus) || '';
@@ -305,6 +341,35 @@ export default function Cycles() {
                 <span className="hidden md:inline">נקה סינון</span>
               </button>
             )}
+
+            {/* Column picker */}
+            <div className="relative hidden md:block">
+              <button
+                onClick={() => setShowColumnPicker(prev => !prev)}
+                className="btn btn-secondary flex items-center gap-1 min-h-[44px]"
+              >
+                <Columns size={16} />
+                עמודות
+              </button>
+              {showColumnPicker && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setShowColumnPicker(false)} />
+                  <div className="absolute left-0 top-full mt-1 z-40 bg-white border border-gray-200 rounded-lg shadow-lg py-2 min-w-[180px]">
+                    {COLUMN_KEYS.map(key => (
+                      <label key={key} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm">
+                        <input
+                          type="checkbox"
+                          checked={isColVisible(key)}
+                          onChange={() => toggleColumn(key)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        {COLUMN_LABELS[key]}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
 
           {/* Collapsible filters - hidden on mobile by default */}
@@ -459,72 +524,14 @@ export default function Cycles() {
                         )}
                       </button>
                     </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('name')}>
-                      <div className="flex items-center gap-1">
-                        שם המחזור
-                        {sortField === 'name' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('course')}>
-                      <div className="flex items-center gap-1">
-                        קורס
-                        {sortField === 'course' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('branch')}>
-                      <div className="flex items-center gap-1">
-                        סניף
-                        {sortField === 'branch' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('instructor')}>
-                      <div className="flex items-center gap-1">
-                        מדריך
-                        {sortField === 'instructor' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('startDate')}>
-                      <div className="flex items-center gap-1">
-                        תאריך התחלה
-                        {sortField === 'startDate' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('dayOfWeek')}>
-                      <div className="flex items-center gap-1">
-                        יום ושעה
-                        {sortField === 'dayOfWeek' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('type')}>
-                      <div className="flex items-center gap-1">
-                        סוג
-                        {sortField === 'type' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('pricePerStudent')}>
-                      <div className="flex items-center gap-1">
-                        מחיר לתלמיד
-                        {sortField === 'pricePerStudent' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('meetingRevenue')}>
-                      <div className="flex items-center gap-1">
-                        הכנסה למפגש
-                        {sortField === 'meetingRevenue' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('progress')}>
-                      <div className="flex items-center gap-1">
-                        התקדמות
-                        {sortField === 'progress' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('status')}>
-                      <div className="flex items-center gap-1">
-                        סטטוס
-                        {sortField === 'status' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
+                    {COLUMN_KEYS.filter(isColVisible).map(col => (
+                      <th key={col} className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort(col)}>
+                        <div className="flex items-center gap-1">
+                          {COLUMN_LABELS[col]}
+                          {sortField === col ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                        </div>
+                      </th>
+                    ))}
                     <th>פעולות</th>
                   </tr>
                 </thead>
@@ -549,89 +556,104 @@ export default function Cycles() {
                           )}
                         </button>
                       </td>
-                      <td>
-                        <Link
-                          to={`/cycles/${cycle.id}`}
-                          className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
-                        >
-                          {cycle.name}
-                        </Link>
-                      </td>
-                      <td>
-                        {cycle.course ? (
-                          <Link
-                            to={`/courses?search=${encodeURIComponent(cycle.course.name)}`}
-                            className="text-blue-600 hover:text-blue-800 hover:underline"
-                          >
-                            {cycle.course.name}
+                      {isColVisible('name') && (
+                        <td>
+                          <Link to={`/cycles/${cycle.id}`} className="text-blue-600 hover:text-blue-800 hover:underline font-medium">
+                            {cycle.name}
                           </Link>
-                        ) : <span className="text-gray-400">-</span>}
-                      </td>
-                      <td>
-                        {cycle.branch ? (
-                          <Link
-                            to={`/branches?search=${encodeURIComponent(cycle.branch.name)}`}
-                            className="text-blue-600 hover:text-blue-800 hover:underline"
-                          >
-                            {cycle.branch.name}
-                          </Link>
-                        ) : <span className="text-gray-400">-</span>}
-                      </td>
-                      <td>
-                        {cycle.instructor ? (
-                          <Link
-                            to={`/instructors?search=${encodeURIComponent(cycle.instructor.name)}`}
-                            className="text-blue-600 hover:text-blue-800 hover:underline"
-                          >
-                            {cycle.instructor.name}
-                          </Link>
-                        ) : <span className="text-gray-400">-</span>}
-                      </td>
-                      <td className="text-gray-600">
-                        {new Date(cycle.startDate).toLocaleDateString('he-IL')}
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-1.5 text-gray-700">
-                          <Clock size={14} className="text-gray-400" />
-                          <span>
-                            {dayOfWeekHebrew[cycle.dayOfWeek]} {formatTime(cycle.startTime)}
-                          </span>
-                        </div>
-                      </td>
-                      <td>
-                        <span className={`badge ${cycle.type === 'private' ? 'badge-warning' : 'badge-info'}`}>
-                          {cycleTypeHebrew[cycle.type]}
-                        </span>
-                      </td>
-                      <td className="text-gray-600">
-                        {cycle.pricePerStudent ? `₪${Number(cycle.pricePerStudent).toLocaleString()}` : '-'}
-                      </td>
-                      <td className="text-gray-600">
-                        {cycle.meetingRevenue ? `₪${Number(cycle.meetingRevenue).toLocaleString()}` : '-'}
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-2">
-                          <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300"
-                              style={{
-                                width: `${(cycle.completedMeetings / cycle.totalMeetings) * 100}%`,
-                              }}
-                            />
+                        </td>
+                      )}
+                      {isColVisible('course') && (
+                        <td>
+                          {cycle.course ? (
+                            <Link to={`/courses?search=${encodeURIComponent(cycle.course.name)}`} className="text-blue-600 hover:text-blue-800 hover:underline">
+                              {cycle.course.name}
+                            </Link>
+                          ) : <span className="text-gray-400">-</span>}
+                        </td>
+                      )}
+                      {isColVisible('branch') && (
+                        <td>
+                          {cycle.branch ? (
+                            <Link to={`/branches?search=${encodeURIComponent(cycle.branch.name)}`} className="text-blue-600 hover:text-blue-800 hover:underline">
+                              {cycle.branch.name}
+                            </Link>
+                          ) : <span className="text-gray-400">-</span>}
+                        </td>
+                      )}
+                      {isColVisible('instructor') && (
+                        <td>
+                          {cycle.instructor ? (
+                            <Link to={`/instructors?search=${encodeURIComponent(cycle.instructor.name)}`} className="text-blue-600 hover:text-blue-800 hover:underline">
+                              {cycle.instructor.name}
+                            </Link>
+                          ) : <span className="text-gray-400">-</span>}
+                        </td>
+                      )}
+                      {isColVisible('startDate') && (
+                        <td className="text-gray-600">
+                          {new Date(cycle.startDate).toLocaleDateString('he-IL')}
+                        </td>
+                      )}
+                      {isColVisible('dayOfWeek') && (
+                        <td>
+                          <div className="flex items-center gap-1.5 text-gray-700">
+                            <Clock size={14} className="text-gray-400" />
+                            <span>{dayOfWeekHebrew[cycle.dayOfWeek]} {formatTime(cycle.startTime)}</span>
                           </div>
-                          <span className="text-sm text-gray-500 tabular-nums">
-                            {cycle.completedMeetings}/{cycle.totalMeetings}
+                        </td>
+                      )}
+                      {isColVisible('type') && (
+                        <td>
+                          <span className={`badge ${cycle.type === 'private' ? 'badge-warning' : 'badge-info'}`}>
+                            {cycleTypeHebrew[cycle.type]}
                           </span>
-                        </div>
-                      </td>
-                      <td>
-                        <span className={`badge ${
-                          cycle.status === 'active' ? 'badge-success' :
-                          cycle.status === 'completed' ? 'badge-info' : 'badge-danger'
-                        }`}>
-                          {cycleStatusHebrew[cycle.status]}
-                        </span>
-                      </td>
+                        </td>
+                      )}
+                      {isColVisible('pricePerStudent') && (
+                        <td className="text-gray-600">
+                          {cycle.pricePerStudent ? `₪${Number(cycle.pricePerStudent).toLocaleString()}` : '-'}
+                        </td>
+                      )}
+                      {isColVisible('meetingRevenue') && (
+                        <td className="text-gray-600">
+                          {cycle.meetingRevenue ? `₪${Number(cycle.meetingRevenue).toLocaleString()}` : '-'}
+                        </td>
+                      )}
+                      {isColVisible('progress') && (
+                        <td>
+                          <div className="flex items-center gap-2">
+                            <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300"
+                                style={{ width: `${(cycle.completedMeetings / cycle.totalMeetings) * 100}%` }}
+                              />
+                            </div>
+                            <span className="text-sm text-gray-500 tabular-nums">
+                              {cycle.completedMeetings}/{cycle.totalMeetings}
+                            </span>
+                          </div>
+                        </td>
+                      )}
+                      {isColVisible('status') && (
+                        <td>
+                          <span className={`badge ${
+                            cycle.status === 'active' ? 'badge-success' :
+                            cycle.status === 'completed' ? 'badge-info' : 'badge-danger'
+                          }`}>
+                            {cycleStatusHebrew[cycle.status]}
+                          </span>
+                        </td>
+                      )}
+                      {isColVisible('zoom') && (
+                        <td>
+                          {cycle.zoomJoinUrl ? (
+                            <a href={cycle.zoomJoinUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline text-sm">
+                              🔗 קישור
+                            </a>
+                          ) : <span className="text-gray-400">-</span>}
+                        </td>
+                      )}
                       <td>
                         <div className="flex items-center gap-1">
                           <button

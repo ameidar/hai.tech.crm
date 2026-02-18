@@ -14,13 +14,19 @@ import {
   UserMinus,
   MessageSquare,
   Save,
-  Loader2
+  Loader2,
+  CalendarX,
+  CalendarClock,
+  UserCog,
+  X
 } from 'lucide-react';
 import { 
   useMeeting, 
   useUpdateMeeting,
   useMeetingAttendance,
   useRecordAttendance,
+  useMeetingChangeRequests,
+  useCreateMeetingChangeRequest,
   type AttendanceRecord
 } from '../../hooks/useApi';
 import Loading from '../../components/ui/Loading';
@@ -37,12 +43,19 @@ export default function MobileMeetingDetail() {
   
   const { data: meeting, isLoading: meetingLoading } = useMeeting(id);
   const { data: attendanceData, isLoading: attendanceLoading } = useMeetingAttendance(id);
+  const { data: pendingRequests } = useMeetingChangeRequests({ meetingId: id, status: 'pending' });
   const updateMeeting = useUpdateMeeting();
   const recordAttendance = useRecordAttendance();
+  const createChangeRequest = useCreateMeetingChangeRequest();
 
   const [status, setStatus] = useState<MeetingStatus | null>(null);
   const [topic, setTopic] = useState('');
   const [hasChanges, setHasChanges] = useState(false);
+  
+  // Request modal state
+  const [requestModal, setRequestModal] = useState<{ open: boolean; type: 'cancel' | 'postpone' | 'replacement' | null }>({ open: false, type: null });
+  const [requestReason, setRequestReason] = useState('');
+  const [requestSuccess, setRequestSuccess] = useState(false);
 
   // Initialize form when meeting loads
   useMemo(() => {
@@ -50,6 +63,31 @@ export default function MobileMeetingDetail() {
       setStatus(meeting.status);
       setTopic(meeting.topic || '');
     }
+  }, [meeting]);
+
+  // Meeting timing logic
+  const meetingTiming = useMemo(() => {
+    if (!meeting) return { isToday: false, isFuture: false, isPast: false, isCompleted: false };
+    const today = new Date().toISOString().split('T')[0];
+    const meetingDate = meeting.scheduledDate.split('T')[0];
+    const isCompleted = meeting.status === 'completed';
+    const isCancelled = meeting.status === 'cancelled';
+    const isToday = meetingDate === today;
+    const isFuture = meetingDate > today;
+    const isPast = meetingDate < today;
+    return {
+      isToday,
+      isFuture,
+      isPast,
+      isCompleted,
+      isCancelled,
+      // Can update status + topic + attendance: only today's scheduled meetings
+      canUpdate: isToday && !isCompleted && !isCancelled,
+      // Can request changes: only future scheduled meetings
+      canRequest: isFuture && !isCompleted && !isCancelled,
+      // View only: completed or past meetings
+      viewOnly: isCompleted || isPast || isCancelled,
+    };
   }, [meeting]);
 
   const formatTime = (time: string) => {
@@ -99,7 +137,6 @@ export default function MobileMeetingDetail() {
         data: { status, topic: topic || undefined },
       });
       setHasChanges(false);
-      // Show success feedback
     } catch (error) {
       console.error('Failed to update meeting:', error);
       alert('שגיאה בשמירה');
@@ -114,6 +151,37 @@ export default function MobileMeetingDetail() {
   const handleStatusButtonClick = (newStatus: MeetingStatus) => {
     setStatus(newStatus);
     setHasChanges(true);
+  };
+
+  const openRequestModal = (type: 'cancel' | 'postpone' | 'replacement') => {
+    setRequestModal({ open: true, type });
+    setRequestReason('');
+    setRequestSuccess(false);
+  };
+
+  const handleSubmitRequest = async () => {
+    if (!id || !requestModal.type || !requestReason.trim()) return;
+    try {
+      await createChangeRequest.mutateAsync({
+        meetingId: id,
+        type: requestModal.type,
+        reason: requestReason.trim(),
+      });
+      setRequestSuccess(true);
+      setTimeout(() => {
+        setRequestModal({ open: false, type: null });
+        setRequestSuccess(false);
+      }, 2000);
+    } catch (error: any) {
+      const msg = error?.response?.data?.message || 'שגיאה בשליחת הבקשה';
+      alert(msg);
+    }
+  };
+
+  const typeHebrew: Record<string, string> = {
+    cancel: 'ביטול',
+    postpone: 'דחייה',
+    replacement: 'החלפה',
   };
 
   if (meetingLoading) {
@@ -178,7 +246,7 @@ export default function MobileMeetingDetail() {
             )}
           </div>
           
-          {/* Join Zoom Button - only for online meetings with Zoom configured */}
+          {/* Join Zoom Button */}
           {isOnline && meeting.zoomJoinUrl && meeting.status === 'scheduled' && (
             <a
               href={meeting.zoomJoinUrl}
@@ -192,48 +260,103 @@ export default function MobileMeetingDetail() {
           )}
         </div>
 
-        {/* Status Selection */}
-        <div>
-          <h2 className="text-sm font-medium text-gray-700 mb-3">סטטוס השיעור</h2>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => handleStatusButtonClick('completed')}
-              className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all ${
-                status === 'completed'
-                  ? 'border-green-500 bg-green-50 text-green-700'
-                  : 'border-gray-200 text-gray-600 hover:border-gray-300'
-              }`}
-            >
-              <CheckCircle2 size={28} />
-              <span className="font-medium">הושלם</span>
-            </button>
-            <button
-              onClick={() => handleStatusButtonClick('cancelled')}
-              className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all ${
-                status === 'cancelled'
-                  ? 'border-red-500 bg-red-50 text-red-700'
-                  : 'border-gray-200 text-gray-600 hover:border-gray-300'
-              }`}
-            >
-              <XCircle size={28} />
-              <span className="font-medium">בוטל</span>
-            </button>
+        {/* Pending Requests */}
+        {pendingRequests && pendingRequests.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+            <h3 className="text-sm font-medium text-amber-800 mb-2 flex items-center gap-2">
+              <AlertCircle size={16} />
+              בקשות ממתינות
+            </h3>
+            {pendingRequests.map((req) => (
+              <div key={req.id} className="text-sm text-amber-700 mt-1">
+                בקשת {typeHebrew[req.type]} — {req.reason}
+              </div>
+            ))}
           </div>
-        </div>
+        )}
 
-        {/* Topic Input */}
+        {/* Status Selection — only for today's meetings */}
+        {meetingTiming.canUpdate && (
+          <div>
+            <h2 className="text-sm font-medium text-gray-700 mb-3">סטטוס השיעור</h2>
+            <div className="grid grid-cols-1 gap-3">
+              <button
+                onClick={() => handleStatusButtonClick('completed')}
+                className={`p-4 rounded-2xl border-2 flex items-center gap-3 transition-all ${
+                  status === 'completed'
+                    ? 'border-green-500 bg-green-50 text-green-700'
+                    : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                }`}
+              >
+                <CheckCircle2 size={28} />
+                <span className="font-medium text-lg">הושלם</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Current status display for non-editable meetings */}
+        {!meetingTiming.canUpdate && (
+          <div className="bg-gray-50 rounded-2xl p-4 flex items-center gap-3">
+            <span className="text-sm text-gray-500">סטטוס:</span>
+            <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+              meeting.status === 'completed' ? 'bg-green-100 text-green-700' :
+              meeting.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+              meeting.status === 'postponed' ? 'bg-amber-100 text-amber-700' :
+              'bg-blue-100 text-blue-700'
+            }`}>
+              {meetingStatusHebrew[meeting.status]}
+            </span>
+          </div>
+        )}
+
+        {/* Change Request Buttons — only for future meetings */}
+        {meetingTiming.canRequest && (
+          <div>
+            <h2 className="text-sm font-medium text-gray-700 mb-3">בקשות שינוי</h2>
+            <div className="grid grid-cols-1 gap-3">
+              <button
+                onClick={() => openRequestModal('cancel')}
+                className="p-4 rounded-2xl border-2 border-red-200 bg-red-50 text-red-700 flex items-center gap-3 hover:border-red-400 transition-all active:scale-[0.98]"
+              >
+                <CalendarX size={24} />
+                <span className="font-medium">בקש ביטול</span>
+              </button>
+              <button
+                onClick={() => openRequestModal('postpone')}
+                className="p-4 rounded-2xl border-2 border-amber-200 bg-amber-50 text-amber-700 flex items-center gap-3 hover:border-amber-400 transition-all active:scale-[0.98]"
+              >
+                <CalendarClock size={24} />
+                <span className="font-medium">בקש דחייה</span>
+              </button>
+              <button
+                onClick={() => openRequestModal('replacement')}
+                className="p-4 rounded-2xl border-2 border-blue-200 bg-blue-50 text-blue-700 flex items-center gap-3 hover:border-blue-400 transition-all active:scale-[0.98]"
+              >
+                <UserCog size={24} />
+                <span className="font-medium">בקש החלפה</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Topic Input — editable only for today */}
         <div>
           <h2 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
             <MessageSquare size={16} />
-            מה למדתם היום?
+            {meetingTiming.canUpdate ? 'מה למדתם היום?' : 'נושא השיעור'}
           </h2>
-          <input
-            type="text"
-            value={topic}
-            onChange={(e) => handleTopicChange(e.target.value)}
-            placeholder="לדוגמה: לולאות ותנאים, פרויקט משחק..."
-            className="w-full p-4 rounded-2xl border border-gray-200 text-lg focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
-          />
+          {meetingTiming.canUpdate ? (
+            <input
+              type="text"
+              value={topic}
+              onChange={(e) => handleTopicChange(e.target.value)}
+              placeholder="לדוגמה: לולאות ותנאים, פרויקט משחק..."
+              className="w-full p-4 rounded-2xl border border-gray-200 text-lg focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+            />
+          ) : (
+            <p className="p-4 rounded-2xl bg-gray-50 text-gray-600">{topic || 'לא צוין'}</p>
+          )}
         </div>
 
         {/* Attendance Section */}
@@ -279,38 +402,50 @@ export default function MobileMeetingDetail() {
                     )}
                   </div>
                   
-                  {/* Big Touch-Friendly Buttons */}
                   <div className="flex gap-2">
-                    <button
-                      onClick={() => handleStatusChange(record, 'present')}
-                      className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
-                        record.status === 'present'
-                          ? 'bg-green-500 text-white shadow-lg shadow-green-200'
-                          : 'bg-gray-100 text-gray-400 hover:bg-green-100 hover:text-green-600'
-                      }`}
-                    >
-                      <Check size={24} />
-                    </button>
-                    <button
-                      onClick={() => handleStatusChange(record, 'absent')}
-                      className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
-                        record.status === 'absent'
-                          ? 'bg-red-500 text-white shadow-lg shadow-red-200'
-                          : 'bg-gray-100 text-gray-400 hover:bg-red-100 hover:text-red-600'
-                      }`}
-                    >
-                      <UserMinus size={24} />
-                    </button>
-                    <button
-                      onClick={() => handleStatusChange(record, 'late')}
-                      className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
-                        record.status === 'late'
-                          ? 'bg-amber-500 text-white shadow-lg shadow-amber-200'
-                          : 'bg-gray-100 text-gray-400 hover:bg-amber-100 hover:text-amber-600'
-                      }`}
-                    >
-                      <Clock size={24} />
-                    </button>
+                    {meetingTiming.canUpdate ? (
+                      <>
+                        <button
+                          onClick={() => handleStatusChange(record, 'present')}
+                          className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
+                            record.status === 'present'
+                              ? 'bg-green-500 text-white shadow-lg shadow-green-200'
+                              : 'bg-gray-100 text-gray-400 hover:bg-green-100 hover:text-green-600'
+                          }`}
+                        >
+                          <Check size={24} />
+                        </button>
+                        <button
+                          onClick={() => handleStatusChange(record, 'absent')}
+                          className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
+                            record.status === 'absent'
+                              ? 'bg-red-500 text-white shadow-lg shadow-red-200'
+                              : 'bg-gray-100 text-gray-400 hover:bg-red-100 hover:text-red-600'
+                          }`}
+                        >
+                          <UserMinus size={24} />
+                        </button>
+                        <button
+                          onClick={() => handleStatusChange(record, 'late')}
+                          className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
+                            record.status === 'late'
+                              ? 'bg-amber-500 text-white shadow-lg shadow-amber-200'
+                              : 'bg-gray-100 text-gray-400 hover:bg-amber-100 hover:text-amber-600'
+                          }`}
+                        >
+                          <Clock size={24} />
+                        </button>
+                      </>
+                    ) : (
+                      <span className={`px-3 py-1 rounded-full text-sm ${
+                        record.status === 'present' ? 'bg-green-100 text-green-700' :
+                        record.status === 'absent' ? 'bg-red-100 text-red-700' :
+                        record.status === 'late' ? 'bg-amber-100 text-amber-700' :
+                        'bg-gray-100 text-gray-500'
+                      }`}>
+                        {record.status === 'present' ? 'נוכח' : record.status === 'absent' ? 'חסר' : record.status === 'late' ? 'איחור' : 'לא דווח'}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
@@ -343,6 +478,63 @@ export default function MobileMeetingDetail() {
               </>
             )}
           </button>
+        </div>
+      )}
+
+      {/* Request Modal */}
+      {requestModal.open && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={() => setRequestModal({ open: false, type: null })}>
+          <div 
+            className="w-full max-w-lg bg-white rounded-t-3xl p-6 pb-8 animate-slide-up"
+            onClick={(e) => e.stopPropagation()}
+            dir="rtl"
+          >
+            {requestSuccess ? (
+              <div className="text-center py-8">
+                <CheckCircle2 size={48} className="mx-auto mb-4 text-green-500" />
+                <p className="text-lg font-medium text-gray-800">הבקשה נשלחה לאישור</p>
+                <p className="text-sm text-gray-500 mt-1">תקבל עדכון כשהבקשה תטופל</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-semibold text-gray-800">
+                    בקשת {requestModal.type ? typeHebrew[requestModal.type] : ''}
+                  </h3>
+                  <button onClick={() => setRequestModal({ open: false, type: null })} className="p-1 text-gray-400">
+                    <X size={24} />
+                  </button>
+                </div>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    סיבה (חובה)
+                  </label>
+                  <textarea
+                    value={requestReason}
+                    onChange={(e) => setRequestReason(e.target.value)}
+                    placeholder="נא לפרט את הסיבה לבקשה..."
+                    rows={3}
+                    className="w-full p-4 rounded-xl border border-gray-200 text-base focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all resize-none"
+                    autoFocus
+                  />
+                </div>
+                <button
+                  onClick={handleSubmitRequest}
+                  disabled={!requestReason.trim() || createChangeRequest.isPending}
+                  className="w-full py-4 bg-blue-600 text-white rounded-xl font-medium text-lg flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98] transition-all"
+                >
+                  {createChangeRequest.isPending ? (
+                    <>
+                      <Loader2 size={20} className="animate-spin" />
+                      שולח...
+                    </>
+                  ) : (
+                    'שלח בקשה'
+                  )}
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

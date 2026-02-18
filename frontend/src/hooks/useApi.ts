@@ -1032,5 +1032,67 @@ export const useCycleForecast = (cycleId: string, forecastMonths = 3) => {
   });
 };
 
+// ==================== Meeting Change Requests ====================
+export interface MeetingChangeRequest {
+  id: string;
+  meetingId: string;
+  instructorId: string;
+  type: 'cancel' | 'postpone' | 'replacement';
+  reason: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  meeting?: Meeting;
+  instructor?: Instructor;
+}
+
+export const useMeetingChangeRequests = (params?: { meetingId?: string; status?: string }) => {
+  const queryParams = new URLSearchParams();
+  if (params?.meetingId) queryParams.append('meetingId', params.meetingId);
+  if (params?.status) queryParams.append('status', params.status);
+  const qs = queryParams.toString() ? `?${queryParams.toString()}` : '';
+  return useQuery({
+    queryKey: ['meeting-change-requests', params?.meetingId, params?.status],
+    queryFn: () => fetchData<MeetingChangeRequest[]>(`/meeting-requests${qs}`),
+  });
+};
+
+export const useCreateMeetingChangeRequest = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { meetingId: string; type: string; reason: string }) =>
+      mutateData<MeetingChangeRequest, typeof data>('/meeting-requests', 'post', data),
+    onSuccess: (_, { meetingId }) => {
+      queryClient.invalidateQueries({ queryKey: ['meeting-change-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['meeting', meetingId] });
+    },
+  });
+};
+
+export const useApproveMeetingChangeRequest = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      mutateData<MeetingChangeRequest, undefined>(`/meeting-requests/${id}/approve`, 'put'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meeting-change-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['meetings'] });
+    },
+  });
+};
+
+export const useRejectMeetingChangeRequest = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      mutateData<MeetingChangeRequest, undefined>(`/meeting-requests/${id}/reject`, 'put'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meeting-change-requests'] });
+    },
+  });
+};
+
 // Re-export api for direct use in components
 export { api };

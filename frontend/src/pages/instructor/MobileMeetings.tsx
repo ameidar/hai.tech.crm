@@ -10,9 +10,10 @@ import {
   ChevronLeft,
   Users,
   Video,
-  Building2
+  Building2,
+  Filter
 } from 'lucide-react';
-import { useMeetings } from '../../hooks/useApi';
+import { useMeetings, useCycles } from '../../hooks/useApi';
 import Loading from '../../components/ui/Loading';
 import { meetingStatusHebrew } from '../../types';
 import type { Meeting, MeetingStatus } from '../../types';
@@ -23,23 +24,39 @@ import type { Meeting, MeetingStatus } from '../../types';
  */
 export default function MobileMeetings() {
   const navigate = useNavigate();
-  const [viewMode, setViewMode] = useState<'today' | 'week'>('today');
+  const [viewMode, setViewMode] = useState<'today' | 'week' | 'cycle'>('today');
+  const [selectedCycleId, setSelectedCycleId] = useState<string>('');
+
+  // Fetch instructor's cycles for the filter
+  const { data: cycles } = useCycles({ status: 'active', limit: 100 });
 
   // Get date range based on view mode
   const dateRange = useMemo(() => {
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
     
-    if (viewMode === 'today') {
+    if (viewMode === 'cycle' && selectedCycleId) {
+      // Show all meetings for cycle (wide date range)
+      return { from: '2020-01-01', to: '2030-12-31' };
+    } else if (viewMode === 'today') {
       return { date: todayStr };
     } else {
       const nextWeek = new Date(today);
       nextWeek.setDate(nextWeek.getDate() + 7);
       return { from: todayStr, to: nextWeek.toISOString().split('T')[0] };
     }
-  }, [viewMode]);
+  }, [viewMode, selectedCycleId]);
 
-  const { data: meetings, isLoading } = useMeetings(dateRange);
+  const { data: allMeetings, isLoading } = useMeetings(dateRange);
+
+  // Filter meetings by cycle if in cycle mode
+  const meetings = useMemo(() => {
+    if (!allMeetings || !Array.isArray(allMeetings)) return [];
+    if (viewMode === 'cycle' && selectedCycleId) {
+      return allMeetings.filter(m => m.cycleId === selectedCycleId);
+    }
+    return allMeetings;
+  }, [allMeetings, viewMode, selectedCycleId]);
 
   const formatTime = (time: string) => {
     if (time.includes('T')) {
@@ -111,7 +128,7 @@ export default function MobileMeetings() {
       {/* View Mode Toggle */}
       <div className="flex gap-2 mb-4">
         <button
-          onClick={() => setViewMode('today')}
+          onClick={() => { setViewMode('today'); setSelectedCycleId(''); }}
           className={`flex-1 py-3 rounded-xl font-medium text-sm transition-all ${
             viewMode === 'today' 
               ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
@@ -121,7 +138,7 @@ export default function MobileMeetings() {
           היום
         </button>
         <button
-          onClick={() => setViewMode('week')}
+          onClick={() => { setViewMode('week'); setSelectedCycleId(''); }}
           className={`flex-1 py-3 rounded-xl font-medium text-sm transition-all ${
             viewMode === 'week' 
               ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
@@ -130,7 +147,37 @@ export default function MobileMeetings() {
         >
           השבוע
         </button>
+        <button
+          onClick={() => setViewMode('cycle')}
+          className={`flex-1 py-3 rounded-xl font-medium text-sm transition-all flex items-center justify-center gap-1 ${
+            viewMode === 'cycle' 
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
+              : 'bg-white text-gray-600 border border-gray-200'
+          }`}
+        >
+          <Filter size={14} />
+          מחזור
+        </button>
       </div>
+
+      {/* Cycle Filter Dropdown */}
+      {viewMode === 'cycle' && (
+        <div className="mb-4">
+          <select
+            value={selectedCycleId}
+            onChange={(e) => setSelectedCycleId(e.target.value)}
+            className="w-full p-3 rounded-xl border border-gray-200 text-gray-700 bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none"
+            dir="rtl"
+          >
+            <option value="">בחר מחזור...</option>
+            {cycles && Array.isArray(cycles) && cycles.map((cycle: any) => (
+              <option key={cycle.id} value={cycle.id}>
+                {cycle.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Quick Stats */}
       <div className="grid grid-cols-3 gap-3 mb-6">
@@ -154,7 +201,7 @@ export default function MobileMeetings() {
           {Object.entries(groupedMeetings).map(([date, dateMeetings]) => (
             <div key={date}>
               {/* Date Header */}
-              {viewMode === 'week' && (
+              {(viewMode === 'week' || viewMode === 'cycle') && (
                 <div className="flex items-center gap-2 mb-3">
                   <div className={`w-2 h-2 rounded-full ${isToday(date) ? 'bg-blue-500' : 'bg-gray-300'}`} />
                   <span className={`text-sm font-medium ${isToday(date) ? 'text-blue-600' : 'text-gray-500'}`}>
@@ -233,7 +280,7 @@ export default function MobileMeetings() {
                         </div>
                       )}
 
-                      {/* Join Zoom Button - only for online meetings with Zoom configured */}
+                      {/* Join Zoom Button */}
                       {isOnline && meeting.zoomJoinUrl && meeting.status === 'scheduled' && (
                         <a
                           href={meeting.zoomJoinUrl}
@@ -267,11 +314,18 @@ export default function MobileMeetings() {
         <div className="bg-white rounded-2xl p-8 text-center">
           <Calendar size={48} className="mx-auto mb-4 text-gray-300" />
           <p className="text-gray-500 text-lg">
-            אין פגישות {viewMode === 'today' ? 'להיום' : 'השבוע'}
+            {viewMode === 'cycle' && !selectedCycleId 
+              ? 'בחר מחזור לצפייה בפגישות'
+              : viewMode === 'cycle'
+                ? 'אין פגישות במחזור זה'
+                : `אין פגישות ${viewMode === 'today' ? 'להיום' : 'השבוע'}`
+            }
           </p>
-          <p className="text-gray-400 text-sm mt-1">
-            תהנה מהמנוחה! 🎉
-          </p>
+          {viewMode !== 'cycle' && (
+            <p className="text-gray-400 text-sm mt-1">
+              תהנה מהמנוחה! 🎉
+            </p>
+          )}
         </div>
       )}
     </div>

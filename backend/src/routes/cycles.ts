@@ -242,6 +242,10 @@ cyclesRouter.get('/:id', async (req, res, next) => {
           include: {
             instructor: { select: { id: true, name: true } },
             _count: { select: { attendance: true } },
+            changeRequests: {
+              where: { status: 'pending' },
+              select: { id: true, type: true, reason: true, status: true, createdAt: true },
+            },
           },
         },
       },

@@ -38,7 +38,10 @@ import { publicQuoteRouter } from './routes/public-quote.js';
 import { publicCancelRouter } from './routes/public-cancel.js';
 import { vapiWebhookRouter } from './routes/vapi-webhook.js';
 import { vapiToolsRouter } from './routes/vapi-tools.js';
+import { upsellLeadsRouter } from './routes/upsell-leads.js';
 import { leadAppointmentsRouter } from './routes/lead-appointments.js';
+import { institutionalOrdersRouter } from './routes/institutional-orders.js';
+import { meetingRequestsRouter } from './routes/meeting-requests.js';
 
 // API v1 Router
 import { apiV1Router } from './api/v1/index.js';
@@ -184,6 +187,9 @@ app.use('/api/quotes', quotesRouter); // Quote management
 app.use('/api/vapi-webhook', vapiWebhookRouter); // Vapi AI webhook (no auth)
 app.use('/api/vapi-tools', vapiToolsRouter); // Vapi AI tool calls - Google Calendar (no auth)
 app.use('/api/lead-appointments', leadAppointmentsRouter); // Lead appointment management
+app.use('/api/institutional-orders', institutionalOrdersRouter); // Institutional orders
+app.use('/api/meeting-requests', meetingRequestsRouter); // Meeting change requests
+app.use('/api/upsell-leads', upsellLeadsRouter); // Upsell leads from completed cycles
 
 // Error handling for API routes
 app.use('/api', errorHandler);

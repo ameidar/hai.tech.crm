@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { logAudit } from '../utils/audit.js';
 
 const router = Router();
@@ -97,7 +97,7 @@ router.get('/cycle/:cycleId/calculate-instructor-cost/:instructorId', authentica
 });
 
 // Create cycle expense (admin only)
-router.post('/cycle', authenticate, async (req: Request, res: Response) => {
+router.post('/cycle', authenticate, managerOrAdmin, async (req: Request, res: Response) => {
   try {
     const user = req.user;
     if (!user || (user.role !== 'admin' && user.role !== 'manager')) {
@@ -182,7 +182,7 @@ router.post('/cycle', authenticate, async (req: Request, res: Response) => {
 });
 
 // Delete cycle expense (admin only)
-router.delete('/cycle/:id', authenticate, async (req: Request, res: Response) => {
+router.delete('/cycle/:id', authenticate, managerOrAdmin, async (req: Request, res: Response) => {
   try {
     const user = req.user;
     if (!user || (user.role !== 'admin' && user.role !== 'manager')) {
@@ -233,7 +233,7 @@ router.get('/meeting/:meetingId', authenticate, async (req: Request, res: Respon
 });
 
 // Submit meeting expense (auto-approved, calculated for extra_instructor)
-router.post('/meeting', authenticate, async (req: Request, res: Response) => {
+router.post('/meeting', authenticate, managerOrAdmin, async (req: Request, res: Response) => {
   try {
     const user = req.user;
     if (!user) {
@@ -357,7 +357,7 @@ router.post('/meeting', authenticate, async (req: Request, res: Response) => {
 });
 
 // Delete meeting expense - also recalculates meeting profit if was approved
-router.delete('/meeting/:id', authenticate, async (req: Request, res: Response) => {
+router.delete('/meeting/:id', authenticate, managerOrAdmin, async (req: Request, res: Response) => {
   try {
     const user = req.user;
     if (!user) {

@@ -108,6 +108,11 @@ export default function Layout() {
         ))}
       </nav>
 
+      {/* Version */}
+      <div className="px-4 py-1 text-center">
+        <span className="text-xs text-slate-500">v2.0</span>
+      </div>
+
       {/* User section */}
       <div className="p-4 border-t border-slate-700">
         <div className="relative">

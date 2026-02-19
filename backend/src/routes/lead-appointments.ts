@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 
 export const leadAppointmentsRouter = Router();
 leadAppointmentsRouter.use(authenticate);
@@ -79,7 +79,7 @@ leadAppointmentsRouter.patch('/:id', async (req: Request, res: Response, next: N
 });
 
 // DELETE /api/lead-appointments/:id
-leadAppointmentsRouter.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
+leadAppointmentsRouter.delete('/:id', managerOrAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     await prisma.leadAppointment.delete({ where: { id: req.params.id } });
     res.json({ success: true });

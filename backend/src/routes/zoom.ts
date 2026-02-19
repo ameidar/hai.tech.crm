@@ -1,9 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { zoomService } from '../services/zoom';
+import { authenticate, managerOrAdmin } from '../middleware/auth';
 
 const router = Router();
 const prisma = new PrismaClient();
+
+// All zoom routes require authentication
+router.use(authenticate);
 
 // Day of week mapping: Prisma enum to Zoom format (1=Sunday, 7=Saturday)
 const dayOfWeekToZoom: Record<string, number> = {
@@ -216,7 +220,7 @@ router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
  * DELETE /api/zoom/cycles/:cycleId/meeting
  * Delete a Zoom meeting from a cycle
  */
-router.delete('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
+router.delete('/cycles/:cycleId/meeting', managerOrAdmin, async (req: Request, res: Response) => {
   try {
     const { cycleId } = req.params;
 

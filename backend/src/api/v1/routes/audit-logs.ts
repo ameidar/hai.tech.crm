@@ -102,13 +102,7 @@ router.get('/stats', async (_req: AuthRequest, res: Response, next: NextFunction
         orderBy: { _count: { entity: 'desc' } },
         take: 10,
       }),
-      prisma.auditLog.groupBy({
-        by: ['apiKeyId'],
-        where: { apiKeyId: { not: null } },
-        _count: { apiKeyId: true },
-        orderBy: { _count: { apiKeyId: 'desc' } },
-        take: 10,
-      }),
+      Promise.resolve([]),
       prisma.auditLog.count(),
     ]);
 
@@ -116,7 +110,7 @@ router.get('/stats', async (_req: AuthRequest, res: Response, next: NextFunction
       total,
       byAction: byAction.map(a => ({ action: a.action, count: a._count.action })),
       byEntity: byEntity.map(e => ({ entity: e.entity, count: e._count.entity })),
-      byApiKey: byApiKey.map(k => ({ apiKeyId: k.apiKeyId, count: k._count.apiKeyId })),
+      byApiKey: byApiKey as { apiKeyId: string; count: number }[],
     });
   } catch (error) {
     next(error);

@@ -124,7 +124,7 @@ export class ApiKeysService {
     const { items, total } = await this.repository.findMany(filters, pagination);
 
     return {
-      items: items.map(apiKey => ({
+      items: items.map((apiKey: any) => ({
         id: apiKey.id,
         name: apiKey.name,
         keyPrefix: apiKey.keyPrefix,

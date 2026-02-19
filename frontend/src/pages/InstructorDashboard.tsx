@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
-import { Calendar, Clock, Users, CheckCircle, XCircle, AlertCircle, Video } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Calendar, Clock, Users, CheckCircle, XCircle, AlertCircle, Video, ChevronLeft } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useMeetings, useUpdateMeeting } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
@@ -10,8 +11,10 @@ import type { Meeting, MeetingStatus } from '../types';
 
 export default function InstructorDashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [viewMode, setViewMode] = useState<'today' | 'week' | 'all'>('today');
+  const [cycleFilter, setCycleFilter] = useState<string>('all');
 
   // Get date range based on view mode
   const dateRange = useMemo(() => {
@@ -78,14 +81,32 @@ export default function InstructorDashboard() {
     }
   };
 
-  const stats = useMemo(() => {
-    if (!meetings || !Array.isArray(meetings)) return { total: 0, completed: 0, pending: 0 };
-    return {
-      total: meetings.length,
-      completed: meetings.filter(m => m.status === 'completed').length,
-      pending: meetings.filter(m => m.status === 'scheduled').length,
-    };
+  // Get unique cycles for filter
+  const cycles = useMemo(() => {
+    if (!meetings || !Array.isArray(meetings)) return [];
+    const seen = new Map<string, string>();
+    meetings.forEach(m => {
+      if (m.cycle?.id && m.cycle?.name && !seen.has(m.cycle.id)) {
+        seen.set(m.cycle.id, m.cycle.name);
+      }
+    });
+    return Array.from(seen.entries()).map(([id, name]) => ({ id, name }));
   }, [meetings]);
+
+  // Filter meetings by cycle
+  const filteredMeetings = useMemo(() => {
+    if (!meetings || !Array.isArray(meetings)) return [];
+    if (cycleFilter === 'all') return meetings;
+    return meetings.filter(m => m.cycle?.id === cycleFilter);
+  }, [meetings, cycleFilter]);
+
+  const stats = useMemo(() => {
+    return {
+      total: filteredMeetings.length,
+      completed: filteredMeetings.filter(m => m.status === 'completed').length,
+      pending: filteredMeetings.filter(m => m.status === 'scheduled').length,
+    };
+  }, [filteredMeetings]);
 
   if (isLoading) {
     return <Loading size="lg" text="טוען פגישות..." />;
@@ -127,6 +148,22 @@ export default function InstructorDashboard() {
           </button>
         </div>
 
+        {/* Cycle Filter */}
+        {cycles.length > 1 && (
+          <div className="mb-4">
+            <select
+              value={cycleFilter}
+              onChange={(e) => setCycleFilter(e.target.value)}
+              className="px-4 py-2 rounded-lg border border-gray-200 bg-white text-gray-700 font-medium"
+            >
+              <option value="all">כל המחזורים</option>
+              {cycles.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="bg-white rounded-lg p-4 shadow">
@@ -159,12 +196,13 @@ export default function InstructorDashboard() {
         </div>
 
         {/* Meetings List */}
-        {meetings && meetings.length > 0 ? (
+        {filteredMeetings && filteredMeetings.length > 0 ? (
           <div className="space-y-3">
-            {meetings.map((meeting) => (
+            {filteredMeetings.map((meeting) => (
               <div
                 key={meeting.id}
-                className={`bg-white rounded-lg p-4 shadow ${
+                onClick={() => navigate(`/instructor/meeting/${meeting.id}`)}
+                className={`bg-white rounded-lg p-4 shadow cursor-pointer hover:shadow-md transition-shadow ${
                   isToday(meeting.scheduledDate) ? 'border-r-4 border-blue-500' : ''
                 }`}
               >

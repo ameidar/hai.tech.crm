@@ -24,9 +24,14 @@ interface PublicQuote {
   discount: number;
   totalAmount: number;
   finalAmount?: number;
+  includesVat?: boolean;
+  cancellationTerms?: string;
+  paymentTerms?: string;
   generatedContent?: string;
   content?: string;
   notes?: string;
+  status: string;
+  videoPath?: string;
   createdAt: string;
 }
 
@@ -40,28 +45,50 @@ export default function PublicQuoteView() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [vimeoUrl, setVimeoUrl] = useState<string | null>(null);
 
+  // Client response state
+  const [clientNotes, setClientNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [responseStatus, setResponseStatus] = useState<'accepted' | 'rejected' | null>(null);
+  const [responseError, setResponseError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!id) return;
     axios
       .get(`${API_BASE}/public/quotes/${id}`)
       .then((res) => {
         setQuote(res.data);
-        // Check if video exists
-        axios
-          .get(`${API_BASE}/quotes/${id}/video`)
-          .then((vRes) => {
-            // Vimeo JSON response
-            if (vRes.data && typeof vRes.data === 'object' && vRes.data.vimeoUrl) {
-              setVimeoUrl(vRes.data.vimeoUrl);
-            } else if (vRes.data instanceof Blob && vRes.data.type.startsWith('video/')) {
-              setVideoUrl(URL.createObjectURL(vRes.data));
-            }
-          })
-          .catch(() => {}); // No video, that's fine
+        if (res.data.videoPath) {
+          if (res.data.videoPath.startsWith('https://player.vimeo.com/')) {
+            setVimeoUrl(res.data.videoPath);
+          }
+        }
+        // If already responded
+        if (res.data.status === 'accepted' || res.data.status === 'converted') {
+          setResponseStatus('accepted');
+        } else if (res.data.status === 'rejected') {
+          setResponseStatus('rejected');
+        }
       })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, [id]);
+
+  const handleResponse = async (action: 'accept' | 'reject') => {
+    if (!id) return;
+    setSubmitting(true);
+    setResponseError(null);
+    try {
+      await axios.post(`${API_BASE}/public/quotes/${id}/respond`, {
+        action,
+        clientNotes: clientNotes.trim() || undefined,
+      });
+      setResponseStatus(action === 'accept' ? 'accepted' : 'rejected');
+    } catch (err: any) {
+      setResponseError(err?.response?.data?.error || 'שגיאה בשליחת התגובה, נסו שוב');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -85,10 +112,12 @@ export default function PublicQuoteView() {
   const itemsTotal = quote.items.reduce((sum, item) => sum + Number(item.subtotal || 0), 0);
   const discountValue = Number(quote.discount || 0);
   const finalAmount = Number(quote.finalAmount || quote.totalAmount || 0);
-  const contentText = typeof quote.content === 'string' ? quote.content : quote.generatedContent || '';
+  const contentText = typeof quote.content === 'string' ? quote.content : (quote.content as any)?.markdown || quote.generatedContent || '';
 
   const isProject = (item: QuoteItem) =>
     item.groups === 1 && item.meetingsPerGroup === 1 && item.description;
+
+  const alreadyResponded = responseStatus !== null;
 
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
@@ -228,11 +257,25 @@ export default function PublicQuoteView() {
                   </tr>
                 )}
                 <tr>
-                  <td className="py-4 text-xl font-bold text-gray-800">סה״כ לתשלום</td>
+                  <td className="py-4 text-xl font-bold text-gray-800">
+                    {quote.includesVat ? 'סה״כ לתשלום (כולל מע״מ)' : 'סה״כ לתשלום (לא כולל מע״מ)'}
+                  </td>
                   <td className="py-4 text-left text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-l from-blue-600 to-cyan-500">
                     ₪{finalAmount.toLocaleString()}
                   </td>
                 </tr>
+                {!quote.includesVat && (
+                  <>
+                    <tr className="border-t border-gray-100">
+                      <td className="py-2 text-sm text-gray-500">מע״מ (18%)</td>
+                      <td className="py-2 text-left text-sm text-gray-500">₪{Math.round(finalAmount * 0.18).toLocaleString()}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 font-semibold text-gray-700">סה״כ כולל מע״מ</td>
+                      <td className="py-2 text-left font-semibold text-gray-700">₪{Math.round(finalAmount * 1.18).toLocaleString()}</td>
+                    </tr>
+                  </>
+                )}
               </tbody>
             </table>
           </div>
@@ -248,10 +291,9 @@ export default function PublicQuoteView() {
               פרטים נוספים
             </h3>
             <div className="text-gray-600 leading-relaxed text-lg whitespace-pre-wrap space-y-2">
-              {contentText.split('\n').map((line, i) => {
+              {contentText.split('\n').map((line: string, i: number) => {
                 const trimmed = line.trim();
                 if (!trimmed) return <div key={i} className="h-3" />;
-                // Bold lines that look like headers (short, no period)
                 if (trimmed.length < 60 && !trimmed.endsWith('.') && !trimmed.endsWith(':')) {
                   return <p key={i} className="font-bold text-gray-800 text-xl mt-4">{trimmed}</p>;
                 }
@@ -265,17 +307,113 @@ export default function PublicQuoteView() {
         </section>
       )}
 
-      {/* CTA */}
-      <section className="max-w-5xl mx-auto px-4 pb-12 md:pb-16 text-center">
-        <div className="bg-gradient-to-bl from-blue-600 to-cyan-500 rounded-2xl p-10 md:p-16 text-white shadow-xl">
-          <h3 className="text-3xl md:text-4xl font-extrabold mb-4">מעוניינים להתחיל?</h3>
-          <p className="text-blue-100 text-lg mb-8 max-w-xl mx-auto">
-            נשמח לענות על כל שאלה ולהתחיל בעבודה משותפת
-          </p>
-          <button className="bg-white text-blue-600 font-bold text-xl px-10 py-4 rounded-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300">
-            אשרו את ההצעה ✅
-          </button>
+      {/* Terms */}
+      {(quote.cancellationTerms || quote.paymentTerms) && (
+        <section className="max-w-5xl mx-auto px-4 pb-12 md:pb-16">
+          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 md:p-12">
+            <h3 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+              <span className="w-8 h-1 bg-gradient-to-l from-blue-600 to-cyan-500 rounded-full inline-block"></span>
+              תנאים
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {quote.paymentTerms && (
+                <div>
+                  <h4 className="font-semibold text-gray-700 mb-2">💳 תנאי תשלום</h4>
+                  <p className="text-gray-600 leading-relaxed">{quote.paymentTerms}</p>
+                </div>
+              )}
+              {quote.cancellationTerms && (
+                <div>
+                  <h4 className="font-semibold text-gray-700 mb-2">📋 תנאי ביטול</h4>
+                  <p className="text-gray-600 leading-relaxed">{quote.cancellationTerms}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Company Stamp */}
+      <section className="max-w-5xl mx-auto px-4 pb-12 md:pb-16">
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 text-center">
+          <div className="inline-block border-2 border-gray-300 rounded-xl px-8 py-4">
+            <p className="text-xl font-bold text-gray-800">דרך ההייטק בע״מ</p>
+            <p className="text-sm text-gray-500 mt-1">חינוך טכנולוגי מתקדם</p>
+          </div>
         </div>
+      </section>
+
+      {/* CTA / Response Section */}
+      <section className="max-w-5xl mx-auto px-4 pb-12 md:pb-16">
+        {alreadyResponded ? (
+          <div className={`rounded-2xl p-10 md:p-16 text-center shadow-xl ${
+            responseStatus === 'accepted'
+              ? 'bg-gradient-to-bl from-green-500 to-emerald-600 text-white'
+              : 'bg-gradient-to-bl from-red-400 to-red-600 text-white'
+          }`}>
+            {responseStatus === 'accepted' ? (
+              <>
+                <div className="text-6xl mb-4">✅</div>
+                <h3 className="text-3xl md:text-4xl font-extrabold mb-4">ההצעה אושרה!</h3>
+                <p className="text-lg opacity-90">תודה רבה! ניצור אתכם קשר בהקדם להמשך התהליך.</p>
+              </>
+            ) : (
+              <>
+                <div className="text-6xl mb-4">❌</div>
+                <h3 className="text-3xl md:text-4xl font-extrabold mb-4">ההצעה נדחתה</h3>
+                <p className="text-lg opacity-90">תודה על הזמן. נשמח לעמוד לרשותכם בעתיד.</p>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 md:p-12">
+            <h3 className="text-2xl font-bold text-gray-800 mb-6 text-center">מה דעתכם?</h3>
+
+            {/* Client notes */}
+            <div className="mb-8">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                הערות, בקשות או שאלות (אופציונלי)
+              </label>
+              <textarea
+                value={clientNotes}
+                onChange={(e) => setClientNotes(e.target.value)}
+                className="w-full border border-gray-300 rounded-xl p-4 text-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                rows={4}
+                placeholder="אם יש לכם הערות, בקשות לשינויים, שאלות או כל דבר אחר — כתבו כאן..."
+                disabled={submitting}
+              />
+            </div>
+
+            {responseError && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-center">
+                {responseError}
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <button
+                onClick={() => handleResponse('accept')}
+                disabled={submitting}
+                className="bg-gradient-to-l from-green-500 to-emerald-600 text-white font-bold text-xl px-10 py-4 rounded-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {submitting ? '⏳ שולח...' : '✅ אשרו את ההצעה'}
+              </button>
+              <button
+                onClick={() => {
+                  if (!clientNotes.trim()) {
+                    if (!confirm('בטוחים שתרצו לדחות את ההצעה?')) return;
+                  }
+                  handleResponse('reject');
+                }}
+                disabled={submitting}
+                className="bg-white text-red-500 border-2 border-red-300 font-bold text-xl px-10 py-4 rounded-xl hover:bg-red-50 hover:border-red-400 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {submitting ? '⏳ שולח...' : '❌ דחו את ההצעה'}
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Footer */}
@@ -285,7 +423,6 @@ export default function PublicQuoteView() {
           <p className="text-sm mb-4">חינוך טכנולוגי מתקדם</p>
           <div className="flex items-center justify-center gap-6 text-sm">
             <span>📧 info@hai.tech</span>
-            <span>📞 03-1234567</span>
             <span>🌐 hai.tech</span>
           </div>
           <p className="text-xs text-gray-600 mt-6">© {new Date().getFullYear()} דרך ההייטק. כל הזכויות שמורות.</p>

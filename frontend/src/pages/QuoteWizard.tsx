@@ -74,10 +74,13 @@ export default function QuoteWizard() {
 
   // Step 3
   const [discount, setDiscount] = useState(0);
+  const [includesVat, setIncludesVat] = useState(false);
 
   // Step 4 & 5
   const [generatedContent, setGeneratedContent] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [cancellationTerms, setCancellationTerms] = useState('ביטול עד 14 יום לפני תחילת הפעילות — ללא חיוב. ביטול לאחר מכן — חיוב מלא.');
+  const [paymentTerms, setPaymentTerms] = useState('תשלום שוטף + 30 מהפקת חשבונית.');
 
   const { data: courses } = useQuery({
     queryKey: ['courses'],
@@ -180,6 +183,7 @@ export default function QuoteWizard() {
       const result = await quotesApi.generateContentPreview({
         institutionName: institution.institutionName,
         contactName: institution.contactName,
+        includesVat,
         items: courseItems.map((item) => ({
           type: item.type,
           courseName: item.courseName,
@@ -225,6 +229,9 @@ export default function QuoteWizard() {
         pricePerMeeting: item.type === 'project' ? item.totalPrice : item.pricePerMeeting,
       })),
       discount,
+      includesVat,
+      cancellationTerms: cancellationTerms || undefined,
+      paymentTerms: paymentTerms || undefined,
       generatedContent: generatedContent || undefined,
       status,
     };
@@ -663,6 +670,21 @@ export default function QuoteWizard() {
                       ))}
                     </div>
                   )}
+
+                  {/* VAT Toggle - in step 2 */}
+                  {courseItems.length > 0 && (
+                    <div className="border-t pt-4 mt-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={includesVat}
+                          onChange={(e) => setIncludesVat(e.target.checked)}
+                          className="w-4 h-4 text-blue-600 rounded"
+                        />
+                        <span className="text-gray-600 text-sm">מחירים כוללים מע״מ (18%)</span>
+                      </label>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -726,9 +748,21 @@ export default function QuoteWizard() {
                       </div>
                     )}
                     <div className="flex items-center justify-between text-lg font-bold border-t pt-3">
-                      <span>סה״כ:</span>
+                      <span>{includesVat ? 'סה״כ (כולל מע״מ):' : 'סה״כ (לא כולל מע״מ):'}</span>
                       <span className="text-green-600">₪{totalAmount.toLocaleString()}</span>
                     </div>
+                    {!includesVat && (
+                      <div className="flex items-center justify-between text-sm text-gray-500">
+                        <span>מע״מ (18%):</span>
+                        <span>₪{Math.round(totalAmount * 0.18).toLocaleString()}</span>
+                      </div>
+                    )}
+                    {!includesVat && (
+                      <div className="flex items-center justify-between font-semibold">
+                        <span>סה״כ כולל מע״מ:</span>
+                        <span>₪{Math.round(totalAmount * 1.18).toLocaleString()}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -801,6 +835,30 @@ export default function QuoteWizard() {
                     <div>
                       <p className="text-sm text-gray-500">פריטים</p>
                       <p className="font-medium">{courseItems.length} קורסים</p>
+                    </div>
+                  </div>
+
+                  {/* Terms */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div>
+                      <label className="form-label">תנאי ביטול</label>
+                      <textarea
+                        value={cancellationTerms}
+                        onChange={(e) => setCancellationTerms(e.target.value)}
+                        className="form-input w-full text-sm"
+                        rows={3}
+                        dir="rtl"
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label">תנאי תשלום</label>
+                      <textarea
+                        value={paymentTerms}
+                        onChange={(e) => setPaymentTerms(e.target.value)}
+                        className="form-input w-full text-sm"
+                        rows={3}
+                        dir="rtl"
+                      />
                     </div>
                   </div>
 

@@ -27,6 +27,7 @@ import QuoteEdit from './pages/QuoteEdit';
 import PublicQuoteView from './pages/PublicQuoteView';
 import PublicCancelForm from './pages/PublicCancelForm';
 import LeadAppointments from './pages/LeadAppointments';
+import InstitutionalOrders from './pages/InstitutionalOrders';
 
 // Mobile instructor pages
 import MobileMeetings from './pages/instructor/MobileMeetings';
@@ -121,22 +122,27 @@ function AppRoutes() {
         }
       >
         <Route index element={isInstructor ? <Navigate to="/instructor" replace /> : <Dashboard />} />
-        <Route path="customers" element={<Customers />} />
-        <Route path="customers/:id" element={<CustomerDetail />} />
-        <Route path="students" element={<Students />} />
-        <Route path="courses" element={<Courses />} />
-        <Route path="branches" element={<Branches />} />
-        <Route path="instructors" element={<Instructors />} />
-        <Route path="cycles" element={<Cycles />} />
-        <Route path="cycles/:id" element={<CycleDetail />} />
-        <Route path="meetings" element={<Meetings />} />
-        <Route path="quotes" element={<Quotes />} />
-        <Route path="quotes/new" element={<QuoteWizard />} />
-        <Route path="quotes/:id" element={<QuoteDetail />} />
-        <Route path="quotes/:id/edit" element={<QuoteEdit />} />
-        <Route path="lead-appointments" element={<LeadAppointments />} />
-        <Route path="reports" element={<Reports />} />
-        <Route path="audit" element={<AuditLog />} />
+        {!isInstructor && (
+          <>
+            <Route path="customers" element={<Customers />} />
+            <Route path="customers/:id" element={<CustomerDetail />} />
+            <Route path="students" element={<Students />} />
+            <Route path="courses" element={<Courses />} />
+            <Route path="branches" element={<Branches />} />
+            <Route path="instructors" element={<Instructors />} />
+            <Route path="cycles" element={<Cycles />} />
+            <Route path="cycles/:id" element={<CycleDetail />} />
+            <Route path="meetings" element={<Meetings />} />
+            <Route path="quotes" element={<Quotes />} />
+            <Route path="quotes/new" element={<QuoteWizard />} />
+            <Route path="quotes/:id" element={<QuoteDetail />} />
+            <Route path="quotes/:id/edit" element={<QuoteEdit />} />
+            <Route path="institutional-orders" element={<InstitutionalOrders />} />
+            <Route path="lead-appointments" element={<LeadAppointments />} />
+            <Route path="reports" element={<Reports />} />
+            <Route path="audit" element={<AuditLog />} />
+          </>
+        )}
         <Route path="instructor" element={<InstructorDashboard />} />
         
         {/* Desktop instructor meeting detail (fallback) */}

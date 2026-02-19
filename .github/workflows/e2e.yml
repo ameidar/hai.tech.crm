@@ -159,6 +159,7 @@ jobs:
         working-directory: ./e2e
         env:
           BASE_URL: http://localhost:3001
+          API_URL: http://localhost:3000
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
@@ -285,6 +286,7 @@ jobs:
         working-directory: ./e2e
         env:
           BASE_URL: http://localhost:3001
+          API_URL: http://localhost:3000
 
       - name: Upload test results
         uses: actions/upload-artifact@v4

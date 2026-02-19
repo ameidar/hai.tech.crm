@@ -420,9 +420,21 @@ export default function QuoteDetail() {
                   </div>
                 )}
                 <div className="flex items-center justify-between text-lg font-bold border-t pt-3">
-                  <span>סה״כ:</span>
+                  <span>{(quote as any).includesVat ? 'סה״כ (כולל מע״מ):' : 'סה״כ (לא כולל מע״מ):'}</span>
                   <span className="text-green-600">₪{finalAmount.toLocaleString()}</span>
                 </div>
+                {!(quote as any).includesVat && (
+                  <>
+                    <div className="flex items-center justify-between text-sm text-gray-500">
+                      <span>מע״מ (18%):</span>
+                      <span>₪{Math.round(finalAmount * 0.18).toLocaleString()}</span>
+                    </div>
+                    <div className="flex items-center justify-between font-medium">
+                      <span>סה״כ כולל מע״מ:</span>
+                      <span>₪{Math.round(finalAmount * 1.18).toLocaleString()}</span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -479,7 +491,7 @@ export default function QuoteDetail() {
                 </div>
                 <div className="card-body">
                   <div className="whitespace-pre-wrap text-sm leading-relaxed bg-gray-50 rounded-lg p-4" dir="rtl">
-                    {typeof quote.content === 'string' ? quote.content : quote.generatedContent || ''}
+                    {typeof quote.content === 'string' ? quote.content : (quote.content as any)?.markdown || quote.generatedContent || ''}
                   </div>
                 </div>
               </div>
@@ -497,8 +509,31 @@ export default function QuoteDetail() {
               </div>
             )}
 
+            {/* Terms */}
+            {((quote as any).cancellationTerms || (quote as any).paymentTerms) && (
+              <div className="card">
+                <div className="card-header">
+                  <h2 className="font-semibold">תנאים</h2>
+                </div>
+                <div className="card-body grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {(quote as any).paymentTerms && (
+                    <div>
+                      <p className="text-sm text-gray-500 mb-1">תנאי תשלום</p>
+                      <p className="text-sm text-gray-700">{(quote as any).paymentTerms}</p>
+                    </div>
+                  )}
+                  {(quote as any).cancellationTerms && (
+                    <div>
+                      <p className="text-sm text-gray-500 mb-1">תנאי ביטול</p>
+                      <p className="text-sm text-gray-700">{(quote as any).cancellationTerms}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Video */}
-            {(videoRendering || videoUrl || vimeoUrl || videoError) && (
+            {(videoRendering || videoUrl || vimeoUrl || videoError || quote.videoPath) && (
               <div className="card">
                 <div className="card-header">
                   <h2 className="font-semibold flex items-center gap-2">
@@ -516,11 +551,11 @@ export default function QuoteDetail() {
                   {videoError && (
                     <p className="text-red-500">{videoError}</p>
                   )}
-                  {vimeoUrl && (
+                  {(vimeoUrl || (quote.videoPath && quote.videoPath.startsWith('https://player.vimeo.com/'))) && (
                     <div className="space-y-3">
                       <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
                         <iframe
-                          src={vimeoUrl}
+                          src={vimeoUrl || quote.videoPath}
                           className="absolute inset-0 w-full h-full rounded-lg"
                           frameBorder="0"
                           allow="autoplay; fullscreen; picture-in-picture"
@@ -529,7 +564,7 @@ export default function QuoteDetail() {
                       </div>
                       <div className="flex gap-2">
                         <a
-                          href={vimeoUrl.replace('player.vimeo.com/video', 'vimeo.com')}
+                          href={(vimeoUrl || quote.videoPath || '').replace('player.vimeo.com/video', 'vimeo.com')}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="btn btn-secondary inline-flex items-center gap-2"

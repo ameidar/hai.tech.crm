@@ -14,7 +14,7 @@ import {
   Calculator,
   Filter,
 } from 'lucide-react';
-import { useMeetings, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus, useUpdateMeeting, useBulkUpdateMeetings, useBulkRecalculateMeetings } from '../hooks/useApi';
+import { useMeetings, useMeeting, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus, useUpdateMeeting, useBulkUpdateMeetings, useBulkRecalculateMeetings } from '../hooks/useApi';
 import { useAuth } from '../context/AuthContext';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -40,6 +40,19 @@ export default function Meetings() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkStatus, setBulkStatus] = useState<string>('');
   const [showBulkEditModal, setShowBulkEditModal] = useState(false);
+
+  // Auto-open meeting from URL param
+  const openMeetingId = searchParams.get('openMeeting');
+  const { data: autoOpenMeeting } = useMeeting(openMeetingId || undefined);
+  useEffect(() => {
+    if (autoOpenMeeting && openMeetingId) {
+      setSelectedMeeting(autoOpenMeeting);
+      // Clear the param
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('openMeeting');
+      setSearchParams(newParams, { replace: true });
+    }
+  }, [autoOpenMeeting, openMeetingId]);
 
   // Read filters from URL
   const selectedDate = searchParams.get('date') || new Date().toISOString().split('T')[0];
@@ -96,9 +109,16 @@ export default function Meetings() {
     status: {
       label: 'סטטוס',
       render: (m) => (
-        <span className={`badge ${getStatusBadgeClass(m.status)}`}>
-          {meetingStatusHebrew[m.status]}
-        </span>
+        <div className="flex flex-col gap-1">
+          <span className={`badge ${getStatusBadgeClass(m.status)}`}>
+            {meetingStatusHebrew[m.status]}
+          </span>
+          {(m as any).changeRequests?.length > 0 && (
+            <span className="badge bg-amber-100 text-amber-800 text-xs">
+              ⚠️ {(m as any).changeRequests[0].type === 'cancel' ? 'בקשת ביטול' : (m as any).changeRequests[0].type === 'postpone' ? 'בקשת דחייה' : 'בקשת החלפה'}
+            </span>
+          )}
+        </div>
       )
     },
     revenue: {
@@ -598,6 +618,11 @@ export default function Meetings() {
                     <span className={`badge ${getStatusBadgeClass(meeting.status)} text-xs`}>
                       {meetingStatusHebrew[meeting.status]}
                     </span>
+                    {(meeting as any).changeRequests?.length > 0 && (
+                      <span className="badge bg-amber-100 text-amber-800 text-xs">
+                        ⚠️ בקשת {(meeting as any).changeRequests[0].type === 'cancel' ? 'ביטול' : (meeting as any).changeRequests[0].type === 'postpone' ? 'דחייה' : 'החלפה'}
+                      </span>
+                    )}
                   </div>
                   <p className="text-sm text-blue-600 font-medium">{meeting.cycle?.name || '-'}</p>
                   <div className="flex items-center justify-between mt-1">

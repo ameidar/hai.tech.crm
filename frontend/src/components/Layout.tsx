@@ -31,6 +31,7 @@ const adminNavItems = [
   { path: '/cycles', icon: RefreshCcw, label: 'מחזורים', testId: 'nav-cycles' },
   { path: '/meetings', icon: Calendar, label: 'פגישות', testId: 'nav-meetings' },
   { path: '/quotes', icon: Receipt, label: 'הצעות מחיר', testId: 'nav-quotes' },
+  { path: '/institutional-orders', icon: FileText, label: 'הזמנות מוסדיות', testId: 'nav-institutional-orders' },
   { path: '/lead-appointments', icon: PhoneCall, label: 'יומן לידים', testId: 'nav-lead-appointments' },
   { path: '/reports', icon: BarChart3, label: 'דוחות', testId: 'nav-reports' },
   { path: '/audit', icon: FileText, label: 'יומן פעילות', testId: 'nav-audit' },
@@ -39,7 +40,6 @@ const adminNavItems = [
 // Instructor-only navigation
 const instructorNavItems = [
   { path: '/instructor', icon: LayoutDashboard, label: 'הפגישות שלי', testId: 'nav-instructor' },
-  { path: '/meetings', icon: Calendar, label: 'כל הפגישות', testId: 'nav-meetings' },
 ];
 
 export default function Layout() {

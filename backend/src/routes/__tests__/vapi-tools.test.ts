@@ -8,16 +8,12 @@ vi.mock('../../services/google-calendar.js', () => ({
   bookAppointment: vi.fn(),
 }));
 
-// Mock PrismaClient as a class
-vi.mock('@prisma/client', () => {
-  return {
-    PrismaClient: class {
-      leadAppointment = {
-        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-      };
-    },
-  };
-});
+// Mock prisma singleton
+vi.mock('../../utils/prisma.js', () => ({
+  prisma: {
+    $executeRaw: vi.fn().mockResolvedValue(1),
+  },
+}));
 
 import { vapiToolsRouter } from '../vapi-tools.js';
 import { getAvailableSlots, bookAppointment } from '../../services/google-calendar.js';

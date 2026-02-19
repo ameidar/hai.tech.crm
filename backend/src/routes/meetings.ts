@@ -5,6 +5,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { updateMeetingSchema, postponeMeetingSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { zoomService } from '../services/zoom.js';
+import { handleCycleCompletion } from '../services/cycle-completion.js';
 
 // Send WhatsApp alert for negative profit
 async function sendNegativeProfitAlert(meetingData: {
@@ -114,6 +115,10 @@ meetingsRouter.get('/', async (req, res, next) => {
           },
           instructor: { select: { id: true, name: true, phone: true } },
           _count: { select: { attendance: true } },
+          changeRequests: {
+            where: { status: 'pending' },
+            select: { id: true, type: true, reason: true, status: true, createdAt: true },
+          },
         },
         orderBy: [
           { scheduledDate: 'asc' },
@@ -402,7 +407,7 @@ meetingsRouter.put('/:id', async (req, res, next) => {
       throw new AppError(404, 'Meeting not found');
     }
 
-    // Instructors can only update on the meeting day
+    // Instructors: restricted to status (completed only) and topic, only on meeting day
     if (req.user!.role === 'instructor') {
       const today = new Date().toISOString().split('T')[0];
       const meetingDate = existingMeeting.scheduledDate.toISOString().split('T')[0];
@@ -410,6 +415,25 @@ meetingsRouter.put('/:id', async (req, res, next) => {
       if (today !== meetingDate) {
         throw new AppError(403, 'Instructors can only update meetings on the scheduled day');
       }
+
+      // Block instructors from setting cancelled status directly
+      if (data.status === 'cancelled') {
+        throw new AppError(403, 'מדריכים לא יכולים לבטל פגישה ישירות. יש להגיש בקשת ביטול');
+      }
+
+      // Instructors can only update status and topic - strip everything else
+      const allowedFields = ['status', 'topic'];
+      const strippedData: any = {};
+      for (const key of allowedFields) {
+        if ((data as any)[key] !== undefined) {
+          strippedData[key] = (data as any)[key];
+        }
+      }
+      // Only allow completed status
+      if (strippedData.status && strippedData.status !== 'completed') {
+        throw new AppError(403, 'מדריכים יכולים רק לסמן פגישה כהושלמה');
+      }
+      Object.keys(data).forEach(k => { if (!allowedFields.includes(k)) delete (data as any)[k]; });
     }
 
     const updateData: any = { ...data };
@@ -533,13 +557,21 @@ meetingsRouter.put('/:id', async (req, res, next) => {
 
           // Update cycle counters - recalculate from totalMeetings
           const updatedCompleted = cycleData.completedMeetings + 1;
+          const newRemainingMeetings = cycleData.totalMeetings - updatedCompleted;
           await prisma.cycle.update({
             where: { id: existingMeeting.cycleId },
             data: {
               completedMeetings: updatedCompleted,
-              remainingMeetings: cycleData.totalMeetings - updatedCompleted,
+              remainingMeetings: newRemainingMeetings,
             },
           });
+
+          // Trigger cycle completion if no remaining meetings
+          if (newRemainingMeetings <= 0) {
+            handleCycleCompletion(existingMeeting.cycleId).catch(err =>
+              console.error('Cycle completion error:', err)
+            );
+          }
 
           // Send WhatsApp alert if profit is negative
           if (profit < 0) {
@@ -1166,13 +1198,21 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
 
             // Update cycle counters
             const updatedCompleted = cycleData.completedMeetings + 1;
+            const newRemaining = cycleData.totalMeetings - updatedCompleted;
             await prisma.cycle.update({
               where: { id: existingMeeting.cycleId },
               data: {
                 completedMeetings: updatedCompleted,
-                remainingMeetings: cycleData.totalMeetings - updatedCompleted,
+                remainingMeetings: newRemaining,
               },
             });
+
+            // Trigger cycle completion if no remaining meetings
+            if (newRemaining <= 0) {
+              handleCycleCompletion(existingMeeting.cycleId).catch(err =>
+                console.error('Cycle completion error:', err)
+              );
+            }
           }
         }
         

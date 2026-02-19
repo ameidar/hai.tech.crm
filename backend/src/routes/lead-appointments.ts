@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 
 export const leadAppointmentsRouter = Router();
 leadAppointmentsRouter.use(authenticate);
@@ -12,8 +12,8 @@ leadAppointmentsRouter.get('/', async (req: Request, res: Response, next: NextFu
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
     const status = req.query.status as string;
-    const dateFrom = req.query.dateFrom as string;
-    const dateTo = req.query.dateTo as string;
+    const dateFrom = (req.query.dateFrom || req.query.from) as string;
+    const dateTo = (req.query.dateTo || req.query.to) as string;
 
     const where: any = {};
     if (status) where.appointmentStatus = status;
@@ -73,6 +73,16 @@ leadAppointmentsRouter.patch('/:id', async (req: Request, res: Response, next: N
       data,
     });
     res.json({ success: true, data: item });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/lead-appointments/:id
+leadAppointmentsRouter.delete('/:id', managerOrAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await prisma.leadAppointment.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
   } catch (error) {
     next(error);
   }

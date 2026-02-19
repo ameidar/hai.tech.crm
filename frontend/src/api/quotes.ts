@@ -28,6 +28,9 @@ export interface Quote {
   finalAmount?: number;
   content?: any;
   generatedContent?: string;
+  includesVat?: boolean;
+  cancellationTerms?: string;
+  paymentTerms?: string;
   notes?: string;
   videoPath?: string;
   orderId?: string;
@@ -47,6 +50,9 @@ export type CreateQuoteData = {
   branchId?: string;
   items: Omit<QuoteItem, 'id' | 'courseName' | 'subtotal'>[];
   discount?: number;
+  includesVat?: boolean;
+  cancellationTerms?: string;
+  paymentTerms?: string;
   generatedContent?: string;
   notes?: string;
   status?: 'draft' | 'sent';
@@ -110,7 +116,7 @@ export const quotesApi = {
     return res.data;
   },
 
-  generateContentPreview: async (data: { institutionName: string; contactName: string; items: any[] }) => {
+  generateContentPreview: async (data: { institutionName: string; contactName: string; includesVat?: boolean; items: any[] }) => {
     const res = await api.post<{ content: string }>('/quotes/generate-content-preview', data);
     return res.data;
   },

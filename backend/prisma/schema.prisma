@@ -165,6 +165,7 @@ model Customer {
   students         Student[]
   quotes           Quote[]
   leadAppointments LeadAppointment[]
+  upsellLeads      UpsellLead[]
 
   @@map("customers")
 }
@@ -251,6 +252,7 @@ model Instructor {
   meetings        Meeting[]
   expenseRecords  MeetingExpense[]
   cycleExpenses   CycleExpense[]
+  changeRequests  MeetingChangeRequest[]
 
   @@map("instructors")
 }
@@ -333,6 +335,7 @@ model Cycle {
   registrations      Registration[]
   meetings           Meeting[]
   expenses           CycleExpense[]
+  upsellLeads        UpsellLead[]
 
   @@map("cycles")
 }
@@ -360,6 +363,7 @@ model Registration {
   cycle                 Cycle                  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   attendance            Attendance[]
   cancellationRequests  CancellationRequest[]
+  upsellLeads           UpsellLead[]
 
   @@unique([studentId, cycleId])
   @@map("registrations")
@@ -423,6 +427,7 @@ model Meeting {
   rescheduledFrom Meeting[]        @relation("RescheduledMeetings")
   attendance      Attendance[]
   expenses        MeetingExpense[]
+  changeRequests  MeetingChangeRequest[]
 
   @@map("meetings")
 }
@@ -611,12 +616,16 @@ model Quote {
   payingBodyEmail String?          @map("paying_body_email")
   payingBodyNotes String?          @map("paying_body_notes")
   content         Json?
+  includesVat     Boolean     @default(false) @map("includes_vat")
+  cancellationTerms String?   @map("cancellation_terms")
+  paymentTerms    String?     @map("payment_terms")
   totalAmount     Decimal     @map("total_amount") @db.Decimal(10, 2)
   discount        Decimal?    @default(0) @db.Decimal(10, 2)
   finalAmount     Decimal     @map("final_amount") @db.Decimal(10, 2)
   validUntil      DateTime?   @map("valid_until") @db.Date
   status          QuoteStatus @default(draft)
   notes           String?
+  clientNotes     String?     @map("client_notes")
   videoPath       String?     @map("video_path")
   orderId         String?     @unique @map("order_id")
   createdById     String      @map("created_by")
@@ -692,4 +701,55 @@ model LeadAppointment {
   customer Customer? @relation(fields: [customerId], references: [id])
 
   @@map("lead_appointments")
+}
+
+// ===================
+// UPSELL LEADS
+// ===================
+
+enum UpsellLeadStatus {
+  new
+  contacted
+  converted
+  dismissed
+}
+
+model UpsellLead {
+  id              Int              @id @default(autoincrement())
+  registrationId  String           @map("registration_id")
+  cycleId         String           @map("cycle_id")
+  customerId      String           @map("customer_id")
+  completedCourse String           @map("completed_course")
+  status          UpsellLeadStatus @default(new)
+  notes           String?
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  registration Registration @relation(fields: [registrationId], references: [id])
+  cycle        Cycle        @relation(fields: [cycleId], references: [id])
+  customer     Customer     @relation(fields: [customerId], references: [id])
+
+  @@map("upsell_leads")
+}
+
+// ===================
+// MEETING CHANGE REQUESTS
+// ===================
+
+model MeetingChangeRequest {
+  id           String    @id @default(uuid())
+  meetingId    String    @map("meeting_id")
+  instructorId String    @map("instructor_id")
+  type         String    // "cancel", "postpone", "replacement"
+  reason       String?
+  status       String    @default("pending") // "pending", "approved", "rejected"
+  reviewedBy   String?   @map("reviewed_by")
+  reviewedAt   DateTime? @map("reviewed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  meeting    Meeting    @relation(fields: [meetingId], references: [id])
+  instructor Instructor @relation(fields: [instructorId], references: [id])
+
+  @@map("meeting_change_requests")
 }

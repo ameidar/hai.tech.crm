@@ -1176,9 +1176,16 @@ export default function CycleDetail() {
                             </td>
                             <td>{meeting.instructor?.name || cycle.instructor?.name}</td>
                             <td>
-                              <span className={`badge ${getStatusBadgeClass(meeting.status)}`}>
-                                {meetingStatusHebrew[meeting.status]}
-                              </span>
+                              <div className="flex flex-col gap-1">
+                                <span className={`badge ${getStatusBadgeClass(meeting.status)}`}>
+                                  {meetingStatusHebrew[meeting.status]}
+                                </span>
+                                {(meeting as any).changeRequests?.length > 0 && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-medium">
+                                  ⚠️ {(meeting as any).changeRequests[0].type === 'cancel' ? 'בקשת ביטול' : (meeting as any).changeRequests[0].type === 'postpone' ? 'בקשת דחייה' : 'בקשת החלפה'}
+                                </span>
+                                )}
+                              </div>
                             </td>
                             <td className="text-gray-500 truncate max-w-[200px]">
                               {meeting.topic || '-'}

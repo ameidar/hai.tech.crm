@@ -1,8 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getAvailableSlots, bookAppointment } from '../services/google-calendar.js';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from '../utils/prisma.js';
 export const vapiToolsRouter = Router();
 
 // Single endpoint that handles all Vapi tool calls
@@ -47,16 +45,19 @@ vapiToolsRouter.post('/', async (req: Request, res: Response) => {
               try {
                 const callId = message?.call?.id;
                 if (callId) {
-                  await prisma.leadAppointment.updateMany({
-                    where: { vapiCallId: callId },
-                    data: {
-                      appointmentDate: new Date(`${date}T${time}:00`),
-                      appointmentTime: time,
-                      appointmentStatus: 'scheduled',
-                      appointmentNotes: notes || `פגישת היכרות - נקבעה ע"י נועה`,
-                    },
-                  });
-                  console.log(`[VAPI TOOLS] Updated lead appointment for call ${callId}: ${date} ${time}`);
+                  const appointmentDate = `${date}T${time}:00`;
+                  const appointmentNotes = notes || `פגישת היכרות - נקבעה ע"י טל`;
+                  console.log(`[VAPI TOOLS] Updating lead appointment via raw SQL: callId=${callId}, date=${appointmentDate}, time=${time}`);
+                  const updateResult = await prisma.$executeRaw`
+                    UPDATE lead_appointments 
+                    SET appointment_date = ${new Date(appointmentDate)}::timestamp,
+                        appointment_time = ${time},
+                        appointment_status = 'scheduled',
+                        appointment_notes = ${appointmentNotes},
+                        updated_at = NOW()
+                    WHERE vapi_call_id = ${callId}
+                  `;
+                  console.log(`[VAPI TOOLS] Updated lead appointment for call ${callId}: ${date} ${time}, rows: ${updateResult}`);
                 }
               } catch (dbErr: any) {
                 console.error('[VAPI TOOLS] Failed to update lead appointment:', dbErr.message);

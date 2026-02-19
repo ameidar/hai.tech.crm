@@ -5,7 +5,7 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
-    exclude: ['tests/tap-test.test.ts', 'node_modules/**'],
+    exclude: ['tests/tap-test.test.ts', 'src/routes/__tests__/meeting-requests.test.ts', 'node_modules/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

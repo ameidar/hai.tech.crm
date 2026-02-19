@@ -18,6 +18,7 @@ vi.mock('../../utils/prisma.js', () => ({
 // Mock authenticate as passthrough
 vi.mock('../../middleware/auth.js', () => ({
   authenticate: (_req: any, _res: any, next: any) => next(),
+  managerOrAdmin: (_req: any, _res: any, next: any) => next(),
 }));
 
 // Mock AppError

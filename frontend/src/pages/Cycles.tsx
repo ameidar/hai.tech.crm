@@ -423,6 +423,58 @@ export default function Cycles() {
               <ViewSelector entity="cycles" onApplyView={() => {}} onViewSelect={(viewId) => { setActiveViewId(viewId); if (viewId) { setViewMode('view'); } else { setViewMode('filters'); } }} />
             </div>
           </div>
+
+          {/* Collapsible filters - hidden on mobile by default */}
+          <div id="cycles-filters" className="hidden md:flex flex-wrap gap-2 md:gap-4 items-center">
+            <div className="w-full md:w-36">
+              <select value={instructorFilter} onChange={(e) => setInstructorFilter(e.target.value)} className="form-input w-full">
+                <option value="">כל המדריכים</option>
+                {instructors?.map((instructor) => (<option key={instructor.id} value={instructor.id}>{instructor.name}</option>))}
+              </select>
+            </div>
+            <div className="w-full md:w-36">
+              <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="form-input w-full">
+                <option value="">כל הסניפים</option>
+                {branches?.map((branch) => (<option key={branch.id} value={branch.id}>{branch.name}</option>))}
+              </select>
+            </div>
+            <div className="w-full md:w-36">
+              <select value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)} className="form-input w-full">
+                <option value="">כל הקורסים</option>
+                {courses?.map((course) => (<option key={course.id} value={course.id}>{course.name}</option>))}
+              </select>
+            </div>
+            <div className="w-1/2 md:w-28">
+              <select value={dayFilter} onChange={(e) => setDayFilter(e.target.value as DayOfWeek | '')} className="form-input w-full">
+                <option value="">כל הימים</option>
+                <option value="sunday">ראשון</option>
+                <option value="monday">שני</option>
+                <option value="tuesday">שלישי</option>
+                <option value="wednesday">רביעי</option>
+                <option value="thursday">חמישי</option>
+                <option value="friday">שישי</option>
+              </select>
+            </div>
+            <div className="w-1/2 md:w-32">
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as CycleStatus | '')} className="form-input w-full">
+                <option value="">כל הסטטוסים</option>
+                <option value="active">פעיל</option>
+                <option value="completed">הושלם</option>
+                <option value="cancelled">בוטל</option>
+              </select>
+            </div>
+            <div className="hidden md:block w-28">
+              <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="form-input">
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={200}>200</option>
+                <option value={500}>הכל</option>
+              </select>
+            </div>
+            <div className="hidden md:block">
+              <ViewSelector entity="cycles" onApplyView={() => {}} onViewSelect={(viewId) => { setActiveViewId(viewId); if (viewId) { setViewMode('view'); } else { setViewMode('filters'); } }} />
+            </div>
+          </div>
         </div>
 
         {/* Bulk Actions Bar */}

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Play } from 'lucide-react';
+import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Play, Trash2 } from 'lucide-react';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -80,6 +80,17 @@ export default function LeadAppointments() {
       return res.data;
     },
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/lead-appointments/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lead-appointments'] }),
+  });
+
+  const handleDelete = (id: string, name: string) => {
+    if (window.confirm(`למחוק את הליד "${name}"?`)) {
+      deleteMutation.mutate(id);
+    }
+  };
 
   const leads: LeadAppointment[] = data?.data || data || [];
   const pagination = data?.pagination;
@@ -166,12 +177,20 @@ export default function LeadAppointments() {
                     <StatusBadge status={lead.appointmentStatus} />
                   </td>
                   <td className="px-4 py-3 text-sm">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setSelectedLead(lead); }}
-                      className="text-blue-600 hover:text-blue-800"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setSelectedLead(lead); }}
+                        className="text-blue-600 hover:text-blue-800"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDelete(lead.id, lead.customerName); }}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

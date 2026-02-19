@@ -7,7 +7,11 @@ import { Request, Response } from 'express';
  */
 export function createLogger(options?: { level?: string; pretty?: boolean }) {
   const level = options?.level || process.env.LOG_LEVEL || 'info';
-  const pretty = options?.pretty ?? process.env.NODE_ENV === 'development';
+  let pretty = options?.pretty ?? process.env.NODE_ENV === 'development';
+  // pino-pretty may not be available in Docker production builds
+  if (pretty) {
+    try { require.resolve('pino-pretty'); } catch { pretty = false; }
+  }
 
   return pino({
     level,

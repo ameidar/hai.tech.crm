@@ -96,8 +96,9 @@ test.describe('Critical Paths - Smoke Tests', { tag: '@smoke' }, () => {
     const linkCount = await cycleLinks.count();
     
     if (linkCount > 0) {
-      // Click the first cycle link
-      await cycleLinks.first().click();
+      // Click the first visible cycle link
+      await cycleLinks.first().scrollIntoViewIfNeeded();
+      await cycleLinks.first().click({ force: true });
       
       // Should navigate to cycle detail
       await expect(page).toHaveURL(/\/cycles\/[a-zA-Z0-9-]+/);

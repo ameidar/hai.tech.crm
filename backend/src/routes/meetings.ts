@@ -322,17 +322,32 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
     // Create Zoom meeting if requested
     if (withZoom) {
       try {
-        const meetingDate = new Date(scheduledDate);
-        const [sHour, sMin] = startTime.split(':').map(Number);
-        meetingDate.setUTCHours(sHour, sMin, 0, 0);
+        // startTime is in Israel local time (HH:MM), build datetime with Israel timezone offset
+        let [sHour, sMin] = startTime.split(':').map(Number);
+        
+        // Start Zoom meeting 10 minutes early to allow participants to join before the lesson
+        sMin -= 10;
+        if (sMin < 0) {
+          sMin += 60;
+          sHour -= 1;
+          if (sHour < 0) sHour = 23;
+        }
+        
+        const dateStr = new Date(scheduledDate).toISOString().split('T')[0];
+        const timeStr = `${sHour.toString().padStart(2, '0')}:${sMin.toString().padStart(2, '0')}:00`;
+        const israelDateStr = `${dateStr}T${timeStr}+02:00`;
+        const meetingDate = new Date(israelDateStr);
+
+        // Add 10 minutes to duration to cover the early start
+        const zoomDuration = durationMinutes + 10;
 
         // Find an available Zoom user
-        const availableUser = await zoomService.findAvailableUser(meetingDate, durationMinutes);
+        const availableUser = await zoomService.findAvailableUser(meetingDate, zoomDuration);
         if (availableUser) {
           const zoomMeeting = await zoomService.createMeeting(availableUser.id, {
-            topic: `${cycle.course?.name || cycle.name} - פגישה חריגה`,
+            topic: cycle.name,
             startTime: meetingDate,
-            duration: durationMinutes,
+            duration: zoomDuration,
           });
 
           // Update meeting with Zoom details

@@ -524,6 +524,99 @@ webhookRouter.post('/leads', async (req, res, next) => {
   }
 });
 
+// POST /api/webhook/whatsapp-summary
+// Receives WhatsApp conversation summaries from Make.com
+// Creates LeadAppointment records (and optionally Customer records)
+webhookRouter.post('/whatsapp-summary', async (req, res, next) => {
+  try {
+    // Accept both array and single object
+    const items = Array.isArray(req.body) ? req.body : [req.body];
+    const results = [];
+
+    for (const item of items) {
+      const { summary, name, phone, email, child_name, child_age } = item;
+
+      if (!name && !phone) {
+        results.push({ error: 'name or phone is required', item });
+        continue;
+      }
+
+      // Try to find or create customer
+      let customerId: string | null = null;
+      if (phone) {
+        const existing = await prisma.customer.findFirst({ where: { phone } });
+        if (existing) {
+          customerId = existing.id;
+          // Append summary to customer notes
+          await prisma.customer.update({
+            where: { id: existing.id },
+            data: {
+              notes: existing.notes
+                ? `${existing.notes}\n---\n[${new Date().toISOString()}] whatsapp: ${summary || 'שיחת וואטסאפ'}`
+                : `[${new Date().toISOString()}] whatsapp: ${summary || 'שיחת וואטסאפ'}`,
+            },
+          });
+        } else if (name) {
+          const customer = await prisma.customer.create({
+            data: {
+              name,
+              phone,
+              email: (email && email !== 'לא') ? email : null,
+              notes: `[${new Date().toISOString()}] whatsapp: ${summary || 'שיחת וואטסאפ'}`,
+              students: (child_name && child_name !== 'לא') ? {
+                create: [{
+                  name: child_name,
+                  notes: (child_age && child_age !== 'לא') ? `גיל: ${child_age}` : undefined,
+                }],
+              } : undefined,
+            },
+          });
+          customerId = customer.id;
+        }
+      }
+
+      // Create LeadAppointment
+      const lead = await prisma.leadAppointment.create({
+        data: {
+          customerId,
+          customerName: name || 'לא ידוע',
+          customerPhone: phone || '',
+          customerEmail: (email && email !== 'לא') ? email : null,
+          childName: (child_name && child_name !== 'לא') ? child_name : null,
+          source: 'whatsapp',
+          callSummary: summary || null,
+          appointmentStatus: 'new',
+        },
+      });
+
+      results.push({ success: true, leadId: lead.id, customerId });
+    }
+
+    // Notify admin
+    const count = results.filter(r => r.success).length;
+    if (count > 0) {
+      notifyAdminNewLead({
+        name: items[0]?.name || 'לא ידוע',
+        phone: items[0]?.phone || null,
+        source: 'whatsapp',
+      }).catch(err => console.error('[WEBHOOK] Failed to notify admin:', err));
+    }
+
+    logAudit({
+      userId: 'system',
+      userName: 'Make WhatsApp',
+      action: 'CREATE',
+      entity: 'lead_appointment',
+      entityId: results[0]?.leadId || 'batch',
+      newValue: { count, source: 'whatsapp' },
+    }).catch(err => console.error('[WEBHOOK] Failed to create audit log:', err));
+
+    res.status(201).json({ success: true, results });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Generic meeting update
 // Helper function to recalculate meeting financials
 async function recalculateMeetingFinancials(meetingId: string) {

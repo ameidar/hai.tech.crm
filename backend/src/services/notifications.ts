@@ -109,7 +109,7 @@ ${lead.childName ? `👧 *ילד/ה:* ${lead.childName}` : ''}
 ${lead.interest ? `🎓 *תחום עניין:* ${lead.interest}` : ''}
 📍 *מקור:* ${lead.source || 'website'}
 
-🔗 http://129.159.133.209:3002/customers`;
+🔗 ${process.env.FRONTEND_URL || 'https://crm.orma-ai.com'}/customers`;
 
   await sendWhatsAppMessage(adminPhone, message);
 }

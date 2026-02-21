@@ -96,7 +96,7 @@ quotesRouter.post('/:id/send', managerOrAdmin, async (req, res, next) => {
 
     let emailSent = false;
     if (quote.contactEmail) {
-      const frontendUrl = process.env.FRONTEND_URL || 'http://129.159.133.209:3002';
+      const frontendUrl = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
       const publicUrl = `${frontendUrl}/public/quote/${id}`;
 
       await sendEmail({

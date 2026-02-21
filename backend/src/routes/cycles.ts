@@ -53,7 +53,7 @@ async function triggerZoomWebhook(cycleId: string) {
           ? m.endTime.toISOString().substring(11, 16) 
           : String(m.endTime).substring(0, 5),
       })),
-      callbackUrl: `${(process.env.FRONTEND_URL && process.env.FRONTEND_URL !== '*') ? process.env.FRONTEND_URL : 'http://129.159.133.209:3002'}/api/webhook/cycles/${cycleId}/zoom`,
+      callbackUrl: `${(process.env.FRONTEND_URL && process.env.FRONTEND_URL !== '*') ? process.env.FRONTEND_URL : 'https://crm.orma-ai.com'}/api/webhook/cycles/${cycleId}/zoom`,
     };
 
     console.log('Triggering Zoom webhook:', config.zoomWebhookUrl);

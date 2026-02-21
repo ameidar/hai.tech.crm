@@ -6,7 +6,7 @@ export type TemplateId =
   | 'newsletter';
 
 // Base URL from environment
-const getBaseUrl = () => process.env.FRONTEND_URL || 'http://localhost:3002';
+const getBaseUrl = () => process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
 
 // Template data interfaces
 export interface InstructorReminderData {

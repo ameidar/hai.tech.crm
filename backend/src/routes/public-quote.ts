@@ -72,7 +72,7 @@ publicQuoteRouter.post('/:id/respond', async (req, res, next) => {
           ${clientNotes ? `<tr><td style="padding: 8px; font-weight: bold;">הערות הלקוח:</td><td style="padding: 8px;">${clientNotes}</td></tr>` : ''}
         </table>
         <p style="margin-top: 16px;">
-          <a href="http://129.159.133.209:3002/quotes/${id}" style="background: #2563eb; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none;">
+          <a href="https://crm.orma-ai.com/quotes/${id}" style="background: #2563eb; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none;">
             צפה בהצעה במערכת
           </a>
         </p>

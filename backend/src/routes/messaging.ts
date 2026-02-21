@@ -141,9 +141,11 @@ messagingRouter.post('/send', async (req, res, next) => {
         placeholderData.meeting_date = meeting.scheduledDate 
           ? new Date(meeting.scheduledDate).toLocaleDateString('he-IL')
           : '';
-        // Add meeting link
+        // Add meeting/zoom/status links (base URL from env)
         const baseUrl = config.frontendUrl || 'https://crm.orma-ai.com';
-        placeholderData.meeting_link = `${baseUrl}/instructor/meeting/${meeting.id}`;
+        placeholderData.zoom_link = (meeting as any).zoomJoinUrl || 'אין קישור זום';
+        placeholderData.status_link = `${baseUrl}/meetings/${meeting.id}`;
+        placeholderData.meeting_link = `${baseUrl}/meetings/${meeting.id}`;
       }
     }
     

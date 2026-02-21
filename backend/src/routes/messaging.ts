@@ -144,6 +144,7 @@ messagingRouter.post('/send', async (req, res, next) => {
         // Add meeting/zoom/status links (base URL from env)
         const baseUrl = config.frontendUrl || 'https://crm.orma-ai.com';
         placeholderData.zoom_link = (meeting as any).zoomJoinUrl || 'אין קישור זום';
+        placeholderData.zoom_host_key = (meeting as any).zoomHostKey || '';
         placeholderData.status_link = `${baseUrl}/meetings/${meeting.id}`;
         placeholderData.meeting_link = `${baseUrl}/meetings/${meeting.id}`;
       }

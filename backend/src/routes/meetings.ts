@@ -815,11 +815,20 @@ meetingsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
 
     const meeting = await prisma.meeting.findUnique({
       where: { id },
-      select: { cycleId: true, status: true },
+      select: { cycleId: true, status: true, zoomMeetingId: true },
     });
 
     if (!meeting) {
       throw new AppError(404, 'Meeting not found');
+    }
+
+    // Delete Zoom meeting if exists
+    if (meeting.zoomMeetingId) {
+      try {
+        await zoomService.deleteMeeting(meeting.zoomMeetingId);
+      } catch (e) {
+        console.warn(`[meetings] Failed to delete Zoom meeting ${meeting.zoomMeetingId}:`, e);
+      }
     }
 
     // If meeting was completed, decrement cycle counters

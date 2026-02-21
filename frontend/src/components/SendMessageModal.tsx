@@ -77,6 +77,7 @@ export default function SendMessageModal({ instructor, onClose }: SendMessageMod
         text = text.replace(/{{meeting_time}}/g, formatTime(meeting.startTime));
         text = text.replace(/{{meeting_date}}/g, new Date(meeting.scheduledDate).toLocaleDateString('he-IL'));
         text = text.replace(/{{zoom_link}}/g, meeting.zoomJoinUrl || 'אין קישור זום');
+        text = text.replace(/{{zoom_host_key}}/g, (meeting as any).zoomHostKey || '');
         text = text.replace(/{{status_link}}/g, `${window.location.origin}/meetings/${meeting.id}`);
         text = text.replace(/{{meeting_link}}/g, `${window.location.origin}/meetings/${meeting.id}`);
       }

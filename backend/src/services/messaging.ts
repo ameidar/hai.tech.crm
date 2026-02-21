@@ -11,11 +11,15 @@ const GMAIL_PASS = process.env.GMAIL_PASS;
 
 // Create email transporter
 const emailTransporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false,
   auth: {
     user: GMAIL_USER,
     pass: GMAIL_PASS,
   },
+  connectionTimeout: 15000,
+  greetingTimeout: 10000,
 });
 
 export interface SendWhatsAppParams {

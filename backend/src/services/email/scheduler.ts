@@ -1,6 +1,11 @@
 import cron, { ScheduledTask } from 'node-cron';
 import { prisma } from '../../utils/prisma.js';
 import { queueEmail, EmailPriority } from './queue.js';
+import {
+  sendMorningWhatsAppReminders,
+  sendPreMeetingReminders,
+  sendEveningStatusCheck,
+} from '../whatsapp-reminder.service.js';
 import { 
   getTemplate, 
   InstructorReminderData, 
@@ -311,12 +316,13 @@ export const initEmailScheduler = () => {
   scheduledTasks.forEach(task => task.stop());
   scheduledTasks = [];
 
-  // Schedule instructor reminders (08:00)
+  // Schedule instructor reminders (08:00) — email + WhatsApp
   const instructorTask = cron.schedule(schedules.instructorReminders, () => {
     sendInstructorReminders();
+    sendMorningWhatsAppReminders();
   }, { timezone: 'Asia/Jerusalem' });
   scheduledTasks.push(instructorTask);
-  console.log('   ✓ Instructor reminders: 08:00 daily');
+  console.log('   ✓ Instructor reminders (email + WhatsApp): 08:00 daily');
 
   // Schedule parent reminders (18:00)
   const parentTask = cron.schedule(schedules.parentReminders, () => {
@@ -332,6 +338,20 @@ export const initEmailScheduler = () => {
   scheduledTasks.push(summaryTask);
   console.log('   ✓ Management summary: 22:00 daily');
 
+  // Schedule pre-meeting WhatsApp reminders (every 15 min)
+  const preMeetingTask = cron.schedule('*/15 * * * *', () => {
+    sendPreMeetingReminders();
+  }, { timezone: 'Asia/Jerusalem' });
+  scheduledTasks.push(preMeetingTask);
+  console.log('   ✓ Pre-meeting WhatsApp reminders: every 15 min');
+
+  // Schedule evening status check (22:00) — WhatsApp poll to instructors
+  const eveningStatusTask = cron.schedule('0 22 * * *', () => {
+    sendEveningStatusCheck();
+  }, { timezone: 'Asia/Jerusalem' });
+  scheduledTasks.push(eveningStatusTask);
+  console.log('   ✓ Evening status check (WhatsApp poll): 22:00 daily');
+
   console.log('📅 Email scheduler initialized');
 };
 
@@ -346,3 +366,6 @@ export const stopEmailScheduler = () => {
 export const triggerInstructorReminders = () => sendInstructorReminders();
 export const triggerParentReminders = () => sendParentReminders();
 export const triggerManagementSummary = () => sendManagementSummary();
+export const triggerMorningWhatsApp = () => sendMorningWhatsAppReminders();
+export const triggerPreMeetingWhatsApp = () => sendPreMeetingReminders();
+export const triggerEveningStatusCheck = () => sendEveningStatusCheck();

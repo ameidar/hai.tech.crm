@@ -147,3 +147,40 @@ export function formatTimeForDisplay(time: string | Date | null): string {
   
   return '';
 }
+
+/**
+ * Send WhatsApp Poll (for status check questions)
+ */
+export async function sendWhatsAppPoll(params: {
+  phone: string;
+  question: string;
+  options: string[];
+}): Promise<MessageResult> {
+  if (!GREEN_API_INSTANCE_ID || !GREEN_API_TOKEN) {
+    return { success: false, error: 'Green API not configured' };
+  }
+
+  const chatId = formatPhoneForWhatsApp(params.phone);
+  const url = `${GREEN_API_BASE}/sendPoll/${GREEN_API_TOKEN}`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chatId,
+        message: params.question,
+        options: params.options.map(o => ({ optionName: o })),
+        multipleAnswers: false,
+      }),
+    });
+
+    const data = await response.json() as any;
+    if (data.idMessage) {
+      return { success: true, messageId: data.idMessage };
+    }
+    return { success: false, error: JSON.stringify(data) };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}

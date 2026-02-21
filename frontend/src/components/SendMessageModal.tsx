@@ -221,17 +221,24 @@ export default function SendMessageModal({ instructor, onClose }: SendMessageMod
           </div>
         )}
 
-        {/* Custom Subject (for email with free text) */}
-        {channel === 'email' && needsCustomMessage && (
+        {/* Subject (for email) */}
+        {channel === 'email' && selectedTemplate && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">נושא</label>
-            <input
-              type="text"
-              value={customSubject}
-              onChange={(e) => setCustomSubject(e.target.value)}
-              className="input w-full"
-              placeholder="נושא ההודעה"
-            />
+            {selectedTemplate.subject ? (
+              <div className="p-2 bg-gray-50 border rounded text-sm text-gray-700">
+                {selectedTemplate.subject.replace(/{{cycle_name}}/g, 
+                  (selectedMeetingId && todayMeetings?.find((m: Meeting) => m.id === selectedMeetingId)?.cycle?.name) || '...')}
+              </div>
+            ) : (
+              <input
+                type="text"
+                value={customSubject}
+                onChange={(e) => setCustomSubject(e.target.value)}
+                className="input w-full"
+                placeholder="נושא ההודעה"
+              />
+            )}
           </div>
         )}
 

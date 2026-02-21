@@ -142,13 +142,13 @@ messagingRouter.post('/send', async (req, res, next) => {
           ? new Date(meeting.scheduledDate).toLocaleDateString('he-IL')
           : '';
         // Add meeting link
-        const baseUrl = config.frontendUrl || 'http://localhost:3002';
+        const baseUrl = config.frontendUrl || 'https://crm.orma-ai.com';
         placeholderData.meeting_link = `${baseUrl}/instructor/meeting/${meeting.id}`;
       }
     }
     
     // Add instructor portal link
-    const baseUrl = config.frontendUrl || 'http://localhost:3002';
+    const baseUrl = config.frontendUrl || 'https://crm.orma-ai.com';
     placeholderData.instructor_link = `${baseUrl}/instructor`;
     
     // Build message

@@ -398,7 +398,7 @@ instructorsRouter.post('/:id/invite', managerOrAdmin, async (req, res, next) => 
 
     // Generate invite URL (don't use "*" which is for CORS)
     const envUrl = process.env.FRONTEND_URL;
-    const baseUrl = (envUrl && envUrl !== '*') ? envUrl : 'http://129.159.133.209:3002';
+    const baseUrl = (envUrl && envUrl !== '*') ? envUrl : 'https://crm.orma-ai.com';
     const inviteUrl = `${baseUrl}/invite/${inviteToken}`;
 
     res.json({
@@ -455,7 +455,7 @@ instructorsRouter.post('/:id/reset-password', managerOrAdmin, async (req, res, n
 
     // Generate reset URL (don't use "*" which is for CORS)
     const envUrl = process.env.FRONTEND_URL;
-    const baseUrl = (envUrl && envUrl !== '*') ? envUrl : 'http://129.159.133.209:3002';
+    const baseUrl = (envUrl && envUrl !== '*') ? envUrl : 'https://crm.orma-ai.com';
     const resetUrl = `${baseUrl}/reset-password/${resetToken}`;
 
     res.json({

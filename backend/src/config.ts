@@ -29,7 +29,7 @@ export const config = {
   corsOrigins: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:5173'],
   
   // Frontend URL for links in messages
-  frontendUrl: process.env.FRONTEND_URL || 'http://129.159.133.209:3002',
+  frontendUrl: process.env.FRONTEND_URL || 'https://crm.orma-ai.com',
   
   // Admin seed
   admin: {

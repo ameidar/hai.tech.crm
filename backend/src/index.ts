@@ -42,6 +42,7 @@ import { upsellLeadsRouter } from './routes/upsell-leads.js';
 import { leadAppointmentsRouter } from './routes/lead-appointments.js';
 import { institutionalOrdersRouter } from './routes/institutional-orders.js';
 import { meetingRequestsRouter } from './routes/meeting-requests.js';
+import { devReadOnly } from './middleware/devReadOnly.js';
 
 // API v1 Router
 import { apiV1Router } from './api/v1/index.js';
@@ -118,6 +119,9 @@ app.use('/api', limiter);
 // Body parsing
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Dev read-only protection: non-admin users cannot write in non-production environments
+app.use(devReadOnly);
 
 // =============================================================================
 // API v1 Routes (new versioned API layer)

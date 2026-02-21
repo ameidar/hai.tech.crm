@@ -211,10 +211,31 @@ export async function sendEveningStatusCheck(): Promise<void> {
 }
 
 /**
+ * Normalize phone: 972528746137 or 0528746137 or 528746137 → all formats searchable
+ */
+function normalizePhone(phone: string): string[] {
+  const digits = phone.replace(/\D/g, '');
+  const variants = new Set<string>();
+  variants.add(digits);
+  if (digits.startsWith('972')) {
+    variants.add('0' + digits.slice(3)); // 0528746137
+    variants.add(digits.slice(3));       // 528746137
+  } else if (digits.startsWith('0')) {
+    variants.add('972' + digits.slice(1)); // 972528746137
+    variants.add(digits.slice(1));         // 528746137
+  } else {
+    variants.add('972' + digits);          // 972528746137
+    variants.add('0' + digits);            // 0528746137
+  }
+  return Array.from(variants);
+}
+
+/**
  * Handle incoming WhatsApp status reply from instructor
  */
 export async function handleStatusReply(phone: string, isYes: boolean): Promise<void> {
   try {
+    const phoneVariants = normalizePhone(phone);
     const reminders = await prisma.$queryRaw<any[]>`
       SELECT wsr.id, wsr.meeting_id, wsr.instructor_id,
              i.name as instructor_name, c.name as cycle_name,
@@ -223,7 +244,7 @@ export async function handleStatusReply(phone: string, isYes: boolean): Promise<
       JOIN meetings m ON m.id = wsr.meeting_id
       JOIN instructors i ON i.id = wsr.instructor_id
       JOIN cycles c ON c.id = m.cycle_id
-      WHERE wsr.instructor_phone = ${phone}
+      WHERE wsr.instructor_phone = ANY(${phoneVariants})
         AND wsr.type = 'status_check'
         AND wsr.response IS NULL
         AND wsr.sent_at > NOW() - INTERVAL '12 hours'

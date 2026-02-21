@@ -27,11 +27,9 @@ CREATE TABLE IF NOT EXISTS "message_logs" (
   CONSTRAINT "message_logs_pkey" PRIMARY KEY ("id")
 );
 
--- Seed default templates
+-- Seed default templates (3 templates for instructor messaging)
 INSERT INTO "message_templates" ("name", "body", "channel") VALUES
-  ('תזכורת פגישה מחר', 'שלום {{instructor_name}}, תזכורת: מחר יש לך שיעור "{{cycle_name}}" בסניף {{branch_name}} בשעה {{meeting_time}}. בהצלחה!', 'whatsapp'),
-  ('קישור זום לפגישה', 'שלום {{instructor_name}}, הנה קישור הזום לשיעור "{{cycle_name}}" בשעה {{meeting_time}}: {{zoom_link}}', 'whatsapp'),
-  ('הזמנה למערכת', 'שלום {{instructor_name}}, הוזמנת להתחבר למערכת ניהול השיעורים של דרך ההייטק. לחץ כאן לכניסה: {{login_link}}', 'whatsapp'),
-  ('עדכון כללי', '{{custom_message}}', 'whatsapp'),
-  ('הזמנה למערכת - אימייל', 'שלום {{instructor_name}}, הוזמנת להתחבר למערכת ניהול השיעורים של דרך ההייטק.', 'email')
+  ('תזכורת לשיעור', 'שלום {{instructor_name}}, תזכורת לשיעור היום: {{cycle_name}} | {{branch_name}} | שעה: {{meeting_time}} | זום: {{zoom_link}}', 'whatsapp'),
+  ('תזכורת מילוי סטטוס', 'שלום {{instructor_name}}, נא לעדכן סטטוס השיעור: {{cycle_name}} | {{branch_name}} | שעה: {{meeting_time}} | עדכן כאן: {{status_link}}', 'whatsapp'),
+  ('מלל חופשי', '{{custom_message}}', 'whatsapp')
 ON CONFLICT DO NOTHING;

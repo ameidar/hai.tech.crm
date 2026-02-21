@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS "message_logs" (
 
 -- Seed default templates (3 templates for instructor messaging)
 INSERT INTO "message_templates" ("name", "body", "channel") VALUES
-  ('תזכורת לשיעור', 'שלום {{instructor_name}}, תזכורת לשיעור היום: {{cycle_name}} | {{branch_name}} | שעה: {{meeting_time}} | זום: {{zoom_link}}', 'whatsapp'),
-  ('תזכורת מילוי סטטוס', 'שלום {{instructor_name}}, נא לעדכן סטטוס השיעור: {{cycle_name}} | {{branch_name}} | שעה: {{meeting_time}} | עדכן כאן: {{status_link}}', 'whatsapp'),
+  ('תזכורת לשיעור', E'שלום {{instructor_name}} \U0001F44B\nתזכורת לשיעור היום:\n\U0001F4DA {{cycle_name}}\n\U0001F3EB {{branch_name}}\n\U0001F550 שעה: {{meeting_time}}\n\U0001F517 קישור זום: {{zoom_link}}\n\U0001F511 קוד מנהל: {{zoom_host_key}}\nבהצלחה! \U0001F642', 'whatsapp'),
+  ('תזכורת מילוי סטטוס', E'שלום {{instructor_name}} \U0001F44B\nנא לעדכן סטטוס השיעור:\n\U0001F4DA {{cycle_name}}\n\U0001F3EB {{branch_name}}\n\U0001F550 שעה: {{meeting_time}}\nעדכן כאן: {{status_link}}', 'whatsapp'),
   ('מלל חופשי', '{{custom_message}}', 'whatsapp')
 ON CONFLICT DO NOTHING;

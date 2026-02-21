@@ -11,16 +11,19 @@ export const webhookRouter = Router();
 
 // API Key authentication middleware
 const apiKeyAuth = (req: Request, _res: Response, next: NextFunction) => {
+  // Green API incoming webhook — no auth needed (public endpoint)
+  if (req.path === '/whatsapp-incoming') return next();
+
   const apiKey = req.headers['x-api-key'] as string;
-  
+
   if (!apiKey) {
     return next(new AppError(401, 'API key required'));
   }
-  
+
   if (apiKey !== config.apiKey) {
     return next(new AppError(401, 'Invalid API key'));
   }
-  
+
   next();
 };
 
@@ -31,7 +34,7 @@ webhookRouter.use(apiKeyAuth);
 webhookRouter.get('/cycles/search', async (req, res, next) => {
   try {
     const name = req.query.name as string;
-    
+
     if (!name) {
       throw new AppError(400, 'name query parameter is required');
     }
@@ -87,7 +90,7 @@ webhookRouter.get('/cycles/:id/meeting', async (req, res, next) => {
   try {
     const cycleId = req.params.id;
     const dateParam = req.query.date as string;
-    
+
     // Parse date or use today
     let targetDate: Date;
     if (dateParam) {
@@ -96,7 +99,7 @@ webhookRouter.get('/cycles/:id/meeting', async (req, res, next) => {
       targetDate = new Date();
     }
     targetDate.setHours(0, 0, 0, 0);
-    
+
     const nextDay = new Date(targetDate);
     nextDay.setDate(nextDay.getDate() + 1);
 
@@ -242,7 +245,7 @@ webhookRouter.post('/cycles/:id/zoom', async (req, res, next) => {
     const updates = await Promise.all(
       meetings.map(async (m: { meetingId: string; zoomMeetingId?: string; zoomJoinUrl: string; zoomStartUrl?: string }) => {
         return prisma.meeting.update({
-          where: { 
+          where: {
             id: m.meetingId,
             cycleId, // Ensure meeting belongs to cycle
           },
@@ -319,10 +322,10 @@ webhookRouter.get('/cycles/:id/meetings', async (req, res, next) => {
 // POST /api/webhook/leads
 webhookRouter.post('/leads', async (req, res, next) => {
   try {
-    const { 
-      name, 
-      phone, 
-      email, 
+    const {
+      name,
+      phone,
+      email,
       city,
       notes,
       source = 'website',
@@ -372,7 +375,7 @@ webhookRouter.post('/leads', async (req, res, next) => {
       const customer = await prisma.customer.update({
         where: { id: existingCustomer.id },
         data: {
-          notes: existingCustomer.notes 
+          notes: existingCustomer.notes
             ? `${existingCustomer.notes}\n---\n[${new Date().toISOString()}] ${source}: ${noteText}`
             : `[${new Date().toISOString()}] ${source}: ${noteText}`,
         },
@@ -426,7 +429,7 @@ webhookRouter.post('/leads', async (req, res, next) => {
 
     // Build student data from either students array or childName/childAge
     let studentsToCreate: Array<{ name: string; birthDate?: Date | null; grade?: string | null; notes?: string }> = [];
-    
+
     if (students && Array.isArray(students) && students.length > 0) {
       studentsToCreate = students.map((s: { name: string; birthDate?: string; grade?: string }) => ({
         name: s.name,
@@ -450,7 +453,7 @@ webhookRouter.post('/leads', async (req, res, next) => {
         email: email || null,
         city: city || null,
         notes: `[${new Date().toISOString()}] ${source}: ${noteText}`,
-        students: studentsToCreate.length > 0 
+        students: studentsToCreate.length > 0
           ? { create: studentsToCreate }
           : undefined,
       },
@@ -704,7 +707,7 @@ webhookRouter.patch('/meetings/:id', async (req, res, next) => {
     const meetingId = req.params.id;
     const allowedFields = ['zoomMeetingId', 'zoomJoinUrl', 'zoomStartUrl', 'topic', 'notes', 'status'];
     const validStatuses = ['scheduled', 'completed', 'cancelled', 'postponed'];
-    
+
     const updateData: Record<string, any> = {};
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) {

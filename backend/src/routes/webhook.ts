@@ -3,6 +3,7 @@ import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { config } from '../config.js';
 import { sendWelcomeNotifications, notifyAdminNewLead } from '../services/notifications.js';
+import { handleStatusReply } from '../services/whatsapp-reminder.service.js';
 import { logAudit } from '../utils/audit.js';
 import { initiateVapiCall } from '../services/vapi.js';
 
@@ -738,5 +739,61 @@ webhookRouter.patch('/meetings/:id', async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+});
+
+// ==================== Incoming WhatsApp (Green API) ====================
+// POST /api/webhook/whatsapp-incoming
+webhookRouter.post('/whatsapp-incoming', async (req: Request, res: Response) => {
+  // Always return 200 quickly to Green API
+  res.json({ received: true });
+
+  try {
+    const body = req.body;
+    const typeWebhook = body?.typeWebhook;
+
+    // Only handle incoming messages
+    if (typeWebhook !== 'incomingMessageReceived') return;
+
+    const chatId: string = body?.senderData?.chatId || '';
+    // Extract phone number (remove @c.us)
+    const phone = chatId.replace('@c.us', '').replace('@g.us', '');
+    if (!phone || chatId.includes('@g.us')) return; // ignore group messages
+
+    const msgType = body?.messageData?.typeMessage;
+    let isYes: boolean | null = null;
+    let rawMessage = '';
+
+    if (msgType === 'pollUpdateMessage') {
+      // Handle poll vote
+      const votes = body?.messageData?.pollUpdateMessageData?.stateMessage?.votes || [];
+      for (const vote of votes) {
+        const voters = vote?.optionVoters || [];
+        if (voters.some((v: string) => v.includes(phone))) {
+          rawMessage = vote?.optionName || '';
+          if (rawMessage.includes('כן') || rawMessage.toLowerCase().includes('yes')) {
+            isYes = true;
+          } else if (rawMessage.includes('לא') || rawMessage.toLowerCase().includes('no')) {
+            isYes = false;
+          }
+        }
+      }
+    } else if (msgType === 'textMessage') {
+      rawMessage = body?.messageData?.textMessageData?.textMessage || '';
+      const lower = rawMessage.toLowerCase().trim();
+      if (/^(כן|כ|נכון|yes|y|עברתי|העברתי|✅)/.test(lower)) {
+        isYes = true;
+      } else if (/^(לא|ל|no|n|לא עברתי|❌)/.test(lower)) {
+        isYes = false;
+      }
+    }
+
+    if (isYes !== null) {
+      await handleStatusReply(phone, isYes);
+    } else {
+      console.log(`[WhatsApp] Unrecognized incoming message from ${phone}: "${rawMessage}"`);
+    }
+  } catch (error: any) {
+    console.error('[WhatsApp] Error processing incoming message:', error.message);
   }
 });

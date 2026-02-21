@@ -41,6 +41,17 @@ export default function SendMessageModal({ instructor, onClose }: SendMessageMod
   // Get selected template
   const selectedTemplate = templates?.find((t: MessageTemplate) => t.id === templateId);
 
+  // Reset meeting selection when template changes
+  useEffect(() => {
+    setSelectedMeetingId('');
+    setCustomMessage('');
+  }, [templateId]);
+
+  // Check if template needs a meeting selection
+  const needsMeeting = !!selectedTemplate?.body?.includes('{{cycle_name}}');
+  // Check if template needs a custom message
+  const needsCustomMessage = !!selectedTemplate?.body?.includes('{{custom_message}}');
+
   // Update preview when template or meeting changes
   useEffect(() => {
     if (!selectedTemplate || !instructor) {
@@ -65,7 +76,9 @@ export default function SendMessageModal({ instructor, onClose }: SendMessageMod
         text = text.replace(/{{course_name}}/g, meeting.cycle?.course?.name || '');
         text = text.replace(/{{meeting_time}}/g, formatTime(meeting.startTime));
         text = text.replace(/{{meeting_date}}/g, new Date(meeting.scheduledDate).toLocaleDateString('he-IL'));
-        text = text.replace(/{{meeting_link}}/g, `${window.location.origin}/instructor/meeting/${meeting.id}`);
+        text = text.replace(/{{zoom_link}}/g, meeting.zoomJoinUrl || 'אין קישור זום');
+        text = text.replace(/{{status_link}}/g, `${window.location.origin}/meetings/${meeting.id}`);
+        text = text.replace(/{{meeting_link}}/g, `${window.location.origin}/meetings/${meeting.id}`);
       }
     }
     
@@ -182,7 +195,7 @@ export default function SendMessageModal({ instructor, onClose }: SendMessageMod
         </div>
 
         {/* Meeting Selection (for templates that need it) */}
-        {selectedTemplate?.placeholders?.includes('cycle_name') && todayMeetings && todayMeetings.length > 0 && (
+        {needsMeeting && todayMeetings && todayMeetings.length > 0 && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">בחר שיעור</label>
             <select
@@ -200,8 +213,15 @@ export default function SendMessageModal({ instructor, onClose }: SendMessageMod
           </div>
         )}
 
+        {/* No meetings today warning */}
+        {needsMeeting && todayMeetings && todayMeetings.length === 0 && (
+          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-700">
+            ⚠️ אין שיעורים למדריך זה היום
+          </div>
+        )}
+
         {/* Custom Subject (for email with free text) */}
-        {channel === 'email' && templateId === 'tpl-free-text' && (
+        {channel === 'email' && needsCustomMessage && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">נושא</label>
             <input
@@ -215,7 +235,7 @@ export default function SendMessageModal({ instructor, onClose }: SendMessageMod
         )}
 
         {/* Custom Message (for templates that need it) */}
-        {(templateId === 'tpl-free-text' || templateId === 'tpl-general-whatsapp' || templateId === 'tpl-general-email') && (
+        {needsCustomMessage && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">הודעה</label>
             <textarea
@@ -250,7 +270,12 @@ export default function SendMessageModal({ instructor, onClose }: SendMessageMod
           </button>
           <button
             onClick={handleSend}
-            disabled={!templateId || sendMessage.isPending || (templateId === 'tpl-free-text' && !customMessage)}
+            disabled={
+            !templateId ||
+            sendMessage.isPending ||
+            (needsCustomMessage && !customMessage) ||
+            (needsMeeting && !selectedMeetingId)
+          }
             className="btn btn-primary flex items-center gap-2"
           >
             {sendMessage.isPending ? (

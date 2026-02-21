@@ -104,7 +104,15 @@ export default function Meetings() {
     },
     'instructor.name': {
       label: 'מדריך',
-      render: (m) => m.instructor?.name || '-'
+      render: (m) => m.instructor ? (
+        <Link
+          to={`/instructors?search=${encodeURIComponent(m.instructor.name)}`}
+          className="text-blue-600 hover:underline"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {m.instructor.name}
+        </Link>
+      ) : '-'
     },
     status: {
       label: 'סטטוס',
@@ -626,7 +634,15 @@ export default function Meetings() {
                   </div>
                   <p className="text-sm text-blue-600 font-medium">{meeting.cycle?.name || '-'}</p>
                   <div className="flex items-center justify-between mt-1">
-                    <span className="text-sm text-gray-600">{meeting.instructor?.name || '-'}</span>
+                    {meeting.instructor ? (
+                      <Link
+                        to={`/instructors?search=${encodeURIComponent(meeting.instructor.name)}`}
+                        className="text-sm text-blue-600 hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {meeting.instructor.name}
+                      </Link>
+                    ) : <span className="text-sm text-gray-600">-</span>}
                     {meeting.status === 'completed' && (
                       <span className="text-xs text-green-600">₪{(meeting.revenue || 0).toLocaleString()}</span>
                     )}

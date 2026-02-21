@@ -160,7 +160,7 @@ messagingRouter.post('/send', async (req, res, next) => {
     
     if (template) {
       messageBody = replacePlaceholders(template.body, placeholderData);
-      subject = template.subject ? replacePlaceholders(template.subject, placeholderData) : '';
+      if (template.subject) subject = replacePlaceholders(template.subject, placeholderData);
     }
     
     // Send message

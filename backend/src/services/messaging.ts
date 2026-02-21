@@ -160,7 +160,7 @@ export async function sendWhatsAppPoll(params: {
     return { success: false, error: 'Green API not configured' };
   }
 
-  const chatId = formatPhoneForWhatsApp(params.phone);
+  const chatId = formatPhoneForWhatsApp(params.phone) + '@c.us';
   const url = `${GREEN_API_BASE}/sendPoll/${GREEN_API_TOKEN}`;
 
   try {

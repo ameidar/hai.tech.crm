@@ -46,7 +46,7 @@ const sendInstructorReminders = async () => {
     // Get today's meetings with instructors
     const meetings = await prisma.meeting.findMany({
       where: {
-        startTime: {
+        scheduledDate: {
           gte: today,
           lt: tomorrow,
         },
@@ -75,8 +75,8 @@ const sendInstructorReminders = async () => {
       const data: InstructorReminderData = {
         instructorName: instructor.name,
         className: meeting.cycle.course.name,
-        date: formatDateHebrew(meeting.startTime),
-        time: formatTimeHebrew(meeting.startTime),
+        date: formatDateHebrew(meeting.scheduledDate),
+        time: meeting.startTime ? formatTimeHebrew(meeting.startTime as unknown as Date) : '',
         location: meeting.cycle.branch?.name || 'אונליין',
         studentCount: meeting.cycle.registrations.length,
         zoomLink: meeting.zoomJoinUrl || undefined,
@@ -112,7 +112,7 @@ const sendParentReminders = async () => {
     // Get tomorrow's meetings with students
     const meetings = await prisma.meeting.findMany({
       where: {
-        startTime: {
+        scheduledDate: {
           gte: tomorrow,
           lt: dayAfter,
         },
@@ -155,8 +155,8 @@ const sendParentReminders = async () => {
           parentName: parent.name,
           studentName: student.name,
           className: meeting.cycle.course.name,
-          date: formatDateHebrew(meeting.startTime),
-          time: formatTimeHebrew(meeting.startTime),
+          date: formatDateHebrew(meeting.scheduledDate),
+          time: meeting.startTime ? formatTimeHebrew(meeting.startTime as unknown as Date) : '',
           location: meeting.cycle.branch?.name || 'אונליין',
           instructorName: meeting.cycle.instructor?.name || 'צוות HaiTech',
           isOnline,
@@ -196,25 +196,25 @@ const sendManagementSummary = async () => {
     const [todayMeetings, completedMeetings, cancelledMeetings, attendanceRecords] = await Promise.all([
       prisma.meeting.count({
         where: {
-          startTime: { gte: today, lt: tomorrow },
+          scheduledDate: { gte: today, lt: tomorrow },
         },
       }),
       prisma.meeting.count({
         where: {
-          startTime: { gte: today, lt: tomorrow },
+          scheduledDate: { gte: today, lt: tomorrow },
           status: 'completed',
         },
       }),
       prisma.meeting.count({
         where: {
-          startTime: { gte: today, lt: tomorrow },
+          scheduledDate: { gte: today, lt: tomorrow },
           status: 'cancelled',
         },
       }),
       prisma.attendance.count({
         where: {
           meeting: {
-            startTime: { gte: today, lt: tomorrow },
+            scheduledDate: { gte: today, lt: tomorrow },
           },
           status: 'present',
         },
@@ -227,7 +227,7 @@ const sendManagementSummary = async () => {
 
     const upcomingMeetings = await prisma.meeting.findMany({
       where: {
-        startTime: { gte: tomorrow, lt: threeDaysLater },
+        scheduledDate: { gte: tomorrow, lt: threeDaysLater },
         status: 'scheduled',
       },
       include: {
@@ -240,14 +240,14 @@ const sendManagementSummary = async () => {
         },
       },
       take: 10,
-      orderBy: { startTime: 'asc' },
+      orderBy: { scheduledDate: 'asc' },
     });
 
     // Calculate attendance rate
     const totalExpectedAttendance = await prisma.attendance.count({
       where: {
         meeting: {
-          startTime: { gte: today, lt: tomorrow },
+          scheduledDate: { gte: today, lt: tomorrow },
         },
       },
     });
@@ -273,7 +273,7 @@ const sendManagementSummary = async () => {
       attendanceRate,
       upcomingClasses: upcomingMeetings.map(m => ({
         name: m.cycle.course.name,
-        date: formatDateHebrew(m.startTime),
+        date: formatDateHebrew(m.scheduledDate),
         instructor: m.cycle.instructor?.name || 'לא משויך',
         students: m.cycle.registrations.length,
       })),

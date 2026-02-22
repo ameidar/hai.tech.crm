@@ -108,9 +108,12 @@ export default function Layout() {
         ))}
       </nav>
 
-      {/* Version */}
+      {/* Version + Build Time */}
       <div className="px-4 py-1 text-center">
         <span className="text-xs text-slate-500">v2.1</span>
+        <span className="text-xs text-slate-600 block" title="זמן build">
+          {new Date(__BUILD_TIME__).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+        </span>
       </div>
 
       {/* User section */}

@@ -5,7 +5,7 @@ export type OrderStatus = 'draft' | 'active' | 'completed' | 'cancelled';
 export type CycleType = 'private' | 'institutional_per_child' | 'institutional_fixed';
 export type CycleStatus = 'active' | 'completed' | 'cancelled';
 export type DayOfWeek = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday';
-export type MeetingStatus = 'scheduled' | 'completed' | 'cancelled' | 'postponed';
+export type MeetingStatus = 'scheduled' | 'completed' | 'cancelled' | 'postponed' | 'pending_cancellation' | 'pending_postponement';
 export type RegistrationStatus = 'registered' | 'active' | 'completed' | 'pending_cancellation' | 'cancelled';
 export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
 export type PaymentMethod = 'credit' | 'transfer' | 'cash';
@@ -275,6 +275,8 @@ export const meetingStatusHebrew: Record<MeetingStatus, string> = {
   completed: 'הושלם',
   cancelled: 'בוטל',
   postponed: 'נדחה',
+  pending_cancellation: 'בקשת ביטול',
+  pending_postponement: 'בקשת דחיה',
 };
 
 export const cycleStatusHebrew: Record<CycleStatus, string> = {

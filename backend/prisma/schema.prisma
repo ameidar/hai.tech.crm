@@ -103,6 +103,8 @@ enum MeetingStatus {
   completed
   cancelled
   postponed
+  pending_cancellation
+  pending_postponement
 }
 
 enum AttendanceStatus {

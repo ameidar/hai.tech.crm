@@ -239,11 +239,16 @@ const start = async () => {
 
     // Initialize email services
     initEmailQueue();
-    initEmailScheduler();
-    initCancellationScheduler();
+    if (process.env.DISABLE_CRON === 'true') {
+      console.log('⚠️  DISABLE_CRON=true — schedulers disabled (dev mode)');
+    } else {
+      initEmailScheduler();
+      initCancellationScheduler();
+    }
 
     app.listen(config.port, () => {
       console.log(`🚀 HaiTech CRM API running on port ${config.port}`);
+      console.log(`🌿 Branch: dev | build: ${new Date().toISOString().slice(0,10)}`);
       console.log(`📍 Health check: http://localhost:${config.port}/api/health`);
     });
   } catch (error) {

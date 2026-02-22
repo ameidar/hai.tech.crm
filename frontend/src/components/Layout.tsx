@@ -110,7 +110,7 @@ export default function Layout() {
 
       {/* Version */}
       <div className="px-4 py-1 text-center">
-        <span className="text-xs text-slate-500">v2.0</span>
+        <span className="text-xs text-slate-500">v2.1</span>
       </div>
 
       {/* User section */}

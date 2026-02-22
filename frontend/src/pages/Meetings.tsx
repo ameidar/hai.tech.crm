@@ -23,6 +23,7 @@ import MeetingDetailModal from '../components/MeetingDetailModal';
 import MeetingEditModal from '../components/MeetingEditModal';
 import BulkMeetingEditModal, { type BulkMeetingUpdateData } from '../components/BulkMeetingEditModal';
 import ViewSelector from '../components/ViewSelector';
+import PendingMeetingRequests from '../components/PendingMeetingRequests';
 import { meetingStatusHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
@@ -342,6 +343,9 @@ export default function Meetings() {
         return 'badge-danger';
       case 'postponed':
         return 'badge-warning';
+      case 'pending_cancellation':
+      case 'pending_postponement':
+        return 'badge-warning';
       default:
         return 'badge-info';
     }
@@ -455,6 +459,9 @@ export default function Meetings() {
       />
 
       <div className="flex-1 p-4 md:p-6 overflow-auto">
+        {/* Pending requests banner - Admin only */}
+        {isAdmin && <PendingMeetingRequests />}
+
         {/* Bulk Actions Bar - Admin only */}
         {someSelected && isAdmin && (
           <div className="mb-4 p-4 bg-blue-600 text-white rounded-lg flex items-center gap-4 flex-wrap animate-in slide-in-from-top">

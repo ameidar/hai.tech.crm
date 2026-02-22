@@ -14,6 +14,9 @@ import {
   getDailyMeetingsForInstructors 
 } from '../services/instructor-reminder.service.js';
 import { authenticate, adminOnly } from '../middleware/auth.js';
+import { sendWhatsAppMessage } from '../services/notifications.js';
+
+const ADMIN_PHONE = '0528746137';
 
 const router = Router();
 
@@ -166,7 +169,7 @@ router.get('/verify/:meetingId/:token', async (req: Request, res: Response) => {
 router.post('/update/:meetingId/:token', async (req: Request, res: Response) => {
   try {
     const { meetingId, token } = req.params;
-    const { status, topic, attendance } = req.body;
+    const { status, topic, attendance, requestReason } = req.body;
     
     const verification = verifyMeetingMagicLink(token);
     
@@ -177,17 +180,31 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
     // Verify meeting belongs to instructor
     const meeting = await prisma.meeting.findUnique({
       where: { id: meetingId },
-      select: { instructorId: true }
+      include: {
+        instructor: { select: { name: true, phone: true } },
+        cycle: { 
+          include: {
+            branch: { select: { name: true } },
+            course: { select: { name: true } },
+          }
+        }
+      }
     });
     
     if (!meeting || meeting.instructorId !== verification.instructorId) {
       return res.status(403).json({ error: 'FORBIDDEN' });
     }
+
+    const isPendingRequest = status === 'pending_cancellation' || status === 'pending_postponement';
     
     // Update meeting
     const updates: any = {};
     if (status) updates.status = status;
     if (topic !== undefined) updates.topic = topic;
+    // Store request reason in notes for pending requests
+    if (isPendingRequest && requestReason) {
+      updates.notes = requestReason;
+    }
     
     if (Object.keys(updates).length > 0) {
       await prisma.meeting.update({
@@ -196,8 +213,8 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
       });
     }
     
-    // Update attendance
-    if (attendance && Array.isArray(attendance)) {
+    // Update attendance (only for completed meetings)
+    if (status !== 'pending_cancellation' && status !== 'pending_postponement' && attendance && Array.isArray(attendance)) {
       for (const record of attendance) {
         if (!record.registrationId || !record.status) continue;
         
@@ -221,11 +238,122 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
         });
       }
     }
+
+    // Send WhatsApp notification to admin for pending requests
+    if (isPendingRequest) {
+      try {
+        const requestType = status === 'pending_cancellation' ? 'ביטול' : 'דחיה';
+        const dateStr = new Date(meeting.scheduledDate).toLocaleDateString('he-IL', { 
+          weekday: 'long', day: 'numeric', month: 'long' 
+        });
+        const message = `⚠️ *בקשת ${requestType} מחכה לאישור*\n\n` +
+          `👩‍🏫 מדריך: ${meeting.instructor?.name}\n` +
+          `📚 ${meeting.cycle?.course?.name} - ${meeting.cycle?.name}\n` +
+          `📍 ${meeting.cycle?.branch?.name || 'לא ידוע'}\n` +
+          `📅 ${dateStr}\n` +
+          (requestReason ? `\n💬 סיבה: ${requestReason}\n` : '') +
+          `\n🔗 לאישור/דחיית הבקשה היכנס למערכת`;
+        
+        await sendWhatsAppMessage(ADMIN_PHONE, message);
+      } catch (notifyErr) {
+        console.error('Failed to send admin notification:', notifyErr);
+        // Don't fail the request if notification fails
+      }
+    }
     
     res.json({ success: true });
     
   } catch (error) {
     console.error('Error updating via magic link:', error);
+    res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+/**
+ * GET /api/instructor-magic/pending-requests
+ * Get all meetings pending cancellation or postponement approval (admin only)
+ */
+router.get('/pending-requests', authenticate, adminOnly, async (_req: Request, res: Response) => {
+  try {
+    const pending = await prisma.meeting.findMany({
+      where: {
+        status: { in: ['pending_cancellation', 'pending_postponement'] },
+        deletedAt: null,
+      },
+      include: {
+        instructor: { select: { id: true, name: true, phone: true } },
+        cycle: {
+          include: {
+            branch: { select: { id: true, name: true } },
+            course: { select: { id: true, name: true } },
+          }
+        }
+      },
+      orderBy: { scheduledDate: 'asc' },
+    });
+    
+    res.json({ requests: pending });
+  } catch (error) {
+    console.error('Error fetching pending requests:', error);
+    res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+/**
+ * POST /api/instructor-magic/approve-request/:meetingId
+ * Approve a pending cancellation/postponement request (admin only)
+ */
+router.post('/approve-request/:meetingId', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { meetingId } = req.params;
+    const { action, adminNotes } = req.body; // action: 'approve' | 'reject'
+    
+    const meeting = await prisma.meeting.findUnique({
+      where: { id: meetingId },
+      include: { instructor: { select: { name: true, phone: true } } }
+    });
+    
+    if (!meeting) {
+      return res.status(404).json({ error: 'NOT_FOUND' });
+    }
+    
+    if (meeting.status !== 'pending_cancellation' && meeting.status !== 'pending_postponement') {
+      return res.status(400).json({ error: 'NOT_PENDING', message: 'הפגישה אינה ממתינה לאישור' });
+    }
+    
+    let newStatus: string;
+    if (action === 'approve') {
+      newStatus = meeting.status === 'pending_cancellation' ? 'cancelled' : 'postponed';
+    } else {
+      newStatus = 'scheduled'; // Rejected — revert to scheduled
+    }
+    
+    await prisma.meeting.update({
+      where: { id: meetingId },
+      data: { 
+        status: newStatus as any,
+        notes: adminNotes || meeting.notes,
+      },
+    });
+    
+    // Notify instructor via WhatsApp
+    try {
+      if (meeting.instructor?.phone) {
+        const requestType = meeting.status === 'pending_cancellation' ? 'ביטול' : 'דחיה';
+        const approved = action === 'approve';
+        const icon = approved ? '✅' : '❌';
+        const message = `${icon} *בקשת ה${requestType} שלך ${approved ? 'אושרה' : 'לא אושרה'}*\n\n` +
+          `📅 הפגישה בתאריך ${new Date(meeting.scheduledDate).toLocaleDateString('he-IL')}\n` +
+          (adminNotes ? `💬 הערת מנהל: ${adminNotes}` : '');
+        await sendWhatsAppMessage(meeting.instructor.phone, message);
+      }
+    } catch (notifyErr) {
+      console.error('Failed to notify instructor:', notifyErr);
+    }
+    
+    res.json({ success: true, newStatus });
+  } catch (error) {
+    console.error('Error approving request:', error);
     res.status(500).json({ error: 'INTERNAL_ERROR' });
   }
 });

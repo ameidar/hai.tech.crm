@@ -14,7 +14,9 @@ import {
   Save,
   Loader2,
   AlertCircle,
-  ExternalLink
+  ExternalLink,
+  CalendarX,
+  Ban
 } from 'lucide-react';
 import Loading from '../components/ui/Loading';
 import type { MeetingStatus } from '../types';
@@ -74,6 +76,10 @@ export default function InstructorMagicMeeting() {
   const [topic, setTopic] = useState('');
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
+  const [requestReason, setRequestReason] = useState('');
+  
+  const isRequestStatus = (s: MeetingStatus) => 
+    s === 'pending_cancellation' || s === 'pending_postponement';
 
   // Fetch meeting data
   useEffect(() => {
@@ -135,6 +141,12 @@ export default function InstructorMagicMeeting() {
   const handleSave = async () => {
     if (!meetingId || !token) return;
     
+    // Require reason for cancellation/postponement requests
+    if (isRequestStatus(status) && !requestReason.trim()) {
+      alert('יש להזין סיבה לבקשה');
+      return;
+    }
+    
     setSaving(true);
     try {
       const response = await fetch(`/api/instructor-magic/update/${meetingId}/${token}`, {
@@ -143,6 +155,7 @@ export default function InstructorMagicMeeting() {
         body: JSON.stringify({
           status,
           topic,
+          requestReason: isRequestStatus(status) ? requestReason : undefined,
           attendance: attendance.filter(a => a.status).map(a => ({
             registrationId: a.registrationId,
             studentId: a.studentId,
@@ -244,30 +257,69 @@ export default function InstructorMagicMeeting() {
         {/* Status Selection */}
         <div>
           <h2 className="text-sm font-medium text-gray-700 mb-3">סטטוס השיעור</h2>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3">
+            {/* Completed */}
             <button
-              onClick={() => { setStatus('completed'); setHasChanges(true); setSaved(false); }}
-              className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all ${
+              onClick={() => { setStatus('completed'); setHasChanges(true); setSaved(false); setRequestReason(''); }}
+              className={`p-4 rounded-2xl border-2 flex items-center gap-3 transition-all ${
                 status === 'completed'
                   ? 'border-green-500 bg-green-50 text-green-700'
                   : 'border-gray-200 text-gray-600'
               }`}
             >
               <CheckCircle2 size={28} />
-              <span className="font-medium">הושלם</span>
+              <div className="text-right">
+                <div className="font-medium">הושלם ✅</div>
+                <div className="text-xs opacity-70">השיעור התקיים כרגיל</div>
+              </div>
             </button>
+            {/* Request cancellation */}
             <button
-              onClick={() => { setStatus('cancelled'); setHasChanges(true); setSaved(false); }}
-              className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all ${
-                status === 'cancelled'
+              onClick={() => { setStatus('pending_cancellation'); setHasChanges(true); setSaved(false); }}
+              className={`p-4 rounded-2xl border-2 flex items-center gap-3 transition-all ${
+                status === 'pending_cancellation'
                   ? 'border-red-500 bg-red-50 text-red-700'
                   : 'border-gray-200 text-gray-600'
               }`}
             >
-              <XCircle size={28} />
-              <span className="font-medium">בוטל</span>
+              <Ban size={28} />
+              <div className="text-right">
+                <div className="font-medium">בקשת ביטול ❌</div>
+                <div className="text-xs opacity-70">בקשה לביטול — תישלח לאישור מנהל</div>
+              </div>
+            </button>
+            {/* Request postponement */}
+            <button
+              onClick={() => { setStatus('pending_postponement'); setHasChanges(true); setSaved(false); }}
+              className={`p-4 rounded-2xl border-2 flex items-center gap-3 transition-all ${
+                status === 'pending_postponement'
+                  ? 'border-orange-500 bg-orange-50 text-orange-700'
+                  : 'border-gray-200 text-gray-600'
+              }`}
+            >
+              <CalendarX size={28} />
+              <div className="text-right">
+                <div className="font-medium">בקשת דחיה ⏳</div>
+                <div className="text-xs opacity-70">בקשה לדחיית השיעור — תישלח לאישור מנהל</div>
+              </div>
             </button>
           </div>
+
+          {/* Reason field for requests */}
+          {isRequestStatus(status) && (
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                סיבה לבקשה <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={requestReason}
+                onChange={(e) => { setRequestReason(e.target.value); setHasChanges(true); setSaved(false); }}
+                placeholder={status === 'pending_cancellation' ? 'למה צריך לבטל? (חובה)' : 'למה צריך לדחות? (חובה)'}
+                rows={2}
+                className="w-full p-3 rounded-xl border border-gray-200 text-base text-gray-900 bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none resize-none"
+              />
+            </div>
+          )}
         </div>
 
         {/* Topic Input */}
@@ -281,7 +333,7 @@ export default function InstructorMagicMeeting() {
             value={topic}
             onChange={(e) => { setTopic(e.target.value); setHasChanges(true); setSaved(false); }}
             placeholder="לדוגמה: לולאות ותנאים, פרויקט משחק..."
-            className="w-full p-4 rounded-2xl border border-gray-200 text-lg focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none"
+            className="w-full p-4 rounded-2xl border border-gray-200 text-lg text-gray-900 bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none"
           />
         </div>
 
@@ -367,8 +419,14 @@ export default function InstructorMagicMeeting() {
 
         {/* Success Message */}
         {saved && (
-          <div className="bg-green-50 border border-green-200 rounded-2xl p-4 text-center text-green-700">
-            ✅ נשמר בהצלחה!
+          <div className={`border rounded-2xl p-4 text-center ${
+            isRequestStatus(status)
+              ? 'bg-orange-50 border-orange-200 text-orange-700'
+              : 'bg-green-50 border-green-200 text-green-700'
+          }`}>
+            {isRequestStatus(status)
+              ? '📨 הבקשה נשלחה למנהל לאישור!'
+              : '✅ נשמר בהצלחה!'}
           </div>
         )}
       </div>

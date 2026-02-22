@@ -190,6 +190,26 @@ export default function Layout() {
       <main className="flex-1 flex flex-col min-h-0">
         <Outlet />
       </main>
+
+      {/* DEV branch indicator */}
+      {import.meta.env.VITE_BRANCH === 'dev' && (
+        <div style={{
+          position: 'fixed',
+          bottom: '12px',
+          left: '12px',
+          background: '#f59e0b',
+          color: '#1c1917',
+          fontSize: '11px',
+          fontWeight: 700,
+          padding: '3px 10px',
+          borderRadius: '999px',
+          zIndex: 9999,
+          letterSpacing: '0.05em',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+        }}>
+          🌿 DEV
+        </div>
+      )}
     </div>
   );
 }

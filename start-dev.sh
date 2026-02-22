@@ -14,6 +14,15 @@ sg docker -c "docker compose up -d db redis" 2>/dev/null || docker compose up -d
 # Wait for DB
 sleep 2
 
+# Build frontend
+echo "🔨 Building frontend..."
+cd "$REPO_DIR/frontend"
+npm run build
+echo "📋 Copying frontend build..."
+rm -rf "$REPO_DIR/backend/frontend-dist/"*
+cp -r "$REPO_DIR/frontend/dist/"* "$REPO_DIR/backend/frontend-dist/"
+echo "✅ Frontend ready"
+
 # Kill old backend if running
 pkill -f "haitech.*index.ts" 2>/dev/null || true
 sleep 1

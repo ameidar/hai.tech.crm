@@ -596,11 +596,11 @@ export default function CycleDetail() {
     }
   };
 
-  const handleUpdateMeetingData = async (meetingId: string, data: { status?: MeetingStatus; instructorId?: string; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; activityType?: ActivityType }) => {
+  const handleUpdateMeetingData = async (meetingId: string, data: { status?: MeetingStatus; instructorId?: string; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; activityType?: ActivityType; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => {
     try {
       await updateMeeting.mutateAsync({
         id: meetingId,
-        data,
+        data: data as any,
       });
       setSelectedMeeting(null);
     } catch (error) {
@@ -1929,7 +1929,7 @@ interface MeetingUpdateFormProps {
   instructors: { id: string; name: string; isActive: boolean }[];
   defaultInstructorId?: string;
   defaultActivityType?: ActivityType;
-  onUpdate: (data: { status?: MeetingStatus; instructorId?: string; activityType?: ActivityType; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string }) => void;
+  onUpdate: (data: { status?: MeetingStatus; instructorId?: string; activityType?: ActivityType; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => void;
   onCancel: () => void;
   isLoading?: boolean;
   isAdmin?: boolean;
@@ -1962,6 +1962,9 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
   const [scheduledDate, setScheduledDate] = useState(formatDateForInput(meeting.scheduledDate));
   const [startTime, setStartTime] = useState(formatTimeForInput(meeting.startTime));
   const [endTime, setEndTime] = useState(formatTimeForInput(meeting.endTime));
+  const [zoomJoinUrl, setZoomJoinUrl] = useState((meeting as any).zoomJoinUrl || '');
+  const [zoomMeetingId, setZoomMeetingId] = useState((meeting as any).zoomMeetingId || '');
+  const [zoomHostKey, setZoomHostKey] = useState((meeting as any).zoomHostKey || '');
 
   const formatDateDisplay = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('he-IL', {
@@ -1985,6 +1988,9 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
       scheduledDate: scheduledDate !== originalDate ? scheduledDate : undefined,
       startTime: startTime !== originalStart ? startTime : undefined,
       endTime: endTime !== originalEnd ? endTime : undefined,
+      zoomJoinUrl: zoomJoinUrl !== ((meeting as any).zoomJoinUrl || '') ? (zoomJoinUrl || null) : undefined,
+      zoomMeetingId: zoomMeetingId !== ((meeting as any).zoomMeetingId || '') ? (zoomMeetingId || null) : undefined,
+      zoomHostKey: zoomHostKey !== ((meeting as any).zoomHostKey || '') ? (zoomHostKey || null) : undefined,
     });
   };
 
@@ -2126,6 +2132,53 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
           placeholder="הערות נוספות..."
         />
       </div>
+
+      {/* Zoom Fields - Admin only */}
+      {isAdmin && (
+        <div className="border-t pt-4">
+          <h4 className="font-medium text-gray-900 flex items-center gap-2 mb-3">
+            <Video size={18} className="text-blue-600" />
+            פרטי Zoom
+          </h4>
+          <div className="space-y-3">
+            <div>
+              <label className="form-label">לינק לכניסה (Join URL)</label>
+              <input
+                type="url"
+                value={zoomJoinUrl}
+                onChange={(e) => setZoomJoinUrl(e.target.value)}
+                className="form-input"
+                placeholder="https://zoom.us/j/..."
+                dir="ltr"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="form-label">Meeting ID</label>
+                <input
+                  type="text"
+                  value={zoomMeetingId}
+                  onChange={(e) => setZoomMeetingId(e.target.value)}
+                  className="form-input"
+                  placeholder="123 456 7890"
+                  dir="ltr"
+                />
+              </div>
+              <div>
+                <label className="form-label">קוד מארח (Host Key)</label>
+                <input
+                  type="text"
+                  value={zoomHostKey}
+                  onChange={(e) => setZoomHostKey(e.target.value)}
+                  className="form-input"
+                  placeholder="123456"
+                  dir="ltr"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Meeting Expenses */}
       <div className="border-t pt-4">

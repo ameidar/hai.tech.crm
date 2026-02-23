@@ -88,7 +88,7 @@ export default function Layout() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 py-4" data-testid="main-nav">
+      <nav className="flex-1 py-4 overflow-y-auto" data-testid="main-nav">
         {navItems.map((item) => (
           <NavLink
             key={item.path}

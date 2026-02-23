@@ -516,13 +516,14 @@ export const useDeleteRegistration = () => {
 };
 
 // ==================== Meetings ====================
-export const useMeetings = (params?: { date?: string; from?: string; to?: string; instructorId?: string; branchId?: string }) => {
+export const useMeetings = (params?: { date?: string; from?: string; to?: string; instructorId?: string; branchId?: string; status?: string }) => {
   const searchParams = new URLSearchParams();
   if (params?.date) searchParams.append('date', params.date);
   if (params?.from) searchParams.append('from', params.from);
   if (params?.to) searchParams.append('to', params.to);
   if (params?.instructorId) searchParams.append('instructorId', params.instructorId);
   if (params?.branchId) searchParams.append('branchId', params.branchId);
+  if (params?.status) searchParams.append('status', params.status);
   const queryString = searchParams.toString() ? `?${searchParams.toString()}` : '';
 
   return useQuery({

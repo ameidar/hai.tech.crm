@@ -13,8 +13,9 @@ import {
   ArrowDown,
   Calculator,
   Filter,
+  Columns,
 } from 'lucide-react';
-import { useMeetings, useMeeting, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus, useUpdateMeeting, useBulkUpdateMeetings, useBulkRecalculateMeetings } from '../hooks/useApi';
+import { useMeetings, useMeeting, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus, useUpdateMeeting, useBulkUpdateMeetings, useBulkRecalculateMeetings, useBranches, useInstructors } from '../hooks/useApi';
 import { useAuth } from '../context/AuthContext';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -36,6 +37,7 @@ export default function Meetings() {
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'date' | 'view'>('date');
   const [viewColumns, setViewColumns] = useState<string[]>([]);
+  const [showColumnPicker, setShowColumnPicker] = useState(false);
   
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -58,6 +60,8 @@ export default function Meetings() {
   // Read filters from URL
   const selectedDate = searchParams.get('date') || new Date().toISOString().split('T')[0];
   const instructorFilter = searchParams.get('instructorId') || '';
+  const statusFilter = searchParams.get('status') || '';
+  const branchFilter = searchParams.get('branchId') || '';
   const sortColumn = searchParams.get('sort') || 'startTime';
   const sortDirection = (searchParams.get('dir') as 'asc' | 'desc') || 'asc';
 
@@ -74,9 +78,36 @@ export default function Meetings() {
 
   const setSelectedDate = (v: string) => updateFilter('date', v);
   const setInstructorFilter = (v: string) => updateFilter('instructorId', v);
+  const setStatusFilter = (v: string) => updateFilter('status', v);
+  const setBranchFilter = (v: string) => updateFilter('branchId', v);
   const setSortColumn = (v: string) => updateFilter('sort', v);
   const setSortDirection = (v: 'asc' | 'desc') => updateFilter('dir', v);
+
+  const clearFilters = () => {
+    const newParams = new URLSearchParams();
+    if (searchParams.get('date')) newParams.set('date', searchParams.get('date')!);
+    setSearchParams(newParams, { replace: true });
+  };
+  const hasActiveFilters = statusFilter || branchFilter || instructorFilter;
   
+  // Column visibility (localStorage persisted)
+  const ALL_COLUMN_KEYS = ['scheduledDate', 'startTime', 'cycle.name', 'cycle.course.name', 'cycle.branch.name', 'instructor.name', 'status', 'revenue', 'instructorPayment', 'profit', 'attendance', 'activityType', 'topic', 'notes', 'zoomLink', 'duration', 'meetingNumber'];
+  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('meetings-column-visibility');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    // Default: show core columns only
+    return Object.fromEntries(ALL_COLUMN_KEYS.map(k => [k, ['scheduledDate', 'startTime', 'cycle.name', 'cycle.course.name', 'cycle.branch.name', 'instructor.name', 'status', 'revenue', 'instructorPayment', 'profit'].includes(k)]));
+  });
+
+  useEffect(() => {
+    localStorage.setItem('meetings-column-visibility', JSON.stringify(columnVisibility));
+  }, [columnVisibility]);
+
+  const toggleColumn = (key: string) => setColumnVisibility(prev => ({ ...prev, [key]: !prev[key] }));
+  const isColVisible = (key: string) => columnVisibility[key] !== false;
+
   // Column definitions for meetings
   const allColumns: Record<string, { label: string; render: (m: Meeting) => React.ReactNode }> = {
     scheduledDate: {
@@ -159,25 +190,65 @@ export default function Meetings() {
         );
       }
     },
-    subject: {
+    topic: {
       label: 'נושא',
-      render: (m) => (m as any).subject || '-'
+      render: (m) => (m as any).topic || (m as any).subject || '-'
     },
     notes: {
       label: 'הערות',
-      render: (m) => (m as any).notes || '-'
-    }
+      render: (m) => (m as any).notes ? <span className="text-xs text-gray-500 max-w-[150px] truncate block" title={(m as any).notes}>{(m as any).notes}</span> : '-'
+    },
+    attendance: {
+      label: 'נוכחות',
+      render: (m) => {
+        const count = (m as any)._count?.attendance ?? (m.attendance?.length ?? null);
+        return count !== null ? <span className="text-sm">{count} תלמידים</span> : '-';
+      }
+    },
+    activityType: {
+      label: 'סוג פעילות',
+      render: (m) => {
+        const map: Record<string, string> = { frontal: 'פרונטלי', online: 'אונליין', private_lesson: 'פרטי' };
+        return (m as any).activityType ? map[(m as any).activityType] || (m as any).activityType : '-';
+      }
+    },
+    duration: {
+      label: 'משך (דק׳)',
+      render: (m) => {
+        if (!m.startTime || !m.endTime) return '-';
+        const parse = (t: string) => {
+          if (t.includes('T')) { const d = new Date(t); return d.getUTCHours() * 60 + d.getUTCMinutes(); }
+          const [h, min] = t.split(':').map(Number); return h * 60 + min;
+        };
+        const mins = parse(m.endTime) - parse(m.startTime);
+        return mins > 0 ? `${mins}` : '-';
+      }
+    },
+    zoomLink: {
+      label: 'זום',
+      render: (m) => m.zoomJoinUrl ? (
+        <a href={m.zoomJoinUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-xs" onClick={(e) => e.stopPropagation()}>🔗 קישור</a>
+      ) : '-'
+    },
+    meetingNumber: {
+      label: 'מס׳ מפגש',
+      render: (m) => (m as any).meetingNumber ?? '-'
+    },
   };
   
-  // Default columns when no view is selected
-  const defaultColumns = ['scheduledDate', 'startTime', 'cycle.name', 'cycle.course.name', 'cycle.branch.name', 'instructor.name', 'status', 'revenue', 'instructorPayment', 'profit'];
-  
-  // Get active columns (from view or default)
-  const activeColumns = viewMode === 'view' && viewColumns.length > 0 ? viewColumns : defaultColumns;
+  // Get active columns (from view or column picker)
+  const activeColumns = viewMode === 'view' && viewColumns.length > 0
+    ? viewColumns
+    : ALL_COLUMN_KEYS.filter(k => isColVisible(k));
+
+  const { data: branches } = useBranches();
+  const { data: instructors } = useInstructors();
 
   const { data: meetings, isLoading, refetch } = useMeetings({ 
     date: instructorFilter ? undefined : selectedDate,  // When filtering by instructor, show all dates
     instructorId: instructorFilter || undefined,
+    status: statusFilter || undefined,
+    branchId: branchFilter || undefined,
   });
   
   // Build date filter for view data - filter by selectedDate
@@ -551,6 +622,50 @@ export default function Meetings() {
           >
             היום
           </button>
+
+          {/* Filters */}
+          <div className="hidden md:flex items-center gap-2 flex-wrap">
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="form-input w-36 text-sm">
+              <option value="">כל הסטטוסים</option>
+              <option value="scheduled">מתוכננת</option>
+              <option value="completed">התקיימה</option>
+              <option value="cancelled">בוטלה</option>
+              <option value="postponed">נדחתה</option>
+            </select>
+            <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="form-input w-36 text-sm">
+              <option value="">כל הסניפים</option>
+              {branches?.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+            <select value={instructorFilter} onChange={(e) => setInstructorFilter(e.target.value)} className="form-input w-36 text-sm">
+              <option value="">כל המדריכים</option>
+              {instructors?.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+            </select>
+            {hasActiveFilters && (
+              <button onClick={clearFilters} className="btn btn-secondary text-sm flex items-center gap-1 min-h-[36px]">
+                <X size={14} /> נקה
+              </button>
+            )}
+          </div>
+
+          {/* Column Picker */}
+          <div className="hidden md:block relative">
+            <button onClick={() => setShowColumnPicker(p => !p)} className="btn btn-secondary flex items-center gap-1 text-sm min-h-[36px]">
+              <Columns size={15} /> עמודות
+            </button>
+            {showColumnPicker && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setShowColumnPicker(false)} />
+                <div className="absolute left-0 top-full mt-1 z-40 bg-white border border-gray-200 rounded-lg shadow-lg py-2 min-w-[180px]">
+                  {ALL_COLUMN_KEYS.map(key => (
+                    <label key={key} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm">
+                      <input type="checkbox" checked={isColVisible(key)} onChange={() => toggleColumn(key)} className="rounded border-gray-300 text-blue-600" />
+                      {allColumns[key]?.label || key}
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
 
           {/* View Selector */}
           <div className="hidden md:block me-auto">

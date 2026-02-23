@@ -5,7 +5,16 @@ set -e
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_FILE="/tmp/haitech-backend.log"
 
-echo "🚀 Starting HaiTech CRM on port 3002..."
+# ❌ Guard: dev server must NOT run from main branch
+CURRENT_BRANCH=$(git -C "$REPO_DIR" branch --show-current 2>/dev/null)
+if [ "$CURRENT_BRANCH" = "main" ]; then
+  echo "❌ ERROR: Cannot start dev server from 'main' branch!"
+  echo "   main branch is reserved for production only."
+  echo "   Switch to dev: git checkout dev"
+  exit 1
+fi
+
+echo "🚀 Starting HaiTech CRM on port 3002 (branch: $CURRENT_BRANCH)..."
 
 # Start DB + Redis if not running
 cd "$REPO_DIR"

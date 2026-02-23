@@ -38,6 +38,7 @@ export default function Meetings() {
   const [viewMode, setViewMode] = useState<'date' | 'view'>('date');
   const [viewColumns, setViewColumns] = useState<string[]>([]);
   const [showColumnPicker, setShowColumnPicker] = useState(false);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
   
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -91,7 +92,7 @@ export default function Meetings() {
   const hasActiveFilters = statusFilter || branchFilter || instructorFilter;
   
   // Column visibility (localStorage persisted)
-  const ALL_COLUMN_KEYS = ['scheduledDate', 'startTime', 'cycle.name', 'cycle.course.name', 'cycle.branch.name', 'instructor.name', 'status', 'revenue', 'instructorPayment', 'profit', 'attendance', 'activityType', 'topic', 'notes', 'zoomLink', 'duration', 'meetingNumber'];
+  const ALL_COLUMN_KEYS = ['scheduledDate', 'startTime', 'cycle.name', 'cycle.course.name', 'cycle.branch.name', 'instructor.name', 'status', 'revenue', 'instructorPayment', 'profit', 'attendance', 'activityType', 'topic', 'notes', 'zoomLink', 'zoomHostKey', 'duration', 'meetingNumber'];
   const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => {
     try {
       const saved = localStorage.getItem('meetings-column-visibility');
@@ -225,9 +226,15 @@ export default function Meetings() {
       }
     },
     zoomLink: {
-      label: 'זום',
+      label: 'זום קישור',
       render: (m) => m.zoomJoinUrl ? (
         <a href={m.zoomJoinUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-xs" onClick={(e) => e.stopPropagation()}>🔗 קישור</a>
+      ) : '-'
+    },
+    zoomHostKey: {
+      label: 'קוד מנהל זום',
+      render: (m) => m.zoomHostKey ? (
+        <span className="font-mono text-sm bg-gray-100 px-2 py-0.5 rounded select-all">{m.zoomHostKey}</span>
       ) : '-'
     },
     meetingNumber: {
@@ -623,48 +630,78 @@ export default function Meetings() {
             היום
           </button>
 
-          {/* Filters */}
-          <div className="hidden md:flex items-center gap-2 flex-wrap">
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="form-input w-36 text-sm">
-              <option value="">כל הסטטוסים</option>
-              <option value="scheduled">מתוכננת</option>
-              <option value="completed">התקיימה</option>
-              <option value="cancelled">בוטלה</option>
-              <option value="postponed">נדחתה</option>
-            </select>
-            <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="form-input w-36 text-sm">
-              <option value="">כל הסניפים</option>
-              {branches?.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-            <select value={instructorFilter} onChange={(e) => setInstructorFilter(e.target.value)} className="form-input w-36 text-sm">
-              <option value="">כל המדריכים</option>
-              {instructors?.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
-            </select>
-            {hasActiveFilters && (
-              <button onClick={clearFilters} className="btn btn-secondary text-sm flex items-center gap-1 min-h-[36px]">
-                <X size={14} /> נקה
+          {/* Filter Button (minimalistic) */}
+          <div className="hidden md:flex items-center gap-2">
+            <div className="relative">
+              <button
+                onClick={() => { setShowFilterPanel(p => !p); setShowColumnPicker(false); }}
+                className={`btn btn-secondary flex items-center gap-1.5 text-sm ${hasActiveFilters ? 'ring-2 ring-blue-400' : ''}`}
+              >
+                <Filter size={15} />
+                סינון
+                {hasActiveFilters && (
+                  <span className="bg-blue-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center leading-none">
+                    {[statusFilter, branchFilter, instructorFilter].filter(Boolean).length}
+                  </span>
+                )}
               </button>
-            )}
-          </div>
+              {showFilterPanel && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setShowFilterPanel(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-40 bg-white border border-gray-200 rounded-xl shadow-xl p-4 min-w-[220px] space-y-3">
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 mb-1 block">סטטוס</label>
+                      <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="form-input w-full text-sm">
+                        <option value="">הכל</option>
+                        <option value="scheduled">מתוכננת</option>
+                        <option value="completed">התקיימה</option>
+                        <option value="cancelled">בוטלה</option>
+                        <option value="postponed">נדחתה</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 mb-1 block">סניף</label>
+                      <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="form-input w-full text-sm">
+                        <option value="">הכל</option>
+                        {branches?.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 mb-1 block">מדריך</label>
+                      <select value={instructorFilter} onChange={(e) => setInstructorFilter(e.target.value)} className="form-input w-full text-sm">
+                        <option value="">הכל</option>
+                        {instructors?.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                      </select>
+                    </div>
+                    {hasActiveFilters && (
+                      <button onClick={() => { clearFilters(); setShowFilterPanel(false); }} className="w-full btn btn-secondary text-sm flex items-center justify-center gap-1">
+                        <X size={13} /> נקה הכל
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
 
-          {/* Column Picker */}
-          <div className="hidden md:block relative">
-            <button onClick={() => setShowColumnPicker(p => !p)} className="btn btn-secondary flex items-center gap-1 text-sm min-h-[36px]">
-              <Columns size={15} /> עמודות
-            </button>
-            {showColumnPicker && (
-              <>
-                <div className="fixed inset-0 z-30" onClick={() => setShowColumnPicker(false)} />
-                <div className="absolute left-0 top-full mt-1 z-40 bg-white border border-gray-200 rounded-lg shadow-lg py-2 min-w-[180px]">
-                  {ALL_COLUMN_KEYS.map(key => (
-                    <label key={key} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm">
-                      <input type="checkbox" checked={isColVisible(key)} onChange={() => toggleColumn(key)} className="rounded border-gray-300 text-blue-600" />
-                      {allColumns[key]?.label || key}
-                    </label>
-                  ))}
-                </div>
-              </>
-            )}
+            {/* Column Picker */}
+            <div className="relative">
+              <button onClick={() => { setShowColumnPicker(p => !p); setShowFilterPanel(false); }} className="btn btn-secondary flex items-center gap-1.5 text-sm">
+                <Columns size={15} /> עמודות
+              </button>
+              {showColumnPicker && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setShowColumnPicker(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-40 bg-white border border-gray-200 rounded-xl shadow-xl py-2 min-w-[190px]">
+                    {ALL_COLUMN_KEYS.map(key => (
+                      <label key={key} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm">
+                        <input type="checkbox" checked={isColVisible(key)} onChange={() => toggleColumn(key)} className="rounded border-gray-300 text-blue-600" />
+                        {allColumns[key]?.label || key}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
 
           {/* View Selector */}

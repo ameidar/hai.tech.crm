@@ -29,6 +29,7 @@ const adminNavItems = [
   { path: '/courses', icon: BookOpen, label: 'קורסים', testId: 'nav-courses' },
   { path: '/branches', icon: Building2, label: 'סניפים', testId: 'nav-branches' },
   { path: '/instructors', icon: UserCheck, label: 'מדריכים', testId: 'nav-instructors' },
+  { path: '/system-users', icon: UserCog, label: 'ניהול הנהלה', testId: 'nav-system-users' },
   { path: '/cycles', icon: RefreshCcw, label: 'מחזורים', testId: 'nav-cycles' },
   { path: '/meetings', icon: Calendar, label: 'פגישות', testId: 'nav-meetings' },
   { path: '/quotes', icon: Receipt, label: 'הצעות מחיר', testId: 'nav-quotes' },
@@ -36,7 +37,6 @@ const adminNavItems = [
   { path: '/lead-appointments', icon: PhoneCall, label: 'יומן לידים', testId: 'nav-lead-appointments' },
   { path: '/reports', icon: BarChart3, label: 'דוחות', testId: 'nav-reports' },
   { path: '/audit', icon: FileText, label: 'יומן פעילות', testId: 'nav-audit' },
-  { path: '/system-users', icon: UserCog, label: 'ניהול הנהלה', testId: 'nav-system-users' },
 ];
 
 // Instructor-only navigation

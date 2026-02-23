@@ -5,7 +5,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createCycleSchema, updateCycleSchema, createRegistrationSchema, paginationSchema, uuidSchema, bulkUpdateCyclesSchema } from '../types/schemas.js';
 import { fetchHolidays, dayNameToNumber, calculateCycleEndDate } from '../utils/holidays.js';
 import { config } from '../config.js';
-import { zoomService } from '../services/zoom.js';
+import { zoomService, getHostKeyByEmail } from '../services/zoom.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 
 // Trigger Zoom webhook when online cycle is created
@@ -784,13 +784,18 @@ cyclesRouter.get('/:id/meetings', async (req, res, next) => {
     const totalMeetings = cycle?.totalMeetings || 1;
     const cycleExpensePerMeeting = totalCycleExpenses / totalMeetings;
     
-    // Add adjusted profit to each meeting
+    // Add adjusted profit + fallback host key to each meeting
     const meetingsWithAdjustedProfit = meetings.map(meeting => {
       const baseProfit = Number(meeting.profit || 0);
       const adjustedProfit = baseProfit - cycleExpensePerMeeting;
       
+      // Fill missing zoomHostKey from local map if we know the host email
+      const zoomHostKey = meeting.zoomHostKey ||
+        (meeting.zoomHostEmail ? getHostKeyByEmail(meeting.zoomHostEmail) : null);
+      
       return {
         ...meeting,
+        zoomHostKey,
         adjustedProfit: Math.round(adjustedProfit * 100) / 100,
         cycleExpenseShare: Math.round(cycleExpensePerMeeting * 100) / 100,
       };

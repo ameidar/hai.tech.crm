@@ -121,6 +121,13 @@ const HOST_KEYS: Record<string, string> = {
 };
 
 /**
+ * Synchronous host key lookup by email (no API call needed)
+ */
+export function getHostKeyByEmail(email: string): string | null {
+  return HOST_KEYS[email.toLowerCase()] || null;
+}
+
+/**
  * Get user's host key - uses local lookup since Zoom API requires admin scope
  */
 export async function getUserHostKey(userId: string): Promise<string | null> {

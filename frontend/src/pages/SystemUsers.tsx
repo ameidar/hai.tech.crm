@@ -424,80 +424,90 @@ export default function SystemUsers() {
         isOpen={showAddModal || !!editingUser}
         onClose={() => { setShowAddModal(false); setEditingUser(null); }}
         title={editingUser ? `עריכת ${editingUser.name}` : 'הוספת משתמש הנהלה'}
+        size="sm"
       >
-        <div className="space-y-4 mt-2">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">שם מלא *</label>
+        <div className="px-6 pb-6 pt-4 space-y-3">
+          {/* Name */}
+          <div className="flex items-center gap-3">
+            <label className="w-20 text-sm font-medium text-slate-600 text-right flex-shrink-0">שם מלא *</label>
             <input
               type="text"
               value={formData.name}
               onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="שם מלא"
             />
           </div>
 
+          {/* Email (create only) */}
           {!editingUser && (
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">אימייל *</label>
+            <div className="flex items-center gap-3">
+              <label className="w-20 text-sm font-medium text-slate-600 text-right flex-shrink-0">אימייל *</label>
               <input
                 type="email"
                 value={formData.email}
                 onChange={(e) => setFormData((p) => ({ ...p, email: e.target.value }))}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="user@example.com"
                 dir="ltr"
               />
             </div>
           )}
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">טלפון</label>
+          {/* Phone */}
+          <div className="flex items-center gap-3">
+            <label className="w-20 text-sm font-medium text-slate-600 text-right flex-shrink-0">טלפון</label>
             <input
               type="tel"
               value={formData.phone}
               onChange={(e) => setFormData((p) => ({ ...p, phone: e.target.value }))}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="050-0000000"
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">תפקיד</label>
-            <select
-              value={formData.role}
-              onChange={(e) => setFormData((p) => ({ ...p, role: e.target.value as 'admin' | 'manager' }))}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="manager">מנהל</option>
-              <option value="admin">מנהל מערכת</option>
-            </select>
-            <p className="text-xs text-slate-400 mt-1">
-              מנהל מערכת — גישה מלאה כולל ניהול משתמשים. מנהל — גישה לכל המידע ללא ניהול משתמשים.
-            </p>
+          {/* Role */}
+          <div className="flex items-center gap-3">
+            <label className="w-20 text-sm font-medium text-slate-600 text-right flex-shrink-0">תפקיד</label>
+            <div className="flex-1">
+              <select
+                value={formData.role}
+                onChange={(e) => setFormData((p) => ({ ...p, role: e.target.value as 'admin' | 'manager' }))}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="manager">מנהל</option>
+                <option value="admin">מנהל מערכת</option>
+              </select>
+              <p className="text-xs text-slate-400 mt-1">
+                מנהל מערכת — ניהול מלא כולל משתמשים. מנהל — גישה לכל המידע.
+              </p>
+            </div>
           </div>
 
+          {/* Invite hint */}
           {!editingUser && (
-            <div className="p-3 bg-blue-50 text-blue-700 rounded-lg text-xs">
-              לאחר היצירה תקבל קישור הזמנה לשליחה בוואטסאפ — המשתמש יגדיר סיסמה עצמאית.
+            <div className="mr-23 py-2 px-3 bg-blue-50 text-blue-700 rounded-lg text-xs mr-[92px]">
+              לאחר היצירה תקבל קישור הזמנה לשליחה בוואטסאפ.
             </div>
           )}
 
+          {/* Error */}
           {formError && (
-            <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{formError}</div>
+            <div className="px-3 py-2 bg-red-50 text-red-700 rounded-lg text-sm">{formError}</div>
           )}
 
-          <div className="flex gap-3 pt-2">
+          {/* Buttons */}
+          <div className="flex gap-2 pt-1">
             <button
               onClick={editingUser ? handleUpdate : handleCreate}
               disabled={createUser.isPending || updateUser.isPending}
-              className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 font-medium"
+              className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 text-sm font-medium"
             >
               {editingUser ? 'שמירה' : 'צור וקבל קישור'}
             </button>
             <button
               onClick={() => { setShowAddModal(false); setEditingUser(null); }}
-              className="flex-1 py-2.5 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+              className="flex-1 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors text-sm"
             >
               ביטול
             </button>

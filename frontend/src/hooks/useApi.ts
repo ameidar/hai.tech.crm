@@ -10,6 +10,7 @@ import type {
   Meeting,
   Registration,
   DailySummary,
+  User,
 } from '../types';
 
 // Pagination metadata
@@ -1091,6 +1092,58 @@ export const useRejectMeetingChangeRequest = () => {
       mutateData<MeetingChangeRequest, undefined>(`/meeting-requests/${id}/reject`, 'put'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['meeting-change-requests'] });
+    },
+  });
+};
+
+// ===== System Users (Admin/Manager management) =====
+
+export const useSystemUsers = () => {
+  return useQuery({
+    queryKey: ['system-users'],
+    queryFn: () => fetchData<User[]>('/system-users'),
+  });
+};
+
+export const useCreateSystemUser = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { email: string; name: string; phone?: string; role: 'admin' | 'manager'; password?: string }) =>
+      mutateData<User & { inviteUrl: string }, typeof data>('/system-users', 'post', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['system-users'] });
+    },
+  });
+};
+
+export const useUpdateSystemUser = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { name?: string; phone?: string; role?: 'admin' | 'manager'; isActive?: boolean } }) =>
+      mutateData<User, typeof data>(`/system-users/${id}`, 'put', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['system-users'] });
+    },
+  });
+};
+
+export const useResetSystemUserPassword = () => {
+  return useMutation({
+    mutationFn: (id: string) =>
+      mutateData<{ resetUrl: string; expiresAt: string; user: { id: string; name: string; email: string; phone?: string | null } }, undefined>(
+        `/system-users/${id}/reset-password`,
+        'post'
+      ),
+  });
+};
+
+export const useDeleteSystemUser = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      mutateData<void, undefined>(`/system-users/${id}`, 'delete'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['system-users'] });
     },
   });
 };

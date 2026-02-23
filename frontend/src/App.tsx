@@ -28,6 +28,7 @@ import PublicQuoteView from './pages/PublicQuoteView';
 import PublicCancelForm from './pages/PublicCancelForm';
 import LeadAppointments from './pages/LeadAppointments';
 import InstitutionalOrders from './pages/InstitutionalOrders';
+import SystemUsers from './pages/SystemUsers';
 
 // Mobile instructor pages
 import MobileMeetings from './pages/instructor/MobileMeetings';
@@ -139,6 +140,7 @@ function AppRoutes() {
             <Route path="quotes/:id/edit" element={<QuoteEdit />} />
             <Route path="institutional-orders" element={<InstitutionalOrders />} />
             <Route path="lead-appointments" element={<LeadAppointments />} />
+            <Route path="system-users" element={<SystemUsers />} />
             <Route path="reports" element={<Reports />} />
             <Route path="audit" element={<AuditLog />} />
           </>

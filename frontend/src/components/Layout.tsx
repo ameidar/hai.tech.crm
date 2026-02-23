@@ -18,6 +18,7 @@ import {
   Menu,
   X,
   ChevronDown,
+  UserCog,
 } from 'lucide-react';
 
 // Admin/Manager navigation
@@ -35,6 +36,7 @@ const adminNavItems = [
   { path: '/lead-appointments', icon: PhoneCall, label: 'יומן לידים', testId: 'nav-lead-appointments' },
   { path: '/reports', icon: BarChart3, label: 'דוחות', testId: 'nav-reports' },
   { path: '/audit', icon: FileText, label: 'יומן פעילות', testId: 'nav-audit' },
+  { path: '/system-users', icon: UserCog, label: 'ניהול הנהלה', testId: 'nav-system-users' },
 ];
 
 // Instructor-only navigation

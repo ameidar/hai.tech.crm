@@ -42,6 +42,7 @@ import { upsellLeadsRouter } from './routes/upsell-leads.js';
 import { leadAppointmentsRouter } from './routes/lead-appointments.js';
 import { institutionalOrdersRouter } from './routes/institutional-orders.js';
 import { meetingRequestsRouter } from './routes/meeting-requests.js';
+import { systemUsersRouter } from './routes/system-users.js';
 import { devReadOnly } from './middleware/devReadOnly.js';
 
 // API v1 Router
@@ -193,6 +194,7 @@ app.use('/api/vapi-tools', vapiToolsRouter); // Vapi AI tool calls - Google Cale
 app.use('/api/lead-appointments', leadAppointmentsRouter); // Lead appointment management
 app.use('/api/institutional-orders', institutionalOrdersRouter); // Institutional orders
 app.use('/api/meeting-requests', meetingRequestsRouter); // Meeting change requests
+app.use('/api/system-users', systemUsersRouter); // System users management (admin/manager)
 app.use('/api/upsell-leads', upsellLeadsRouter); // Upsell leads from completed cycles
 
 // Error handling for API routes

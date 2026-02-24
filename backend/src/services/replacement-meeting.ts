@@ -11,6 +11,7 @@
 
 import { prisma } from '../utils/prisma.js';
 import { zoomService } from './zoom.js';
+import { isHoliday, isShabbat } from '../utils/holidays.js';
 
 /**
  * Add a replacement meeting to the end of the cycle when a meeting is postponed.
@@ -43,10 +44,22 @@ export async function addReplacementMeeting(postponedMeetingId: string, actorUse
     orderBy: { scheduledDate: 'desc' },
   });
 
-  // Calculate new date: last meeting + 7 days, or cycle endDate + 7 days as fallback
+  // Calculate new date: start from last meeting + 7 days, skip Israeli holidays & Shabbat
   const baseDate = lastMeeting?.scheduledDate ?? cycle.endDate;
-  const newDate = new Date(baseDate);
+  let newDate = new Date(baseDate);
   newDate.setDate(newDate.getDate() + 7);
+
+  // Keep skipping weeks until we land on a non-holiday, non-Shabbat date
+  let attempts = 0;
+  while (attempts < 52) { // max 52 weeks = 1 year lookahead
+    const holiday = await isHoliday(newDate);
+    const shabbat = isShabbat(newDate);
+    if (!holiday && !shabbat) break;
+    console.log(`[ReplacementMeeting] ${newDate.toISOString().split('T')[0]} is a holiday/Shabbat — skipping to next week`);
+    newDate = new Date(newDate);
+    newDate.setDate(newDate.getDate() + 7);
+    attempts++;
+  }
 
   // Use cycle's time settings
   const startTime = cycle.startTime; // stored as 1970-01-01T{HH:MM}:00Z

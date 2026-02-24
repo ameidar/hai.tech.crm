@@ -3,6 +3,7 @@ import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { updateMeetingSchema, postponeMeetingSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
+import { addReplacementMeeting } from '../services/replacement-meeting.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { zoomService } from '../services/zoom.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
@@ -674,6 +675,13 @@ meetingsRouter.put('/:id', async (req, res, next) => {
       topic: meeting.topic,
       notes: meeting.notes,
     };
+    // Trigger replacement meeting when admin sets status to 'postponed' (fire & forget)
+    if (data.status === 'postponed' && existingMeeting.status !== 'postponed') {
+      addReplacementMeeting(id, req.user!.userId).catch(err => {
+        console.error('[ReplacementMeeting] Failed after PUT status=postponed:', err);
+      });
+    }
+
     await logUpdateAudit({
       entity: 'Meeting',
       entityId: meeting.id,
@@ -1278,6 +1286,13 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
           newValue: { status },
           req,
         });
+
+        // Trigger replacement meeting when admin bulk-sets status to 'postponed'
+        if (status === 'postponed' && existingMeeting.status !== 'postponed') {
+          addReplacementMeeting(id, req.user!.userId).catch(err => {
+            console.error('[ReplacementMeeting] Failed after bulk status=postponed:', err);
+          });
+        }
 
         updated++;
       } catch (error: any) {

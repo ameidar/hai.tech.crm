@@ -31,7 +31,9 @@ const createTransporter = () => {
   }
 
   return nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false, // STARTTLS on port 587 (port 465/SSL is often blocked)
     auth: {
       user,
       pass, // Use App Password for Gmail

@@ -564,6 +564,11 @@ cyclesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
     await prisma.meetingChangeRequest.deleteMany({
       where: { meeting: { cycleId: id } },
     });
+    // Null out rescheduledToId self-references before deleting meetings
+    await prisma.meeting.updateMany({
+      where: { cycleId: id },
+      data: { rescheduledToId: null },
+    });
     await prisma.registration.deleteMany({
       where: { cycleId: id },
     });

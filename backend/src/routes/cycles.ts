@@ -561,6 +561,9 @@ cyclesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
     await prisma.attendance.deleteMany({
       where: { meeting: { cycleId: id } },
     });
+    await prisma.meetingChangeRequest.deleteMany({
+      where: { meeting: { cycleId: id } },
+    });
     await prisma.registration.deleteMany({
       where: { cycleId: id },
     });

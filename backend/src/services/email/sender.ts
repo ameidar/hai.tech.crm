@@ -96,10 +96,8 @@ export const sendEmail = async (options: EmailOptions): Promise<EmailResult> => 
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error(`❌ Failed to send email to ${to}:`, errorMessage);
 
-    return {
-      success: false,
-      error: errorMessage,
-    };
+    // Throw so BullMQ marks the job as failed (not completed)
+    throw new Error(errorMessage);
   }
 };
 

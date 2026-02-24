@@ -1,31 +1,41 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Check, X, ChevronDown, ChevronUp, Loader2, Ban, CalendarX } from 'lucide-react';
+import { AlertCircle, Check, X, ChevronDown, ChevronUp, Loader2, Ban, CalendarX, RefreshCw } from 'lucide-react';
 import { api } from '../api/client';
+import { MeetingChangeRequest } from '../hooks/useApi';
 
-interface PendingMeeting {
-  id: string;
-  scheduledDate: string;
-  startTime: string;
-  status: 'pending_cancellation' | 'pending_postponement';
-  notes: string | null;
-  instructor: { id: string; name: string; phone?: string };
-  cycle: {
-    name: string;
-    course: { name: string };
-    branch: { name: string };
-  };
-}
-
-async function fetchPendingRequests(): Promise<{ requests: PendingMeeting[] }> {
-  const res = await api.get('/instructor-magic/pending-requests');
+async function fetchPendingRequests(): Promise<MeetingChangeRequest[]> {
+  const res = await api.get('/meeting-requests?status=pending');
   return res.data;
 }
 
-async function approveRequest(meetingId: string, action: 'approve' | 'reject', adminNotes?: string) {
-  const res = await api.post(`/instructor-magic/approve-request/${meetingId}`, { action, adminNotes });
+async function approveRequest(id: string) {
+  const res = await api.put(`/meeting-requests/${id}/approve`);
   return res.data;
 }
+
+async function rejectRequest(id: string, reason?: string) {
+  const res = await api.put(`/meeting-requests/${id}/reject`, { reason });
+  return res.data;
+}
+
+const typeConfig: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
+  cancel: {
+    label: 'בקשת ביטול',
+    icon: <Ban size={16} className="text-red-600" />,
+    color: 'bg-red-100 text-red-700',
+  },
+  postpone: {
+    label: 'בקשת דחיה',
+    icon: <CalendarX size={16} className="text-orange-600" />,
+    color: 'bg-orange-100 text-orange-700',
+  },
+  replacement: {
+    label: 'בקשת החלפה',
+    icon: <RefreshCw size={16} className="text-blue-600" />,
+    color: 'bg-blue-100 text-blue-700',
+  },
+};
 
 export default function PendingMeetingRequests() {
   const queryClient = useQueryClient();
@@ -33,31 +43,45 @@ export default function PendingMeetingRequests() {
   const [adminNotes, setAdminNotes] = useState<Record<string, string>>({});
   const [processing, setProcessing] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data: requests = [], isLoading } = useQuery({
     queryKey: ['pending-meeting-requests'],
     queryFn: fetchPendingRequests,
-    refetchInterval: 60_000, // refresh every minute
+    refetchInterval: 60_000,
   });
 
   const approveMutation = useMutation({
-    mutationFn: ({ meetingId, action, notes }: { meetingId: string; action: 'approve' | 'reject'; notes?: string }) =>
-      approveRequest(meetingId, action, notes),
+    mutationFn: (id: string) => approveRequest(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pending-meeting-requests'] });
       queryClient.invalidateQueries({ queryKey: ['meetings'] });
     },
   });
 
-  const handleAction = async (meetingId: string, action: 'approve' | 'reject') => {
-    setProcessing(meetingId + action);
+  const rejectMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) => rejectRequest(id, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pending-meeting-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['meetings'] });
+    },
+  });
+
+  const handleApprove = async (id: string) => {
+    setProcessing(id + 'approve');
     try {
-      await approveMutation.mutateAsync({ meetingId, action, notes: adminNotes[meetingId] });
+      await approveMutation.mutateAsync(id);
     } finally {
       setProcessing(null);
     }
   };
 
-  const requests = data?.requests ?? [];
+  const handleReject = async (id: string) => {
+    setProcessing(id + 'reject');
+    try {
+      await rejectMutation.mutateAsync({ id, reason: adminNotes[id] });
+    } finally {
+      setProcessing(null);
+    }
+  };
 
   if (isLoading) return null;
   if (requests.length === 0) return null;
@@ -83,35 +107,39 @@ export default function PendingMeetingRequests() {
       {expanded && (
         <div className="divide-y divide-orange-100">
           {requests.map((req) => {
-            const isCancellation = req.status === 'pending_cancellation';
+            const cfg = typeConfig[req.type] ?? typeConfig.cancel;
             return (
               <div key={req.id} className="px-4 py-3 bg-white">
                 <div className="flex items-start gap-3">
                   {/* Icon */}
-                  <div className={`mt-1 p-1.5 rounded-lg ${isCancellation ? 'bg-red-100' : 'bg-orange-100'}`}>
-                    {isCancellation
-                      ? <Ban size={16} className="text-red-600" />
-                      : <CalendarX size={16} className="text-orange-600" />}
+                  <div className="mt-1 p-1.5 rounded-lg bg-gray-100">
+                    {cfg.icon}
                   </div>
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                        isCancellation ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
-                      }`}>
-                        {isCancellation ? 'בקשת ביטול' : 'בקשת דחיה'}
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${cfg.color}`}>
+                        {cfg.label}
                       </span>
-                      <span className="text-sm font-medium text-gray-800">{req.instructor.name}</span>
-                      <span className="text-sm text-gray-500">•</span>
-                      <span className="text-sm text-gray-600">{req.cycle.course.name}</span>
+                      <span className="text-sm font-medium text-gray-800">{req.instructor?.name}</span>
+                      {req.meeting?.cycle?.name && (
+                        <>
+                          <span className="text-sm text-gray-500">•</span>
+                          <span className="text-sm text-gray-600">{req.meeting.cycle.name}</span>
+                        </>
+                      )}
                     </div>
-                    <div className="text-sm text-gray-500 mt-0.5">
-                      {req.cycle.branch.name} • {formatDate(req.scheduledDate)}
-                    </div>
-                    {req.notes && (
+                    {req.meeting?.scheduledDate && (
+                      <div className="text-sm text-gray-500 mt-0.5">
+                        {req.meeting.cycle?.branch?.name && `${req.meeting.cycle.branch.name} • `}
+                        {formatDate(req.meeting.scheduledDate)}
+                        {req.meeting.startTime && ` • ${new Date(req.meeting.startTime).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`}
+                      </div>
+                    )}
+                    {req.reason && (
                       <div className="text-sm text-gray-700 mt-1 bg-gray-50 rounded-lg px-2 py-1">
-                        💬 {req.notes}
+                        💬 {req.reason}
                       </div>
                     )}
 
@@ -126,7 +154,7 @@ export default function PendingMeetingRequests() {
                       />
                       <div className="flex gap-2">
                         <button
-                          onClick={() => handleAction(req.id, 'approve')}
+                          onClick={() => handleApprove(req.id)}
                           disabled={!!processing}
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                         >
@@ -136,7 +164,7 @@ export default function PendingMeetingRequests() {
                           אשר
                         </button>
                         <button
-                          onClick={() => handleAction(req.id, 'reject')}
+                          onClick={() => handleReject(req.id)}
                           disabled={!!processing}
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                         >

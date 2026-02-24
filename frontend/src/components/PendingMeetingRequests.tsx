@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Check, X, ChevronDown, ChevronUp, Loader2, Ban, CalendarX, RefreshCw } from 'lucide-react';
 import { api } from '../api/client';
-import { MeetingChangeRequest } from '../hooks/useApi';
+import type { MeetingChangeRequest } from '../hooks/useApi';
 
 async function fetchPendingRequests(): Promise<MeetingChangeRequest[]> {
   const res = await api.get('/meeting-requests?status=pending');
@@ -19,7 +19,7 @@ async function rejectRequest(id: string, reason?: string) {
   return res.data;
 }
 
-const typeConfig: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
+const typeConfig: Record<string, { label: string; icon: ReactNode; color: string }> = {
   cancel: {
     label: 'בקשת ביטול',
     icon: <Ban size={16} className="text-red-600" />,

@@ -7,6 +7,9 @@
 
 import { prisma } from '../utils/prisma.js';
 import { sendWhatsApp, sendWhatsAppPoll } from './messaging.js';
+import { generateMeetingMagicLink } from './instructor-reminder.service.js';
+
+const APP_URL = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
 
 // Israel timezone offset in hours (UTC+2 in winter, UTC+3 in summer)
 const ISRAEL_OFFSET_HOURS = 2;
@@ -62,26 +65,28 @@ function toMinutes(dt: Date | string | null): number {
 /**
  * Build WhatsApp message for a single meeting
  */
-function buildMeetingMessage(instructorName: string, meeting: any): string {
+function buildMeetingMessage(instructorName: string, meeting: any, meetingLink?: string): string {
   const cycleName = meeting.cycle?.name || '';
   const branchName = meeting.cycle?.branch?.name || '';
   const time = formatTimeFromDate(meeting.startTime);
   const zoom = meeting.zoomJoinUrl ? `\n🔗 קישור זום: ${meeting.zoomJoinUrl}` : '';
   const hostKey = meeting.zoomHostKey ? `\n🔑 קוד מנהל: ${meeting.zoomHostKey}` : '';
-  return `שלום ${instructorName} 👋\nתזכורת לשיעור היום:\n📚 ${cycleName}\n🏫 ${branchName}\n🕐 שעה: ${time}${zoom}${hostKey}\nבהצלחה! 🙂`;
+  const link = meetingLink ? `\n📋 לינק לפגישה: ${meetingLink}` : '';
+  return `שלום ${instructorName} 👋\nתזכורת לשיעור היום:\n📚 ${cycleName}\n🏫 ${branchName}\n🕐 שעה: ${time}${zoom}${hostKey}${link}\nבהצלחה! 🙂`;
 }
 
 /**
  * Build combined WhatsApp message for multiple meetings
  */
-function buildMorningMessage(instructorName: string, meetings: any[]): string {
-  if (meetings.length === 1) return buildMeetingMessage(instructorName, meetings[0]);
+function buildMorningMessage(instructorName: string, meetings: any[], meetingLinks?: Map<string, string>): string {
+  if (meetings.length === 1) return buildMeetingMessage(instructorName, meetings[0], meetingLinks?.get(meetings[0].id));
 
   const lines = [`שלום ${instructorName} 👋\nתזכורת לשיעורים שלך היום:`];
   for (const m of meetings) {
     const time = formatTimeFromDate(m.startTime);
     const zoom = m.zoomJoinUrl ? ` | זום: ${m.zoomJoinUrl}` : '';
-    lines.push(`\n📚 ${m.cycle?.name || ''} | 🏫 ${m.cycle?.branch?.name || ''} | 🕐 ${time}${zoom}`);
+    const link = meetingLinks?.get(m.id) ? `\n📋 ${meetingLinks.get(m.id)}` : '';
+    lines.push(`\n📚 ${m.cycle?.name || ''} | 🏫 ${m.cycle?.branch?.name || ''} | 🕐 ${time}${zoom}${link}`);
   }
   lines.push('\nבהצלחה! 🙂');
   return lines.join('');
@@ -121,7 +126,12 @@ export async function sendMorningWhatsAppReminders(): Promise<void> {
     }
 
     for (const { instructor, meetings: instrMeetings } of byInstructor.values()) {
-      const message = buildMorningMessage(instructor.name, instrMeetings);
+      // Generate magic links for each meeting (valid 24h, no login required)
+      const meetingLinks = new Map<string, string>();
+      for (const m of instrMeetings) {
+        meetingLinks.set(m.id, generateMeetingMagicLink(instructor.id, m.id, APP_URL));
+      }
+      const message = buildMorningMessage(instructor.name, instrMeetings, meetingLinks);
       const result = await sendWhatsApp({ phone: instructor.phone!, message });
       console.log(`[WhatsApp] Morning to ${instructor.name}: ${result.success ? '✓' : result.error}`);
     }
@@ -155,7 +165,8 @@ export async function sendPreMeetingReminders(): Promise<void> {
       const meetMin = toMinutes(m.startTime);
       if (meetMin < windowMin || meetMin > windowMax) continue;
 
-      const message = buildMeetingMessage(m.instructor.name, m);
+      const meetingLink = generateMeetingMagicLink(m.instructor.id, m.id, APP_URL);
+      const message = buildMeetingMessage(m.instructor.name, m, meetingLink);
       const result = await sendWhatsApp({ phone: m.instructor.phone!, message });
       if (result.success) {
         preMeetingRemindersSent.add(m.id);

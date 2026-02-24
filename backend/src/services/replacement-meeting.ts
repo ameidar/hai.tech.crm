@@ -34,12 +34,11 @@ export async function addReplacementMeeting(postponedMeetingId: string, actorUse
 
   const cycle = postponed.cycle;
 
-  // Find the last scheduled/completed meeting in this cycle (excluding the postponed one)
+  // Find the LAST meeting in the cycle by date (any status, including postponed)
+  // This ensures the replacement always goes to the end of the cycle
   const lastMeeting = await prisma.meeting.findFirst({
     where: {
       cycleId: cycle.id,
-      id: { not: postponedMeetingId },
-      status: { in: ['scheduled', 'completed'] },
     },
     orderBy: { scheduledDate: 'desc' },
   });

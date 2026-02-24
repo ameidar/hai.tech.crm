@@ -28,6 +28,7 @@ import {
   Key,
   Lock,
   Receipt,
+  CalendarX,
 } from 'lucide-react';
 import MeetingExpenses from '../components/MeetingExpenses';
 import {
@@ -2057,7 +2058,7 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
 
       <div>
         <label className="form-label">סטטוס</label>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <button
             type="button"
             onClick={() => setStatus('scheduled')}
@@ -2093,6 +2094,18 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
           >
             <XCircle size={20} />
             <span>בוטל</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatus('postponed')}
+            className={`p-3 rounded-lg border-2 flex items-center gap-2 transition-colors ${
+              status === 'postponed'
+                ? 'border-orange-500 bg-orange-50 text-orange-700'
+                : 'border-gray-200 hover:border-gray-300'
+            }`}
+          >
+            <CalendarX size={20} />
+            <span>נדחה</span>
           </button>
         </div>
       </div>
@@ -2287,7 +2300,7 @@ function BulkEditForm({ instructors, onSubmit, onRecalculate, onCancel, isLoadin
           <span className="font-medium">שנה סטטוס</span>
         </label>
         {updateStatus && (
-          <div className="mt-4 grid grid-cols-3 gap-3">
+          <div className="mt-4 grid grid-cols-2 gap-3">
             <button
               type="button"
               onClick={() => setStatus('scheduled')}
@@ -2323,6 +2336,18 @@ function BulkEditForm({ instructors, onSubmit, onRecalculate, onCancel, isLoadin
             >
               <XCircle size={20} />
               <span>בוטל</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatus('postponed')}
+              className={`p-3 rounded-lg border-2 flex items-center gap-2 transition-colors ${
+                status === 'postponed'
+                  ? 'border-orange-500 bg-orange-50 text-orange-700'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <CalendarX size={20} />
+              <span>נדחה</span>
             </button>
           </div>
         )}

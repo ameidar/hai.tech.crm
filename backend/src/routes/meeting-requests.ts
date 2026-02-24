@@ -5,6 +5,7 @@ import { authenticate } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { sendEmail } from '../services/email/sender.js';
 import { config } from '../config.js';
+import { addReplacementMeeting } from '../services/replacement-meeting.js';
 
 export const meetingRequestsRouter = Router();
 
@@ -228,6 +229,10 @@ meetingRequestsRouter.put('/:id/approve', async (req, res, next) => {
           statusUpdatedAt: new Date(),
           statusUpdatedById: req.user!.userId,
         },
+      });
+      // Add replacement meeting at end of cycle (fire & forget — Zoom setup may take time)
+      addReplacementMeeting(request.meetingId, req.user!.userId).catch(err => {
+        console.error('[ReplacementMeeting] Failed to add replacement meeting:', err);
       });
     }
     // 'replacement' type — just mark as approved, admin handles manually

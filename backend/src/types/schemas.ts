@@ -139,6 +139,7 @@ export const createCycleSchema = z.object({
 });
 
 export const updateCycleSchema = createCycleSchema.partial().extend({
+  status: z.enum(['active', 'completed', 'cancelled']).optional(),
   completedMeetings: z.number().int().nonnegative().optional(),
   remainingMeetings: z.number().int().nonnegative().optional(),
 });

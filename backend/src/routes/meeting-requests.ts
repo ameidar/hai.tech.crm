@@ -85,61 +85,58 @@ meetingRequestsRouter.post('/', async (req, res, next) => {
       },
     });
 
-    // Send notification email
+    // Send notification email (fire & forget — don't block the response)
     const meetingDate = new Date(meeting.scheduledDate).toLocaleDateString('he-IL');
     const cycleName = meeting.cycle?.name || 'לא ידוע';
     const branchName = meeting.cycle?.branch?.name || '';
     const instructorName = meeting.instructor?.name || 'לא ידוע';
 
-    try {
-      await sendEmail({
-        to: ['info@hai.tech', 'hila@hai.tech'],
-        subject: `בקשת ${typeHebrew[data.type]} - ${instructorName} - ${cycleName}`,
-        html: `
-          <div dir="rtl" style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px;">
-            <h2 style="color: #dc2626;">🔔 בקשת ${typeHebrew[data.type]} חדשה</h2>
-            <table style="width: 100%; border-collapse: collapse; margin-top: 16px;">
-              <tr>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold; width: 120px;">מדריך:</td>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${instructorName}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">מחזור:</td>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${cycleName}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">סניף:</td>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${branchName}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">תאריך פגישה:</td>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${meetingDate}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">סוג בקשה:</td>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${typeHebrew[data.type]}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">סיבה:</td>
-                <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${data.reason}</td>
-              </tr>
-            </table>
-            <div style="margin-top: 20px;">
-              <a href="${config.frontendUrl}/meetings?openMeeting=${data.meetingId}" 
-                 style="display: inline-block; background: #2563eb; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold;">
-                פתח פגישה במערכת
-              </a>
-            </div>
-            <p style="margin-top: 16px; color: #6b7280; font-size: 14px;">
-              יש לאשר או לדחות את הבקשה במערכת HaiTech CRM.
-            </p>
+    sendEmail({
+      to: ['info@hai.tech', 'hila@hai.tech'],
+      subject: `בקשת ${typeHebrew[data.type]} - ${instructorName} - ${cycleName}`,
+      html: `
+        <div dir="rtl" style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px;">
+          <h2 style="color: #dc2626;">🔔 בקשת ${typeHebrew[data.type]} חדשה</h2>
+          <table style="width: 100%; border-collapse: collapse; margin-top: 16px;">
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold; width: 120px;">מדריך:</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${instructorName}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">מחזור:</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${cycleName}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">סניף:</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${branchName}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">תאריך פגישה:</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${meetingDate}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">סוג בקשה:</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${typeHebrew[data.type]}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">סיבה:</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${data.reason}</td>
+            </tr>
+          </table>
+          <div style="margin-top: 20px;">
+            <a href="${config.frontendUrl}/meetings?openMeeting=${data.meetingId}" 
+               style="display: inline-block; background: #2563eb; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold;">
+              פתח פגישה במערכת
+            </a>
           </div>
-        `,
-      });
-    } catch (emailError) {
+          <p style="margin-top: 16px; color: #6b7280; font-size: 14px;">
+            יש לאשר או לדחות את הבקשה במערכת HaiTech CRM.
+          </p>
+        </div>
+      `,
+    }).catch((emailError: unknown) => {
       console.error('Failed to send meeting request notification email:', emailError);
-      // Don't fail the request if email fails
-    }
+    });
 
     res.status(201).json(request);
   } catch (error) {

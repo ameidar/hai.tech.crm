@@ -42,6 +42,12 @@ export interface ManagementSummaryData {
   cancelledClasses: number;
   totalStudents: number;
   attendanceRate: number;
+  // Financial
+  totalRevenue?: number;
+  totalInstructorPayment?: number;
+  totalProfit?: number;
+  // Insights
+  insights?: string[];
   upcomingClasses: Array<{
     name: string;
     date: string;
@@ -179,6 +185,10 @@ export const parentReminderTemplate = (data: ParentReminderData): string => `
 </html>
 `;
 
+// Format currency in ILS
+const formatCurrency = (amount: number): string =>
+  '₪' + amount.toLocaleString('he-IL', { maximumFractionDigits: 0 });
+
 // Management daily summary template
 export const managementSummaryTemplate = (data: ManagementSummaryData): string => `
 <!DOCTYPE html>
@@ -186,6 +196,17 @@ export const managementSummaryTemplate = (data: ManagementSummaryData): string =
 <head>
   <meta charset="UTF-8">
   ${baseStyles}
+  <style>
+    .financial-box { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin: 20px 0; }
+    .financial-grid { display: flex; gap: 12px; flex-wrap: wrap; }
+    .financial-item { flex: 1; min-width: 140px; background: white; border-radius: 6px; padding: 14px; text-align: center; border: 1px solid #e5e7eb; }
+    .financial-item .label { font-size: 12px; color: #6b7280; margin-bottom: 6px; }
+    .financial-item .value { font-size: 20px; font-weight: bold; }
+    .revenue { color: #16a34a; }
+    .expense { color: #dc2626; }
+    .profit { color: #2563eb; }
+    .insight-box { background: #eff6ff; border-right: 4px solid #2563eb; padding: 14px 18px; margin: 8px 0; border-radius: 4px; font-size: 14px; }
+  </style>
 </head>
 <body>
   <div class="container">
@@ -193,49 +214,58 @@ export const managementSummaryTemplate = (data: ManagementSummaryData): string =
       <h1>📊 סיכום יומי - ${data.date}</h1>
     </div>
     <div class="content">
-      <h2>סטטיסטיקות היום</h2>
-      
+
+      <h2>📋 סטטיסטיקות היום</h2>
       <table>
-        <tr>
-          <th>מדד</th>
-          <th>ערך</th>
-        </tr>
-        <tr>
-          <td>סה"כ שיעורים</td>
-          <td><strong>${data.totalClasses}</strong></td>
-        </tr>
-        <tr>
-          <td>שיעורים שהתקיימו</td>
-          <td style="color: #16a34a;">${data.completedClasses}</td>
-        </tr>
-        <tr>
-          <td>שיעורים שבוטלו</td>
-          <td style="color: #dc2626;">${data.cancelledClasses}</td>
-        </tr>
-        <tr>
-          <td>תלמידים שהשתתפו</td>
-          <td>${data.totalStudents}</td>
-        </tr>
-        <tr>
-          <td>אחוז נוכחות</td>
-          <td><strong>${data.attendanceRate}%</strong></td>
-        </tr>
+        <tr><th>מדד</th><th>ערך</th></tr>
+        <tr><td>סה"כ שיעורים</td><td><strong>${data.totalClasses}</strong></td></tr>
+        <tr><td>שיעורים שהתקיימו</td><td style="color:#16a34a"><strong>${data.completedClasses}</strong> ✅</td></tr>
+        <tr><td>שיעורים שבוטלו</td><td style="color:#dc2626">${data.cancelledClasses} ❌</td></tr>
+        <tr><td>תלמידים שהשתתפו</td><td>${data.totalStudents}</td></tr>
+        <tr><td>אחוז נוכחות</td><td><strong>${data.attendanceRate}%</strong></td></tr>
       </table>
-      
+
+      ${(data.totalRevenue !== undefined) ? `
+      <h2>💰 נתונים כספיים</h2>
+      <div class="financial-box">
+        <div class="financial-grid">
+          <div class="financial-item">
+            <div class="label">הכנסות</div>
+            <div class="value revenue">${formatCurrency(data.totalRevenue!)}</div>
+          </div>
+          <div class="financial-item">
+            <div class="label">תשלומי מדריכים</div>
+            <div class="value expense">${formatCurrency(data.totalInstructorPayment!)}</div>
+          </div>
+          <div class="financial-item">
+            <div class="label">רווח נקי</div>
+            <div class="value profit">${formatCurrency(data.totalProfit!)}</div>
+          </div>
+          <div class="financial-item">
+            <div class="label">מרווח רווח</div>
+            <div class="value profit">${data.totalRevenue! > 0 ? Math.round((data.totalProfit! / data.totalRevenue!) * 100) : 0}%</div>
+          </div>
+        </div>
+        <p style="font-size:12px;color:#6b7280;margin:10px 0 0">
+          ממוצע הכנסה לשיעור: ${data.completedClasses > 0 ? formatCurrency(Math.round(data.totalRevenue! / data.completedClasses)) : '—'}
+        </p>
+      </div>
+      ` : ''}
+
+      ${data.insights && data.insights.length > 0 ? `
+      <h2>💡 תובנות</h2>
+      ${data.insights.map(i => `<div class="insight-box">${i}</div>`).join('')}
+      ` : ''}
+
       ${data.alerts.length > 0 ? `
       <h2>⚠️ התראות</h2>
       ${data.alerts.map(alert => `<div class="alert">${alert}</div>`).join('')}
       ` : '<div class="success">✅ אין התראות להיום</div>'}
-      
+
       ${data.upcomingClasses.length > 0 ? `
       <h2>📅 שיעורים קרובים</h2>
       <table>
-        <tr>
-          <th>קורס</th>
-          <th>תאריך</th>
-          <th>מדריך</th>
-          <th>תלמידים</th>
-        </tr>
+        <tr><th>קורס</th><th>תאריך</th><th>מדריך</th><th>תלמידים</th></tr>
         ${data.upcomingClasses.map(cls => `
         <tr>
           <td>${cls.name}</td>
@@ -246,10 +276,10 @@ export const managementSummaryTemplate = (data: ManagementSummaryData): string =
         `).join('')}
       </table>
       ` : ''}
-      
+
     </div>
     <div class="footer">
-      <p style="color: #6b7280; font-size: 12px;">
+      <p style="color:#6b7280;font-size:12px;">
         HaiTech CRM - דוח אוטומטי<br>
         ${new Date().toLocaleString('he-IL')}
       </p>

@@ -255,6 +255,24 @@ const sendManagementSummary = async () => {
       ? Math.round((attendanceRecords / totalExpectedAttendance) * 100) 
       : 0;
 
+    // Fetch financial data for today
+    const financialData = await prisma.meeting.aggregate({
+      where: {
+        scheduledDate: { gte: today, lt: tomorrow },
+        status: 'completed',
+      },
+      _sum: {
+        revenue: true,
+        instructorPayment: true,
+        profit: true,
+      },
+    });
+    const totalRevenue = Number(financialData._sum.revenue ?? 0);
+    const totalInstructorPayment = Number(financialData._sum.instructorPayment ?? 0);
+    const totalProfit = Number(financialData._sum.profit ?? 0);
+    const profitMargin = totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0;
+    const revenuePerClass = completedMeetings > 0 ? Math.round(totalRevenue / completedMeetings) : 0;
+
     // Build alerts
     const alerts: string[] = [];
     if (cancelledMeetings > 0) {
@@ -262,6 +280,30 @@ const sendManagementSummary = async () => {
     }
     if (attendanceRate < 70 && totalExpectedAttendance > 0) {
       alerts.push(`אחוז נוכחות נמוך: ${attendanceRate}%`);
+    }
+    const postponedMeetings = await prisma.meeting.count({
+      where: { scheduledDate: { gte: today, lt: tomorrow }, status: 'postponed' },
+    });
+    if (postponedMeetings > 0) {
+      alerts.push(`${postponedMeetings} שיעורים נדחו`);
+    }
+
+    // Build insights
+    const insights: string[] = [];
+    if (attendanceRate >= 85) {
+      insights.push(`✅ נוכחות מצוינת היום — ${attendanceRate}%. שיא של מחויבות!`);
+    } else if (attendanceRate >= 70) {
+      insights.push(`👍 נוכחות טובה — ${attendanceRate}%. יש מקום לשיפור קל.`);
+    }
+    if (profitMargin > 0) {
+      insights.push(`💰 מרווח רווח של ${profitMargin}% — ממוצע ₪${revenuePerClass.toLocaleString('he-IL')} לשיעור.`);
+    }
+    if (postponedMeetings > 0) {
+      const lostRevenue = Math.round(revenuePerClass * postponedMeetings);
+      insights.push(`⏳ ${postponedMeetings} שיעורים נדחו — הכנסה פוטנציאלית שנדחתה: ~₪${lostRevenue.toLocaleString('he-IL')}.`);
+    }
+    if (completedMeetings === todayMeetings - cancelledMeetings - postponedMeetings && completedMeetings > 0) {
+      insights.push(`🎯 כל השיעורים המתוכננים הושלמו בהצלחה.`);
     }
 
     const data: ManagementSummaryData = {
@@ -271,6 +313,10 @@ const sendManagementSummary = async () => {
       cancelledClasses: cancelledMeetings,
       totalStudents: attendanceRecords,
       attendanceRate,
+      totalRevenue,
+      totalInstructorPayment,
+      totalProfit,
+      insights,
       upcomingClasses: upcomingMeetings.map(m => ({
         name: m.cycle.course.name,
         date: formatDateHebrew(m.scheduledDate),

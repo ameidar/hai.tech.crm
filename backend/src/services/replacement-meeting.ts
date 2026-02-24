@@ -105,12 +105,9 @@ export async function addReplacementMeeting(postponedMeetingId: string, actorUse
   });
 
   console.log(`[ReplacementMeeting] Created replacement meeting ${replacement.id} on ${newDate.toISOString().split('T')[0]} for cycle ${cycle.id}`);
-
-  // Increment remainingMeetings (totalMeetings stays the same per business rule)
-  await prisma.cycle.update({
-    where: { id: cycle.id },
-    data: { remainingMeetings: { increment: 1 } },
-  });
+  // Note: totalMeetings and remainingMeetings are NOT modified here.
+  // When a meeting is postponed, remainingMeetings is not decremented in the existing code,
+  // so we balance by also not incrementing when adding the replacement.
 
   // Create Zoom meeting if the postponed meeting had Zoom (or cycle is online)
   const needsZoom = (cycle.isOnline || activityType === 'online' || activityType === 'private_lesson')

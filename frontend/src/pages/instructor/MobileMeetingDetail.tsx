@@ -83,8 +83,8 @@ export default function MobileMeetingDetail() {
       isCancelled,
       // Can update status + topic + attendance: only today's scheduled meetings
       canUpdate: isToday && !isCompleted && !isCancelled,
-      // Can request changes: only future scheduled meetings
-      canRequest: isFuture && !isCompleted && !isCancelled,
+      // Can request changes: today or future scheduled meetings
+      canRequest: (isToday || isFuture) && !isCompleted && !isCancelled,
       // View only: completed or past meetings
       viewOnly: isCompleted || isPast || isCancelled,
     };

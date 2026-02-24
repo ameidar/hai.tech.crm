@@ -182,7 +182,7 @@ const sendParentReminders = async () => {
   }
 };
 
-// Send management daily summary (22:00)
+// Send management daily summary (23:00)
 const sendManagementSummary = async () => {
   console.log('📧 Running management summary job...');
 
@@ -302,7 +302,7 @@ const sendManagementSummary = async () => {
 const schedules = {
   instructorReminders: '0 8 * * *',    // 08:00 daily
   parentReminders: '0 18 * * *',       // 18:00 daily
-  managementSummary: '0 22 * * *',     // 22:00 daily
+  managementSummary: '0 23 * * *',     // 23:00 daily
 };
 
 // Scheduled tasks
@@ -336,7 +336,7 @@ export const initEmailScheduler = () => {
     sendManagementSummary();
   }, { timezone: 'Asia/Jerusalem' });
   scheduledTasks.push(summaryTask);
-  console.log('   ✓ Management summary: 22:00 daily');
+  console.log('   ✓ Management summary: 23:00 daily');
 
   // Schedule pre-meeting WhatsApp reminders (every 15 min)
   const preMeetingTask = cron.schedule('*/15 * * * *', () => {

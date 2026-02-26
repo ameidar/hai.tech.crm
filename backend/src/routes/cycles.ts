@@ -4,77 +4,10 @@ import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createCycleSchema, updateCycleSchema, createRegistrationSchema, paginationSchema, uuidSchema, bulkUpdateCyclesSchema } from '../types/schemas.js';
 import { fetchHolidays, dayNameToNumber, calculateCycleEndDate } from '../utils/holidays.js';
-import { config } from '../config.js';
 import { zoomService, getHostKeyByEmail } from '../services/zoom.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 
-// Trigger Zoom webhook when online cycle is created
-async function triggerZoomWebhook(cycleId: string) {
-  if (!config.zoomWebhookUrl) {
-    console.log('No ZOOM_WEBHOOK_URL configured, skipping webhook');
-    return;
-  }
-
-  try {
-    const cycle = await prisma.cycle.findUnique({
-      where: { id: cycleId },
-      include: {
-        course: { select: { name: true } },
-        instructor: { select: { name: true, email: true } },
-        meetings: {
-          where: { status: 'scheduled' },
-          orderBy: { scheduledDate: 'asc' },
-          select: {
-            id: true,
-            scheduledDate: true,
-            startTime: true,
-            endTime: true,
-          },
-        },
-      },
-    });
-
-    if (!cycle) return;
-
-    const payload = {
-      event: 'cycle.created.online',
-      cycleId: cycle.id,
-      cycleName: cycle.name,
-      courseName: cycle.course.name,
-      instructorName: cycle.instructor.name,
-      instructorEmail: cycle.instructor.email,
-      meetings: cycle.meetings.map(m => ({
-        id: m.id,
-        date: m.scheduledDate.toISOString().split('T')[0],
-        startTime: m.startTime instanceof Date 
-          ? m.startTime.toISOString().substring(11, 16) 
-          : String(m.startTime).substring(0, 5),
-        endTime: m.endTime instanceof Date 
-          ? m.endTime.toISOString().substring(11, 16) 
-          : String(m.endTime).substring(0, 5),
-      })),
-      callbackUrl: `${(process.env.FRONTEND_URL && process.env.FRONTEND_URL !== '*') ? process.env.FRONTEND_URL : 'https://crm.orma-ai.com'}/api/webhook/cycles/${cycleId}/zoom`,
-    };
-
-    console.log('Triggering Zoom webhook:', config.zoomWebhookUrl);
-    
-    const response = await fetch(config.zoomWebhookUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      console.error('Zoom webhook failed:', response.status, await response.text());
-    } else {
-      console.log('Zoom webhook triggered successfully');
-    }
-  } catch (error) {
-    console.error('Error triggering Zoom webhook:', error);
-  }
-}
+// Make.com webhook removed — Zoom recordings handled directly via /api/zoom-webhook
 
 export const cyclesRouter = Router();
 
@@ -356,14 +289,6 @@ cyclesRouter.post('/', managerOrAdmin, async (req, res, next) => {
       },
       req,
     });
-
-    // Trigger Zoom webhook for online cycles
-    if (cycle.isOnline) {
-      // Run async - don't wait for it
-      triggerZoomWebhook(cycle.id).catch(err => {
-        console.error('Zoom webhook error:', err);
-      });
-    }
 
     res.status(201).json(cycle);
   } catch (error) {

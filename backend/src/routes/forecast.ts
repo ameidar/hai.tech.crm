@@ -265,6 +265,42 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
     }
 
     // ============================================
+    // BUILD PER-CYCLE REVENUE AVERAGES (for forecast estimation)
+    // ============================================
+    
+    // Calculate avg revenue per completed meeting, per cycle
+    const cycleRevenueMap: Map<string, { totalRevenue: number; count: number }> = new Map();
+    for (const meeting of historicalMeetings) {
+      const rev = toNumber(meeting.revenue);
+      if (rev > 0) {
+        const existing = cycleRevenueMap.get(meeting.cycleId) || { totalRevenue: 0, count: 0 };
+        existing.totalRevenue += rev;
+        existing.count += 1;
+        cycleRevenueMap.set(meeting.cycleId, existing);
+      }
+    }
+    const cycleAvgRevenue: Map<string, number> = new Map();
+    for (const [cycleId, { totalRevenue, count }] of cycleRevenueMap.entries()) {
+      cycleAvgRevenue.set(cycleId, count > 0 ? totalRevenue / count : 0);
+    }
+
+    // Also calculate avg instructor payment per meeting per cycle
+    const cyclePaymentMap: Map<string, { totalPayment: number; count: number }> = new Map();
+    for (const meeting of historicalMeetings) {
+      const pay = toNumber(meeting.instructorPayment);
+      if (pay > 0) {
+        const existing = cyclePaymentMap.get(meeting.cycleId) || { totalPayment: 0, count: 0 };
+        existing.totalPayment += pay;
+        existing.count += 1;
+        cyclePaymentMap.set(meeting.cycleId, existing);
+      }
+    }
+    const cycleAvgPayment: Map<string, number> = new Map();
+    for (const [cycleId, { totalPayment, count }] of cyclePaymentMap.entries()) {
+      cycleAvgPayment.set(cycleId, count > 0 ? totalPayment / count : 0);
+    }
+
+    // ============================================
     // FORECAST DATA
     // ============================================
     
@@ -317,12 +353,30 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
     }
 
     // Calculate forecast based on scheduled meetings
+    // For meetings without revenue set, use historical avg from the same cycle
+    const globalAvgRevenue = cycleAvgRevenue.size > 0
+      ? Array.from(cycleAvgRevenue.values()).reduce((a, b) => a + b, 0) / cycleAvgRevenue.size
+      : 0;
+    const globalAvgPayment = cycleAvgPayment.size > 0
+      ? Array.from(cycleAvgPayment.values()).reduce((a, b) => a + b, 0) / cycleAvgPayment.size
+      : 0;
+
     for (const meeting of futureMeetings) {
       const monthKey = getMonthKey(new Date(meeting.scheduledDate));
       const data = forecastByMonth.get(monthKey);
       if (data) {
-        data.revenue += toNumber(meeting.revenue);
-        data.instructorPayments += toNumber(meeting.instructorPayment);
+        const meetingRevenue = toNumber(meeting.revenue);
+        const meetingPayment = toNumber(meeting.instructorPayment);
+        // Use actual if set, otherwise fall back to cycle avg, then global avg
+        const estimatedRevenue = meetingRevenue > 0
+          ? meetingRevenue
+          : (cycleAvgRevenue.get(meeting.cycleId) ?? globalAvgRevenue);
+        const estimatedPayment = meetingPayment > 0
+          ? meetingPayment
+          : (cycleAvgPayment.get(meeting.cycleId) ?? globalAvgPayment);
+
+        data.revenue += estimatedRevenue;
+        data.instructorPayments += estimatedPayment;
         data.meetingCount += 1;
 
         // Apply expense patterns from historical data

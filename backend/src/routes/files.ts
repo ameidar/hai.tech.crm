@@ -2,10 +2,12 @@ import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../utils/prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { config } from '../config.js';
 
 export const filesRouter = Router();
 
@@ -116,46 +118,20 @@ filesRouter.post('/:entityType/:entityId', authenticate, upload.single('file'), 
   }
 });
 
-// GET /api/files/:entityType/:entityId — list files for entity
-filesRouter.get('/:entityType/:entityId', authenticate, async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { entityType, entityId } = req.params;
-
-    if (!ALLOWED_ENTITY_TYPES.includes(entityType)) {
-      throw new AppError(400, `entityType לא חוקי: ${entityType}`);
-    }
-
-    const attachments = await prisma.fileAttachment.findMany({
-      where: { entityType, entityId },
-      include: {
-        uploadedBy: { select: { id: true, name: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    res.json(attachments);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// GET /api/files/download/:id — download a file
+// GET /api/files/download/:id — download a file (MUST be before /:entityType/:entityId)
 // Auth: Bearer header OR ?token= query param (for direct browser links)
 filesRouter.get('/download/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     // Allow token via query param for direct browser download links
-    if (!req.user && req.query.token) {
-      const jwt = await import('jsonwebtoken');
-      const { config } = await import('../config.js');
+    if (req.query.token) {
       try {
-        const decoded = jwt.verify(req.query.token as string, config.jwtSecret) as any;
+        const decoded = jwt.verify(req.query.token as string, config.jwt.secret) as any;
         (req as any).user = decoded;
       } catch {
         throw new AppError(401, 'טוקן לא תקין');
       }
-    }
-
-    if (!req.user) {
+    } else if (!req.user) {
+      // Try Authorization header via authenticate manually
       throw new AppError(401, 'נדרשת התחברות');
     }
 
@@ -174,6 +150,29 @@ filesRouter.get('/download/:id', async (req: Request, res: Response, next: NextF
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(attachment.originalName)}`);
     res.setHeader('Content-Type', attachment.mimeType);
     res.sendFile(fullPath);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/files/:entityType/:entityId — list files for entity
+filesRouter.get('/:entityType/:entityId', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { entityType, entityId } = req.params;
+
+    if (!ALLOWED_ENTITY_TYPES.includes(entityType)) {
+      throw new AppError(400, `entityType לא חוקי: ${entityType}`);
+    }
+
+    const attachments = await prisma.fileAttachment.findMany({
+      where: { entityType, entityId },
+      include: {
+        uploadedBy: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json(attachments);
   } catch (error) {
     next(error);
   }

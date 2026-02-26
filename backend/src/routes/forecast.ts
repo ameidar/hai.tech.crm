@@ -93,8 +93,9 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
     
+    // +1 so the last forecast month is fully included (lt: start of month AFTER last forecast month)
     const forecastEnd = new Date(currentMonth);
-    forecastEnd.setMonth(forecastEnd.getMonth() + forecastMonths);
+    forecastEnd.setMonth(forecastEnd.getMonth() + forecastMonths + 1);
 
     // ============================================
     // HISTORICAL DATA

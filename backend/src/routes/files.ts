@@ -149,8 +149,6 @@ filesRouter.get('/download/:id', async (req: Request, res: Response, next: NextF
       throw new AppError(404, 'קובץ לא נמצא בדיסק');
     }
 
-    // Use RFC 5987 encoded filename for proper Unicode support across browsers
-    const encodedName = encodeURIComponent(attachment.originalName).replace(/'/g, '%27');
     // res.download sends the file with proper Content-Disposition header
     res.download(fullPath, attachment.originalName, (err) => {
       if (err) {

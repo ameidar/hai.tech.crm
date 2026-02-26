@@ -400,8 +400,8 @@ webhookRouter.post('/leads', async (req, res, next) => {
         }
       }
 
-      // Trigger Vapi AI call for returning customer with phone
-      if (customer.phone) {
+      // Trigger Vapi AI call for returning customer with phone (not for WhatsApp leads)
+      if (customer.phone && source !== 'whatsapp') {
         initiateVapiCall({
           customerId: customer.id,
           customerName: customer.name,
@@ -479,8 +479,8 @@ webhookRouter.post('/leads', async (req, res, next) => {
       source,
     }).catch(err => console.error('[WEBHOOK] Failed to notify admin:', err));
 
-    // Trigger Vapi AI call for new customer with phone
-    if (customer.phone) {
+    // Trigger Vapi AI call for new customer with phone (not for WhatsApp leads)
+    if (customer.phone && source !== 'whatsapp') {
       initiateVapiCall({
         customerId: customer.id,
         customerName: customer.name,

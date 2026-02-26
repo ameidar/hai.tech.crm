@@ -325,7 +325,13 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
           },
         },
         instructor: {
-          select: { id: true, name: true },
+          select: {
+            id: true,
+            name: true,
+            rateFrontal: true,
+            rateOnline: true,
+            ratePrivate: true,
+          },
         },
       },
     });
@@ -352,8 +358,7 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
       });
     }
 
-    // Calculate forecast based on scheduled meetings
-    // For meetings without revenue set, use historical avg from the same cycle
+    // Calculate forecast based on actual cycle & instructor data (not statistical averages)
     const globalAvgRevenue = cycleAvgRevenue.size > 0
       ? Array.from(cycleAvgRevenue.values()).reduce((a, b) => a + b, 0) / cycleAvgRevenue.size
       : 0;
@@ -365,15 +370,39 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
       const monthKey = getMonthKey(new Date(meeting.scheduledDate));
       const data = forecastByMonth.get(monthKey);
       if (data) {
-        const meetingRevenue = toNumber(meeting.revenue);
-        const meetingPayment = toNumber(meeting.instructorPayment);
-        // Use actual if set, otherwise fall back to cycle avg, then global avg
-        const estimatedRevenue = meetingRevenue > 0
-          ? meetingRevenue
-          : (cycleAvgRevenue.get(meeting.cycleId) ?? globalAvgRevenue);
-        const estimatedPayment = meetingPayment > 0
-          ? meetingPayment
-          : (cycleAvgPayment.get(meeting.cycleId) ?? globalAvgPayment);
+        const cycle = meeting.cycle as any;
+        const instructor = meeting.instructor as any;
+        const activityType = meeting.activityType || cycle.activityType || 'frontal';
+
+        // --- Revenue: use actual if already set, otherwise derive from cycle data ---
+        let estimatedRevenue = toNumber(meeting.revenue);
+        if (estimatedRevenue === 0) {
+          if (toNumber(cycle.meetingRevenue) > 0) {
+            // Cycle has a fixed revenue per meeting
+            estimatedRevenue = toNumber(cycle.meetingRevenue);
+          } else if (toNumber(cycle.pricePerStudent) > 0 && (cycle.studentCount ?? 0) > 0) {
+            // Revenue = price per student × number of students
+            estimatedRevenue = toNumber(cycle.pricePerStudent) * (cycle.studentCount ?? 0);
+          } else {
+            // Last resort: historical cycle avg
+            estimatedRevenue = cycleAvgRevenue.get(meeting.cycleId) ?? globalAvgRevenue;
+          }
+        }
+
+        // --- Instructor payment: use actual if set, otherwise use instructor rate ---
+        let estimatedPayment = toNumber(meeting.instructorPayment);
+        if (estimatedPayment === 0 && instructor) {
+          if (activityType === 'online' && toNumber(instructor.rateOnline) > 0) {
+            estimatedPayment = toNumber(instructor.rateOnline);
+          } else if (activityType === 'private' && toNumber(instructor.ratePrivate) > 0) {
+            estimatedPayment = toNumber(instructor.ratePrivate);
+          } else if (toNumber(instructor.rateFrontal) > 0) {
+            estimatedPayment = toNumber(instructor.rateFrontal);
+          } else {
+            // Last resort: historical cycle avg
+            estimatedPayment = cycleAvgPayment.get(meeting.cycleId) ?? globalAvgPayment;
+          }
+        }
 
         data.revenue += estimatedRevenue;
         data.instructorPayments += estimatedPayment;

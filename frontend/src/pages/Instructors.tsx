@@ -494,6 +494,16 @@ function InstructorCard({ instructor, onEdit, onDelete, onSendInvite, onSendMess
               <Calendar size={14} className="group-hover:text-blue-600" />
               <span className="group-hover:underline">{instructor._count?.meetings || 0} פגישות</span>
             </Link>
+            {(instructor._count as any)?.files > 0 && (
+              <button
+                onClick={onEdit}
+                className="flex items-center gap-1 text-blue-500 hover:text-blue-700 transition-colors"
+                title="יש קבצים מצורפים"
+              >
+                <Paperclip size={14} />
+                <span>{(instructor._count as any).files}</span>
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-3">
             {!hasAccount && (

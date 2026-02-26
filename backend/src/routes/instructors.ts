@@ -47,7 +47,25 @@ instructorsRouter.get('/', async (req, res, next) => {
       prisma.instructor.count({ where }),
     ]);
 
-    res.json(paginatedResponse(instructors, total, page, limit));
+    // Attach file counts (generic file_attachments table — no Prisma relation)
+    const instructorIds = instructors.map((i) => i.id);
+    let fileCounts: Record<string, number> = {};
+    if (instructorIds.length > 0) {
+      const rows = await prisma.$queryRaw<{ entity_id: string; cnt: bigint }[]>`
+        SELECT entity_id, COUNT(*) AS cnt
+        FROM file_attachments
+        WHERE entity_type = 'instructor' AND entity_id = ANY(${instructorIds})
+        GROUP BY entity_id
+      `;
+      rows.forEach((r) => { fileCounts[r.entity_id] = Number(r.cnt); });
+    }
+
+    const enriched = instructors.map((i) => ({
+      ...i,
+      _count: { ...i._count, files: fileCounts[i.id] || 0 },
+    }));
+
+    res.json(paginatedResponse(enriched, total, page, limit));
   } catch (error) {
     next(error);
   }

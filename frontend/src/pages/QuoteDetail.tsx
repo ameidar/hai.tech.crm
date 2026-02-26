@@ -19,6 +19,7 @@ import {
   ExternalLink,
   Film,
   Download,
+  Paperclip,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { quotesApi, type Quote } from '../api/quotes';
@@ -26,6 +27,7 @@ import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
+import FileAttachments from '../components/FileAttachments';
 
 const statusHebrew: Record<string, string> = {
   draft: 'טיוטה',
@@ -632,6 +634,19 @@ export default function QuoteDetail() {
                 </div>
               </div>
             )}
+
+            {/* File Attachments */}
+            <div className="card">
+              <div className="card-header">
+                <h2 className="font-semibold flex items-center gap-2">
+                  <Paperclip size={18} />
+                  קבצים מצורפים
+                </h2>
+              </div>
+              <div className="card-body">
+                <FileAttachments entityType="quote" entityId={quote.id} canDelete={true} />
+              </div>
+            </div>
           </div>
         </div>
       </div>

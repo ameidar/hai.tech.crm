@@ -1148,5 +1148,71 @@ export const useDeleteSystemUser = () => {
   });
 };
 
+// ===================
+// FILE ATTACHMENTS
+// ===================
+
+export interface FileAttachment {
+  id: string;
+  entityType: string;
+  entityId: string;
+  fileName: string;
+  originalName: string;
+  mimeType: string;
+  fileSize: number;
+  filePath: string;
+  label?: string | null;
+  uploadedById?: string | null;
+  createdAt: string;
+  uploadedBy?: { id: string; name: string } | null;
+}
+
+export const useFileAttachments = (entityType: string, entityId: string | undefined) => {
+  return useQuery({
+    queryKey: ['files', entityType, entityId],
+    queryFn: () => fetchData<FileAttachment[]>(`/files/${entityType}/${entityId}`),
+    enabled: !!entityId,
+  });
+};
+
+export const useUploadFile = (entityType: string, entityId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ file, label }: { file: File; label?: string }) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      if (label) formData.append('label', label);
+      const res = await api.post<FileAttachment>(`/files/${entityType}/${entityId}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['files', entityType, entityId] });
+    },
+  });
+};
+
+export const useDeleteFile = (entityType: string, entityId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/files/${id}`).then(r => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['files', entityType, entityId] });
+    },
+  });
+};
+
+export const useUpdateFileLabel = (entityType: string, entityId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, label }: { id: string; label: string }) =>
+      api.patch<FileAttachment>(`/files/${id}`, { label }).then(r => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['files', entityType, entityId] });
+    },
+  });
+};
+
 // Re-export api for direct use in components
 export { api };

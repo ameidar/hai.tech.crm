@@ -90,13 +90,15 @@ filesRouter.post('/:entityType/:entityId', authenticate, upload.single('file'), 
     }
 
     const filePath = `${entityType}/${entityId}/${req.file.filename}`;
+    // Fix Hebrew/Unicode filenames: multer delivers originalname as latin1, convert to utf-8
+    const originalName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
 
     const attachment = await prisma.fileAttachment.create({
       data: {
         entityType,
         entityId,
         fileName: req.file.filename,
-        originalName: req.file.originalname,
+        originalName,
         mimeType: req.file.mimetype,
         fileSize: req.file.size,
         filePath,
@@ -147,7 +149,9 @@ filesRouter.get('/download/:id', async (req: Request, res: Response, next: NextF
       throw new AppError(404, 'קובץ לא נמצא בדיסק');
     }
 
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(attachment.originalName)}`);
+    // Use RFC 5987 encoded filename for proper Unicode support across browsers
+    const encodedName = encodeURIComponent(attachment.originalName).replace(/'/g, '%27');
+    res.setHeader('Content-Disposition', `attachment; filename="${attachment.originalName}"; filename*=UTF-8''${encodedName}`);
     res.setHeader('Content-Type', attachment.mimeType);
     res.sendFile(fullPath);
   } catch (error) {

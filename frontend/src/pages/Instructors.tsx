@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound, Trash2, AlertTriangle, Edit, CheckSquare } from 'lucide-react';
+import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound, Trash2, AlertTriangle, Edit, CheckSquare, Paperclip } from 'lucide-react';
 import { useInstructors, useCreateInstructor, useUpdateInstructor, useDeleteInstructor, useSendInstructorInvite, useResetInstructorPassword, useBulkUpdateInstructors } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
+import FileAttachments from '../components/FileAttachments';
 import { SkeletonCardGrid } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
@@ -755,6 +756,7 @@ interface InstructorFormProps {
 }
 
 function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: InstructorFormProps) {
+  const [activeTab, setActiveTab] = useState<'details' | 'files'>('details');
   const [formData, setFormData] = useState({
     name: instructor?.name || '',
     phone: instructor?.phone || '',
@@ -781,7 +783,41 @@ function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: Instructo
   };
 
   return (
-    <form onSubmit={handleSubmit} className="p-6 space-y-4">
+    <div className="flex flex-col">
+      {/* Tabs — only in edit mode */}
+      {instructor?.id && (
+        <div className="flex border-b border-gray-200 px-6 pt-4">
+          <button
+            type="button"
+            onClick={() => setActiveTab('details')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${activeTab === 'details' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            פרטים
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('files')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px flex items-center gap-1 ${activeTab === 'files' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <Paperclip size={14} />
+            מסמכים
+          </button>
+        </div>
+      )}
+
+      {/* Files Tab */}
+      {instructor?.id && activeTab === 'files' && (
+        <div className="p-6">
+          <FileAttachments entityType="instructor" entityId={instructor.id} canDelete={true} />
+          <div className="flex justify-end pt-4 border-t mt-4">
+            <button type="button" onClick={onCancel} className="btn btn-secondary">סגור</button>
+          </div>
+        </div>
+      )}
+
+      {/* Details Tab (or default when creating) */}
+      {(activeTab === 'details' || !instructor?.id) && (
+      <form onSubmit={handleSubmit} className="p-6 space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2">
           <label className="form-label">שם מלא *</label>
@@ -938,5 +974,7 @@ function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: Instructo
         </button>
       </div>
     </form>
+      )}
+    </div>
   );
 }

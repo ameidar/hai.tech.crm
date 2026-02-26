@@ -148,6 +148,7 @@ model User {
   submittedExpenses     MeetingExpense[] @relation("ExpenseSubmitter")
   reviewedExpenses      MeetingExpense[] @relation("ExpenseReviewer")
   quotes                Quote[]
+  uploadedFiles         FileAttachment[]
 
   @@map("users")
 }
@@ -756,4 +757,26 @@ model MeetingChangeRequest {
   instructor Instructor @relation(fields: [instructorId], references: [id])
 
   @@map("meeting_change_requests")
+}
+
+// ===================
+// FILE ATTACHMENTS
+// ===================
+
+model FileAttachment {
+  id           String   @id @default(uuid())
+  entityType   String   @map("entity_type")   // "instructor" | "quote"
+  entityId     String   @map("entity_id")
+  fileName     String   @map("file_name")      // stored file name (uuid-based)
+  originalName String   @map("original_name")  // original uploaded file name
+  mimeType     String   @map("mime_type")
+  fileSize     Int      @map("file_size")       // in bytes
+  filePath     String   @map("file_path")       // relative path on disk
+  label        String?                           // optional label/category (e.g. "חוזה", "קו\"ח")
+  uploadedById String?  @map("uploaded_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  uploadedBy User? @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@map("file_attachments")
 }

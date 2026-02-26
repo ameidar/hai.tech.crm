@@ -1,0 +1,214 @@
+import { Router, Request, Response, NextFunction } from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { v4 as uuidv4 } from 'uuid';
+import { prisma } from '../utils/prisma.js';
+import { authenticate } from '../middleware/auth.js';
+import { AppError } from '../middleware/errorHandler.js';
+
+export const filesRouter = Router();
+
+// Supported entity types
+const ALLOWED_ENTITY_TYPES = ['instructor', 'quote'];
+
+// Upload directory
+const UPLOADS_BASE = path.join(process.cwd(), 'uploads');
+
+// Ensure upload directories exist
+const ensureDir = (dir: string) => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+};
+
+// Multer storage config
+const storage = multer.diskStorage({
+  destination: (req, _file, cb) => {
+    const entityType = req.params.entityType || req.body.entityType || 'misc';
+    const entityId = req.params.entityId || req.body.entityId || 'unknown';
+    const dir = path.join(UPLOADS_BASE, entityType, entityId);
+    ensureDir(dir);
+    cb(null, dir);
+  },
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${uuidv4()}${ext}`);
+  },
+});
+
+const fileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  // Allow common document types
+  const allowedMimes = [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+    'text/plain',
+    'application/zip',
+    'application/x-rar-compressed',
+  ];
+  if (allowedMimes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new AppError(400, `סוג קובץ לא נתמך: ${file.mimetype}`));
+  }
+};
+
+const upload = multer({
+  storage,
+  fileFilter,
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+});
+
+// All routes require auth
+filesRouter.use(authenticate);
+
+// POST /api/files/:entityType/:entityId — upload a file
+filesRouter.post('/:entityType/:entityId', upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { entityType, entityId } = req.params;
+    const { label } = req.body;
+
+    if (!ALLOWED_ENTITY_TYPES.includes(entityType)) {
+      throw new AppError(400, `entityType לא חוקי: ${entityType}`);
+    }
+
+    if (!req.file) {
+      throw new AppError(400, 'לא הועלה קובץ');
+    }
+
+    // Verify entity exists
+    if (entityType === 'instructor') {
+      const instructor = await prisma.instructor.findUnique({ where: { id: entityId } });
+      if (!instructor) throw new AppError(404, 'מדריך לא נמצא');
+    } else if (entityType === 'quote') {
+      const quote = await prisma.quote.findUnique({ where: { id: entityId } });
+      if (!quote) throw new AppError(404, 'הצעת מחיר לא נמצאה');
+    }
+
+    const filePath = `${entityType}/${entityId}/${req.file.filename}`;
+
+    const attachment = await prisma.fileAttachment.create({
+      data: {
+        entityType,
+        entityId,
+        fileName: req.file.filename,
+        originalName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        fileSize: req.file.size,
+        filePath,
+        label: label || null,
+        uploadedById: req.user?.userId || null,
+      },
+      include: {
+        uploadedBy: { select: { id: true, name: true } },
+      },
+    });
+
+    res.status(201).json(attachment);
+  } catch (error) {
+    // Clean up uploaded file on error
+    if (req.file) {
+      fs.unlink(req.file.path, () => {});
+    }
+    next(error);
+  }
+});
+
+// GET /api/files/:entityType/:entityId — list files for entity
+filesRouter.get('/:entityType/:entityId', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { entityType, entityId } = req.params;
+
+    if (!ALLOWED_ENTITY_TYPES.includes(entityType)) {
+      throw new AppError(400, `entityType לא חוקי: ${entityType}`);
+    }
+
+    const attachments = await prisma.fileAttachment.findMany({
+      where: { entityType, entityId },
+      include: {
+        uploadedBy: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json(attachments);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/files/download/:id — download a file
+filesRouter.get('/download/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const attachment = await prisma.fileAttachment.findUnique({
+      where: { id: req.params.id },
+    });
+
+    if (!attachment) throw new AppError(404, 'קובץ לא נמצא');
+
+    const fullPath = path.join(UPLOADS_BASE, attachment.filePath);
+
+    if (!fs.existsSync(fullPath)) {
+      throw new AppError(404, 'קובץ לא נמצא בדיסק');
+    }
+
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(attachment.originalName)}"`);
+    res.setHeader('Content-Type', attachment.mimeType);
+    res.sendFile(fullPath);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/files/:id — delete a file
+filesRouter.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // Only admin/manager can delete
+    if (req.user?.role === 'instructor') {
+      throw new AppError(403, 'אין הרשאה למחוק קבצים');
+    }
+
+    const attachment = await prisma.fileAttachment.findUnique({
+      where: { id: req.params.id },
+    });
+
+    if (!attachment) throw new AppError(404, 'קובץ לא נמצא');
+
+    // Delete from disk
+    const fullPath = path.join(UPLOADS_BASE, attachment.filePath);
+    if (fs.existsSync(fullPath)) {
+      fs.unlinkSync(fullPath);
+    }
+
+    // Delete from DB
+    await prisma.fileAttachment.delete({ where: { id: req.params.id } });
+
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /api/files/:id — update label
+filesRouter.patch('/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { label } = req.body;
+
+    const attachment = await prisma.fileAttachment.update({
+      where: { id: req.params.id },
+      data: { label },
+      include: {
+        uploadedBy: { select: { id: true, name: true } },
+      },
+    });
+
+    res.json(attachment);
+  } catch (error) {
+    next(error);
+  }
+});

@@ -482,42 +482,44 @@ function InstructorCard({ instructor, onEdit, onEditFiles, onDelete, onSendInvit
           </div>
         </div>
 
-        <div className="flex items-center justify-between pt-4 border-t border-gray-100 text-sm">
-          <div className="flex items-center gap-4 text-gray-500">
+        <div className="pt-4 border-t border-gray-100 text-sm space-y-2">
+          {/* Stats row */}
+          <div className="flex items-center gap-3 text-gray-500 flex-wrap">
             <Link 
               to={`/cycles?instructorId=${instructor.id}`}
-              className="flex items-center gap-1.5 hover:text-blue-600 transition-colors group"
+              className="flex items-center gap-1 hover:text-blue-600 transition-colors group"
             >
-              <RefreshCcw size={14} className="group-hover:text-blue-600" />
+              <RefreshCcw size={13} className="group-hover:text-blue-600" />
               <span className="group-hover:underline">{instructor._count?.cycles || 0} מחזורים</span>
             </Link>
             <Link 
               to={`/meetings?instructorId=${instructor.id}`}
-              className="flex items-center gap-1.5 hover:text-blue-600 transition-colors group"
+              className="flex items-center gap-1 hover:text-blue-600 transition-colors group"
             >
-              <Calendar size={14} className="group-hover:text-blue-600" />
+              <Calendar size={13} className="group-hover:text-blue-600" />
               <span className="group-hover:underline">{instructor._count?.meetings || 0} פגישות</span>
             </Link>
             {(instructor._count as any)?.files > 0 && (
               <button
                 onClick={onEditFiles}
-                className="flex items-center gap-1 text-blue-600 hover:text-blue-800 transition-colors font-medium"
+                className="flex items-center gap-1 text-blue-600 hover:text-blue-800 transition-colors font-medium bg-blue-50 px-2 py-0.5 rounded-full"
                 title="פתח מסמכים מצורפים"
               >
-                <Paperclip size={14} />
+                <Paperclip size={12} />
                 <span>{(instructor._count as any).files} מסמכים</span>
               </button>
             )}
           </div>
-          <div className="flex items-center gap-3">
+          {/* Actions row */}
+          <div className="flex items-center gap-2 flex-wrap">
             {!hasAccount && (
               <button
                 onClick={onSendInvite}
                 disabled={isInviteLoading}
-                className="text-green-600 hover:text-green-700 flex items-center gap-1.5 font-medium transition-colors"
+                className="text-green-600 hover:text-green-700 flex items-center gap-1 font-medium transition-colors"
                 title="שלח הזמנה"
               >
-                <Send size={14} />
+                <Send size={13} />
                 הזמנה
               </button>
             )}
@@ -525,19 +527,19 @@ function InstructorCard({ instructor, onEdit, onEditFiles, onDelete, onSendInvit
               <button
                 onClick={onResetPassword}
                 disabled={isResetLoading}
-                className="text-orange-600 hover:text-orange-700 flex items-center gap-1.5 font-medium transition-colors"
+                className="text-orange-500 hover:text-orange-700 flex items-center gap-1 transition-colors"
                 title="איפוס סיסמה"
               >
-                <KeyRound size={14} />
+                <KeyRound size={13} />
                 איפוס
               </button>
             )}
             <button
               onClick={onSendMessage}
-              className="text-green-600 hover:text-green-700 flex items-center gap-1.5 font-medium transition-colors"
+              className="text-green-600 hover:text-green-700 flex items-center gap-1 transition-colors"
               title="שלח הודעה"
             >
-              <MessageCircle size={14} />
+              <MessageCircle size={13} />
               הודעה
             </button>
             <button
@@ -548,10 +550,10 @@ function InstructorCard({ instructor, onEdit, onEditFiles, onDelete, onSendInvit
             </button>
             <button
               onClick={onDelete}
-              className="text-red-500 hover:text-red-700 transition-colors"
+              className="text-red-500 hover:text-red-700 transition-colors mr-auto"
               title="מחק מדריך"
             >
-              <Trash2 size={14} />
+              <Trash2 size={13} />
             </button>
           </div>
         </div>

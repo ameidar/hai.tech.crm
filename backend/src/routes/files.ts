@@ -64,11 +64,8 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
 });
 
-// All routes require auth
-filesRouter.use(authenticate);
-
 // POST /api/files/:entityType/:entityId — upload a file
-filesRouter.post('/:entityType/:entityId', upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
+filesRouter.post('/:entityType/:entityId', authenticate, upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { entityType, entityId } = req.params;
     const { label } = req.body;
@@ -120,7 +117,7 @@ filesRouter.post('/:entityType/:entityId', upload.single('file'), async (req: Re
 });
 
 // GET /api/files/:entityType/:entityId — list files for entity
-filesRouter.get('/:entityType/:entityId', async (req: Request, res: Response, next: NextFunction) => {
+filesRouter.get('/:entityType/:entityId', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { entityType, entityId } = req.params;
 
@@ -143,8 +140,25 @@ filesRouter.get('/:entityType/:entityId', async (req: Request, res: Response, ne
 });
 
 // GET /api/files/download/:id — download a file
+// Auth: Bearer header OR ?token= query param (for direct browser links)
 filesRouter.get('/download/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // Allow token via query param for direct browser download links
+    if (!req.user && req.query.token) {
+      const jwt = await import('jsonwebtoken');
+      const { config } = await import('../config.js');
+      try {
+        const decoded = jwt.verify(req.query.token as string, config.jwtSecret) as any;
+        (req as any).user = decoded;
+      } catch {
+        throw new AppError(401, 'טוקן לא תקין');
+      }
+    }
+
+    if (!req.user) {
+      throw new AppError(401, 'נדרשת התחברות');
+    }
+
     const attachment = await prisma.fileAttachment.findUnique({
       where: { id: req.params.id },
     });
@@ -157,7 +171,7 @@ filesRouter.get('/download/:id', async (req: Request, res: Response, next: NextF
       throw new AppError(404, 'קובץ לא נמצא בדיסק');
     }
 
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(attachment.originalName)}"`);
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(attachment.originalName)}`);
     res.setHeader('Content-Type', attachment.mimeType);
     res.sendFile(fullPath);
   } catch (error) {
@@ -166,7 +180,7 @@ filesRouter.get('/download/:id', async (req: Request, res: Response, next: NextF
 });
 
 // DELETE /api/files/:id — delete a file
-filesRouter.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
+filesRouter.delete('/:id', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     // Only admin/manager can delete
     if (req.user?.role === 'instructor') {
@@ -195,7 +209,7 @@ filesRouter.delete('/:id', async (req: Request, res: Response, next: NextFunctio
 });
 
 // PATCH /api/files/:id — update label
-filesRouter.patch('/:id', async (req: Request, res: Response, next: NextFunction) => {
+filesRouter.patch('/:id', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { label } = req.body;
 

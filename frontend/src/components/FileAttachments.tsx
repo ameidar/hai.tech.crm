@@ -85,7 +85,10 @@ export default function FileAttachments({ entityType, entityId, canDelete = fals
     }
   };
 
-  const downloadUrl = (file: FileAttachment) => `/api/files/download/${file.id}`;
+  const downloadUrl = (file: FileAttachment) => {
+    const token = localStorage.getItem('accessToken') || '';
+    return `/api/files/download/${file.id}?token=${encodeURIComponent(token)}`;
+  };
 
   const suggestions = LABEL_SUGGESTIONS[entityType];
 

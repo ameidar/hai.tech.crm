@@ -15,6 +15,7 @@ export default function Instructors() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingInstructor, setEditingInstructor] = useState<Instructor | null>(null);
+  const [editingInstructorInitialTab, setEditingInstructorInitialTab] = useState<'details' | 'files'>('details');
   const [inviteModal, setInviteModal] = useState<{ instructor: Instructor; url: string } | null>(null);
   const [resetPasswordModal, setResetPasswordModal] = useState<{ instructor: Instructor; url: string } | null>(null);
   const [messageInstructor, setMessageInstructor] = useState<Instructor | null>(null);
@@ -194,7 +195,8 @@ export default function Instructors() {
               <InstructorCard
                 key={instructor.id}
                 instructor={instructor}
-                onEdit={() => setEditingInstructor(instructor)}
+                onEdit={() => { setEditingInstructorInitialTab('details'); setEditingInstructor(instructor); }}
+                onEditFiles={() => { setEditingInstructorInitialTab('files'); setEditingInstructor(instructor); }}
                 onDelete={() => setDeleteConfirmModal(instructor)}
                 onSendInvite={() => handleSendInvite(instructor)}
                 onSendMessage={() => setMessageInstructor(instructor)}
@@ -238,15 +240,16 @@ export default function Instructors() {
       {/* Edit Instructor Modal */}
       <Modal
         isOpen={!!editingInstructor}
-        onClose={() => setEditingInstructor(null)}
+        onClose={() => { setEditingInstructor(null); setEditingInstructorInitialTab('details'); }}
         title="עריכת מדריך"
         size="lg"
       >
         {editingInstructor && (
           <InstructorForm
             instructor={editingInstructor}
+            initialTab={editingInstructorInitialTab}
             onSubmit={handleUpdateInstructor}
-            onCancel={() => setEditingInstructor(null)}
+            onCancel={() => { setEditingInstructor(null); setEditingInstructorInitialTab('details'); }}
             isLoading={updateInstructor.isPending}
           />
         )}
@@ -394,6 +397,7 @@ export default function Instructors() {
 
 // Instructor Card
 interface InstructorCardProps {
+  onEditFiles: () => void;
   instructor: Instructor;
   onEdit: () => void;
   onDelete: () => void;
@@ -406,7 +410,7 @@ interface InstructorCardProps {
   onToggleSelect?: () => void;
 }
 
-function InstructorCard({ instructor, onEdit, onDelete, onSendInvite, onSendMessage, onResetPassword, isInviteLoading, isResetLoading, isSelected, onToggleSelect }: InstructorCardProps) {
+function InstructorCard({ instructor, onEdit, onEditFiles, onDelete, onSendInvite, onSendMessage, onResetPassword, isInviteLoading, isResetLoading, isSelected, onToggleSelect }: InstructorCardProps) {
   const hasAccount = !!instructor.userId;
 
   return (
@@ -496,12 +500,12 @@ function InstructorCard({ instructor, onEdit, onDelete, onSendInvite, onSendMess
             </Link>
             {(instructor._count as any)?.files > 0 && (
               <button
-                onClick={onEdit}
-                className="flex items-center gap-1 text-blue-500 hover:text-blue-700 transition-colors"
-                title="יש קבצים מצורפים"
+                onClick={onEditFiles}
+                className="flex items-center gap-1 text-blue-600 hover:text-blue-800 transition-colors font-medium"
+                title="פתח מסמכים מצורפים"
               >
                 <Paperclip size={14} />
-                <span>{(instructor._count as any).files}</span>
+                <span>{(instructor._count as any).files} מסמכים</span>
               </button>
             )}
           </div>
@@ -760,13 +764,19 @@ function ResetPasswordModalContent({ instructor, resetUrl, onClose }: ResetPassw
 // Instructor Form
 interface InstructorFormProps {
   instructor?: Instructor;
+  initialTab?: 'details' | 'files';
   onSubmit: (data: Partial<Instructor>) => void;
   onCancel: () => void;
   isLoading?: boolean;
 }
 
-function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: InstructorFormProps) {
-  const [activeTab, setActiveTab] = useState<'details' | 'files'>('details');
+function InstructorForm({ instructor, initialTab = 'details', onSubmit, onCancel, isLoading }: InstructorFormProps) {
+  const [activeTab, setActiveTab] = useState<'details' | 'files'>(instructor?.id ? initialTab : 'details');
+
+  // Sync with initialTab when modal is reopened with different tab
+  useEffect(() => {
+    if (instructor?.id) setActiveTab(initialTab);
+  }, [instructor?.id, initialTab]);
   const [formData, setFormData] = useState({
     name: instructor?.name || '',
     phone: instructor?.phone || '',

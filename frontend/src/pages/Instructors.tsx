@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound, Trash2, AlertTriangle, Edit, CheckSquare } from 'lucide-react';
+import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound, Trash2, AlertTriangle, Edit, CheckSquare, Paperclip } from 'lucide-react';
 import { useInstructors, useCreateInstructor, useUpdateInstructor, useDeleteInstructor, useSendInstructorInvite, useResetInstructorPassword, useBulkUpdateInstructors } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
+import FileAttachments from '../components/FileAttachments';
 import { SkeletonCardGrid } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
@@ -14,6 +15,7 @@ export default function Instructors() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingInstructor, setEditingInstructor] = useState<Instructor | null>(null);
+  const [editingInstructorInitialTab, setEditingInstructorInitialTab] = useState<'details' | 'files'>('details');
   const [inviteModal, setInviteModal] = useState<{ instructor: Instructor; url: string } | null>(null);
   const [resetPasswordModal, setResetPasswordModal] = useState<{ instructor: Instructor; url: string } | null>(null);
   const [messageInstructor, setMessageInstructor] = useState<Instructor | null>(null);
@@ -193,7 +195,8 @@ export default function Instructors() {
               <InstructorCard
                 key={instructor.id}
                 instructor={instructor}
-                onEdit={() => setEditingInstructor(instructor)}
+                onEdit={() => { setEditingInstructorInitialTab('details'); setEditingInstructor(instructor); }}
+                onEditFiles={() => { setEditingInstructorInitialTab('files'); setEditingInstructor(instructor); }}
                 onDelete={() => setDeleteConfirmModal(instructor)}
                 onSendInvite={() => handleSendInvite(instructor)}
                 onSendMessage={() => setMessageInstructor(instructor)}
@@ -237,15 +240,16 @@ export default function Instructors() {
       {/* Edit Instructor Modal */}
       <Modal
         isOpen={!!editingInstructor}
-        onClose={() => setEditingInstructor(null)}
+        onClose={() => { setEditingInstructor(null); setEditingInstructorInitialTab('details'); }}
         title="עריכת מדריך"
         size="lg"
       >
         {editingInstructor && (
           <InstructorForm
             instructor={editingInstructor}
+            initialTab={editingInstructorInitialTab}
             onSubmit={handleUpdateInstructor}
-            onCancel={() => setEditingInstructor(null)}
+            onCancel={() => { setEditingInstructor(null); setEditingInstructorInitialTab('details'); }}
             isLoading={updateInstructor.isPending}
           />
         )}
@@ -393,6 +397,7 @@ export default function Instructors() {
 
 // Instructor Card
 interface InstructorCardProps {
+  onEditFiles: () => void;
   instructor: Instructor;
   onEdit: () => void;
   onDelete: () => void;
@@ -405,7 +410,7 @@ interface InstructorCardProps {
   onToggleSelect?: () => void;
 }
 
-function InstructorCard({ instructor, onEdit, onDelete, onSendInvite, onSendMessage, onResetPassword, isInviteLoading, isResetLoading, isSelected, onToggleSelect }: InstructorCardProps) {
+function InstructorCard({ instructor, onEdit, onEditFiles, onDelete, onSendInvite, onSendMessage, onResetPassword, isInviteLoading, isResetLoading, isSelected, onToggleSelect }: InstructorCardProps) {
   const hasAccount = !!instructor.userId;
 
   return (
@@ -477,32 +482,44 @@ function InstructorCard({ instructor, onEdit, onDelete, onSendInvite, onSendMess
           </div>
         </div>
 
-        <div className="flex items-center justify-between pt-4 border-t border-gray-100 text-sm">
-          <div className="flex items-center gap-4 text-gray-500">
+        <div className="pt-4 border-t border-gray-100 text-sm space-y-2">
+          {/* Stats row */}
+          <div className="flex items-center gap-3 text-gray-500 flex-wrap">
             <Link 
               to={`/cycles?instructorId=${instructor.id}`}
-              className="flex items-center gap-1.5 hover:text-blue-600 transition-colors group"
+              className="flex items-center gap-1 hover:text-blue-600 transition-colors group"
             >
-              <RefreshCcw size={14} className="group-hover:text-blue-600" />
+              <RefreshCcw size={13} className="group-hover:text-blue-600" />
               <span className="group-hover:underline">{instructor._count?.cycles || 0} מחזורים</span>
             </Link>
             <Link 
               to={`/meetings?instructorId=${instructor.id}`}
-              className="flex items-center gap-1.5 hover:text-blue-600 transition-colors group"
+              className="flex items-center gap-1 hover:text-blue-600 transition-colors group"
             >
-              <Calendar size={14} className="group-hover:text-blue-600" />
+              <Calendar size={13} className="group-hover:text-blue-600" />
               <span className="group-hover:underline">{instructor._count?.meetings || 0} פגישות</span>
             </Link>
+            {(instructor._count as any)?.files > 0 && (
+              <button
+                onClick={onEditFiles}
+                className="flex items-center gap-1 text-blue-600 hover:text-blue-800 transition-colors font-medium bg-blue-50 px-2 py-0.5 rounded-full"
+                title="פתח מסמכים מצורפים"
+              >
+                <Paperclip size={12} />
+                <span>{(instructor._count as any).files} מסמכים</span>
+              </button>
+            )}
           </div>
-          <div className="flex items-center gap-3">
+          {/* Actions row */}
+          <div className="flex items-center gap-2 flex-wrap">
             {!hasAccount && (
               <button
                 onClick={onSendInvite}
                 disabled={isInviteLoading}
-                className="text-green-600 hover:text-green-700 flex items-center gap-1.5 font-medium transition-colors"
+                className="text-green-600 hover:text-green-700 flex items-center gap-1 font-medium transition-colors"
                 title="שלח הזמנה"
               >
-                <Send size={14} />
+                <Send size={13} />
                 הזמנה
               </button>
             )}
@@ -510,19 +527,19 @@ function InstructorCard({ instructor, onEdit, onDelete, onSendInvite, onSendMess
               <button
                 onClick={onResetPassword}
                 disabled={isResetLoading}
-                className="text-orange-600 hover:text-orange-700 flex items-center gap-1.5 font-medium transition-colors"
+                className="text-orange-500 hover:text-orange-700 flex items-center gap-1 transition-colors"
                 title="איפוס סיסמה"
               >
-                <KeyRound size={14} />
+                <KeyRound size={13} />
                 איפוס
               </button>
             )}
             <button
               onClick={onSendMessage}
-              className="text-green-600 hover:text-green-700 flex items-center gap-1.5 font-medium transition-colors"
+              className="text-green-600 hover:text-green-700 flex items-center gap-1 transition-colors"
               title="שלח הודעה"
             >
-              <MessageCircle size={14} />
+              <MessageCircle size={13} />
               הודעה
             </button>
             <button
@@ -533,10 +550,10 @@ function InstructorCard({ instructor, onEdit, onDelete, onSendInvite, onSendMess
             </button>
             <button
               onClick={onDelete}
-              className="text-red-500 hover:text-red-700 transition-colors"
+              className="text-red-500 hover:text-red-700 transition-colors mr-auto"
               title="מחק מדריך"
             >
-              <Trash2 size={14} />
+              <Trash2 size={13} />
             </button>
           </div>
         </div>
@@ -749,12 +766,19 @@ function ResetPasswordModalContent({ instructor, resetUrl, onClose }: ResetPassw
 // Instructor Form
 interface InstructorFormProps {
   instructor?: Instructor;
+  initialTab?: 'details' | 'files';
   onSubmit: (data: Partial<Instructor>) => void;
   onCancel: () => void;
   isLoading?: boolean;
 }
 
-function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: InstructorFormProps) {
+function InstructorForm({ instructor, initialTab = 'details', onSubmit, onCancel, isLoading }: InstructorFormProps) {
+  const [activeTab, setActiveTab] = useState<'details' | 'files'>(instructor?.id ? initialTab : 'details');
+
+  // Sync with initialTab when modal is reopened with different tab
+  useEffect(() => {
+    if (instructor?.id) setActiveTab(initialTab);
+  }, [instructor?.id, initialTab]);
   const [formData, setFormData] = useState({
     name: instructor?.name || '',
     phone: instructor?.phone || '',
@@ -781,7 +805,41 @@ function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: Instructo
   };
 
   return (
-    <form onSubmit={handleSubmit} className="p-6 space-y-4">
+    <div className="flex flex-col">
+      {/* Tabs — only in edit mode */}
+      {instructor?.id && (
+        <div className="flex border-b border-gray-200 px-6 pt-4">
+          <button
+            type="button"
+            onClick={() => setActiveTab('details')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${activeTab === 'details' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            פרטים
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('files')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px flex items-center gap-1 ${activeTab === 'files' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <Paperclip size={14} />
+            מסמכים
+          </button>
+        </div>
+      )}
+
+      {/* Files Tab */}
+      {instructor?.id && activeTab === 'files' && (
+        <div className="p-6">
+          <FileAttachments entityType="instructor" entityId={instructor.id} canDelete={true} />
+          <div className="flex justify-end pt-4 border-t mt-4">
+            <button type="button" onClick={onCancel} className="btn btn-secondary">סגור</button>
+          </div>
+        </div>
+      )}
+
+      {/* Details Tab (or default when creating) */}
+      {(activeTab === 'details' || !instructor?.id) && (
+      <form onSubmit={handleSubmit} className="p-6 space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2">
           <label className="form-label">שם מלא *</label>
@@ -938,5 +996,7 @@ function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: Instructo
         </button>
       </div>
     </form>
+      )}
+    </div>
   );
 }

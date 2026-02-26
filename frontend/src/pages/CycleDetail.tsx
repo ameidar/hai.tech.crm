@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   ArrowRight,
@@ -285,6 +285,7 @@ function AddStudentModal({
 
 export default function CycleDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'manager';
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
@@ -633,10 +634,10 @@ export default function CycleDetail() {
       <PageHeader
         title={cycle.name}
         actions={
-          <Link to="/cycles" className="btn btn-secondary">
+          <button onClick={() => navigate(-1)} className="btn btn-secondary">
             <ArrowRight size={18} />
             חזרה
-          </Link>
+          </button>
         }
       />
 

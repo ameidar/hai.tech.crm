@@ -51,6 +51,20 @@ export default function Cycles() {
     localStorage.setItem('cycles-column-visibility', JSON.stringify(columnVisibility));
   }, [columnVisibility]);
 
+  // Set default filters on first load (no params in URL)
+  useEffect(() => {
+    if (searchParams.toString() === '') {
+      const days: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+      const todayDay = days[new Date().getDay()];
+      const defaults = new URLSearchParams();
+      defaults.set('status', 'active');
+      defaults.set('day', todayDay);
+      defaults.set('limit', '100');
+      setSearchParams(defaults, { replace: true });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const toggleColumn = (key: string) => {
     setColumnVisibility(prev => ({ ...prev, [key]: !prev[key] }));
   };

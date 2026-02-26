@@ -477,6 +477,7 @@ export async function createCycleMeeting(params: {
 }
 
 export const zoomService = {
+  getAccessToken,
   getUsers,
   getUserHostKey,
   getUserMeetings,

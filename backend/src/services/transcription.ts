@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { zoomService } from './zoom.js';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -10,14 +11,20 @@ const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
 /**
  * Download a file from URL to a temporary location
+ * Optionally pass a Bearer token for authenticated downloads (e.g. Zoom recordings)
  */
-async function downloadFile(url: string, filename: string): Promise<string> {
+async function downloadFile(url: string, filename: string, bearerToken?: string): Promise<string> {
   const tempDir = os.tmpdir();
   const filePath = path.join(tempDir, filename);
   
   console.log(`[Transcription] Downloading file to ${filePath}`);
   
-  const response = await fetch(url);
+  const headers: Record<string, string> = {};
+  if (bearerToken) {
+    headers['Authorization'] = `Bearer ${bearerToken}`;
+  }
+  
+  const response = await fetch(url, { headers });
   if (!response.ok) {
     throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
   }
@@ -41,9 +48,18 @@ export async function transcribeAudio(audioUrl: string): Promise<string> {
   
   console.log('[Transcription] Starting transcription...');
   
-  // Download the audio file
+  // Get Zoom access token for authenticated download
+  let zoomToken: string | undefined;
+  try {
+    zoomToken = await zoomService.getAccessToken();
+    console.log('[Transcription] Got Zoom access token for download');
+  } catch (e) {
+    console.warn('[Transcription] Could not get Zoom access token, trying without auth:', e);
+  }
+  
+  // Download the audio file (with auth token for Zoom recordings)
   const filename = `zoom-audio-${Date.now()}.m4a`;
-  const filePath = await downloadFile(audioUrl, filename);
+  const filePath = await downloadFile(audioUrl, filename, zoomToken);
   
   try {
     // Check file size - Whisper has 25MB limit

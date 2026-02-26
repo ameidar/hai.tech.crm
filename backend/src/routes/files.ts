@@ -151,9 +151,15 @@ filesRouter.get('/download/:id', async (req: Request, res: Response, next: NextF
 
     // Use RFC 5987 encoded filename for proper Unicode support across browsers
     const encodedName = encodeURIComponent(attachment.originalName).replace(/'/g, '%27');
-    res.setHeader('Content-Disposition', `attachment; filename="${attachment.originalName}"; filename*=UTF-8''${encodedName}`);
-    res.setHeader('Content-Type', attachment.mimeType);
-    res.sendFile(fullPath);
+    // res.download sends the file with proper Content-Disposition header
+    res.download(fullPath, attachment.originalName, (err) => {
+      if (err) {
+        console.error('File download error:', err);
+        if (!res.headersSent) {
+          next(new AppError(500, `שגיאה בשליחת הקובץ: ${(err as any).message}`));
+        }
+      }
+    });
   } catch (error) {
     next(error);
   }

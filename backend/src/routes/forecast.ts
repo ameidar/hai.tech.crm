@@ -88,6 +88,11 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
     const historicalStart = new Date(currentMonth);
     historicalStart.setMonth(historicalStart.getMonth() - historicalMonths);
     
+    // Include current month's completed meetings (up to today)
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    
     const forecastEnd = new Date(currentMonth);
     forecastEnd.setMonth(forecastEnd.getMonth() + forecastMonths);
 
@@ -95,12 +100,12 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
     // HISTORICAL DATA
     // ============================================
     
-    // Get completed meetings with expenses
+    // Get completed meetings with expenses (including current month up to today)
     const historicalMeetings = await prisma.meeting.findMany({
       where: {
         scheduledDate: {
           gte: historicalStart,
-          lt: currentMonth,
+          lt: tomorrow,
         },
         status: 'completed',
         deletedAt: null,
@@ -123,7 +128,7 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
             some: {
               scheduledDate: {
                 gte: historicalStart,
-                lt: currentMonth,
+                lt: tomorrow,
               },
             },
           },
@@ -136,7 +141,7 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
               where: {
                 scheduledDate: {
                   gte: historicalStart,
-                  lt: currentMonth,
+                  lt: tomorrow,
                 },
                 status: 'completed',
                 deletedAt: null,
@@ -151,8 +156,8 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
     // Aggregate historical data by month
     const historicalByMonth: Map<string, MonthlyData> = new Map();
     
-    // Initialize months
-    for (let i = 0; i < historicalMonths; i++) {
+    // Initialize months (including current month)
+    for (let i = 0; i <= historicalMonths; i++) {
       const monthDate = new Date(currentMonth);
       monthDate.setMonth(monthDate.getMonth() - historicalMonths + i);
       const monthKey = getMonthKey(monthDate);
@@ -263,11 +268,15 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
     // FORECAST DATA
     // ============================================
     
-    // Get scheduled future meetings
+    // Next month start (forecast begins after current month)
+    const nextMonth = new Date(currentMonth);
+    nextMonth.setMonth(nextMonth.getMonth() + 1);
+
+    // Get scheduled future meetings (from next month onwards)
     const futureMeetings = await prisma.meeting.findMany({
       where: {
         scheduledDate: {
-          gte: currentMonth,
+          gte: nextMonth,
           lt: forecastEnd,
         },
         status: 'scheduled',
@@ -288,9 +297,9 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
     // Aggregate forecast by month
     const forecastByMonth: Map<string, MonthlyData> = new Map();
     
-    // Initialize forecast months
+    // Initialize forecast months (starting from next month)
     for (let i = 0; i < forecastMonths; i++) {
-      const monthDate = new Date(currentMonth);
+      const monthDate = new Date(nextMonth);
       monthDate.setMonth(monthDate.getMonth() + i);
       const monthKey = getMonthKey(monthDate);
       forecastByMonth.set(monthKey, {

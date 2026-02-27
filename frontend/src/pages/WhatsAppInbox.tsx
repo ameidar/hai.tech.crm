@@ -113,6 +113,7 @@ export default function WhatsAppInbox() {
   const [customerResults, setCustomerResults] = useState<any[]>([]);
   const [searchingCustomers, setSearchingCustomers] = useState(false);
   const [newConvTarget, setNewConvTarget] = useState<{ phone: string; name: string } | null>(null);
+  const [templateSearch, setTemplateSearch] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -395,12 +396,22 @@ export default function WhatsAppInbox() {
                 <Plus size={14} /> חדשה
               </button>
             </div>
+            <div className="px-3 py-2 border-b border-gray-100">
+              <input
+                type="text"
+                value={templateSearch}
+                onChange={e => setTemplateSearch(e.target.value)}
+                placeholder="חיפוש תבנית..."
+                dir="rtl"
+                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+              />
+            </div>
             <div className="flex-1 overflow-y-auto">
               {loadingTemplates ? (
                 <div className="flex items-center justify-center p-6 text-gray-400 gap-2">
                   <RefreshCw size={16} className="animate-spin" /> טוען...
                 </div>
-              ) : templates.map(tmpl => {
+              ) : templates.filter(t => !templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase())).map(tmpl => {
                 const body = getBodyText(tmpl);
                 const varCount = countVars(body);
                 return (
@@ -866,10 +877,20 @@ export default function WhatsAppInbox() {
                       תבנית חדשה
                     </button>
                     <div className="flex-1 overflow-y-auto">
-                      <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100">
-                        <p className="text-xs text-gray-400 font-medium">תבניות מאושרות ({templates.length})</p>
+                      <div className="px-3 py-2 border-b border-gray-100">
+                        <input
+                          type="text"
+                          value={templateSearch}
+                          onChange={e => setTemplateSearch(e.target.value)}
+                          placeholder="חיפוש תבנית..."
+                          dir="rtl"
+                          className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                        />
                       </div>
-                    {templates.map(tmpl => {
+                      <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100">
+                        <p className="text-xs text-gray-400 font-medium">תבניות מאושרות ({templates.filter(t => !templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase())).length})</p>
+                      </div>
+                    {templates.filter(t => !templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase())).map(tmpl => {
                       const body = getBodyText(tmpl);
                       const varCount = countVars(body);
                       const isSelected = !showCreateTemplate && selectedTemplate?.name === tmpl.name;

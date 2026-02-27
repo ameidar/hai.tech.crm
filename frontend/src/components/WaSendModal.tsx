@@ -246,6 +246,7 @@ export default function WaSendModal({ phone, contactName, onClose, onSent }: Pro
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [templateSearch, setTemplateSearch] = useState('');
 
   const loadTemplates = () => {
     setLoading(true);
@@ -347,10 +348,20 @@ export default function WaSendModal({ phone, contactName, onClose, onSent }: Pro
 
               {/* Approved templates */}
               <div className="flex-1 overflow-y-auto">
-                <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100">
-                  <p className="text-xs text-gray-400 font-medium">תבניות מאושרות ({templates.length})</p>
+                <div className="px-3 py-2 border-b border-gray-100">
+                  <input
+                    type="text"
+                    value={templateSearch}
+                    onChange={e => setTemplateSearch(e.target.value)}
+                    placeholder="חיפוש תבנית..."
+                    dir="rtl"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                  />
                 </div>
-                {templates.map(tmpl => {
+                <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100">
+                  <p className="text-xs text-gray-400 font-medium">תבניות מאושרות ({templates.filter(t => !templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase())).length})</p>
+                </div>
+                {templates.filter(t => !templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase())).map(tmpl => {
                   const body = getBodyText(tmpl);
                   const varCount = countVars(body);
                   const isSelected = !showCreate && selectedTemplate?.name === tmpl.name;

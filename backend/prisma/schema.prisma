@@ -813,7 +813,9 @@ model WaConversation {
   leadType    String?              @map("lead_type")
   summary     String?
   // AI auto-reply
-  aiEnabled   Boolean              @default(true) @map("ai_enabled")
+  aiEnabled      Boolean           @default(true) @map("ai_enabled")
+  businessPhone  String?           @map("business_phone")   // which WA number received this (e.g. +972533027763)
+  phoneNumberId  String?           @map("phone_number_id")  // Meta phone number ID
   createdAt   DateTime             @default(now()) @map("created_at")
   updatedAt   DateTime             @updatedAt @map("updated_at")
 

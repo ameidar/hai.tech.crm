@@ -18,6 +18,8 @@ interface WaConversation {
   leadType?: string;
   summary?: string;
   aiEnabled: boolean;
+  businessPhone?: string;
+  phoneNumberId?: string;
   createdAt: string;
 }
 
@@ -245,6 +247,11 @@ export default function WhatsAppInbox() {
                         <Bot size={12} className="text-purple-400 flex-shrink-0" />
                       )}
                     </div>
+                    {conv.businessPhone && (
+                      <p className="text-xs text-green-600 font-mono mt-0.5">
+                        → {formatPhone(conv.businessPhone.replace('+', ''))}
+                      </p>
+                    )}
                     <p className="text-xs text-gray-500 truncate mt-0.5">
                       {conv.lastMessagePreview || 'שיחה חדשה'}
                     </p>
@@ -279,7 +286,12 @@ export default function WhatsAppInbox() {
                 <p className="font-semibold text-gray-800">
                   {selected.contactName || selected.leadName || formatPhone(selected.phone)}
                 </p>
-                <p className="text-xs text-gray-500">{selected.phone}</p>
+                <p className="text-xs text-gray-500">
+                  {selected.phone}
+                  {selected.businessPhone && (
+                    <span className="mr-2 text-green-600">→ {formatPhone(selected.businessPhone.replace('+', ''))}</span>
+                  )}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-2">

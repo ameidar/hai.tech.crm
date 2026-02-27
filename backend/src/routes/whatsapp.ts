@@ -228,6 +228,9 @@ router.post('/webhook', async (req: Request, res: Response) => {
         }
 
         // Incoming messages
+        const businessPhone = value.metadata?.display_phone_number ? '+' + value.metadata.display_phone_number.replace(/\D/g, '') : undefined;
+        const bizPhoneNumberId = value.metadata?.phone_number_id;
+
         for (const msg of value.messages || []) {
           if (msg.type !== 'text') continue; // Only text for now
 
@@ -240,11 +243,20 @@ router.post('/webhook', async (req: Request, res: Response) => {
           const existing = await prisma.waMessage.findUnique({ where: { waMessageId } });
           if (existing) continue;
 
-          // Get or create conversation
-          let conv = await prisma.waConversation.findUnique({ where: { phone } });
+          // Get or create conversation (unique per sender+businessPhone combo)
+          let conv = await prisma.waConversation.findFirst({ where: { phone, phoneNumberId: bizPhoneNumberId || undefined } });
+          if (!conv) {
+            // fallback: find by phone only if no bizPhoneNumberId
+            conv = await prisma.waConversation.findFirst({ where: { phone, phoneNumberId: null } }) || null;
+          }
           if (!conv) {
             conv = await prisma.waConversation.create({
-              data: { phone, contactName }
+              data: { phone, contactName, businessPhone, phoneNumberId: bizPhoneNumberId }
+            });
+          } else if (!conv.businessPhone && businessPhone) {
+            conv = await prisma.waConversation.update({
+              where: { id: conv.id },
+              data: { businessPhone, phoneNumberId: bizPhoneNumberId }
             });
           }
 

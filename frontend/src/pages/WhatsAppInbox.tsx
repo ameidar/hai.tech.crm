@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp, Search, PenSquare, Plus, CheckCircle, AlertCircle } from 'lucide-react';
 import WaSendModal from '../components/WaSendModal';
 
@@ -83,6 +84,7 @@ function StatusIcon({ status }: { status: string }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function WhatsAppInbox() {
+  const [searchParams] = useSearchParams();
   const [conversations, setConversations] = useState<WaConversation[]>([]);
   const [selected, setSelected] = useState<WaConversation | null>(null);
   const [messages, setMessages] = useState<WaMessage[]>([]);
@@ -195,6 +197,15 @@ export default function WhatsAppInbox() {
   }, []);
 
   useEffect(() => { loadConversations(); }, [loadConversations]);
+
+  // Auto-select conversation from URL param (?conv=<id>)
+  useEffect(() => {
+    const convId = searchParams.get('conv');
+    if (convId && conversations.length > 0) {
+      const target = conversations.find(c => c.id === convId);
+      if (target) setSelected(target);
+    }
+  }, [searchParams, conversations]);
 
   // Load active phones for multi-number support
   useEffect(() => {

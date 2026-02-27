@@ -265,15 +265,49 @@ router.post('/webhook', async (req: Request, res: Response) => {
             // fallback: find by phone only if no bizPhoneNumberId
             conv = await prisma.waConversation.findFirst({ where: { phone, phoneNumberId: null } }) || null;
           }
+          let isNewConversation = false;
           if (!conv) {
             conv = await prisma.waConversation.create({
               data: { phone, contactName, businessPhone, phoneNumberId: bizPhoneNumberId }
             });
+            isNewConversation = true;
           } else if (!conv.businessPhone && businessPhone) {
             conv = await prisma.waConversation.update({
               where: { id: conv.id },
               data: { businessPhone, phoneNumberId: bizPhoneNumberId }
             });
+          }
+
+          // Auto-create lead if new conversation from unknown customer
+          if (isNewConversation) {
+            try {
+              // Normalize phone: 972XXXXXXXXX → 0XXXXXXXXX (9 digits after 972)
+              const digitsOnly = (p: string) => p.replace(/\D/g, '');
+              const last9 = (p: string) => digitsOnly(p).slice(-9);
+              const phoneLast9 = last9(phone);
+
+              // Check if customer with this phone exists
+              const allCustomers = await prisma.$queryRaw<{ phone: string }[]>`
+                SELECT phone FROM customers WHERE deleted_at IS NULL
+              `;
+              const knownCustomer = allCustomers.find(c => last9(c.phone) === phoneLast9);
+
+              if (!knownCustomer) {
+                const waLink = `https://crm.orma-ai.com/whatsapp?conv=${conv.id}`;
+                await prisma.leadAppointment.create({
+                  data: {
+                    customerName: contactName || phone,
+                    customerPhone: phone,
+                    source: 'whatsapp',
+                    appointmentNotes: `ליד מוואטסאפ. לשיחה: ${waLink}`,
+                    appointmentStatus: 'pending',
+                  }
+                });
+                console.log(`[WA] New lead created for unknown phone ${phone}`);
+              }
+            } catch (e) {
+              console.error('[WA] Lead creation error:', e);
+            }
           }
 
           // Store message

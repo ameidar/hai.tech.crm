@@ -311,7 +311,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
             try {
               const reply = await generateAIReply(conv.id);
               if (reply) {
-                const waId = await sendWhatsAppMessage(phone, reply);
+                const waId = await sendWhatsAppMessage(phone, reply, conv.phoneNumberId);
                 const botMsg = await prisma.waMessage.create({
                   data: {
                     conversationId: conv.id,

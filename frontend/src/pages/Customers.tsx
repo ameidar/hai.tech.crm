@@ -1,13 +1,12 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Plus, Search, Phone, Mail, MapPin, Users, Trash2, MessageCircle } from 'lucide-react';
+import { Plus, Search, Phone, Mail, MapPin, Users, Trash2 } from 'lucide-react';
 import { useCustomers, useCreateCustomer, useDeleteCustomer } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import { SkeletonCardGrid } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import ViewSelector from '../components/ViewSelector';
-import WaSendModal from '../components/WaSendModal';
 import type { Customer } from '../types';
 
 export default function Customers() {
@@ -126,16 +125,8 @@ export default function Customers() {
 
 // Customer Card Component
 function CustomerCard({ customer, onDelete }: { customer: Customer; onDelete: (id: string) => void }) {
-  const [showWaModal, setShowWaModal] = useState(false);
   return (
     <div className="group relative bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-lg hover:border-gray-200 transition-all duration-200 hover:-translate-y-0.5">
-      {showWaModal && (
-        <WaSendModal
-          phone={customer.phone}
-          contactName={customer.name}
-          onClose={() => setShowWaModal(false)}
-        />
-      )}
       <Link to={`/customers/${customer.id}`} className="block p-6">
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -179,37 +170,20 @@ function CustomerCard({ customer, onDelete }: { customer: Customer; onDelete: (i
         </div>
       </Link>
       
-      {/* Action buttons */}
-      <div className="absolute top-3 left-3 flex items-center gap-1">
-        {/* WhatsApp button */}
-        {customer.phone && (
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setShowWaModal(true);
-            }}
-            className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all duration-200"
-            title="שלח WhatsApp"
-          >
-            <MessageCircle size={18} />
-          </button>
-        )}
-        {/* Delete button */}
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (window.confirm(`האם למחוק את הלקוח "${customer.name}"?`)) {
-              onDelete(customer.id);
-            }
-          }}
-          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
-          title="מחק לקוח"
-        >
-          <Trash2 size={18} />
-        </button>
-      </div>
+      {/* Delete button - always visible */}
+      <button
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (window.confirm(`האם למחוק את הלקוח "${customer.name}"?`)) {
+            onDelete(customer.id);
+          }
+        }}
+        className="absolute top-3 left-3 p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
+        title="מחק לקוח"
+      >
+        <Trash2 size={18} />
+      </button>
     </div>
   );
 }

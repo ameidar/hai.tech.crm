@@ -20,7 +20,9 @@ COPY frontend-dist ./frontend-dist/
 
 # Build
 FROM base AS builder
-RUN npm run build
+RUN npm run build && \
+    mkdir -p dist/data && \
+    cp -r src/data/* dist/data/ 2>/dev/null || true
 
 # Production image
 FROM node:22-alpine AS production

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp } from 'lucide-react';
+import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp, Search, PenSquare } from 'lucide-react';
+import WaSendModal from '../components/WaSendModal';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface WaConversation {
@@ -94,6 +95,12 @@ export default function WhatsAppInbox() {
   const [selectedTemplate, setSelectedTemplate] = useState<WaTemplate | null>(null);
   const [templateVars, setTemplateVars] = useState<string[]>([]);
   const [expandedTemplate, setExpandedTemplate] = useState<string | null>(null);
+  // New conversation
+  const [showNewConv, setShowNewConv] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerResults, setCustomerResults] = useState<any[]>([]);
+  const [searchingCustomers, setSearchingCustomers] = useState(false);
+  const [newConvTarget, setNewConvTarget] = useState<{ phone: string; name: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -222,6 +229,26 @@ export default function WhatsAppInbox() {
     loadConversations();
   };
 
+  // Customer search for new conversation
+  const searchCustomers = useCallback(async (q: string) => {
+    if (!q.trim()) { setCustomerResults([]); return; }
+    setSearchingCustomers(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const res = await fetch(`/api/customers?search=${encodeURIComponent(q)}&limit=10`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      setCustomerResults(Array.isArray(data) ? data : (data.data || []));
+    } catch { setCustomerResults([]); }
+    finally { setSearchingCustomers(false); }
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => searchCustomers(customerSearch), 300);
+    return () => clearTimeout(timer);
+  }, [customerSearch, searchCustomers]);
+
   const loadTemplates = async () => {
     if (templates.length > 0) { setShowTemplateModal(true); return; }
     setLoadingTemplates(true);
@@ -289,6 +316,78 @@ export default function WhatsAppInbox() {
   return (
     <div className="flex h-[calc(100vh-64px)] bg-gray-50 overflow-hidden" dir="rtl">
 
+      {/* ── New Conversation — Customer Search Modal ── */}
+      {showNewConv && !newConvTarget && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" dir="rtl">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col" style={{ maxHeight: '70vh' }}>
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+              <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                <PenSquare size={18} className="text-green-500" />
+                שיחה חדשה
+              </h3>
+              <button onClick={() => setShowNewConv(false)} className="p-1.5 hover:bg-gray-100 rounded-full">
+                <X size={18} className="text-gray-500" />
+              </button>
+            </div>
+            <div className="p-3 border-b border-gray-100">
+              <div className="relative">
+                <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  autoFocus
+                  type="text"
+                  value={customerSearch}
+                  onChange={e => setCustomerSearch(e.target.value)}
+                  placeholder="חפש לפי שם, טלפון או אימייל..."
+                  className="w-full border border-gray-200 rounded-xl pr-9 pl-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {searchingCustomers && (
+                <div className="flex items-center justify-center p-6 text-gray-400 gap-2">
+                  <RefreshCw size={16} className="animate-spin" /> טוען...
+                </div>
+              )}
+              {!searchingCustomers && customerSearch && customerResults.length === 0 && (
+                <div className="text-center text-gray-400 p-6 text-sm">לא נמצאו לקוחות</div>
+              )}
+              {!customerSearch && (
+                <div className="text-center text-gray-400 p-6 text-sm">הקלד שם או מספר טלפון לחיפוש</div>
+              )}
+              {customerResults.map((c: any) => (
+                <button
+                  key={c.id}
+                  onClick={() => {
+                    setNewConvTarget({ phone: c.phone, name: c.name });
+                    setShowNewConv(false);
+                  }}
+                  className="w-full text-right px-4 py-3 border-b border-gray-100 hover:bg-green-50 transition-colors flex items-center gap-3"
+                >
+                  <div className="w-9 h-9 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                    <span className="text-sm font-bold text-green-700">{c.name?.charAt(0)}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-800 text-sm">{c.name}</p>
+                    <p className="text-xs text-gray-500 dir-ltr">{c.phone}</p>
+                  </div>
+                  <MessageCircle size={16} className="text-green-400 flex-shrink-0" />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WaSendModal for new conversation */}
+      {newConvTarget && (
+        <WaSendModal
+          phone={newConvTarget.phone}
+          contactName={newConvTarget.name}
+          onClose={() => setNewConvTarget(null)}
+          onSent={() => { setNewConvTarget(null); loadConversations(); }}
+        />
+      )}
+
       {/* ── Conversations List ── */}
       <div className="w-80 bg-white border-l border-gray-200 flex flex-col flex-shrink-0">
         {/* Header */}
@@ -302,9 +401,18 @@ export default function WhatsAppInbox() {
               </span>
             )}
           </div>
-          <button onClick={loadConversations} className="p-1.5 hover:bg-gray-100 rounded-full">
-            <RefreshCw size={16} className="text-gray-500" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => { setShowNewConv(true); setCustomerSearch(''); setCustomerResults([]); }}
+              className="p-1.5 hover:bg-green-50 rounded-full text-green-600"
+              title="שיחה חדשה"
+            >
+              <PenSquare size={16} />
+            </button>
+            <button onClick={loadConversations} className="p-1.5 hover:bg-gray-100 rounded-full">
+              <RefreshCw size={16} className="text-gray-500" />
+            </button>
+          </div>
         </div>
 
         {/* List */}

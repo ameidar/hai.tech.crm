@@ -95,6 +95,10 @@ export default function WhatsAppInbox() {
   const [selectedTemplate, setSelectedTemplate] = useState<WaTemplate | null>(null);
   const [templateVars, setTemplateVars] = useState<string[]>([]);
   const [expandedTemplate, setExpandedTemplate] = useState<string | null>(null);
+  // Top-level view mode
+  const [viewMode, setViewMode] = useState<'inbox' | 'templates'>('inbox');
+  // Template Manager state (top-level)
+  const [tmplMgrTab, setTmplMgrTab] = useState<'list' | 'create'>('list');
   // Create template (inside template modal)
   const [showCreateTemplate, setShowCreateTemplate] = useState(false);
   const [createForm, setCreateForm] = useState({ name: '', category: 'MARKETING', headerText: '', bodyText: '', footerText: '' });
@@ -349,7 +353,172 @@ export default function WhatsAppInbox() {
   const totalUnread = conversations.reduce((s, c) => s + c.unreadCount, 0);
 
   return (
-    <div className="flex h-[calc(100vh-64px)] bg-gray-50 overflow-hidden" dir="rtl">
+    <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-50 overflow-hidden" dir="rtl">
+
+      {/* ── Top Tab Bar ── */}
+      <div className="bg-white border-b border-gray-200 flex items-center gap-1 px-4 flex-shrink-0">
+        <button
+          onClick={() => setViewMode('inbox')}
+          className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'inbox' ? 'border-green-500 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          <MessageCircle size={16} />
+          שיחות
+          {totalUnread > 0 && (
+            <span className="bg-green-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">{totalUnread}</span>
+          )}
+        </button>
+        <button
+          onClick={() => { setViewMode('templates'); setTmplMgrTab('list'); if (templates.length === 0) loadTemplates(); }}
+          className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'templates' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          <FileText size={16} />
+          ניהול תבניות
+        </button>
+      </div>
+
+      {/* ── Template Manager View ── */}
+      {viewMode === 'templates' && (
+        <div className="flex flex-1 overflow-hidden">
+          {/* Template list */}
+          <div className="w-72 bg-white border-l border-gray-200 flex flex-col flex-shrink-0">
+            <div className="p-3 border-b border-gray-100 flex items-center justify-between">
+              <span className="text-xs font-medium text-gray-500">{templates.length} תבניות מאושרות</span>
+              <button
+                onClick={() => setTmplMgrTab('create')}
+                className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 font-medium"
+              >
+                <Plus size={14} /> חדשה
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {loadingTemplates ? (
+                <div className="flex items-center justify-center p-6 text-gray-400 gap-2">
+                  <RefreshCw size={16} className="animate-spin" /> טוען...
+                </div>
+              ) : templates.map(tmpl => {
+                const body = getBodyText(tmpl);
+                const varCount = countVars(body);
+                return (
+                  <div key={tmpl.name}
+                    onClick={() => { setSelectedTemplate(tmpl); setTmplMgrTab('list'); }}
+                    className={`border-b border-gray-100 cursor-pointer px-3 py-3 hover:bg-gray-50 transition-colors ${selectedTemplate?.name === tmpl.name && tmplMgrTab === 'list' ? 'bg-blue-50 border-r-2 border-r-blue-400' : ''}`}
+                  >
+                    <p className="text-sm font-medium text-gray-800 truncate">{tmpl.name.replace(/_/g, ' ')}</p>
+                    {varCount > 0 && <span className="text-xs text-orange-400">{varCount} משתנים</span>}
+                    {body && <p className="text-xs text-gray-400 truncate mt-0.5">{body.slice(0, 60)}</p>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Template preview / create form */}
+          <div className="flex-1 bg-white overflow-y-auto p-6">
+            {tmplMgrTab === 'create' ? (
+              <div className="max-w-lg">
+                <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2">
+                  <Plus size={20} className="text-blue-500" /> תבנית חדשה
+                </h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-600 block mb-1">שם תבנית <span className="text-gray-400 text-xs">(אנגלית + קווים תחתיים)</span></label>
+                    <input type="text" value={createForm.name} dir="ltr"
+                      onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
+                      placeholder="example_template_name"
+                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                    {createForm.name && <p className="text-xs text-gray-400 mt-1">→ {createForm.name.toLowerCase().replace(/[^a-z0-9_]/g,'_')}</p>}
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600 block mb-1">קטגוריה</label>
+                    <select value={createForm.category}
+                      onChange={e => setCreateForm(f => ({ ...f, category: e.target.value }))}
+                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+                      <option value="MARKETING">MARKETING — שיווקי</option>
+                      <option value="UTILITY">UTILITY — שירותי / עסקי</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600 block mb-1">כותרת עליונה <span className="text-gray-400 text-xs">(אופציונלי)</span></label>
+                    <input type="text" value={createForm.headerText}
+                      onChange={e => setCreateForm(f => ({ ...f, headerText: e.target.value }))}
+                      placeholder="דרך ההייטק"
+                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-sm font-medium text-gray-600">גוף ההודעה *</label>
+                      <div className="flex gap-1">
+                        {[1,2,3].map(n => (
+                          <button key={n} onClick={() => setCreateForm(f => ({...f, bodyText: f.bodyText + `{{${n}}}`}))}
+                            className="text-xs bg-orange-50 text-orange-600 border border-orange-200 rounded px-2 py-1 hover:bg-orange-100">
+                            +{`{{${n}}}`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <textarea value={createForm.bodyText}
+                      onChange={e => setCreateForm(f => ({ ...f, bodyText: e.target.value }))}
+                      placeholder={`היי {{1}},\n\nכאן {{2}} מדרך ההייטק...\n\nהודעתך כאן.`}
+                      rows={6}
+                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none" />
+                    <p className="text-xs text-gray-400 mt-1">השתמש ב-{'{{1}}'}, {'{{2}}'} עבור ערכים דינמיים</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600 block mb-1">כותרת תחתונה <span className="text-gray-400 text-xs">(אופציונלי)</span></label>
+                    <input type="text" value={createForm.footerText} dir="ltr"
+                      onChange={e => setCreateForm(f => ({ ...f, footerText: e.target.value }))}
+                      placeholder="www.hai.tech"
+                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                  </div>
+                  {createResult && (
+                    <div className={`flex items-start gap-2 p-4 rounded-xl text-sm ${createResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                      {createResult.success ? <CheckCircle size={18} className="flex-shrink-0 mt-0.5" /> : <AlertCircle size={18} className="flex-shrink-0 mt-0.5" />}
+                      <span>{createResult.message}</span>
+                    </div>
+                  )}
+                  <button onClick={submitCreateTemplate}
+                    disabled={creating || !createForm.name.trim() || !createForm.bodyText.trim()}
+                    className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-gray-200 text-white rounded-xl py-3 font-medium flex items-center justify-center gap-2 transition-colors">
+                    {creating ? <RefreshCw size={16} className="animate-spin" /> : <Plus size={16} />}
+                    {creating ? 'שולח לאישור...' : 'שלח לאישור Meta'}
+                  </button>
+                  <p className="text-xs text-gray-400 text-center">⏳ Meta מאשרת תבניות תוך כמה שעות עד יום עסקים</p>
+                </div>
+              </div>
+            ) : selectedTemplate && tmplMgrTab === 'list' ? (
+              <div className="max-w-lg">
+                <h3 className="font-bold text-gray-800 mb-2">{selectedTemplate.name.replace(/_/g, ' ')}</h3>
+                <span className="inline-block bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full mb-4">מאושר ✓</span>
+                {selectedTemplate.components.map((c, i) => c.text ? (
+                  <div key={i} className="mb-4">
+                    <p className="text-xs font-medium text-gray-400 mb-1">{c.type}</p>
+                    <div className={`rounded-xl p-4 text-sm whitespace-pre-wrap leading-relaxed ${c.type === 'BODY' ? 'bg-green-50 border border-green-100 text-gray-800' : 'bg-gray-50 text-gray-600'}`}>
+                      {c.text}
+                    </div>
+                  </div>
+                ) : null)}
+                <button onClick={() => { loadTemplates(true); }}
+                  className="mt-4 flex items-center gap-1.5 text-sm text-blue-500 hover:text-blue-700">
+                  <RefreshCw size={14} /> רענן רשימה
+                </button>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-gray-400 h-full">
+                <FileText size={40} className="mb-3 text-gray-300" />
+                <p className="font-medium">בחר תבנית לתצוגה מקדימה</p>
+                <p className="text-sm mt-1">או צור תבנית חדשה</p>
+                <button onClick={() => setTmplMgrTab('create')}
+                  className="mt-4 flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-blue-600">
+                  <Plus size={16} /> תבנית חדשה
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Inbox View ── */}
+      <div className={`flex flex-1 overflow-hidden ${viewMode !== 'inbox' ? 'hidden' : ''}`} dir="rtl">
 
       {/* ── New Conversation — Customer Search Modal ── */}
       {showNewConv && !newConvTarget && (
@@ -838,6 +1007,8 @@ export default function WhatsAppInbox() {
           <p className="text-sm">בחר שיחה מהרשימה כדי להתחיל</p>
         </div>
       )}
+    </div>
+    {/* close inbox view wrapper */}
     </div>
   );
 }

@@ -371,12 +371,23 @@ router.get('/templates', authenticate, async (req: Request, res: Response) => {
 // ── POST /api/wa/send-template — Send a template message
 router.post('/send-template', authenticate, async (req: Request, res: Response) => {
   try {
-    const { conversationId, templateName, language, variables, previewText } = req.body;
-    if (!conversationId || !templateName) {
-      return res.status(400).json({ error: 'Missing conversationId or templateName' });
-    }
+    const { conversationId, phone: phoneParam, contactName, templateName, language, variables, previewText } = req.body;
+    if (!templateName) return res.status(400).json({ error: 'Missing templateName' });
+    if (!conversationId && !phoneParam) return res.status(400).json({ error: 'Missing conversationId or phone' });
 
-    const conv = await prisma.waConversation.findUnique({ where: { id: conversationId } });
+    let conv;
+    if (conversationId) {
+      conv = await prisma.waConversation.findUnique({ where: { id: conversationId } });
+    } else {
+      // Normalize phone (052... → 97252...)
+      const phone = phoneParam.replace(/\D/g, '').replace(/^0/, '972');
+      conv = await prisma.waConversation.findFirst({ where: { phone } });
+      if (!conv) {
+        conv = await prisma.waConversation.create({
+          data: { phone, contactName: contactName || phone, phoneNumberId: PHONE_NUMBER_ID, businessPhone: '+972533027763' }
+        });
+      }
+    }
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
 
     // Build template components with variables

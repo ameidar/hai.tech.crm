@@ -102,6 +102,9 @@ export default function WhatsAppInbox() {
   // Create template (inside template modal)
   const [showCreateTemplate, setShowCreateTemplate] = useState(false);
   const [createForm, setCreateForm] = useState({ name: '', category: 'MARKETING', headerText: '', bodyText: '', footerText: '' });
+  const [exampleValues, setExampleValues] = useState<string[]>([]);
+  // Auto-sync example values count to variable count in body
+  const getVarCount = (text: string) => [...new Set(text.match(/\{\{\d+\}\}/g) || [])].length;
   const [creating, setCreating] = useState(false);
   const [createResult, setCreateResult] = useState<{ success: boolean; message: string } | null>(null);
   // New conversation
@@ -288,10 +291,12 @@ export default function WhatsAppInbox() {
           headerText: createForm.headerText.trim() || undefined,
           bodyText: createForm.bodyText.trim(),
           footerText: createForm.footerText.trim() || undefined,
+          examples: exampleValues.filter(Boolean).length > 0 ? exampleValues : undefined,
         })
       });
       setCreateResult({ success: true, message: `נוצר! סטטוס: ${resp.status || 'PENDING'}. Meta תאשר עד 24 שעות.` });
       setCreateForm({ name: '', category: 'MARKETING', headerText: '', bodyText: '', footerText: '' });
+      setExampleValues([]);
       setTimeout(() => { setShowCreateTemplate(false); setCreateResult(null); loadTemplates(true); }, 2500);
     } catch (e: any) {
       let msg = 'שגיאה ביצירת תבנית';
@@ -463,6 +468,31 @@ export default function WhatsAppInbox() {
                       className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none" />
                     <p className="text-xs text-gray-400 mt-1">השתמש ב-{'{{1}}'}, {'{{2}}'} עבור ערכים דינמיים</p>
                   </div>
+
+                  {/* Example values — required by Meta when using variables */}
+                  {getVarCount(createForm.bodyText) > 0 && (
+                    <div className="bg-orange-50 border border-orange-100 rounded-xl p-4">
+                      <p className="text-sm font-medium text-orange-700 mb-1">⚠️ ערכי דוגמה — חובה ל-Meta</p>
+                      <p className="text-xs text-orange-600 mb-3">מלא ערך לדוגמה לכל משתנה כדי שMeta תאשר את התבנית</p>
+                      {Array.from({ length: getVarCount(createForm.bodyText) }, (_, i) => (
+                        <div key={i} className="mb-2">
+                          <label className="text-xs text-orange-600 block mb-1">{'{{' + (i + 1) + '}}'} — ערך לדוגמה</label>
+                          <input
+                            type="text"
+                            value={exampleValues[i] || ''}
+                            onChange={e => {
+                              const newEx = [...exampleValues];
+                              newEx[i] = e.target.value;
+                              setExampleValues(newEx);
+                            }}
+                            placeholder={`לדוגמה: ${i === 0 ? 'יוסי' : i === 1 ? 'רחל' : 'ערך'}`}
+                            className="w-full border border-orange-200 bg-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <div>
                     <label className="text-sm font-medium text-gray-600 block mb-1">כותרת תחתונה <span className="text-gray-400 text-xs">(אופציונלי)</span></label>
                     <input type="text" value={createForm.footerText} dir="ltr"

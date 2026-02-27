@@ -352,14 +352,40 @@ router.get('/events', (req: Request, res: Response) => {
 // ── POST /api/wa/templates — Create a new template in Meta
 router.post('/templates', authenticate, async (req: Request, res: Response) => {
   try {
-    const { name, category, language, headerText, bodyText, footerText, buttons } = req.body;
+    const { name, category, language, headerText, bodyText, footerText, buttons, examples } = req.body;
     if (!name || !bodyText) return res.status(400).json({ error: 'Missing name or bodyText' });
 
     const wabaId = process.env.WA_WABA_ID || process.env.WA_CLOUD_WABA_ID;
 
+    // Count variables in text ({{1}}, {{2}}, ...)
+    const countVars = (text: string) => [...new Set(text.match(/\{\{\d+\}\}/g) || [])].length;
+
     const components: any[] = [];
-    if (headerText) components.push({ type: 'HEADER', format: 'TEXT', text: headerText });
-    components.push({ type: 'BODY', text: bodyText });
+    if (headerText) {
+      const headerVars = countVars(headerText);
+      components.push({
+        type: 'HEADER',
+        format: 'TEXT',
+        text: headerText,
+        ...(headerVars > 0 && {
+          example: { header_text: Array(headerVars).fill('ערך') }
+        })
+      });
+    }
+
+    const bodyVarCount = countVars(bodyText);
+    const bodyExamples = examples && examples.length > 0
+      ? examples
+      : Array(bodyVarCount).fill('דוגמה');
+
+    components.push({
+      type: 'BODY',
+      text: bodyText,
+      ...(bodyVarCount > 0 && {
+        example: { body_text: [bodyExamples] }
+      })
+    });
+
     if (footerText) components.push({ type: 'FOOTER', text: footerText });
     if (buttons && buttons.length > 0) {
       components.push({

@@ -52,8 +52,10 @@ interface CreateForm {
   headerText: string;
   bodyText: string;
   footerText: string;
+  exampleValues: string[];
 }
-const emptyForm: CreateForm = { name: '', category: 'MARKETING', headerText: '', bodyText: '', footerText: '' };
+const emptyForm: CreateForm = { name: '', category: 'MARKETING', headerText: '', bodyText: '', footerText: '', exampleValues: [] };
+function getVarCount(text: string) { return [...new Set(text.match(/\{\{\d+\}\}/g) || [])].length; }
 
 function CreateTemplatePanel({ onCreated }: { onCreated: (name: string) => void }) {
   const [form, setForm] = useState<CreateForm>(emptyForm);
@@ -82,6 +84,7 @@ function CreateTemplatePanel({ onCreated }: { onCreated: (name: string) => void 
           headerText: form.headerText.trim() || undefined,
           bodyText: form.bodyText.trim(),
           footerText: form.footerText.trim() || undefined,
+          examples: form.exampleValues.filter(Boolean).length > 0 ? form.exampleValues : undefined,
         })
       });
       setResult({ success: true, message: `התבנית נוצרה! סטטוס: ${resp.status || 'PENDING'}. Meta צריכה לאשר (עד 24 שעות).` });
@@ -173,6 +176,28 @@ function CreateTemplatePanel({ onCreated }: { onCreated: (name: string) => void 
           השתמש ב-{'{{1}}'}, {'{{2}}'} וכו' עבור ערכים דינמיים
         </p>
       </div>
+
+      {/* Example values — required when variables exist */}
+      {getVarCount(form.bodyText) > 0 && (
+        <div className="bg-orange-50 border border-orange-100 rounded-xl p-3">
+          <p className="text-xs font-medium text-orange-700 mb-1">⚠️ ערכי דוגמה — חובה ל-Meta</p>
+          {Array.from({ length: getVarCount(form.bodyText) }, (_, i) => (
+            <div key={i} className="mb-1.5">
+              <label className="text-xs text-orange-600 block mb-0.5">{'{{' + (i + 1) + '}}'}</label>
+              <input type="text"
+                value={form.exampleValues[i] || ''}
+                onChange={e => {
+                  const newEx = [...(form.exampleValues || [])];
+                  newEx[i] = e.target.value;
+                  setForm(prev => ({ ...prev, exampleValues: newEx }));
+                }}
+                placeholder={i === 0 ? 'יוסי' : i === 1 ? 'רחל' : 'ערך'}
+                className="w-full border border-orange-200 bg-white rounded-lg px-3 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-orange-300"
+              />
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Footer (optional) */}
       <div>

@@ -1,11 +1,11 @@
-CREATE TYPE "wa_message_direction" AS ENUM ('inbound', 'outbound');
-CREATE TYPE "wa_conversation_status" AS ENUM ('open', 'pending', 'closed');
+CREATE TYPE "WaMessageDirection" AS ENUM ('inbound', 'outbound');
+CREATE TYPE "WaConversationStatus" AS ENUM ('open', 'pending', 'closed');
 
 CREATE TABLE "wa_conversations" (
   "id" TEXT NOT NULL DEFAULT gen_random_uuid()::text,
   "phone" TEXT NOT NULL,
   "contact_name" TEXT,
-  "status" "wa_conversation_status" NOT NULL DEFAULT 'open',
+  "status" "WaConversationStatus" NOT NULL DEFAULT 'open',
   "unread_count" INTEGER NOT NULL DEFAULT 0,
   "last_message_at" TIMESTAMPTZ,
   "last_message_preview" TEXT,
@@ -27,7 +27,7 @@ CREATE UNIQUE INDEX "wa_conversations_phone_key" ON "wa_conversations"("phone");
 CREATE TABLE "wa_messages" (
   "id" TEXT NOT NULL DEFAULT gen_random_uuid()::text,
   "conversation_id" TEXT NOT NULL,
-  "direction" "wa_message_direction" NOT NULL,
+  "direction" "WaMessageDirection" NOT NULL,
   "content" TEXT NOT NULL,
   "wa_message_id" TEXT,
   "status" TEXT NOT NULL DEFAULT 'sent',

@@ -18,6 +18,7 @@ enum UserRole {
   admin
   manager
   instructor
+  sales
 }
 
 enum CourseCategory {

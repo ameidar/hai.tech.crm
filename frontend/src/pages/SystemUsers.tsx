@@ -28,11 +28,13 @@ import type { User } from '../types';
 const ROLE_LABELS: Record<string, string> = {
   admin: 'מנהל מערכת',
   manager: 'מנהל',
+  sales: 'מכירות',
 };
 
 const ROLE_COLORS: Record<string, string> = {
   admin: 'bg-red-100 text-red-700',
   manager: 'bg-blue-100 text-blue-700',
+  sales: 'bg-green-100 text-green-700',
 };
 
 // ===== Invite / Reset Modal =====
@@ -171,7 +173,7 @@ export default function SystemUsers() {
     name: '',
     email: '',
     phone: '',
-    role: 'manager' as 'admin' | 'manager',
+    role: 'manager' as 'admin' | 'manager' | 'sales',
   });
   const [formError, setFormError] = useState('');
 
@@ -190,7 +192,7 @@ export default function SystemUsers() {
   };
 
   const openEdit = (u: User) => {
-    setFormData({ name: u.name, email: u.email, phone: u.phone || '', role: u.role as 'admin' | 'manager' });
+    setFormData({ name: u.name, email: u.email, phone: u.phone || '', role: u.role as 'admin' | 'manager' | 'sales' });
     setFormError('');
     setEditingUser(u);
   };
@@ -472,14 +474,15 @@ export default function SystemUsers() {
             <div className="flex-1">
               <select
                 value={formData.role}
-                onChange={(e) => setFormData((p) => ({ ...p, role: e.target.value as 'admin' | 'manager' }))}
+                onChange={(e) => setFormData((p) => ({ ...p, role: e.target.value as 'admin' | 'manager' | 'sales' }))}
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="manager">מנהל</option>
                 <option value="admin">מנהל מערכת</option>
+                <option value="sales">מכירות</option>
               </select>
               <p className="text-xs text-slate-400 mt-1">
-                מנהל מערכת — ניהול מלא כולל משתמשים. מנהל — גישה לכל המידע.
+                מנהל מערכת — ניהול מלא. מנהל — גישה לכל. <strong>מכירות</strong> — WhatsApp + לקוחות בלבד.
               </p>
             </div>
           </div>

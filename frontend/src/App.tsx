@@ -77,10 +77,12 @@ function AppRoutes() {
   const { isAuthenticated, user } = useAuth();
   const isMobile = useIsMobile();
   const isInstructor = user?.role === 'instructor';
+  const isSales = user?.role === 'sales';
 
   // Redirect based on role
   const getDefaultRoute = () => {
     if (isInstructor) return '/instructor';
+    if (isSales) return '/whatsapp';
     return '/';
   };
 
@@ -123,7 +125,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route index element={isInstructor ? <Navigate to="/instructor" replace /> : <Dashboard />} />
+        <Route index element={isInstructor ? <Navigate to="/instructor" replace /> : isSales ? <Navigate to="/whatsapp" replace /> : <Dashboard />} />
         {!isInstructor && (
           <>
             <Route path="customers" element={<Customers />} />

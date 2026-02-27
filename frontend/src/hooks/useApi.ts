@@ -1108,7 +1108,7 @@ export const useSystemUsers = () => {
 export const useCreateSystemUser = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { email: string; name: string; phone?: string; role: 'admin' | 'manager'; password?: string }) =>
+    mutationFn: (data: { email: string; name: string; phone?: string; role: 'admin' | 'manager' | 'sales'; password?: string }) =>
       mutateData<User & { inviteUrl: string }, typeof data>('/system-users', 'post', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['system-users'] });
@@ -1119,7 +1119,7 @@ export const useCreateSystemUser = () => {
 export const useUpdateSystemUser = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { name?: string; phone?: string; role?: 'admin' | 'manager'; isActive?: boolean } }) =>
+    mutationFn: ({ id, data }: { id: string; data: { name?: string; phone?: string; role?: 'admin' | 'manager' | 'sales'; isActive?: boolean } }) =>
       mutateData<User, typeof data>(`/system-users/${id}`, 'put', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['system-users'] });

@@ -39,6 +39,7 @@ services:
       DATABASE_URL: postgresql://haitech:haitech_password@db:5432/haitech_crm?schema=public
       PORT: 3001
       NODE_ENV: production
+      TZ: Asia/Jerusalem
       JWT_SECRET: ${JWT_SECRET:-change-this-in-production}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-this-refresh-secret}
       JWT_EXPIRES_IN: 1d

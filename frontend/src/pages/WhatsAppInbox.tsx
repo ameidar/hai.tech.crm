@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X } from 'lucide-react';
+import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp } from 'lucide-react';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface WaConversation {
@@ -33,6 +33,18 @@ interface WaMessage {
   tokensUsed?: number;
   isAiGenerated: boolean;
   createdAt: string;
+}
+
+interface WaTemplateComponent {
+  type: 'HEADER' | 'BODY' | 'FOOTER' | 'BUTTONS';
+  text?: string;
+}
+interface WaTemplate {
+  id?: string;
+  name: string;
+  status: string;
+  language: string;
+  components: WaTemplateComponent[];
 }
 
 // ─── API helpers ─────────────────────────────────────────────────────────────
@@ -76,6 +88,12 @@ export default function WhatsAppInbox() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [templates, setTemplates] = useState<WaTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<WaTemplate | null>(null);
+  const [templateVars, setTemplateVars] = useState<string[]>([]);
+  const [expandedTemplate, setExpandedTemplate] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -202,6 +220,68 @@ export default function WhatsAppInbox() {
       body: JSON.stringify({ status: conv.status === 'closed' ? 'open' : 'closed' })
     });
     loadConversations();
+  };
+
+  const loadTemplates = async () => {
+    if (templates.length > 0) { setShowTemplateModal(true); return; }
+    setLoadingTemplates(true);
+    try {
+      const data = await api('/templates');
+      setTemplates(data);
+      setShowTemplateModal(true);
+    } catch (e) {
+      alert('שגיאה בטעינת תבניות');
+    } finally {
+      setLoadingTemplates(false);
+    }
+  };
+
+  const getBodyText = (tmpl: WaTemplate) =>
+    tmpl.components.find(c => c.type === 'BODY')?.text || '';
+
+  const countVars = (text: string) => {
+    const matches = text.match(/\{\{\d+\}\}/g) || [];
+    return [...new Set(matches)].length;
+  };
+
+  const selectTemplate = (tmpl: WaTemplate) => {
+    setSelectedTemplate(tmpl);
+    const body = getBodyText(tmpl);
+    const varCount = countVars(body);
+    setTemplateVars(Array(varCount).fill(''));
+  };
+
+  const renderPreview = () => {
+    if (!selectedTemplate) return '';
+    let text = getBodyText(selectedTemplate);
+    templateVars.forEach((v, i) => {
+      text = text.replace(new RegExp(`\\{\\{${i + 1}\\}\\}`, 'g'), v || `{{${i + 1}}}`);
+    });
+    return text;
+  };
+
+  const sendTemplate = async () => {
+    if (!selected || !selectedTemplate) return;
+    setSending(true);
+    try {
+      await api('/send-template', {
+        method: 'POST',
+        body: JSON.stringify({
+          conversationId: selected.id,
+          templateName: selectedTemplate.name,
+          language: selectedTemplate.language,
+          variables: templateVars,
+          previewText: renderPreview()
+        })
+      });
+      setShowTemplateModal(false);
+      setSelectedTemplate(null);
+      setTemplateVars([]);
+    } catch (e) {
+      alert('שגיאה בשליחת תבנית');
+    } finally {
+      setSending(false);
+    }
   };
 
   const totalUnread = conversations.reduce((s, c) => s + c.unreadCount, 0);
@@ -384,6 +464,15 @@ export default function WhatsAppInbox() {
               </p>
             )}
             <div className="flex items-end gap-2">
+              {/* Template picker button */}
+              <button
+                onClick={loadTemplates}
+                disabled={loadingTemplates}
+                title="שלח תבנית"
+                className="w-10 h-10 bg-blue-50 hover:bg-blue-100 text-blue-500 rounded-full flex items-center justify-center transition-colors flex-shrink-0"
+              >
+                {loadingTemplates ? <RefreshCw size={16} className="animate-spin" /> : <FileText size={18} />}
+              </button>
               <textarea
                 value={input}
                 onChange={e => setInput(e.target.value)}
@@ -405,6 +494,119 @@ export default function WhatsAppInbox() {
               </button>
             </div>
           </div>
+
+          {/* Template Modal */}
+          {showTemplateModal && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" dir="rtl">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+                {/* Modal Header */}
+                <div className="flex items-center justify-between p-4 border-b border-gray-200">
+                  <div className="flex items-center gap-2">
+                    <FileText size={20} className="text-blue-500" />
+                    <h3 className="font-bold text-gray-800">שליחת תבנית WhatsApp</h3>
+                    <span className="text-xs text-gray-400">({templates.length} תבניות)</span>
+                  </div>
+                  <button onClick={() => { setShowTemplateModal(false); setSelectedTemplate(null); setTemplateVars([]); }}
+                    className="p-1.5 hover:bg-gray-100 rounded-full">
+                    <X size={18} className="text-gray-500" />
+                  </button>
+                </div>
+
+                <div className="flex flex-1 overflow-hidden">
+                  {/* Template list */}
+                  <div className="w-1/2 border-l border-gray-100 overflow-y-auto">
+                    {templates.map(tmpl => {
+                      const body = getBodyText(tmpl);
+                      const varCount = countVars(body);
+                      const isSelected = selectedTemplate?.name === tmpl.name;
+                      const isExpanded = expandedTemplate === tmpl.name;
+                      return (
+                        <div key={tmpl.name}
+                          className={`border-b border-gray-100 cursor-pointer transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+                          onClick={() => selectTemplate(tmpl)}
+                        >
+                          <div className="px-3 py-2.5 flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-800 truncate">{tmpl.name.replace(/_/g, ' ')}</p>
+                              {varCount > 0 && (
+                                <span className="text-xs text-orange-500">{varCount} משתנים</span>
+                              )}
+                            </div>
+                            <button
+                              onClick={e => { e.stopPropagation(); setExpandedTemplate(isExpanded ? null : tmpl.name); }}
+                              className="p-0.5 text-gray-400 hover:text-gray-600 flex-shrink-0">
+                              {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                            </button>
+                          </div>
+                          {isExpanded && body && (
+                            <div className="px-3 pb-2.5">
+                              <p className="text-xs text-gray-500 whitespace-pre-wrap bg-gray-50 rounded p-2 leading-relaxed">{body.slice(0, 200)}{body.length > 200 ? '...' : ''}</p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Right panel — variables + preview */}
+                  <div className="w-1/2 flex flex-col p-4 overflow-y-auto">
+                    {selectedTemplate ? (
+                      <>
+                        <h4 className="font-semibold text-gray-700 mb-3">{selectedTemplate.name.replace(/_/g, ' ')}</h4>
+
+                        {/* Variables */}
+                        {templateVars.length > 0 && (
+                          <div className="mb-4">
+                            <p className="text-xs font-medium text-gray-500 mb-2">מלא את המשתנים:</p>
+                            {templateVars.map((v, i) => (
+                              <div key={i} className="mb-2">
+                                <label className="text-xs text-gray-500 block mb-1">{'{{' + (i + 1) + '}}'}</label>
+                                <input
+                                  type="text"
+                                  value={v}
+                                  onChange={e => {
+                                    const newVars = [...templateVars];
+                                    newVars[i] = e.target.value;
+                                    setTemplateVars(newVars);
+                                  }}
+                                  className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                                  placeholder={`ערך ${i + 1}`}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Preview */}
+                        <div className="flex-1">
+                          <p className="text-xs font-medium text-gray-500 mb-2">תצוגה מקדימה:</p>
+                          <div className="bg-green-50 border border-green-100 rounded-xl p-3 text-sm text-gray-800 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
+                            {renderPreview() || <span className="text-gray-400">בחר תבנית...</span>}
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={sendTemplate}
+                          disabled={sending}
+                          className="mt-4 w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-200 text-white rounded-xl py-2.5 font-medium flex items-center justify-center gap-2 transition-colors"
+                        >
+                          <Send size={16} />
+                          שלח תבנית
+                        </button>
+                      </>
+                    ) : (
+                      <div className="flex-1 flex items-center justify-center text-gray-400">
+                        <div className="text-center">
+                          <FileText size={32} className="mx-auto mb-2 text-gray-300" />
+                          <p className="text-sm">בחר תבנית מהרשימה</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center text-gray-400">

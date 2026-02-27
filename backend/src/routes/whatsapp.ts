@@ -482,11 +482,11 @@ router.post('/send-template', authenticate, async (req: Request, res: Response) 
     }
 
     // Send via Meta API (use conversation's phone number ID if available)
-    const fromPhoneNumberId = conv.phoneNumberId || PHONE_NUMBER_ID;
+    const sendFromPhoneId = (fromPhoneNumberId as string | undefined) || conv.phoneNumberId || PHONE_NUMBER_ID;
     let waId: string | null = null;
     try {
       const resp = await axios.post(
-        `${WA_API_URL}/${fromPhoneNumberId}/messages`,
+        `${WA_API_URL}/${sendFromPhoneId}/messages`,
         {
           messaging_product: 'whatsapp',
           to: conv.phone,

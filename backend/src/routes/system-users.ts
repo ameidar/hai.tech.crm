@@ -15,14 +15,14 @@ const createUserSchema = z.object({
   email: z.string().email('Invalid email'),
   name: z.string().min(2, 'Name must be at least 2 characters'),
   phone: z.string().optional().nullable(),
-  role: z.enum(['admin', 'manager']),
+  role: z.enum(['admin', 'manager', 'sales']),
   password: z.string().min(6).optional(), // optional — auto-generated if not provided
 });
 
 const updateUserSchema = z.object({
   name: z.string().min(2).optional(),
   phone: z.string().optional().nullable(),
-  role: z.enum(['admin', 'manager']).optional(),
+  role: z.enum(['admin', 'manager', 'sales']).optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -31,7 +31,7 @@ systemUsersRouter.get('/', adminOnly, async (_req, res, next) => {
   try {
     const users = await prisma.user.findMany({
       where: {
-        role: { in: ['admin', 'manager'] },
+        role: { in: ['admin', 'manager', 'sales'] },
       },
       select: {
         id: true,
@@ -115,7 +115,7 @@ systemUsersRouter.put('/:id', adminOnly, async (req, res, next) => {
     }
 
     const existing = await prisma.user.findUnique({ where: { id } });
-    if (!existing || !['admin', 'manager'].includes(existing.role)) {
+    if (!existing || !['admin', 'manager', 'sales'].includes(existing.role)) {
       throw new AppError(404, 'User not found');
     }
 
@@ -148,7 +148,7 @@ systemUsersRouter.post('/:id/reset-password', adminOnly, async (req, res, next) 
     const { id } = req.params;
 
     const existing = await prisma.user.findUnique({ where: { id } });
-    if (!existing || !['admin', 'manager'].includes(existing.role)) {
+    if (!existing || !['admin', 'manager', 'sales'].includes(existing.role)) {
       throw new AppError(404, 'User not found');
     }
 
@@ -193,7 +193,7 @@ systemUsersRouter.delete('/:id', adminOnly, async (req, res, next) => {
     }
 
     const existing = await prisma.user.findUnique({ where: { id } });
-    if (!existing || !['admin', 'manager'].includes(existing.role)) {
+    if (!existing || !['admin', 'manager', 'sales'].includes(existing.role)) {
       throw new AppError(404, 'User not found');
     }
 

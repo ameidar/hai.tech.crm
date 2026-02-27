@@ -349,6 +349,98 @@ router.get('/events', (req: Request, res: Response) => {
   req.on('close', () => sseClients.delete(res));
 });
 
+// ── GET /api/wa/templates — Fetch approved templates from Meta
+router.get('/templates', authenticate, async (req: Request, res: Response) => {
+  try {
+    const wabaId = process.env.WA_WABA_ID || process.env.WA_CLOUD_WABA_ID;
+    const resp = await axios.get(
+      `${WA_API_URL}/${wabaId}/message_templates`,
+      {
+        params: { fields: 'name,status,language,components', limit: 50 },
+        headers: { Authorization: `Bearer ${ACCESS_TOKEN}` }
+      }
+    );
+    const approved = (resp.data.data || []).filter((t: any) => t.status === 'APPROVED');
+    res.json(approved);
+  } catch (err: any) {
+    console.error('[WA] Templates fetch error:', err.response?.data || err.message);
+    res.status(500).json({ error: 'Failed to fetch templates' });
+  }
+});
+
+// ── POST /api/wa/send-template — Send a template message
+router.post('/send-template', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { conversationId, templateName, language, variables, previewText } = req.body;
+    if (!conversationId || !templateName) {
+      return res.status(400).json({ error: 'Missing conversationId or templateName' });
+    }
+
+    const conv = await prisma.waConversation.findUnique({ where: { id: conversationId } });
+    if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+
+    // Build template components with variables
+    const components: any[] = [];
+    if (variables && variables.length > 0) {
+      components.push({
+        type: 'body',
+        parameters: variables.map((v: string) => ({ type: 'text', text: v }))
+      });
+    }
+
+    // Send via Meta API
+    let waId: string | null = null;
+    try {
+      const resp = await axios.post(
+        `${WA_API_URL}/${PHONE_NUMBER_ID}/messages`,
+        {
+          messaging_product: 'whatsapp',
+          to: conv.phone,
+          type: 'template',
+          template: {
+            name: templateName,
+            language: { code: language || 'he' },
+            ...(components.length > 0 && { components })
+          }
+        },
+        { headers: { Authorization: `Bearer ${ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
+      );
+      waId = resp.data?.messages?.[0]?.id || null;
+    } catch (err: any) {
+      console.error('[WA] Template send error:', err.response?.data || err.message);
+      return res.status(500).json({ error: 'Failed to send template via Meta', details: err.response?.data });
+    }
+
+    // Store message in DB
+    const content = previewText || `[תבנית: ${templateName}]`;
+    const msg = await prisma.waMessage.create({
+      data: {
+        conversationId,
+        direction: 'outbound',
+        content,
+        waMessageId: waId || undefined,
+        status: 'sent',
+        isAiGenerated: false
+      }
+    });
+
+    await prisma.waConversation.update({
+      where: { id: conversationId },
+      data: {
+        lastMessageAt: new Date(),
+        lastMessagePreview: content.slice(0, 100),
+        updatedAt: new Date()
+      }
+    });
+
+    broadcastSSE('new_message', { conversationId, message: msg });
+    res.json(msg);
+  } catch (err) {
+    console.error('[WA] send-template error:', err);
+    res.status(500).json({ error: 'Failed to send template' });
+  }
+});
+
 // ── GET /api/wa/conversations — List all conversations
 router.get('/conversations', authenticate, async (req: Request, res: Response) => {
   try {

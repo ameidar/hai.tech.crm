@@ -120,16 +120,24 @@ export default function WhatsAppInbox() {
         }
         return prev;
       });
-      // Update conversation preview
-      setConversations(prev => prev.map(c => {
-        if (c.id !== conversationId) return c;
-        return {
-          ...c,
-          lastMessagePreview: message.content.slice(0, 80),
-          lastMessageAt: message.createdAt,
-          unreadCount: message.direction === 'inbound' ? c.unreadCount + 1 : c.unreadCount
-        };
-      }));
+      // Update conversation preview — or fetch full list if conversation is new
+      setConversations(prev => {
+        const exists = prev.some(c => c.id === conversationId);
+        if (!exists) {
+          // New conversation arrived — reload full list
+          loadConversations();
+          return prev;
+        }
+        return prev.map(c => {
+          if (c.id !== conversationId) return c;
+          return {
+            ...c,
+            lastMessagePreview: message.content.slice(0, 80),
+            lastMessageAt: message.createdAt,
+            unreadCount: message.direction === 'inbound' ? c.unreadCount + 1 : c.unreadCount
+          };
+        });
+      });
     });
 
     es.addEventListener('conversation_updated', (e: MessageEvent) => {

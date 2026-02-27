@@ -1,0 +1,426 @@
+/**
+ * WhatsApp Cloud API Integration
+ * Inbox management for HaiTech CRM
+ */
+
+import { Router, Request, Response } from 'express';
+import { prisma } from '../utils/prisma.js';
+import { authenticate } from '../middleware/auth.js';
+import OpenAI from 'openai';
+import axios from 'axios';
+import * as fs from 'fs';
+import * as path from 'path';
+
+const router = Router();
+
+// ============================================================
+// Config
+// ============================================================
+const WA_API_URL = 'https://graph.facebook.com/v19.0';
+const PHONE_NUMBER_ID = process.env.WA_PHONE_NUMBER_ID!;
+const ACCESS_TOKEN = process.env.WA_ACCESS_TOKEN!;
+const VERIFY_TOKEN = process.env.WA_VERIFY_TOKEN || 'haitech-wa-verify-2026';
+const AI_IDLE_MS = 10 * 60 * 1000; // 10 min after last message → extract lead summary
+
+// OpenAI
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Load bot data
+const DATA_DIR = path.join(__dirname, '../data');
+let systemPrompt = '';
+let knowledgeBase: any = {};
+try {
+  systemPrompt = fs.readFileSync(path.join(DATA_DIR, 'wa_system_prompt.md'), 'utf8');
+  knowledgeBase = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'wa_knowledge_base.json'), 'utf8'));
+  console.log('[WA] System prompt and knowledge base loaded');
+} catch (e) {
+  console.warn('[WA] Could not load system prompt / knowledge base:', e);
+}
+
+// SSE clients for real-time updates
+const sseClients = new Set<Response>();
+
+function broadcastSSE(event: string, data: any) {
+  const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  sseClients.forEach(client => {
+    try { client.write(msg); } catch {}
+  });
+}
+
+// ============================================================
+// Meta WhatsApp Cloud API helper
+// ============================================================
+async function sendWhatsAppMessage(phone: string, text: string): Promise<string | null> {
+  try {
+    const res = await axios.post(
+      `${WA_API_URL}/${PHONE_NUMBER_ID}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        to: phone,
+        type: 'text',
+        text: { body: text }
+      },
+      { headers: { Authorization: `Bearer ${ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
+    );
+    return res.data?.messages?.[0]?.id || null;
+  } catch (err: any) {
+    console.error('[WA] Send error:', err.response?.data || err.message);
+    return null;
+  }
+}
+
+// ============================================================
+// AI Response generation (mirrors bot logic)
+// ============================================================
+async function generateAIReply(conversationId: string): Promise<string | null> {
+  const messages = await prisma.waMessage.findMany({
+    where: { conversationId },
+    orderBy: { createdAt: 'asc' },
+    take: 20
+  });
+
+  const conv = await prisma.waConversation.findUnique({ where: { id: conversationId } });
+  if (!conv) return null;
+
+  const fullSystemPrompt = `${systemPrompt}
+
+---
+## Knowledge Base (מידע על דרך ההייטק)
+
+${JSON.stringify(knowledgeBase, null, 2)}
+
+---
+## הקשר שיחה
+
+מספר טלפון: ${conv.phone}
+${conv.contactName ? `שם: ${conv.contactName}` : ''}
+${conv.childName ? `שם הילד: ${conv.childName}` : ''}
+${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}
+`;
+
+  const chatMessages: any[] = [{ role: 'system', content: fullSystemPrompt }];
+  for (const m of messages.slice(-15)) {
+    chatMessages.push({
+      role: m.direction === 'inbound' ? 'user' : 'assistant',
+      content: m.content
+    });
+  }
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: chatMessages,
+    max_tokens: 500,
+    temperature: 0.7
+  });
+
+  return completion.choices[0].message.content || null;
+}
+
+// ============================================================
+// Lead extraction (runs after idle)
+// ============================================================
+async function extractLeadData(conversationId: string) {
+  const messages = await prisma.waMessage.findMany({
+    where: { conversationId },
+    orderBy: { createdAt: 'asc' },
+    take: 30
+  });
+
+  if (messages.length === 0) return;
+
+  const text = messages.map(m =>
+    `${m.direction === 'inbound' ? 'לקוח' : 'נציג'}: ${m.content}`
+  ).join('\n');
+
+  try {
+    const res = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: `נתח שיחת וואטסאפ וחלץ מידע. החזר JSON בלבד:
+{
+  "lead_name": "שם מלא או null",
+  "lead_email": "מייל או null",
+  "child_name": "שם הילד או null",
+  "child_age": null,
+  "interests": ["..."],
+  "lead_type": "parent/institution/teacher/other",
+  "summary": "סיכום בשורה אחת"
+}`
+        },
+        { role: 'user', content: text }
+      ],
+      response_format: { type: 'json_object' }
+    });
+
+    const data = JSON.parse(res.choices[0].message.content || '{}');
+    await prisma.waConversation.update({
+      where: { id: conversationId },
+      data: {
+        leadName: data.lead_name,
+        leadEmail: data.lead_email,
+        childName: data.child_name,
+        childAge: data.child_age,
+        interests: data.interests ? JSON.stringify(data.interests) : undefined,
+        leadType: data.lead_type,
+        summary: data.summary
+      }
+    });
+    console.log(`[WA] Lead extracted for ${conversationId}`);
+  } catch (e) {
+    console.error('[WA] Lead extraction failed:', e);
+  }
+}
+
+// Track idle timers per conversation
+const idleTimers = new Map<string, NodeJS.Timeout>();
+
+function scheduleLeadExtraction(conversationId: string) {
+  const existing = idleTimers.get(conversationId);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    extractLeadData(conversationId);
+    idleTimers.delete(conversationId);
+  }, AI_IDLE_MS);
+  idleTimers.set(conversationId, timer);
+}
+
+// ============================================================
+// Routes
+// ============================================================
+
+// ── GET /api/wa/webhook — Meta verification
+router.get('/webhook', (req: Request, res: Response) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+    console.log('[WA] Webhook verified by Meta');
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
+  }
+});
+
+// ── POST /api/wa/webhook — Incoming messages from Meta
+router.post('/webhook', async (req: Request, res: Response) => {
+  res.sendStatus(200); // Respond immediately to Meta
+
+  try {
+    const body = req.body;
+    if (body.object !== 'whatsapp_business_account') return;
+
+    for (const entry of body.entry || []) {
+      for (const change of entry.changes || []) {
+        const value = change.value;
+
+        // Status updates (delivered/read)
+        for (const status of value.statuses || []) {
+          await prisma.waMessage.updateMany({
+            where: { waMessageId: status.id },
+            data: { status: status.status }
+          });
+          broadcastSSE('message_status', { waMessageId: status.id, status: status.status });
+        }
+
+        // Incoming messages
+        for (const msg of value.messages || []) {
+          if (msg.type !== 'text') continue; // Only text for now
+
+          const phone = msg.from;
+          const text = msg.text?.body || '';
+          const waMessageId = msg.id;
+          const contactName = value.contacts?.[0]?.profile?.name;
+
+          // Dedup
+          const existing = await prisma.waMessage.findUnique({ where: { waMessageId } });
+          if (existing) continue;
+
+          // Get or create conversation
+          let conv = await prisma.waConversation.findUnique({ where: { phone } });
+          if (!conv) {
+            conv = await prisma.waConversation.create({
+              data: { phone, contactName }
+            });
+          }
+
+          // Store message
+          const newMsg = await prisma.waMessage.create({
+            data: {
+              conversationId: conv.id,
+              direction: 'inbound',
+              content: text,
+              waMessageId,
+              status: 'received'
+            }
+          });
+
+          // Update conversation
+          await prisma.waConversation.update({
+            where: { id: conv.id },
+            data: {
+              unreadCount: { increment: 1 },
+              lastMessageAt: new Date(),
+              lastMessagePreview: text.slice(0, 100),
+              contactName: contactName || conv.contactName,
+              updatedAt: new Date()
+            }
+          });
+
+          broadcastSSE('new_message', {
+            conversationId: conv.id,
+            message: { ...newMsg, direction: 'inbound' },
+            phone,
+            contactName
+          });
+
+          // AI auto-reply (if enabled)
+          if (conv.aiEnabled) {
+            try {
+              const reply = await generateAIReply(conv.id);
+              if (reply) {
+                const waId = await sendWhatsAppMessage(phone, reply);
+                const botMsg = await prisma.waMessage.create({
+                  data: {
+                    conversationId: conv.id,
+                    direction: 'outbound',
+                    content: reply,
+                    waMessageId: waId || undefined,
+                    status: 'sent',
+                    isAiGenerated: true
+                  }
+                });
+                await prisma.waConversation.update({
+                  where: { id: conv.id },
+                  data: {
+                    lastMessageAt: new Date(),
+                    lastMessagePreview: reply.slice(0, 100),
+                    updatedAt: new Date()
+                  }
+                });
+                broadcastSSE('new_message', { conversationId: conv.id, message: botMsg });
+              }
+            } catch (e) {
+              console.error('[WA] AI reply error:', e);
+            }
+          }
+
+          scheduleLeadExtraction(conv.id);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[WA] Webhook error:', err);
+  }
+});
+
+// ── SSE — Real-time updates
+router.get('/events', authenticate, (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  sseClients.add(res);
+  res.write('event: connected\ndata: {}\n\n');
+
+  req.on('close', () => sseClients.delete(res));
+});
+
+// ── GET /api/wa/conversations — List all conversations
+router.get('/conversations', authenticate, async (req: Request, res: Response) => {
+  try {
+    const conversations = await prisma.waConversation.findMany({
+      orderBy: { lastMessageAt: 'desc' },
+      include: {
+        _count: { select: { messages: true } }
+      }
+    });
+    res.json(conversations);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch conversations' });
+  }
+});
+
+// ── GET /api/wa/conversations/:id/messages
+router.get('/conversations/:id/messages', authenticate, async (req: Request, res: Response) => {
+  try {
+    const messages = await prisma.waMessage.findMany({
+      where: { conversationId: req.params.id },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    // Mark as read
+    await prisma.waConversation.update({
+      where: { id: req.params.id },
+      data: { unreadCount: 0 }
+    });
+
+    res.json(messages);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch messages' });
+  }
+});
+
+// ── PATCH /api/wa/conversations/:id — Update conversation (status, aiEnabled, etc.)
+router.patch('/conversations/:id', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { status, aiEnabled, contactName } = req.body;
+    const conv = await prisma.waConversation.update({
+      where: { id: req.params.id },
+      data: {
+        ...(status !== undefined && { status }),
+        ...(aiEnabled !== undefined && { aiEnabled }),
+        ...(contactName !== undefined && { contactName })
+      }
+    });
+    broadcastSSE('conversation_updated', conv);
+    res.json(conv);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update conversation' });
+  }
+});
+
+// ── POST /api/wa/send — Send manual message
+router.post('/send', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { conversationId, text } = req.body;
+    if (!conversationId || !text) {
+      return res.status(400).json({ error: 'Missing conversationId or text' });
+    }
+
+    const conv = await prisma.waConversation.findUnique({ where: { id: conversationId } });
+    if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+
+    const waId = await sendWhatsAppMessage(conv.phone, text);
+    const msg = await prisma.waMessage.create({
+      data: {
+        conversationId,
+        direction: 'outbound',
+        content: text,
+        waMessageId: waId || undefined,
+        status: 'sent',
+        isAiGenerated: false
+      }
+    });
+
+    await prisma.waConversation.update({
+      where: { id: conversationId },
+      data: {
+        lastMessageAt: new Date(),
+        lastMessagePreview: text.slice(0, 100),
+        updatedAt: new Date()
+      }
+    });
+
+    broadcastSSE('new_message', { conversationId, message: msg });
+    scheduleLeadExtraction(conversationId);
+    res.json(msg);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+export default router;

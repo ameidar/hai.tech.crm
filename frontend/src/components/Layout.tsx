@@ -19,6 +19,7 @@ import {
   X,
   ChevronDown,
   UserCog,
+  MessageCircle,
 } from 'lucide-react';
 
 // Admin/Manager navigation
@@ -35,6 +36,7 @@ const adminNavItems = [
   { path: '/quotes', icon: Receipt, label: 'הצעות מחיר', testId: 'nav-quotes' },
   { path: '/institutional-orders', icon: FileText, label: 'הזמנות מוסדיות', testId: 'nav-institutional-orders' },
   { path: '/lead-appointments', icon: PhoneCall, label: 'יומן לידים', testId: 'nav-lead-appointments' },
+  { path: '/whatsapp', icon: MessageCircle, label: 'WhatsApp', testId: 'nav-whatsapp' },
   { path: '/reports', icon: BarChart3, label: 'דוחות', testId: 'nav-reports' },
   { path: '/audit', icon: FileText, label: 'יומן פעילות', testId: 'nav-audit' },
 ];

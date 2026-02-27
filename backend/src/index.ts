@@ -44,6 +44,7 @@ import { institutionalOrdersRouter } from './routes/institutional-orders.js';
 import { meetingRequestsRouter } from './routes/meeting-requests.js';
 import { filesRouter } from './routes/files.js';
 import { systemUsersRouter } from './routes/system-users.js';
+import waRouter from './routes/whatsapp.js';
 import { devReadOnly } from './middleware/devReadOnly.js';
 
 // API v1 Router
@@ -196,6 +197,7 @@ app.use('/api/lead-appointments', leadAppointmentsRouter); // Lead appointment m
 app.use('/api/institutional-orders', institutionalOrdersRouter); // Institutional orders
 app.use('/api/meeting-requests', meetingRequestsRouter); // Meeting change requests
 app.use('/api/files', filesRouter); // File attachments (instructors, quotes)
+app.use('/api/wa', waRouter); // WhatsApp Cloud API inbox
 app.use('/api/system-users', systemUsersRouter); // System users management (admin/manager)
 app.use('/api/upsell-leads', upsellLeadsRouter); // Upsell leads from completed cycles
 

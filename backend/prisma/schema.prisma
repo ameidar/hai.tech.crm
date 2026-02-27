@@ -780,3 +780,60 @@ model FileAttachment {
 
   @@map("file_attachments")
 }
+
+// ===================
+// WHATSAPP INBOX
+// ===================
+
+enum WaMessageDirection {
+  inbound
+  outbound
+}
+
+enum WaConversationStatus {
+  open
+  pending
+  closed
+}
+
+model WaConversation {
+  id          String               @id @default(uuid())
+  phone       String               @unique
+  contactName String?              @map("contact_name")
+  status      WaConversationStatus @default(open)
+  unreadCount Int                  @default(0) @map("unread_count")
+  lastMessageAt DateTime?          @map("last_message_at")
+  lastMessagePreview String?       @map("last_message_preview")
+  // Lead extraction from bot
+  leadName    String?              @map("lead_name")
+  leadEmail   String?              @map("lead_email")
+  childName   String?              @map("child_name")
+  childAge    Int?                 @map("child_age")
+  interests   String?              // JSON array
+  leadType    String?              @map("lead_type")
+  summary     String?
+  // AI auto-reply
+  aiEnabled   Boolean              @default(true) @map("ai_enabled")
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+
+  messages WaMessage[]
+
+  @@map("wa_conversations")
+}
+
+model WaMessage {
+  id             String             @id @default(uuid())
+  conversationId String             @map("conversation_id")
+  direction      WaMessageDirection
+  content        String
+  waMessageId    String?            @unique @map("wa_message_id")  // Meta message ID (dedup)
+  status         String             @default("sent")               // sent/delivered/read/failed
+  tokensUsed     Int?               @map("tokens_used")
+  isAiGenerated  Boolean            @default(false) @map("is_ai_generated")
+  createdAt      DateTime           @default(now()) @map("created_at")
+
+  conversation WaConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("wa_messages")
+}

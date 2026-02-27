@@ -799,7 +799,7 @@ enum WaConversationStatus {
 
 model WaConversation {
   id          String               @id @default(uuid())
-  phone       String               @unique
+  phone       String
   contactName String?              @map("contact_name")
   status      WaConversationStatus @default(open)
   unreadCount Int                  @default(0) @map("unread_count")
@@ -822,6 +822,7 @@ model WaConversation {
 
   messages WaMessage[]
 
+  @@unique([phone, phoneNumberId])
   @@map("wa_conversations")
 }
 

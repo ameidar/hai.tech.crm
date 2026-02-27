@@ -349,6 +349,43 @@ router.get('/events', (req: Request, res: Response) => {
   req.on('close', () => sseClients.delete(res));
 });
 
+// ── POST /api/wa/templates — Create a new template in Meta
+router.post('/templates', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { name, category, language, headerText, bodyText, footerText, buttons } = req.body;
+    if (!name || !bodyText) return res.status(400).json({ error: 'Missing name or bodyText' });
+
+    const wabaId = process.env.WA_WABA_ID || process.env.WA_CLOUD_WABA_ID;
+
+    const components: any[] = [];
+    if (headerText) components.push({ type: 'HEADER', format: 'TEXT', text: headerText });
+    components.push({ type: 'BODY', text: bodyText });
+    if (footerText) components.push({ type: 'FOOTER', text: footerText });
+    if (buttons && buttons.length > 0) {
+      components.push({
+        type: 'BUTTONS',
+        buttons: buttons.map((b: any) => ({ type: b.type || 'QUICK_REPLY', text: b.text }))
+      });
+    }
+
+    const resp = await axios.post(
+      `${WA_API_URL}/${wabaId}/message_templates`,
+      {
+        name: name.toLowerCase().replace(/[^a-z0-9_]/g, '_'),
+        language: language || 'he',
+        category: category || 'MARKETING',
+        components
+      },
+      { headers: { Authorization: `Bearer ${ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
+    );
+
+    res.json({ id: resp.data.id, status: resp.data.status, name: resp.data.name });
+  } catch (err: any) {
+    console.error('[WA] Create template error:', err.response?.data || err.message);
+    res.status(500).json({ error: 'Failed to create template', details: err.response?.data });
+  }
+});
+
 // ── GET /api/wa/templates — Fetch approved templates from Meta
 router.get('/templates', authenticate, async (req: Request, res: Response) => {
   try {

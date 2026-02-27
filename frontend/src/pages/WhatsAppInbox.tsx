@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp, Search, PenSquare } from 'lucide-react';
+import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp, Search, PenSquare, Plus, CheckCircle, AlertCircle } from 'lucide-react';
 import WaSendModal from '../components/WaSendModal';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -95,6 +95,11 @@ export default function WhatsAppInbox() {
   const [selectedTemplate, setSelectedTemplate] = useState<WaTemplate | null>(null);
   const [templateVars, setTemplateVars] = useState<string[]>([]);
   const [expandedTemplate, setExpandedTemplate] = useState<string | null>(null);
+  // Create template (inside template modal)
+  const [showCreateTemplate, setShowCreateTemplate] = useState(false);
+  const [createForm, setCreateForm] = useState({ name: '', category: 'MARKETING', headerText: '', bodyText: '', footerText: '' });
+  const [creating, setCreating] = useState(false);
+  const [createResult, setCreateResult] = useState<{ success: boolean; message: string } | null>(null);
   // New conversation
   const [showNewConv, setShowNewConv] = useState(false);
   const [customerSearch, setCustomerSearch] = useState('');
@@ -249,8 +254,8 @@ export default function WhatsAppInbox() {
     return () => clearTimeout(timer);
   }, [customerSearch, searchCustomers]);
 
-  const loadTemplates = async () => {
-    if (templates.length > 0) { setShowTemplateModal(true); return; }
+  const loadTemplates = async (forceReload = false) => {
+    if (templates.length > 0 && !forceReload) { setShowTemplateModal(true); return; }
     setLoadingTemplates(true);
     try {
       const data = await api('/templates');
@@ -260,6 +265,36 @@ export default function WhatsAppInbox() {
       alert('שגיאה בטעינת תבניות');
     } finally {
       setLoadingTemplates(false);
+    }
+  };
+
+  const submitCreateTemplate = async () => {
+    if (!createForm.name.trim() || !createForm.bodyText.trim()) {
+      setCreateResult({ success: false, message: 'שם ותוכן הגוף הם שדות חובה' });
+      return;
+    }
+    setCreating(true);
+    setCreateResult(null);
+    try {
+      const resp = await api('/templates', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: createForm.name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_'),
+          category: createForm.category,
+          headerText: createForm.headerText.trim() || undefined,
+          bodyText: createForm.bodyText.trim(),
+          footerText: createForm.footerText.trim() || undefined,
+        })
+      });
+      setCreateResult({ success: true, message: `נוצר! סטטוס: ${resp.status || 'PENDING'}. Meta תאשר עד 24 שעות.` });
+      setCreateForm({ name: '', category: 'MARKETING', headerText: '', bodyText: '', footerText: '' });
+      setTimeout(() => { setShowCreateTemplate(false); setCreateResult(null); loadTemplates(true); }, 2500);
+    } catch (e: any) {
+      let msg = 'שגיאה ביצירת תבנית';
+      try { const p = JSON.parse(e.message); msg = p?.details?.error?.message || p?.error || msg; } catch {}
+      setCreateResult({ success: false, message: msg });
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -574,7 +609,7 @@ export default function WhatsAppInbox() {
             <div className="flex items-end gap-2">
               {/* Template picker button */}
               <button
-                onClick={loadTemplates}
+                onClick={() => loadTemplates()}
                 disabled={loadingTemplates}
                 title="שלח תבנית"
                 className="w-10 h-10 bg-blue-50 hover:bg-blue-100 text-blue-500 rounded-full flex items-center justify-center transition-colors flex-shrink-0"
@@ -614,7 +649,7 @@ export default function WhatsAppInbox() {
                     <h3 className="font-bold text-gray-800">שליחת תבנית WhatsApp</h3>
                     <span className="text-xs text-gray-400">({templates.length} תבניות)</span>
                   </div>
-                  <button onClick={() => { setShowTemplateModal(false); setSelectedTemplate(null); setTemplateVars([]); }}
+                  <button onClick={() => { setShowTemplateModal(false); setSelectedTemplate(null); setTemplateVars([]); setShowCreateTemplate(false); setCreateResult(null); }}
                     className="p-1.5 hover:bg-gray-100 rounded-full">
                     <X size={18} className="text-gray-500" />
                   </button>
@@ -622,16 +657,28 @@ export default function WhatsAppInbox() {
 
                 <div className="flex flex-1 overflow-hidden">
                   {/* Template list */}
-                  <div className="w-1/2 border-l border-gray-100 overflow-y-auto">
+                  <div className="w-1/2 border-l border-gray-100 flex flex-col overflow-hidden">
+                    {/* Create new button */}
+                    <button
+                      onClick={() => { setShowCreateTemplate(true); setSelectedTemplate(null); setCreateResult(null); }}
+                      className={`flex items-center gap-2 px-3 py-2.5 border-b border-gray-100 text-sm font-medium transition-colors flex-shrink-0 ${showCreateTemplate ? 'bg-blue-50 text-blue-600' : 'text-blue-500 hover:bg-blue-50'}`}
+                    >
+                      <Plus size={15} />
+                      תבנית חדשה
+                    </button>
+                    <div className="flex-1 overflow-y-auto">
+                      <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100">
+                        <p className="text-xs text-gray-400 font-medium">תבניות מאושרות ({templates.length})</p>
+                      </div>
                     {templates.map(tmpl => {
                       const body = getBodyText(tmpl);
                       const varCount = countVars(body);
-                      const isSelected = selectedTemplate?.name === tmpl.name;
+                      const isSelected = !showCreateTemplate && selectedTemplate?.name === tmpl.name;
                       const isExpanded = expandedTemplate === tmpl.name;
                       return (
                         <div key={tmpl.name}
-                          className={`border-b border-gray-100 cursor-pointer transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
-                          onClick={() => selectTemplate(tmpl)}
+                          className={`border-b border-gray-100 cursor-pointer transition-colors ${isSelected ? 'bg-blue-50 border-r-2 border-r-blue-400' : 'hover:bg-gray-50'}`}
+                          onClick={() => { selectTemplate(tmpl); setShowCreateTemplate(false); }}
                         >
                           <div className="px-3 py-2.5 flex items-start justify-between gap-2">
                             <div className="flex-1 min-w-0">
@@ -654,12 +701,80 @@ export default function WhatsAppInbox() {
                         </div>
                       );
                     })}
+                    </div>
                   </div>
 
-                  {/* Right panel — variables + preview */}
-                  <div className="w-1/2 flex flex-col p-4 overflow-y-auto">
-                    {selectedTemplate ? (
-                      <>
+                  {/* Right panel — variables + preview OR create form */}
+                  <div className="w-1/2 flex flex-col overflow-y-auto">
+                    {showCreateTemplate ? (
+                      <div className="flex flex-col p-4 gap-3 h-full">
+                        <h4 className="font-semibold text-gray-700 flex items-center gap-2">
+                          <Plus size={16} className="text-blue-500" /> תבנית חדשה
+                        </h4>
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">שם תבנית (אנגלית, קווים תחתיים)</label>
+                          <input type="text" value={createForm.name} dir="ltr"
+                            onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
+                            placeholder="first_message"
+                            className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                          {createForm.name && <p className="text-xs text-gray-400 mt-0.5">→ {createForm.name.toLowerCase().replace(/[^a-z0-9_]/g,'_')}</p>}
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">קטגוריה</label>
+                          <select value={createForm.category}
+                            onChange={e => setCreateForm(f => ({ ...f, category: e.target.value }))}
+                            className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+                            <option value="MARKETING">MARKETING — שיווקי</option>
+                            <option value="UTILITY">UTILITY — שירותי</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">כותרת עליונה <span className="text-gray-300">(אופציונלי)</span></label>
+                          <input type="text" value={createForm.headerText}
+                            onChange={e => setCreateForm(f => ({ ...f, headerText: e.target.value }))}
+                            placeholder="דרך ההייטק"
+                            className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-xs text-gray-500">גוף ההודעה *</label>
+                            <div className="flex gap-1">
+                              {[1,2,3].map(n => (
+                                <button key={n} onClick={() => setCreateForm(f => ({...f, bodyText: f.bodyText + `{{${n}}}`}))}
+                                  className="text-xs bg-orange-50 text-orange-600 border border-orange-200 rounded px-1.5 py-0.5 hover:bg-orange-100">
+                                  +{`{{${n}}}`}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <textarea value={createForm.bodyText}
+                            onChange={e => setCreateForm(f => ({ ...f, bodyText: e.target.value }))}
+                            placeholder={`היי {{1}},\nתוכן ההודעה...`}
+                            rows={4}
+                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">כותרת תחתונה <span className="text-gray-300">(אופציונלי)</span></label>
+                          <input type="text" value={createForm.footerText} dir="ltr"
+                            onChange={e => setCreateForm(f => ({ ...f, footerText: e.target.value }))}
+                            placeholder="www.hai.tech"
+                            className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                        </div>
+                        {createResult && (
+                          <div className={`flex items-start gap-2 p-3 rounded-lg text-sm ${createResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                            {createResult.success ? <CheckCircle size={16} className="flex-shrink-0 mt-0.5" /> : <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />}
+                            <span>{createResult.message}</span>
+                          </div>
+                        )}
+                        <button onClick={submitCreateTemplate} disabled={creating || !createForm.name.trim() || !createForm.bodyText.trim()}
+                          className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-gray-200 text-white rounded-xl py-2.5 font-medium flex items-center justify-center gap-2 transition-colors">
+                          {creating ? <RefreshCw size={16} className="animate-spin" /> : <Plus size={16} />}
+                          {creating ? 'יוצר...' : 'שלח לאישור Meta'}
+                        </button>
+                        <p className="text-xs text-gray-400 text-center">⏳ אישור Meta לוקח עד 24 שעות</p>
+                      </div>
+                    ) : selectedTemplate ? (
+                      <div className="flex flex-col p-4">
                         <h4 className="font-semibold text-gray-700 mb-3">{selectedTemplate.name.replace(/_/g, ' ')}</h4>
 
                         {/* Variables */}
@@ -701,7 +816,7 @@ export default function WhatsAppInbox() {
                           <Send size={16} />
                           שלח תבנית
                         </button>
-                      </>
+                      </div>
                     ) : (
                       <div className="flex-1 flex items-center justify-center text-gray-400">
                         <div className="text-center">

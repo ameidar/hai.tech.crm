@@ -19,6 +19,7 @@ interface WaTemplate {
 interface Props {
   phone: string;        // מספר טלפון (ישראלי — 05...)
   contactName: string;  // שם הלקוח לתצוגה
+  fromPhoneNumberId?: string; // Phone Number ID to send from (optional, defaults to primary)
   onClose: () => void;
   onSent?: () => void;
 }
@@ -237,7 +238,7 @@ function CreateTemplatePanel({ onCreated }: { onCreated: (name: string) => void 
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function WaSendModal({ phone, contactName, onClose, onSent }: Props) {
+export default function WaSendModal({ phone, contactName, fromPhoneNumberId, onClose, onSent }: Props) {
   const [templates, setTemplates] = useState<WaTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState<WaTemplate | null>(null);
@@ -250,7 +251,8 @@ export default function WaSendModal({ phone, contactName, onClose, onSent }: Pro
 
   const loadTemplates = () => {
     setLoading(true);
-    api('/templates')
+    const qs = fromPhoneNumberId ? `?phoneNumberId=${fromPhoneNumberId}` : '';
+    api(`/templates${qs}`)
       .then(data => setTemplates(data))
       .catch(() => alert('שגיאה בטעינת תבניות'))
       .finally(() => setLoading(false));
@@ -286,7 +288,8 @@ export default function WaSendModal({ phone, contactName, onClose, onSent }: Pro
           templateName: selectedTemplate.name,
           language: selectedTemplate.language,
           variables: templateVars,
-          previewText: renderPreview()
+          previewText: renderPreview(),
+          ...(fromPhoneNumberId && { fromPhoneNumberId })
         })
       });
       setSent(true);

@@ -24,6 +24,21 @@ const ACCESS_TOKEN = process.env.WA_ACCESS_TOKEN!;
 const VERIFY_TOKEN = process.env.WA_VERIFY_TOKEN || 'haitech-wa-verify-2026';
 const AI_IDLE_MS = 10 * 60 * 1000; // 10 min after last message → extract lead summary
 
+// Multi-number support: phoneNumberId → wabaId mapping
+const PHONE_WABA_MAP: Record<string, string> = {
+  [process.env.WA_PHONE_NUMBER_ID || '']: process.env.WA_WABA_ID || process.env.WA_CLOUD_WABA_ID || '',
+  [process.env.WA_PHONE_NUMBER_ID_2 || '']: process.env.WA_WABA_ID_2 || '',
+};
+function getWabaId(phoneNumberId?: string | null): string {
+  if (phoneNumberId && PHONE_WABA_MAP[phoneNumberId]) return PHONE_WABA_MAP[phoneNumberId];
+  return process.env.WA_WABA_ID || process.env.WA_CLOUD_WABA_ID || '';
+}
+// All active phone numbers (for new conversation picker)
+const ACTIVE_PHONES: { phoneNumberId: string; businessPhone: string; label: string }[] = [
+  { phoneNumberId: process.env.WA_PHONE_NUMBER_ID || '', businessPhone: '+972533027763', label: 'Bot Hai.tech (+972 53 302 7763)' },
+  ...(process.env.WA_PHONE_NUMBER_ID_2 ? [{ phoneNumberId: process.env.WA_PHONE_NUMBER_ID_2, businessPhone: '+972533009742', label: 'Bot Hai.Tech (+972 53 300 9742)' }] : []),
+];
+
 // OpenAI
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -52,10 +67,11 @@ function broadcastSSE(event: string, data: any) {
 // ============================================================
 // Meta WhatsApp Cloud API helper
 // ============================================================
-async function sendWhatsAppMessage(phone: string, text: string): Promise<string | null> {
+async function sendWhatsAppMessage(phone: string, text: string, phoneNumberId?: string | null): Promise<string | null> {
+  const fromId = phoneNumberId || PHONE_NUMBER_ID;
   try {
     const res = await axios.post(
-      `${WA_API_URL}/${PHONE_NUMBER_ID}/messages`,
+      `${WA_API_URL}/${fromId}/messages`,
       {
         messaging_product: 'whatsapp',
         to: phone,
@@ -352,10 +368,10 @@ router.get('/events', (req: Request, res: Response) => {
 // ── POST /api/wa/templates — Create a new template in Meta
 router.post('/templates', authenticate, async (req: Request, res: Response) => {
   try {
-    const { name, category, language, headerText, bodyText, footerText, buttons, examples } = req.body;
+    const { name, category, language, headerText, bodyText, footerText, buttons, examples, phoneNumberId: reqPhoneId } = req.body;
     if (!name || !bodyText) return res.status(400).json({ error: 'Missing name or bodyText' });
 
-    const wabaId = process.env.WA_WABA_ID || process.env.WA_CLOUD_WABA_ID;
+    const wabaId = getWabaId(reqPhoneId);
 
     // Count variables in text ({{1}}, {{2}}, ...)
     const countVars = (text: string) => [...new Set(text.match(/\{\{\d+\}\}/g) || [])].length;
@@ -415,11 +431,12 @@ router.post('/templates', authenticate, async (req: Request, res: Response) => {
 // ── GET /api/wa/templates — Fetch approved templates from Meta
 router.get('/templates', authenticate, async (req: Request, res: Response) => {
   try {
-    const wabaId = process.env.WA_WABA_ID || process.env.WA_CLOUD_WABA_ID;
+    const phoneNumberId = req.query.phoneNumberId as string | undefined;
+    const wabaId = getWabaId(phoneNumberId);
     const resp = await axios.get(
       `${WA_API_URL}/${wabaId}/message_templates`,
       {
-        params: { fields: 'name,status,language,components', limit: 50 },
+        params: { fields: 'name,status,language,components', limit: 100 },
         headers: { Authorization: `Bearer ${ACCESS_TOKEN}` }
       }
     );
@@ -434,7 +451,7 @@ router.get('/templates', authenticate, async (req: Request, res: Response) => {
 // ── POST /api/wa/send-template — Send a template message
 router.post('/send-template', authenticate, async (req: Request, res: Response) => {
   try {
-    const { conversationId, phone: phoneParam, contactName, templateName, language, variables, previewText } = req.body;
+    const { conversationId, phone: phoneParam, contactName, templateName, language, variables, previewText, fromPhoneNumberId } = req.body;
     if (!templateName) return res.status(400).json({ error: 'Missing templateName' });
     if (!conversationId && !phoneParam) return res.status(400).json({ error: 'Missing conversationId or phone' });
 
@@ -446,8 +463,10 @@ router.post('/send-template', authenticate, async (req: Request, res: Response) 
       const phone = phoneParam.replace(/\D/g, '').replace(/^0/, '972');
       conv = await prisma.waConversation.findFirst({ where: { phone } });
       if (!conv) {
+        const usePhoneId = fromPhoneNumberId || PHONE_NUMBER_ID;
+        const activePh = ACTIVE_PHONES.find(p => p.phoneNumberId === usePhoneId);
         conv = await prisma.waConversation.create({
-          data: { phone, contactName: contactName || phone, phoneNumberId: PHONE_NUMBER_ID, businessPhone: '+972533027763' }
+          data: { phone, contactName: contactName || phone, phoneNumberId: usePhoneId, businessPhone: activePh?.businessPhone || '+972533027763' }
         });
       }
     }
@@ -462,11 +481,12 @@ router.post('/send-template', authenticate, async (req: Request, res: Response) 
       });
     }
 
-    // Send via Meta API
+    // Send via Meta API (use conversation's phone number ID if available)
+    const fromPhoneNumberId = conv.phoneNumberId || PHONE_NUMBER_ID;
     let waId: string | null = null;
     try {
       const resp = await axios.post(
-        `${WA_API_URL}/${PHONE_NUMBER_ID}/messages`,
+        `${WA_API_URL}/${fromPhoneNumberId}/messages`,
         {
           messaging_product: 'whatsapp',
           to: conv.phone,
@@ -513,6 +533,11 @@ router.post('/send-template', authenticate, async (req: Request, res: Response) 
     console.error('[WA] send-template error:', err);
     res.status(500).json({ error: 'Failed to send template' });
   }
+});
+
+// ── GET /api/wa/phones — List active WhatsApp phone numbers
+router.get('/phones', authenticate, (_req: Request, res: Response) => {
+  res.json(ACTIVE_PHONES.filter(p => p.phoneNumberId));
 });
 
 // ── GET /api/wa/conversations — List all conversations
@@ -580,7 +605,7 @@ router.post('/send', authenticate, async (req: Request, res: Response) => {
     const conv = await prisma.waConversation.findUnique({ where: { id: conversationId } });
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
 
-    const waId = await sendWhatsAppMessage(conv.phone, text);
+    const waId = await sendWhatsAppMessage(conv.phone, text, conv.phoneNumberId);
     const msg = await prisma.waMessage.create({
       data: {
         conversationId,

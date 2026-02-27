@@ -114,6 +114,8 @@ export default function WhatsAppInbox() {
   const [searchingCustomers, setSearchingCustomers] = useState(false);
   const [newConvTarget, setNewConvTarget] = useState<{ phone: string; name: string } | null>(null);
   const [templateSearch, setTemplateSearch] = useState('');
+  const [activePhones, setActivePhones] = useState<{ phoneNumberId: string; businessPhone: string; label: string }[]>([]);
+  const [selectedFromPhone, setSelectedFromPhone] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -194,6 +196,14 @@ export default function WhatsAppInbox() {
 
   useEffect(() => { loadConversations(); }, [loadConversations]);
 
+  // Load active phones for multi-number support
+  useEffect(() => {
+    api('/phones').then(data => {
+      setActivePhones(data);
+      if (data.length > 0) setSelectedFromPhone(data[0].phoneNumberId);
+    }).catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (selected) loadMessages(selected.id);
   }, [selected, loadMessages]);
@@ -262,11 +272,13 @@ export default function WhatsAppInbox() {
     return () => clearTimeout(timer);
   }, [customerSearch, searchCustomers]);
 
-  const loadTemplates = async (forceReload = false) => {
+  const loadTemplates = async (forceReload = false, phoneNumberId?: string) => {
     if (templates.length > 0 && !forceReload) { setShowTemplateModal(true); return; }
     setLoadingTemplates(true);
     try {
-      const data = await api('/templates');
+      const pid = phoneNumberId || selected?.phoneNumberId || selectedFromPhone || '';
+      const qs = pid ? `?phoneNumberId=${pid}` : '';
+      const data = await api(`/templates${qs}`);
       setTemplates(data);
       setShowTemplateModal(true);
     } catch (e) {
@@ -293,6 +305,7 @@ export default function WhatsAppInbox() {
           bodyText: createForm.bodyText.trim(),
           footerText: createForm.footerText.trim() || undefined,
           examples: exampleValues.filter(Boolean).length > 0 ? exampleValues : undefined,
+          phoneNumberId: selectedFromPhone || undefined,
         })
       });
       setCreateResult({ success: true, message: `נוצר! סטטוס: ${resp.status || 'PENDING'}. Meta תאשר עד 24 שעות.` });
@@ -574,6 +587,21 @@ export default function WhatsAppInbox() {
                 <X size={18} className="text-gray-500" />
               </button>
             </div>
+            {activePhones.length > 1 && (
+              <div className="px-3 py-2 border-b border-gray-100 flex items-center gap-2">
+                <span className="text-xs text-gray-500 whitespace-nowrap">שלח מ-</span>
+                <select
+                  value={selectedFromPhone}
+                  onChange={e => setSelectedFromPhone(e.target.value)}
+                  className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-300"
+                  dir="ltr"
+                >
+                  {activePhones.map(p => (
+                    <option key={p.phoneNumberId} value={p.phoneNumberId}>{p.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="p-3 border-b border-gray-100">
               <div className="relative">
                 <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -628,6 +656,7 @@ export default function WhatsAppInbox() {
         <WaSendModal
           phone={newConvTarget.phone}
           contactName={newConvTarget.name}
+          fromPhoneNumberId={selectedFromPhone || undefined}
           onClose={() => setNewConvTarget(null)}
           onSent={() => { setNewConvTarget(null); loadConversations(); }}
         />

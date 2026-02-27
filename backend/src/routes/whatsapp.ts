@@ -6,6 +6,8 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { authenticate } from '../middleware/auth.js';
+import { config } from '../config.js';
+import jwt from 'jsonwebtoken';
 import OpenAI from 'openai';
 import axios from 'axios';
 import * as fs from 'fs';
@@ -316,8 +318,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
   }
 });
 
-// ── SSE — Real-time updates
-router.get('/events', authenticate, (req: Request, res: Response) => {
+// ── SSE — Real-time updates (token via query param for EventSource)
+router.get('/events', (req: Request, res: Response) => {
+  // EventSource can't send headers, so we accept token as query param
+  const token = req.query.token as string || req.headers.authorization?.replace('Bearer ', '');
+  if (!token) { res.status(401).end(); return; }
+  try {
+    jwt.verify(token, config.jwt.secret);
+  } catch { res.status(401).end(); return; }
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');

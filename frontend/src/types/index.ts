@@ -10,7 +10,7 @@ export type RegistrationStatus = 'registered' | 'active' | 'completed' | 'pendin
 export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
 export type PaymentMethod = 'credit' | 'transfer' | 'cash';
 export type AttendanceStatus = 'present' | 'absent' | 'late';
-export type UserRole = 'admin' | 'manager' | 'instructor';
+export type UserRole = 'admin' | 'manager' | 'instructor' | 'sales';
 export type ActivityType = 'online' | 'frontal' | 'private_lesson';
 
 // Entities

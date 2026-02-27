@@ -46,6 +46,12 @@ const instructorNavItems = [
   { path: '/instructor', icon: LayoutDashboard, label: 'הפגישות שלי', testId: 'nav-instructor' },
 ];
 
+// Sales-only navigation (WhatsApp + Customers)
+const salesNavItems = [
+  { path: '/whatsapp', icon: MessageCircle, label: 'WhatsApp', testId: 'nav-whatsapp' },
+  { path: '/customers', icon: Users, label: 'לקוחות', testId: 'nav-customers' },
+];
+
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -64,7 +70,11 @@ export default function Layout() {
     navigate('/login');
   };
 
-  const navItems = user?.role === 'instructor' ? instructorNavItems : adminNavItems;
+  const navItems = user?.role === 'instructor'
+    ? instructorNavItems
+    : user?.role === 'sales'
+    ? salesNavItems
+    : adminNavItems;
 
   const sidebarContent = (
     <>

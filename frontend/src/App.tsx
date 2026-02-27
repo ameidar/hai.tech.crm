@@ -73,6 +73,13 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Blocks access for 'sales' role — redirects to WhatsApp inbox
+function NonSalesRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (user?.role === 'sales') return <Navigate to="/whatsapp" replace />;
+  return <>{children}</>;
+}
+
 function AppRoutes() {
   const { isAuthenticated, user } = useAuth();
   const isMobile = useIsMobile();
@@ -128,25 +135,28 @@ function AppRoutes() {
         <Route index element={isInstructor ? <Navigate to="/instructor" replace /> : isSales ? <Navigate to="/whatsapp" replace /> : <Dashboard />} />
         {!isInstructor && (
           <>
+            {/* Sales-accessible routes */}
             <Route path="customers" element={<Customers />} />
             <Route path="customers/:id" element={<CustomerDetail />} />
-            <Route path="students" element={<Students />} />
-            <Route path="courses" element={<Courses />} />
-            <Route path="branches" element={<Branches />} />
-            <Route path="instructors" element={<Instructors />} />
-            <Route path="cycles" element={<Cycles />} />
-            <Route path="cycles/:id" element={<CycleDetail />} />
-            <Route path="meetings" element={<Meetings />} />
-            <Route path="quotes" element={<Quotes />} />
-            <Route path="quotes/new" element={<QuoteWizard />} />
-            <Route path="quotes/:id" element={<QuoteDetail />} />
-            <Route path="quotes/:id/edit" element={<QuoteEdit />} />
-            <Route path="institutional-orders" element={<InstitutionalOrders />} />
-            <Route path="lead-appointments" element={<LeadAppointments />} />
-            <Route path="system-users" element={<SystemUsers />} />
             <Route path="whatsapp" element={<WhatsAppInbox />} />
-            <Route path="reports" element={<Reports />} />
-            <Route path="audit" element={<AuditLog />} />
+
+            {/* Admin/Manager only routes — sales gets redirected to /whatsapp */}
+            <Route path="students" element={<NonSalesRoute><Students /></NonSalesRoute>} />
+            <Route path="courses" element={<NonSalesRoute><Courses /></NonSalesRoute>} />
+            <Route path="branches" element={<NonSalesRoute><Branches /></NonSalesRoute>} />
+            <Route path="instructors" element={<NonSalesRoute><Instructors /></NonSalesRoute>} />
+            <Route path="cycles" element={<NonSalesRoute><Cycles /></NonSalesRoute>} />
+            <Route path="cycles/:id" element={<NonSalesRoute><CycleDetail /></NonSalesRoute>} />
+            <Route path="meetings" element={<NonSalesRoute><Meetings /></NonSalesRoute>} />
+            <Route path="quotes" element={<NonSalesRoute><Quotes /></NonSalesRoute>} />
+            <Route path="quotes/new" element={<NonSalesRoute><QuoteWizard /></NonSalesRoute>} />
+            <Route path="quotes/:id" element={<NonSalesRoute><QuoteDetail /></NonSalesRoute>} />
+            <Route path="quotes/:id/edit" element={<NonSalesRoute><QuoteEdit /></NonSalesRoute>} />
+            <Route path="institutional-orders" element={<NonSalesRoute><InstitutionalOrders /></NonSalesRoute>} />
+            <Route path="lead-appointments" element={<NonSalesRoute><LeadAppointments /></NonSalesRoute>} />
+            <Route path="system-users" element={<NonSalesRoute><SystemUsers /></NonSalesRoute>} />
+            <Route path="reports" element={<NonSalesRoute><Reports /></NonSalesRoute>} />
+            <Route path="audit" element={<NonSalesRoute><AuditLog /></NonSalesRoute>} />
           </>
         )}
         <Route path="instructor" element={<InstructorDashboard />} />

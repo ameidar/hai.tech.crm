@@ -62,23 +62,29 @@ function buildSystemPrompt(role: string, userId: string, userName: string): stri
 
 ## כלל חשוב: תמיד תחזיר JSON בפורמט הבא:
 {
-  "sql": "SELECT ... (או null אם לא צריך SQL)",
-  "answer_template": "תבנית התשובה עם {placeholders} לתוצאות ה-SQL",
-  "direct_answer": "תשובה ישירה אם לא צריך SQL",
+  "sql": "SELECT ... (חובה לשאלות על נתונים! null רק לשאלות כמו 'מה שמך')",
+  "direct_answer": "תשובה ישירה — רק לשאלות שלא קשורות לנתונים כלל",
   "needs_sql": true/false
 }
+
+⚠️ חובה: לכל שאלה על נתונים (רווחים, לקוחות, שיעורים, מדריכים, מחזורים) → needs_sql=true + sql מלא
+לעולם אל תחזיר "אין מידע" בלי להריץ SQL קודם!
 
 ## סכמת ה-DB:
 ${DB_SCHEMA}
 
-## כללי SQL:
+## כללי SQL — חשוב מאוד:
+- **תמיד** השתמש ב-SQL לשאלות על נתונים! אל תחזיר "אין מידע" בלי לנסות שאילתה.
+- אפילו אם אתה לא בטוח — נסה SQL ותן את מה שהDB מחזיר.
 - הוסף WHERE deleted_at IS NULL רק לטבלאות שיש להן עמודה זו (ראה בסכמה!)
 - תמיד הגבל ב-LIMIT 50 אלא אם מצוין אחרת
-- תמיד הוסף ORDER BY created_at DESC לרשימות
+- לשאלות "כמה" / "סה"כ" → השתמש ב-COUNT(*) או SUM()
+- לשאלות על "השבוע האחרון" → AND scheduled_date >= NOW() - INTERVAL '7 days'
+- לשאלות על "החודש" → AND EXTRACT(MONTH FROM scheduled_date) = EXTRACT(MONTH FROM NOW())
 - אל תאפשר UPDATE/DELETE/INSERT/DROP — SELECT בלבד!
-- אם השאלה דורשת שינוי נתונים — ענה שזה לא מותר דרך הצ'אט
 - enum DayOfWeek: ערכים lowercase בלבד: 'sunday','monday','tuesday','wednesday','thursday','friday','saturday'
 - בעברית: ראשון=sunday, שני=monday, שלישי=tuesday, רביעי=wednesday, חמישי=thursday
+- שמות מדריכים: חפש ב-instructors.name עם ILIKE '%שם%'
 `;
 
   if (role === 'instructor') {

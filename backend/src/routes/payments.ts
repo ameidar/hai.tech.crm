@@ -91,10 +91,23 @@ router.post('/create-link', async (req, res) => {
 
   const order = (await wooRes.json()) as { id: number; order_key: string };
 
+  // Auto-link to customer by phone if customerId not provided
+  let resolvedCustomerId = customerId || null;
+  if (!resolvedCustomerId && customerPhone) {
+    const normalizedPhone = customerPhone.replace(/\D/g, '');
+    const found = await prisma.customer.findFirst({
+      where: {
+        phone: { contains: normalizedPhone.slice(-9) }, // match last 9 digits
+      },
+      select: { id: true },
+    });
+    if (found) resolvedCustomerId = found.id;
+  }
+
   // Save to CRM DB
   const payment = await prisma.payment.create({
     data: {
-      customerId: customerId || null,
+      customerId: resolvedCustomerId,
       customerName: customerName || 'לקוח',
       customerEmail: customerEmail || null,
       customerPhone: customerPhone || null,

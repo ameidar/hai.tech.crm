@@ -22,11 +22,18 @@ function generatePayToken(orderId: number): { token: string; ts: number } {
 function extractGreenInvoice(metaData: any[]): { invoiceUrl: string | null; invoiceNumber: string | null } {
   // Primary: greeninvoice_data JSON object (contains id → view URL)
   const giData = metaData?.find((m: any) => m.key === 'greeninvoice_data');
-  if (giData?.value && typeof giData.value === 'object' && giData.value.id) {
-    return {
-      invoiceUrl: `https://app.greeninvoice.co.il/incomes/documents/${giData.value.id}`,
-      invoiceNumber: giData.value.number || null,
-    };
+  if (giData?.value) {
+    let gd = giData.value;
+    // WooCommerce REST API may return it as a string — parse if needed
+    if (typeof gd === 'string') {
+      try { gd = JSON.parse(gd); } catch { gd = null; }
+    }
+    if (gd && typeof gd === 'object' && gd.id) {
+      return {
+        invoiceUrl: `https://app.greeninvoice.co.il/incomes/documents/${gd.id}`,
+        invoiceNumber: String(gd.number || gd.document_id || ''),
+      };
+    }
   }
   // Fallback: _greeninvoice_document_url (older format)
   const urlMeta = metaData?.find((m: any) => m.key === '_greeninvoice_document_url' || m.key === 'greeninvoice_document_url');

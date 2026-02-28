@@ -1,10 +1,32 @@
 import { useState, useMemo } from 'react';
-import { BarChart3, Calendar, TrendingUp, DollarSign, Building2, FileText, Download, RefreshCw } from 'lucide-react';
+import { BarChart3, Calendar, TrendingUp, DollarSign, Building2, FileText, Download, RefreshCw, CreditCard } from 'lucide-react';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import { useMeetings, useCycles, useInstructors, useBranches } from '../hooks/useApi';
 
 export default function Reports() {
+  const [syncStatus, setSyncStatus] = useState<{ loading: boolean; result?: string; error?: string }>({ loading: false });
+
+  const syncWooPayments = async (days = 14) => {
+    setSyncStatus({ loading: true });
+    try {
+      const token = localStorage.getItem('accessToken') || '';
+      const res = await fetch(`/api/payments/sync-woo?days=${days}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setSyncStatus({ loading: false, result: `✅ ${data.created} חדשות, ${data.updated || 0} עודכנו עם חשבונית, ${data.skipped} ללא שינוי` });
+      } else {
+        setSyncStatus({ loading: false, error: data.error || 'שגיאה' });
+      }
+    } catch {
+      setSyncStatus({ loading: false, error: 'שגיאת רשת' });
+    }
+    setTimeout(() => setSyncStatus({ loading: false }), 8000);
+  };
+
   const [dateRange, setDateRange] = useState(() => {
     const today = new Date();
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -174,6 +196,24 @@ export default function Reports() {
       />
 
       <div className="flex-1 p-6 overflow-auto bg-gray-50">
+        {/* WooCommerce Sync */}
+        <div className="bg-white rounded-lg p-4 shadow mb-4 flex items-center gap-4 flex-wrap">
+          <CreditCard size={18} className="text-purple-600 shrink-0" />
+          <span className="font-medium text-sm text-gray-700">סנכרון תשלומים מ-WooCommerce</span>
+          <div className="flex gap-2 flex-wrap">
+            {[7, 14, 30].map(d => (
+              <button key={d}
+                onClick={() => syncWooPayments(d)}
+                disabled={syncStatus.loading}
+                className="px-3 py-1.5 text-xs font-medium rounded-lg border border-purple-200 text-purple-700 hover:bg-purple-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                {syncStatus.loading ? '⏳ מסנכרן...' : `${d} ימים אחרונים`}
+              </button>
+            ))}
+          </div>
+          {syncStatus.result && <span className="text-sm text-green-600 font-medium">{syncStatus.result}</span>}
+          {syncStatus.error && <span className="text-sm text-red-500">{syncStatus.error}</span>}
+        </div>
+
         {/* Filters */}
         <div className="bg-white rounded-lg p-4 shadow mb-6">
           <div className="flex flex-wrap items-center gap-4">

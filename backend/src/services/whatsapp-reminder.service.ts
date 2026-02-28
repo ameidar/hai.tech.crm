@@ -1,6 +1,7 @@
 /**
  * WhatsApp Reminder Service
  * - 08:00 morning reminder (WhatsApp) for instructors with meetings today
+ * - 08:00 unresolved alert (WhatsApp) to management for yesterday's missing statuses
  * - Pre-meeting reminder (1h before) via WhatsApp
  * - 22:00 evening status check poll
  */
@@ -137,6 +138,67 @@ export async function sendMorningWhatsAppReminders(): Promise<void> {
     }
   } catch (error: any) {
     console.error('[WhatsApp] Error in morning reminder job:', error.message);
+  }
+}
+
+/**
+ * A2) Morning unresolved alert — 08:00 Israel time
+ * If meetings from YESTERDAY still have status = 'scheduled' (no instructor response),
+ * send a WhatsApp alert to all management users (admin/manager with phone).
+ */
+export async function sendMorningUnresolvedAlert(): Promise<void> {
+  console.log('[WhatsApp] Running morning unresolved alert job...');
+
+  // Get yesterday in Israel time
+  const today = getTodayIsraelDate();
+  const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+
+  try {
+    const unresolved = await prisma.meeting.findMany({
+      where: { scheduledDate: yesterday, status: 'scheduled' },
+      include: {
+        cycle: { include: { branch: true, course: true } },
+        instructor: true,
+      },
+      orderBy: { startTime: 'asc' },
+    });
+
+    if (!unresolved.length) {
+      console.log('[WhatsApp] No unresolved meetings from yesterday — all good ✓');
+      return;
+    }
+
+    // Build message
+    const dateStr = yesterday.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+    const lines = [`⚠️ פגישות ללא דיווח סטטוס מ-${dateStr}:`];
+    for (const m of unresolved) {
+      const time = formatTimeFromDate(m.startTime);
+      const instr = m.instructor?.name || 'לא ידוע';
+      const cycleName = m.cycle?.name || '';
+      const branch = m.cycle?.branch?.name || '';
+      lines.push(`• ${cycleName} | ${branch} | ${time} | מדריך: ${instr}`);
+    }
+    lines.push(`\nסה"כ: ${unresolved.length} פגישות. נא לבדוק ב-CRM.`);
+    const message = lines.join('\n');
+
+    // Get management phones: users with role admin/manager who have a phone
+    const mgmtUsers = await prisma.user.findMany({
+      where: { role: { in: ['admin', 'manager'] }, phone: { not: null }, isActive: true },
+      select: { phone: true, name: true },
+    });
+
+    // Unique phone set — always include ADMIN_PHONE as fallback
+    const phones = new Set<string>([ADMIN_PHONE]);
+    for (const u of mgmtUsers) {
+      if (u.phone) phones.add(u.phone.replace(/\D/g, ''));
+    }
+
+    for (const phone of phones) {
+      const result = await sendWhatsApp({ phone, message });
+      console.log(`[WhatsApp] Unresolved alert → ${phone}: ${result.success ? '✓' : result.error}`);
+    }
+  } catch (error: any) {
+    console.error('[WhatsApp] Error in morning unresolved alert:', error.message);
   }
 }
 

@@ -16,16 +16,36 @@ const DB_SCHEMA = `
 PostgreSQL schema (relevant tables):
 
 customers (id, name, phone, email, city, notes, created_at, deleted_at)
+  → Filter active: WHERE deleted_at IS NULL
+
 students (id, customer_id, name, age, created_at, deleted_at)
+  → Filter active: WHERE deleted_at IS NULL
+
 cycles (id, name, branch_id, instructor_id, start_date, end_date, status, day_of_week, start_time, end_time, max_students, deleted_at)
+  → Filter active: WHERE deleted_at IS NULL
+
 meetings (id, cycle_id, instructor_id, scheduled_date, start_time, end_time, status, zoom_join_url, lesson_transcript, created_at, deleted_at)
+  → Filter active: WHERE deleted_at IS NULL
+  → status values: 'scheduled','completed','cancelled'
+
 registrations (id, cycle_id, customer_id, student_id, status, created_at, deleted_at)
-instructors (id, name, email, phone, created_at, deleted_at)
-branches (id, name, city, created_at, deleted_at)
-lead_appointments (id, customer_name, customer_phone, customer_email, source, appointment_status, appointment_date, appointment_notes, created_at, deleted_at)
+  → Filter active: WHERE deleted_at IS NULL
+
+instructors (id, user_id, name, email, phone, created_at)
+  → NO deleted_at column — do NOT add WHERE deleted_at IS NULL
+
+branches (id, name, city, created_at)
+  → NO deleted_at column
+
+lead_appointments (id, customer_name, customer_phone, customer_email, source, appointment_status, appointment_date, appointment_notes, whatsapp_sent, email_sent, created_at, updated_at)
+  → NO deleted_at column
+  → appointment_status values: 'pending','contacted','scheduled','converted','rejected'
+
 wa_conversations (id, phone, contact_name, lead_name, lead_email, summary, created_at, updated_at)
+  → NO deleted_at column
+
 wa_messages (id, conversation_id, direction, content, created_at)
-payments (id, customer_id, amount, status, created_at)
+  → direction: 'inbound' (from customer) or 'outbound' (from bot/agent)
 `;
 
 // ─── Role-based system prompts ──────────────────────────────────────────────
@@ -87,11 +107,11 @@ async function runSQL(sql: string): Promise<any[]> {
   if (!normalized.startsWith('SELECT')) {
     throw new Error('Only SELECT queries are allowed');
   }
-  // Block dangerous keywords
-  const dangerous = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'TRUNCATE', 'ALTER', 'CREATE'];
+  // Block dangerous keywords (whole-word match only)
+  const dangerous = ['\\bDROP\\b', '\\bDELETE\\b', '\\bUPDATE\\b', '\\bINSERT\\b', '\\bTRUNCATE\\b', '\\bALTER\\b'];
   for (const kw of dangerous) {
-    if (normalized.includes(kw)) {
-      throw new Error(`Query contains forbidden keyword: ${kw}`);
+    if (new RegExp(kw).test(normalized)) {
+      throw new Error(`Query contains forbidden keyword: ${kw.replace(/\\b/g, '')}`);
     }
   }
   return prisma.$queryRawUnsafe(sql);

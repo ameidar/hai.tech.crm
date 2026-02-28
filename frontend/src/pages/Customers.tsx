@@ -148,9 +148,16 @@ function CustomerCard({ customer, onDelete }: { customer: Customer; onDelete: (i
               )}
             </div>
           </div>
-          <div className="flex items-center gap-1.5 text-blue-600 bg-blue-50 border border-blue-100 px-2.5 py-1 rounded-full text-sm font-medium">
-            <Users size={14} />
-            <span>{customer._count?.students || 0}</span>
+          <div className="flex items-center gap-1.5">
+            {customer.payments && customer.payments.length > 0 && (
+              <span title="רכש קורס דיגיטלי" className="text-indigo-600 bg-indigo-50 border border-indigo-100 px-2 py-1 rounded-full text-sm">
+                🎓
+              </span>
+            )}
+            <div className="flex items-center gap-1.5 text-blue-600 bg-blue-50 border border-blue-100 px-2.5 py-1 rounded-full text-sm font-medium">
+              <Users size={14} />
+              <span>{customer._count?.students || 0}</span>
+            </div>
           </div>
         </div>
 

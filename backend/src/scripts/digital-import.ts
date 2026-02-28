@@ -1,203 +1,132 @@
+/**
+ * Digital Course Customers Import
+ * Imports WooCommerce buyers as CRM Customers only (no students/cycles/registrations).
+ * Run: node --require tsx/cjs --require dotenv/config src/scripts/digital-import.ts
+ */
 import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
+import * as path from 'path';
 
 const prisma = new PrismaClient();
 
-// WC orders loaded from cached JSON
-const page1 = JSON.parse(fs.readFileSync('/tmp/woo_page1.json', 'utf8'));
-const page2 = JSON.parse(fs.readFileSync('/tmp/woo_page2.json', 'utf8'));
-const allOrders = [...page1, ...page2];
+// WC order files — expect these in /tmp/ (copy there before running)
+const WOO_FILES = ['/tmp/woo_page1.json', '/tmp/woo_page2.json'];
 
-// Filter real orders (>₪5), unique by email (keep highest-value)
-const seen: Record<string, any> = {};
-for (const o of allOrders) {
-  if (parseFloat(o.total || '0') <= 5) continue;
-  const email = (o.billing?.email || '').toLowerCase().trim();
-  if (!email) continue;
-  if (!seen[email] || parseFloat(o.total) > parseFloat(seen[email].total)) {
-    seen[email] = o;
-  }
+interface WooOrder {
+  id: number;
+  status: string;
+  total: string;
+  billing: {
+    first_name: string;
+    last_name: string;
+    email: string;
+    phone: string;
+  };
+  line_items: Array<{ name: string; total: string }>;
+}
+
+function normalizePhone(raw: string): string {
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return '';
+  // Convert 972XXXXXXXXX → 0XXXXXXXXX
+  if (digits.startsWith('972') && digits.length >= 12) return '0' + digits.slice(3);
+  return digits;
 }
 
 async function main() {
-  console.log(`\n📦 מכין import של ${Object.keys(seen).length} לקוחות...\n`);
+  console.log('=== Digital Course Customer Import ===\n');
 
-  // ─── 1. Virtual branch ────────────────────────────────────────────────────
-  let branch = await prisma.branch.findFirst({ where: { name: 'קורסים דיגיטליים' } });
-  if (!branch) {
-    branch = await prisma.branch.create({
-      data: { name: 'קורסים דיגיטליים', type: 'online', city: 'אונליין', isActive: true }
-    });
-    console.log('✅ נוצר סניף: קורסים דיגיטליים');
-  } else {
-    console.log('ℹ️  סניף קיים:', branch.id);
+  // Load all orders
+  const allOrders: WooOrder[] = [];
+  for (const file of WOO_FILES) {
+    if (!fs.existsSync(file)) { console.warn(`⚠️  File not found: ${file}`); continue; }
+    const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    allOrders.push(...data);
   }
+  console.log(`Loaded ${allOrders.length} orders from WooCommerce files`);
 
-  // ─── 2. Virtual instructor ────────────────────────────────────────────────
-  let instructor = await prisma.instructor.findFirst({ where: { name: 'מדריך דיגיטלי' } });
-  if (!instructor) {
-    instructor = await prisma.instructor.create({
-      data: {
-        name: 'מדריך דיגיטלי',
-        phone: '050-digital-0',
-        rateFrontal: 0, rateOnline: 0, ratePrivate: 0,
-        employmentType: 'freelancer', isActive: false,
-        notes: 'מדריך וירטואלי לקורסים דיגיטליים — לא מרוויח'
-      }
-    });
-    console.log('✅ נוצר מדריך: מדריך דיגיטלי');
-  } else {
-    console.log('ℹ️  מדריך קיים:', instructor.id);
+  // Filter: paid orders with amount > 5
+  const paidOrders = allOrders.filter(o =>
+    ['completed', 'processing', 'on-hold'].includes(o.status) &&
+    parseFloat(o.total) > 5 &&
+    o.billing.email &&
+    !['info@hai.tech', 'ami@hai.tech', 'inna@hai.tech'].includes(o.billing.email.toLowerCase())
+  );
+  console.log(`After filtering: ${paidOrders.length} valid orders`);
+
+  // Deduplicate by email — keep highest total
+  const byEmail = new Map<string, WooOrder>();
+  for (const order of paidOrders) {
+    const email = order.billing.email.toLowerCase();
+    const existing = byEmail.get(email);
+    if (!existing || parseFloat(order.total) > parseFloat(existing.total)) {
+      byEmail.set(email, order);
+    }
   }
+  console.log(`After dedup by email: ${byEmail.size} unique customers\n`);
 
-  // ─── 3. Courses + Cycles per product ─────────────────────────────────────
-  // Group orders by product name, track earliest purchase date
-  const courseMap: Record<string, { firstDate: Date; orders: any[] }> = {};
-  for (const o of Object.values(seen)) {
-    const products = o.line_items?.map((li: any) => li.name) || [];
-    const product = products[0] || 'קורס דיגיטלי';
-    const date = new Date(o.date_created || Date.now());
-    if (!courseMap[product]) courseMap[product] = { firstDate: date, orders: [] };
-    if (date < courseMap[product].firstDate) courseMap[product].firstDate = date;
-    courseMap[product].orders.push(o);
-  }
+  let created = 0;
+  let skipped = 0;
+  let errors = 0;
 
-  const cycleByProduct: Record<string, string> = {}; // product → cycleId
+  for (const [email, order] of byEmail) {
+    const firstName = order.billing.first_name || '';
+    const lastName = order.billing.last_name || '';
+    const fullName = `${firstName} ${lastName}`.trim() || email;
+    const rawPhone = order.billing.phone || '';
+    const phone = normalizePhone(rawPhone) || `DIG-${order.id}`;
 
-  for (const [productName, { firstDate }] of Object.entries(courseMap)) {
-    // Find or create Course
-    let course = await prisma.course.findFirst({ where: { name: productName } });
-    if (!course) {
-      course = await prisma.course.create({
-        data: { name: productName, category: 'programming', isActive: true,
-          description: 'קורס דיגיטלי מהאתר' }
-      });
+    // Skip if already in CRM
+    const existingByEmail = await prisma.customer.findFirst({ where: { email } });
+    if (existingByEmail) {
+      console.log(`  ⏭️  Already exists (email): ${email}`);
+      skipped++;
+      continue;
     }
 
-    // Find or create Cycle
-    let cycle = await prisma.cycle.findFirst({
-      where: { courseId: course.id, branchId: branch!.id }
-    });
-    if (!cycle) {
-      const endDate = new Date(firstDate);
-      endDate.setFullYear(endDate.getFullYear() + 1);
-      const startTime = new Date('1970-01-01T00:00:00.000Z');
-      const endTime = new Date('1970-01-01T01:00:00.000Z');
-      cycle = await prisma.cycle.create({
-        data: {
-          name: productName,
-          courseId: course.id,
-          branchId: branch!.id,
-          instructorId: instructor!.id,
-          type: 'private',
-          startDate: firstDate,
-          endDate,
-          dayOfWeek: 'sunday',
-          startTime,
-          endTime,
-          durationMinutes: 60,
-          totalMeetings: 1,
-          isOnline: true,
-          activityType: 'online',
-          pricePerStudent: 0,
-          meetingRevenue: 0,
-        }
-      });
-      console.log(`✅ נוצר מחזור: ${productName}`);
+    // Check phone too
+    const existingByPhone = phone.startsWith('DIG-') ? null :
+      await prisma.customer.findFirst({ where: { phone } });
+    if (existingByPhone) {
+      console.log(`  ⏭️  Already exists (phone ${phone}): ${email}`);
+      skipped++;
+      continue;
+    }
+
+    // Handle phone uniqueness for placeholder phones
+    let finalPhone = phone;
+    if (phone.startsWith('DIG-')) {
+      // Already unique by order ID
     } else {
-      console.log(`ℹ️  מחזור קיים: ${productName}`);
+      // Check for duplicate phone (different emails, same phone)
+      const dupPhone = await prisma.customer.findFirst({ where: { phone } });
+      if (dupPhone) finalPhone = `DIG-${order.id}`;
     }
-    cycleByProduct[productName] = cycle.id;
-  }
-
-  // ─── 4. Customers + Students + Registrations ─────────────────────────────
-  let created = 0, skipped = 0, errors = 0;
-  const skippedList: string[] = [];
-
-  for (const [email, order] of Object.entries(seen)) {
-    const b = order.billing || {};
-    const name = `${b.first_name || ''} ${b.last_name || ''}`.trim() || email;
-    const phone = (b.phone || '').replace(/[\s\-]/g, '');
-    const products = order.line_items?.map((li: any) => li.name) || [];
-    const productName = products[0] || 'קורס דיגיטלי';
-    const amount = parseFloat(order.total || '0');
-    const cycleId = cycleByProduct[productName];
 
     try {
-      // Check if customer exists by email or phone
-      let customer = await prisma.customer.findFirst({ where: { email } });
-      if (!customer && phone) {
-        customer = await prisma.customer.findFirst({ where: { phone } });
-      }
-      if (customer) {
-        skipped++;
-        skippedList.push(`${name} (${email})`);
-        continue;
-      }
-
-      // Skip internal accounts
-      if (['ami@hai.tech', 'inna@hai.tech', 'info@hai.tech', 'ami.meidar@gmail.com'].includes(email)) {
-        skipped++;
-        skippedList.push(`${name} (${email}) — חשבון פנימי`);
-        continue;
-      }
-
-      // If no phone, generate unique placeholder
-      const finalPhone = phone || `DIG-${order.id}`;
-
-      // Check if phone already in use by another customer
-      const phoneConflict = await prisma.customer.findFirst({ where: { phone: finalPhone } });
-      const safePhone = phoneConflict ? `DIG-${order.id}-${Date.now()}` : finalPhone;
-
-      // Create customer
-      customer = await prisma.customer.create({
-        data: { name, email, phone: safePhone }
-      });
-
-      // Create student (child name = buyer name)
-      const student = await prisma.student.create({
-        data: { customerId: customer.id, name }
-      });
-
-      // Create registration
-      await prisma.registration.create({
+      const customer = await prisma.customer.create({
         data: {
-          studentId: student.id,
-          cycleId,
-          status: 'completed',
-          amount,
-          paymentStatus: 'paid',
-          paymentMethod: 'credit',
-          registrationDate: new Date(order.date_created || Date.now()),
-          notes: `יובא אוטומטית מ-WooCommerce הזמנה #${order.id}`
-        }
+          name: fullName,
+          email,
+          phone: finalPhone,
+          notes: `ייבוא אוטומטי מ-WooCommerce (הזמנה #${order.id})`,
+        },
       });
-
-      // Link payment record if exists
-      const payment = await prisma.payment.findFirst({ where: { wooOrderId: Number(order.id) } });
-      if (payment && !payment.customerId) {
-        await prisma.payment.update({
-          where: { id: payment.id },
-          data: { customerId: customer.id }
-        });
-      }
-
+      console.log(`  ✅ Created: ${fullName} <${email}> | ${finalPhone}`);
       created++;
-      console.log(`  ✅ ${name} | ${email} | ${productName}`);
     } catch (e: any) {
+      console.error(`  ❌ Error creating ${email}: ${e.message}`);
       errors++;
-      console.error(`  ❌ שגיאה: ${name} | ${email} — ${e.message}`);
     }
   }
 
-  console.log(`\n📊 סיכום:`);
-  console.log(`  נוצרו: ${created} לקוחות חדשים`);
-  console.log(`  דולגו (כבר קיימים): ${skipped}`);
-  console.log(`  שגיאות: ${errors}`);
-  if (skippedList.length > 0) {
-    console.log(`\n⚠️  קיימים (לבדיקה):`);
-    skippedList.forEach(s => console.log(`  - ${s}`));
-  }
+  console.log(`\n=== Summary ===`);
+  console.log(`  Created:  ${created}`);
+  console.log(`  Skipped:  ${skipped}`);
+  console.log(`  Errors:   ${errors}`);
+  console.log(`\nDone! Payments will auto-link to customers by email/phone via sync-woo.`);
+
+  await prisma.$disconnect();
 }
 
-main().catch(console.error).finally(() => prisma.$disconnect());
+main().catch(e => { console.error(e); process.exit(1); });

@@ -155,17 +155,19 @@ model User {
 }
 
 model Customer {
-  id        String    @id @default(uuid())
-  name      String
-  email     String?   @unique
-  phone     String    @unique
-  address   String?
-  city      String?
-  notes     String?
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
-  deletedBy String?   @map("deleted_by")
+  id           String    @id @default(uuid())
+  name         String
+  email        String?   @unique
+  phone        String    @unique
+  address      String?
+  city         String?
+  notes        String?
+  lmsUsername  String?   @map("lms_username")
+  lmsPassword  String?   @map("lms_password")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+  deletedBy    String?   @map("deleted_by")
 
   // Relations
   students         Student[]

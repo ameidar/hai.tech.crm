@@ -30,6 +30,8 @@ export const createCustomerSchema = z.object({
   address: z.string().optional().nullable(),
   city: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  lmsUsername: z.string().optional().nullable(),
+  lmsPassword: z.string().optional().nullable(),
 });
 
 export const updateCustomerSchema = createCustomerSchema.partial();

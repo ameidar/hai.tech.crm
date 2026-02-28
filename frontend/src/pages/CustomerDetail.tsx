@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Phone, Mail, MapPin, Plus, Edit, User, Trash2, BookOpen, MessageCircle, Send, ExternalLink, Clock, CreditCard, FileText } from 'lucide-react';
+import { ArrowRight, Phone, Mail, MapPin, Plus, Edit, Pencil, User, Trash2, BookOpen, MessageCircle, Send, ExternalLink, Clock, CreditCard, FileText } from 'lucide-react';
 import { useCustomer, useStudents, useCreateStudent, useUpdateCustomer, useUpdateStudent, useDeleteStudent, useDeleteCustomer, useCycles, useCreateRegistration, useSendWhatsApp, useSendEmail, useCourses, useBranches, useInstructors, useCreateCycle } from '../hooks/useApi';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
@@ -249,6 +249,26 @@ export default function CustomerDetail() {
                 <div className="pt-4 border-t">
                   <p className="text-sm text-gray-500 mb-1">הערות</p>
                   <p className="text-gray-700">{customer.notes}</p>
+                </div>
+              )}
+
+              {(customer.lmsUsername || customer.lmsPassword) && (
+                <div className="pt-4 border-t">
+                  <p className="text-sm font-semibold text-indigo-600 mb-2">🎓 פרטי כניסה לקורסים דיגיטליים</p>
+                  <div className="bg-indigo-50 rounded-lg p-3 space-y-1 text-sm" dir="ltr">
+                    {customer.lmsUsername && (
+                      <div className="flex gap-2">
+                        <span className="text-gray-500">User:</span>
+                        <span className="font-mono font-medium">{customer.lmsUsername}</span>
+                      </div>
+                    )}
+                    {customer.lmsPassword && (
+                      <div className="flex gap-2">
+                        <span className="text-gray-500">Pass:</span>
+                        <span className="font-mono font-medium">{customer.lmsPassword}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -775,6 +795,8 @@ function CustomerEditForm({ customer, onSubmit, onCancel, isLoading }: CustomerE
     address: customer.address || '',
     city: customer.city || '',
     notes: customer.notes || '',
+    lmsUsername: customer.lmsUsername || '',
+    lmsPassword: customer.lmsPassword || '',
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -848,6 +870,35 @@ function CustomerEditForm({ customer, onSubmit, onCancel, isLoading }: CustomerE
             className="form-input"
             rows={3}
           />
+        </div>
+
+        {/* LMS Credentials */}
+        <div className="col-span-2 border-t pt-3">
+          <p className="text-sm font-semibold text-gray-600 mb-2">🎓 פרטי כניסה לקורסים דיגיטליים</p>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">שם משתמש (LMS)</label>
+              <input
+                type="text"
+                value={formData.lmsUsername}
+                onChange={(e) => setFormData({ ...formData, lmsUsername: e.target.value })}
+                className="form-input"
+                dir="ltr"
+                placeholder="username"
+              />
+            </div>
+            <div>
+              <label className="form-label">סיסמה (LMS)</label>
+              <input
+                type="text"
+                value={formData.lmsPassword}
+                onChange={(e) => setFormData({ ...formData, lmsPassword: e.target.value })}
+                className="form-input"
+                dir="ltr"
+                placeholder="password"
+              />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1381,8 +1432,12 @@ function PaymentHistory({ customerId }: { customerId: string }) {
       const res = await api.get(`/payments/customer/${customerId}`);
       return res.data as any[];
     },
-    refetchInterval: 30000, // refresh every 30s
+    refetchInterval: 30000,
   });
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editUrl, setEditUrl] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const payments = data || [];
   const formatDate = (d: string) => new Date(d).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -1391,6 +1446,24 @@ function PaymentHistory({ customerId }: { customerId: string }) {
     if (s === 'paid') return { label: 'שולם ✅', cls: 'bg-green-100 text-green-700' };
     if (s === 'cancelled') return { label: 'בוטל ❌', cls: 'bg-red-100 text-red-700' };
     return { label: 'ממתין ⏳', cls: 'bg-yellow-100 text-yellow-700' };
+  };
+
+  const startEdit = (p: any) => {
+    setEditingId(p.id);
+    setEditUrl(p.invoiceUrl || '');
+  };
+
+  const saveInvoiceUrl = async (paymentId: string) => {
+    setSaving(true);
+    try {
+      await api.patch(`/payments/${paymentId}`, { invoiceUrl: editUrl || null });
+      setEditingId(null);
+      refetch();
+    } catch (e) {
+      alert('שגיאה בשמירה');
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!isLoading && payments.length === 0) return null;
@@ -1411,32 +1484,77 @@ function PaymentHistory({ customerId }: { customerId: string }) {
         <div className="divide-y divide-gray-100">
           {payments.map((p: any) => {
             const st = statusLabel(p.status);
+            const purchaseDate = p.paidAt || p.createdAt;
+            const isDigital = !!p.wooOrderId;
+            const isEditing = editingId === p.id;
             return (
-              <div key={p.id} className="px-5 py-3 flex items-center gap-4 hover:bg-gray-50">
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm truncate">{p.description}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{formatDate(p.createdAt)}</p>
+              <div key={p.id}>
+                <div className="px-5 py-3 flex items-center gap-4 hover:bg-gray-50">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      {isDigital && <span className="text-xs bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-medium shrink-0">🎓 דיגיטלי</span>}
+                      <p className="font-medium text-sm truncate">{p.description}</p>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      נרכש: {formatDate(purchaseDate)}
+                      {p.wooOrderId && <span className="mr-2 text-gray-300">הזמנה #{p.wooOrderId}</span>}
+                    </p>
+                  </div>
+                  <span className="text-base font-bold text-purple-700 shrink-0">
+                    ₪{Number(p.amount).toLocaleString()}
+                  </span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${st.cls}`}>
+                    {st.label}
+                  </span>
+                  {p.invoiceUrl ? (
+                    <a href={p.invoiceUrl} target="_blank" rel="noreferrer"
+                      title="פתח חשבונית"
+                      className="shrink-0 text-green-600 hover:text-green-800">
+                      <FileText size={16} />
+                    </a>
+                  ) : p.wooOrderId ? (
+                    <a href={`https://app.greeninvoice.co.il/documents?search=${p.customerName}`}
+                      target="_blank" rel="noreferrer"
+                      title="חפש חשבונית במורנינג"
+                      className="shrink-0 text-orange-400 hover:text-orange-600">
+                      <FileText size={16} />
+                    </a>
+                  ) : null}
+                  {/* Edit invoice URL button */}
+                  <button
+                    onClick={() => isEditing ? setEditingId(null) : startEdit(p)}
+                    title="ערוך לינק חשבונית"
+                    className={`shrink-0 p-1 rounded hover:bg-gray-100 transition-colors ${isEditing ? 'text-blue-600' : 'text-gray-300 hover:text-gray-500'}`}
+                  >
+                    <Pencil size={14} />
+                  </button>
                 </div>
-                <span className="text-base font-bold text-purple-700 shrink-0">
-                  ₪{Number(p.amount).toLocaleString()}
-                </span>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${st.cls}`}>
-                  {st.label}
-                </span>
-                {p.invoiceUrl ? (
-                  <a href={p.invoiceUrl} target="_blank" rel="noreferrer"
-                    title="פתח חשבונית ירוקה"
-                    className="shrink-0 text-green-600 hover:text-green-800">
-                    <FileText size={16} />
-                  </a>
-                ) : (
-                  <a
-                    href={`https://app.greeninvoice.co.il/app/documents?search=${encodeURIComponent(p.customerName || '')}`}
-                    target="_blank" rel="noreferrer"
-                    title="חפש חשבונית ב-Morning (Green Invoice)"
-                    className="shrink-0 text-orange-400 hover:text-orange-600">
-                    <FileText size={16} />
-                  </a>
+                {/* Inline edit row */}
+                {isEditing && (
+                  <div className="px-5 pb-3 flex items-center gap-2 bg-blue-50">
+                    <input
+                      type="url"
+                      value={editUrl}
+                      onChange={e => setEditUrl(e.target.value)}
+                      placeholder="https://app.greeninvoice.co.il/..."
+                      className="flex-1 text-sm border border-blue-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      dir="ltr"
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => saveInvoiceUrl(p.id)}
+                      disabled={saving}
+                      className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {saving ? '...' : 'שמור'}
+                    </button>
+                    <button
+                      onClick={() => setEditingId(null)}
+                      className="text-sm text-gray-500 hover:text-gray-700 px-2 py-1.5"
+                    >
+                      ביטול
+                    </button>
+                  </div>
                 )}
               </div>
             );

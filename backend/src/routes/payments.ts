@@ -36,6 +36,7 @@ const router = Router();
 router.use('/create-link', authenticate);
 router.use('/order-status', authenticate);
 router.use('/customer', authenticate);
+router.use('/sync-woo', authenticate);
 
 /**
  * POST /api/payments/create-link

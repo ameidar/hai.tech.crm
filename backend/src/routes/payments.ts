@@ -151,7 +151,7 @@ router.get('/order-status/:orderId', async (req, res) => {
   if (!wooRes.ok) return res.status(502).json({ error: 'Failed to fetch order' });
 
   const order = (await wooRes.json()) as any;
-  const paid = ['processing', 'completed'].includes(order.status);
+  const paid = ['processing', 'completed', 'on-hold'].includes(order.status);
 
   // Extract Morning invoice URL from order meta
   const invoiceMeta = order.meta_data?.find(
@@ -220,7 +220,7 @@ router.post('/wc-webhook', async (req, res) => {
     const order = req.body as any;
     if (!order?.id) return;
 
-    const paid = ['processing', 'completed'].includes(order.status);
+    const paid = ['processing', 'completed', 'on-hold'].includes(order.status);
 
     // Extract Morning invoice URL
     const invoiceMeta = order.meta_data?.find(

@@ -12,6 +12,7 @@ import OpenAI from 'openai';
 import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
+import { sendEmail } from '../services/email/sender.js';
 
 const router = Router();
 
@@ -146,6 +147,9 @@ async function extractLeadData(conversationId: string) {
 
   if (messages.length === 0) return;
 
+  const conv = await prisma.waConversation.findUnique({ where: { id: conversationId } });
+  if (!conv) return;
+
   const text = messages.map(m =>
     `${m.direction === 'inbound' ? 'לקוח' : 'נציג'}: ${m.content}`
   ).join('\n');
@@ -164,7 +168,9 @@ async function extractLeadData(conversationId: string) {
   "child_age": null,
   "interests": ["..."],
   "lead_type": "parent/institution/teacher/other",
-  "summary": "סיכום בשורה אחת"
+  "summary": "סיכום בשורה אחת",
+  "course_recommended": "שם הקורס שהומלץ/הוזכר בשיחה, או null אם לא הוזכר קורס ספציפי",
+  "email_promised": true/false
 }`
         },
         { role: 'user', content: text }
@@ -173,6 +179,8 @@ async function extractLeadData(conversationId: string) {
     });
 
     const data = JSON.parse(res.choices[0].message.content || '{}');
+
+    // 1. Update conversation record
     await prisma.waConversation.update({
       where: { id: conversationId },
       data: {
@@ -185,6 +193,109 @@ async function extractLeadData(conversationId: string) {
         summary: data.summary
       }
     });
+
+    // 2. Update matching leadAppointment with email (if extracted)
+    if (data.lead_email) {
+      try {
+        const digitsOnly = (p: string) => p.replace(/\D/g, '');
+        const last9 = (p: string) => digitsOnly(p).slice(-9);
+        const phoneLast9 = last9(conv.phone);
+
+        // Find lead with matching phone (last 9 digits)
+        const leads = await prisma.$queryRaw<{ id: string; customer_email: string | null }[]>`
+          SELECT id, customer_email FROM lead_appointments
+          WHERE deleted_at IS NULL
+          AND RIGHT(REPLACE(REPLACE(REPLACE(customer_phone, '+', ''), '-', ''), ' ', ''), 9) = ${phoneLast9}
+          ORDER BY created_at DESC
+          LIMIT 1
+        `;
+
+        if (leads.length > 0 && !leads[0].customer_email) {
+          await prisma.$executeRaw`
+            UPDATE lead_appointments SET customer_email = ${data.lead_email}
+            WHERE id = ${leads[0].id}
+          `;
+          console.log(`[WA] Updated lead ${leads[0].id} with email ${data.lead_email}`);
+        }
+      } catch (e) {
+        console.error('[WA] Lead email update failed:', e);
+      }
+    }
+
+    // 3. Send email if bot promised one and we have the email
+    if (data.email_promised && data.lead_email) {
+      try {
+        const courseTitle: string | null = data.course_recommended || null;
+        const leadName: string = data.lead_name || 'שלום';
+
+        // Find course details in knowledge base
+        let courseHtml = '';
+        if (courseTitle && knowledgeBase.courses) {
+          const allCourses: any[] = [
+            ...(knowledgeBase.courses.digital_self_paced || []),
+          ];
+          const course = allCourses.find((c: any) =>
+            c.title && c.title.includes(courseTitle.slice(0, 10))
+          );
+          if (course) {
+            courseHtml = `
+              <div style="background:#f0f7ff;border-radius:8px;padding:20px;margin:20px 0;">
+                <h2 style="color:#1a56db;margin:0 0 8px 0;">📚 ${course.title}</h2>
+                <p style="color:#374151;margin:4px 0;">${course.short_description || ''}</p>
+                <p style="color:#374151;margin:4px 0;">👶 גילאים מתאימים: ${course.age_range || ''}</p>
+                <p style="color:#374151;margin:4px 0;">📝 מספר שיעורים: ${course.lessons_count || ''}</p>
+                <p style="color:#374151;margin:4px 0;">💰 מחיר: <strong>${course.price ? course.price + '₪' : ''}</strong> — גישה לנצח</p>
+              </div>
+              <div style="text-align:center;margin:24px 0;">
+                <a href="https://haitechdigitalcourses.hai.tech" style="background:#1a56db;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-size:16px;display:inline-block;">
+                  🛒 לרכישת הקורס
+                </a>
+              </div>`;
+          }
+        }
+
+        if (!courseHtml) {
+          courseHtml = `
+            <div style="text-align:center;margin:24px 0;">
+              <a href="https://haitechdigitalcourses.hai.tech" style="background:#1a56db;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-size:16px;display:inline-block;">
+                🛒 לכל הקורסים שלנו
+              </a>
+            </div>`;
+        }
+
+        const html = `
+          <!DOCTYPE html>
+          <html dir="rtl" lang="he">
+          <body style="font-family:Arial,sans-serif;direction:rtl;background:#f9fafb;padding:32px;">
+            <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+              <div style="text-align:center;margin-bottom:24px;">
+                <img src="https://www.hai.tech/wp-content/uploads/2023/02/hai-tech-logo.png" alt="דרך ההייטק" style="height:50px;" onerror="this.style.display='none'"/>
+              </div>
+              <h1 style="color:#111827;font-size:22px;">היי ${leadName}! 👋</h1>
+              <p style="color:#374151;font-size:16px;line-height:1.6;">
+                תודה שדיברת איתנו! כאמור, הכנסנו לך את הפרטים על הקורס שדיברנו עליו:
+              </p>
+              ${courseHtml}
+              <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;"/>
+              <p style="color:#6b7280;font-size:14px;">
+                יש שאלות? ניתן לחזור לשיחת הוואטסאפ או ליצור קשר: <a href="mailto:info@hai.tech">info@hai.tech</a>
+              </p>
+              <p style="color:#6b7280;font-size:12px;">דרך ההייטק — ללמד ילדים טכנולוגיה בדרך מהנה 🚀</p>
+            </div>
+          </body>
+          </html>`;
+
+        await sendEmail({
+          to: data.lead_email,
+          subject: courseTitle ? `פרטים על ${courseTitle} - דרך ההייטק` : 'פרטים על קורסי דרך ההייטק',
+          html
+        });
+        console.log(`[WA] Course email sent to ${data.lead_email} for conv ${conversationId}`);
+      } catch (e) {
+        console.error('[WA] Email send failed:', e);
+      }
+    }
+
     console.log(`[WA] Lead extracted for ${conversationId}`);
   } catch (e) {
     console.error('[WA] Lead extraction failed:', e);

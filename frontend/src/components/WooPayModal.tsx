@@ -67,17 +67,19 @@ export default function WooPayModal({ onClose, customerName = '', customerPhone 
   };
 
   const copyLink = async () => {
-    if (!directPaymentUrl) return;
-    await navigator.clipboard.writeText(directPaymentUrl);
+    // Use auto-login URL so recipients get authenticated session when opening
+    if (!paymentUrl) return;
+    await navigator.clipboard.writeText(paymentUrl);
     setCopied(true); setTimeout(() => setCopied(false), 2000);
   };
 
   const sendViaWhatsApp = async () => {
-    if (!directPaymentUrl || !waConversationId) return;
+    // Use auto-login URL so customer gets authenticated on click (new tab = top-level nav, no SameSite issues)
+    if (!paymentUrl || !waConversationId) return;
     try {
       await api.post('/wa/send', {
         conversationId: waConversationId,
-        text: `💳 לינק לתשלום עבור "${description}":\n${directPaymentUrl}`,
+        text: `💳 לינק לתשלום עבור "${description}":\n${paymentUrl}`,
       });
       setWaSent(true);
     } catch (e: any) {
@@ -179,7 +181,7 @@ export default function WooPayModal({ onClose, customerName = '', customerPhone 
                   className="flex-1 flex items-center justify-center gap-1.5 btn btn-secondary text-sm">
                   {copied ? <><Check size={14} className="text-green-600" />הועתק!</> : <><Copy size={14} />העתק לינק</>}
                 </button>
-                <a href={directPaymentUrl || paymentUrl} target="_blank" rel="noreferrer"
+                <a href={paymentUrl} target="_blank" rel="noreferrer"
                   className="flex-1 flex items-center justify-center gap-1.5 btn btn-secondary text-sm">
                   <ExternalLink size={14} />פתח בטאב
                 </a>

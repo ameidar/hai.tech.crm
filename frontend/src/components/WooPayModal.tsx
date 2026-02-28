@@ -41,19 +41,16 @@ export default function WooPayModal({
     setError('');
     setLoading(true);
     try {
-      const data = await api('/payments/create-link', {
-        method: 'POST',
-        body: JSON.stringify({
-          customerName,
-          customerPhone,
-          customerEmail,
-          amount: Number(amount),
-          description: description.trim(),
-        }),
+      const response = await api.post('/payments/create-link', {
+        customerName,
+        customerPhone,
+        customerEmail,
+        amount: Number(amount),
+        description: description.trim(),
       });
-      setPaymentUrl(data.paymentUrl);
+      setPaymentUrl(response.data.paymentUrl);
     } catch (e: any) {
-      setError(e.message || 'שגיאה ביצירת הלינק');
+      setError(e.response?.data?.error || e.message || 'שגיאה ביצירת הלינק');
     } finally {
       setLoading(false);
     }
@@ -69,17 +66,13 @@ export default function WooPayModal({
   const sendViaWhatsApp = async () => {
     if (!paymentUrl || !waConversationId) return;
     try {
-      await api('/wa/send', {
-        method: 'POST',
-        body: JSON.stringify({
-          conversationId: waConversationId,
-          text: `💳 לינק לתשלום עבור "${description}":\n${paymentUrl}`,
-          phoneNumberId: waPhoneNumberId,
-        }),
+      await api.post('/wa/send', {
+        conversationId: waConversationId,
+        text: `💳 לינק לתשלום עבור "${description}":\n${paymentUrl}`,
       });
       setWaSent(true);
     } catch (e: any) {
-      setError(e.message || 'שגיאה בשליחה ב-WhatsApp');
+      setError(e.response?.data?.error || e.message || 'שגיאה בשליחה ב-WhatsApp');
     }
   };
 

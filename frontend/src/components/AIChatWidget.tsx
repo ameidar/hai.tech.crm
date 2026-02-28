@@ -52,7 +52,7 @@ export default function AIChatWidget() {
     setLoading(true);
 
     try {
-      const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+      const token = localStorage.getItem('accessToken') || '';
       const history = messages.slice(-6).map(m => ({ role: m.role, content: m.content }));
 
       const res = await fetch('/api/ai-chat', {

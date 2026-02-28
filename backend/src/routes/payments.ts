@@ -1,6 +1,21 @@
 import { Router } from 'express';
+import { createHmac } from 'crypto';
 import { authenticate } from '../middleware/auth.js';
 import { config } from '../config.js';
+
+// Shared secret for WP auto-login tokens (must match WP snippet constant)
+const HAITECH_PAY_SECRET = process.env.HAITECH_PAY_SECRET || 'haitech-pay-secret-2026-xK9mP3qL7';
+// WordPress user ID for crm-payments (created 01/03/2026)
+const CRM_PAYMENTS_WP_USER_ID = 354;
+
+/** Generate a time-limited HMAC token for order payment */
+function generatePayToken(orderId: number): { token: string; ts: number } {
+  const ts = Math.floor(Date.now() / 1000);
+  const token = createHmac('sha256', HAITECH_PAY_SECRET)
+    .update(`${orderId}:${ts}`)
+    .digest('hex');
+  return { token, ts };
+}
 
 const router = Router();
 
@@ -33,6 +48,7 @@ router.post('/create-link', async (req, res) => {
     payment_method: 'greeninvoice-creditcard',
     payment_method_title: 'כרטיס אשראי / ביט',
     status: 'pending',
+    customer_id: CRM_PAYMENTS_WP_USER_ID, // crm-payments WP user — enables iframe auth
     billing: {
       first_name: firstName,
       last_name: lastName,
@@ -63,12 +79,18 @@ router.post('/create-link', async (req, res) => {
   }
 
   const order = (await wooRes.json()) as { id: number; order_key: string };
-  const paymentUrl = `${siteUrl}/checkout/order-pay/${order.id}/?pay_for_order=true&key=${order.order_key}`;
+
+  // Generate auto-login URL so iframe can authenticate as crm-payments user
+  const { token, ts } = generatePayToken(order.id);
+  const paymentUrl = `${siteUrl}/wp-json/haitech/v1/auto-pay?order_id=${order.id}&ts=${ts}&token=${token}`;
+  // Also keep the direct URL for "open in tab" fallback
+  const directPaymentUrl = `${siteUrl}/checkout/order-pay/${order.id}/?pay_for_order=true&key=${order.order_key}`;
 
   return res.json({
     orderId: order.id,
     orderKey: order.order_key,
-    paymentUrl,
+    paymentUrl,          // iframe-friendly auto-login URL
+    directPaymentUrl,    // direct URL for new tab
     amount: Number(amount),
     description: description.trim(),
   });

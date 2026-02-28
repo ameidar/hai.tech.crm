@@ -20,6 +20,7 @@ export default function WooPayModal({ onClose, customerName = '', customerPhone 
   const [error, setError] = useState('');
 
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
+  const [directPaymentUrl, setDirectPaymentUrl] = useState<string | null>(null);
   const [orderId, setOrderId] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [waSent, setWaSent] = useState(false);
@@ -55,6 +56,7 @@ export default function WooPayModal({ onClose, customerName = '', customerPhone 
         amount: Number(amount), description: description.trim(),
       });
       setPaymentUrl(r.data.paymentUrl);
+      setDirectPaymentUrl(r.data.directPaymentUrl || r.data.paymentUrl);
       setOrderId(r.data.orderId);
       setStage('waiting');
     } catch (e: any) {
@@ -65,17 +67,17 @@ export default function WooPayModal({ onClose, customerName = '', customerPhone 
   };
 
   const copyLink = async () => {
-    if (!paymentUrl) return;
-    await navigator.clipboard.writeText(paymentUrl);
+    if (!directPaymentUrl) return;
+    await navigator.clipboard.writeText(directPaymentUrl);
     setCopied(true); setTimeout(() => setCopied(false), 2000);
   };
 
   const sendViaWhatsApp = async () => {
-    if (!paymentUrl || !waConversationId) return;
+    if (!directPaymentUrl || !waConversationId) return;
     try {
       await api.post('/wa/send', {
         conversationId: waConversationId,
-        text: `💳 לינק לתשלום עבור "${description}":\n${paymentUrl}`,
+        text: `💳 לינק לתשלום עבור "${description}":\n${directPaymentUrl}`,
       });
       setWaSent(true);
     } catch (e: any) {
@@ -177,7 +179,7 @@ export default function WooPayModal({ onClose, customerName = '', customerPhone 
                   className="flex-1 flex items-center justify-center gap-1.5 btn btn-secondary text-sm">
                   {copied ? <><Check size={14} className="text-green-600" />הועתק!</> : <><Copy size={14} />העתק לינק</>}
                 </button>
-                <a href={paymentUrl} target="_blank" rel="noreferrer"
+                <a href={directPaymentUrl || paymentUrl} target="_blank" rel="noreferrer"
                   className="flex-1 flex items-center justify-center gap-1.5 btn btn-secondary text-sm">
                   <ExternalLink size={14} />פתח בטאב
                 </a>

@@ -23,6 +23,8 @@ students (id, customer_id, name, age, created_at, deleted_at)
 
 cycles (id, name, branch_id, instructor_id, start_date, end_date, status, day_of_week, start_time, end_time, max_students, deleted_at)
   → Filter active: WHERE deleted_at IS NULL
+  → day_of_week enum values (lowercase only!): 'sunday','monday','tuesday','wednesday','thursday','friday','saturday'
+  → status values: 'active','completed','cancelled','draft'
 
 meetings (id, cycle_id, instructor_id, scheduled_date, start_time, end_time, status, zoom_join_url, lesson_transcript, created_at, deleted_at)
   → Filter active: WHERE deleted_at IS NULL
@@ -66,11 +68,13 @@ function buildSystemPrompt(role: string, userId: string, userName: string): stri
 ${DB_SCHEMA}
 
 ## כללי SQL:
-- תמיד הוסף WHERE deleted_at IS NULL לכל טבלה
+- הוסף WHERE deleted_at IS NULL רק לטבלאות שיש להן עמודה זו (ראה בסכמה!)
 - תמיד הגבל ב-LIMIT 50 אלא אם מצוין אחרת
 - תמיד הוסף ORDER BY created_at DESC לרשימות
 - אל תאפשר UPDATE/DELETE/INSERT/DROP — SELECT בלבד!
 - אם השאלה דורשת שינוי נתונים — ענה שזה לא מותר דרך הצ'אט
+- enum DayOfWeek: ערכים lowercase בלבד: 'sunday','monday','tuesday','wednesday','thursday','friday','saturday'
+- בעברית: ראשון=sunday, שני=monday, שלישי=tuesday, רביעי=wednesday, חמישי=thursday
 `;
 
   if (role === 'instructor') {

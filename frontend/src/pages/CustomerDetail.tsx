@@ -1462,11 +1462,19 @@ function PaymentHistory({ customerId }: { customerId: string }) {
         <div className="divide-y divide-gray-100">
           {payments.map((p: any) => {
             const st = statusLabel(p.status);
+            const purchaseDate = p.paidAt || p.createdAt;
+            const isDigital = !!p.wooOrderId;
             return (
               <div key={p.id} className="px-5 py-3 flex items-center gap-4 hover:bg-gray-50">
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm truncate">{p.description}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{formatDate(p.createdAt)}</p>
+                  <div className="flex items-center gap-2">
+                    {isDigital && <span className="text-xs bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-medium shrink-0">🎓 דיגיטלי</span>}
+                    <p className="font-medium text-sm truncate">{p.description}</p>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    נרכש: {formatDate(purchaseDate)}
+                    {p.wooOrderKey && <span className="mr-2 text-gray-300">הזמנה #{p.wooOrderId}</span>}
+                  </p>
                 </div>
                 <span className="text-base font-bold text-purple-700 shrink-0">
                   ₪{Number(p.amount).toLocaleString()}
@@ -1474,13 +1482,20 @@ function PaymentHistory({ customerId }: { customerId: string }) {
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${st.cls}`}>
                   {st.label}
                 </span>
-                {p.invoiceUrl && (
+                {p.invoiceUrl ? (
                   <a href={p.invoiceUrl} target="_blank" rel="noreferrer"
-                    title="פתח חשבונית ירוקה"
+                    title="פתח חשבונית"
                     className="shrink-0 text-green-600 hover:text-green-800">
                     <FileText size={16} />
                   </a>
-                )}
+                ) : p.wooOrderId ? (
+                  <a href={`https://app.greeninvoice.co.il/documents?search=${p.customerName}`}
+                    target="_blank" rel="noreferrer"
+                    title="חפש חשבונית במורנינג"
+                    className="shrink-0 text-orange-400 hover:text-orange-600">
+                    <FileText size={16} />
+                  </a>
+                ) : null}
               </div>
             );
           })}

@@ -241,12 +241,57 @@ router.post('/wc-webhook', async (req, res) => {
     if (invoiceMeta?.value) updateData.invoiceUrl = invoiceMeta.value;
     if (invoiceNumberMeta?.value) updateData.invoiceNumber = invoiceNumberMeta.value;
 
-    await prisma.payment.updateMany({
-      where: { wooOrderId: Number(order.id) },
-      data: updateData,
-    });
+    // Try to update existing payment record
+    const existing = await prisma.payment.findFirst({ where: { wooOrderId: Number(order.id) } });
 
-    console.log(`[WC Webhook] Order ${order.id} → ${order.status}`, invoiceMeta?.value || '');
+    if (existing) {
+      await prisma.payment.update({ where: { id: existing.id }, data: updateData });
+      console.log(`[WC Webhook] Updated order ${order.id} → ${order.status}`);
+    } else if (paid) {
+      // New order from website (not initiated from CRM) — create record + link to customer
+      const email = order.billing?.email;
+      const phone = (order.billing?.phone || '').replace(/\D/g, '');
+      const firstName = order.billing?.first_name || '';
+      const lastName = order.billing?.last_name || '';
+      const fullName = `${firstName} ${lastName}`.trim();
+
+      // Try to find existing customer by email or phone
+      let customerId: string | undefined;
+      if (email) {
+        const byEmail = await prisma.customer.findFirst({ where: { email } });
+        if (byEmail) customerId = byEmail.id;
+      }
+      if (!customerId && phone.length >= 9) {
+        const byPhone = await prisma.customer.findFirst({
+          where: { phone: { contains: phone.slice(-9) } },
+        });
+        if (byPhone) customerId = byPhone.id;
+      }
+
+      // Build description from line items or fee lines
+      const items: string[] = [];
+      for (const li of order.line_items || []) items.push(li.name);
+      for (const fl of order.fee_lines || []) items.push(fl.name);
+      const description = items.join(', ') || 'קורס דיגיטלי';
+
+      await prisma.payment.create({
+        data: {
+          wooOrderId: Number(order.id),
+          amount: parseFloat(order.total || '0'),
+          description,
+          status: 'paid',
+          paidAt: new Date(order.date_paid || order.date_modified || Date.now()),
+          paymentMethod: order.payment_method || undefined,
+          customerName: fullName || email || `הזמנה #${order.id}`,
+          customerEmail: email || undefined,
+          customerPhone: phone || undefined,
+          invoiceUrl: invoiceMeta?.value || undefined,
+          invoiceNumber: invoiceNumberMeta?.value || undefined,
+          ...(customerId ? { customerId } : {}),
+        },
+      });
+      console.log(`[WC Webhook] Created new payment for order ${order.id} (${fullName}, ${email})`);
+    }
   } catch (e) {
     console.error('[WC Webhook] Error:', e);
   }

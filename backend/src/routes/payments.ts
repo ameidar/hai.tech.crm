@@ -329,9 +329,25 @@ router.post('/sync-woo', async (req: any, res) => {
     let created = 0;
     let skipped = 0;
 
+    let updated = 0;
+
     for (const order of orders) {
       const existing = await prisma.payment.findFirst({ where: { wooOrderId: Number(order.id) } });
-      if (existing) { skipped++; continue; }
+
+      // If exists but missing invoice URL — update it
+      if (existing) {
+        const { invoiceUrl: ex_invUrl, invoiceNumber: ex_invNum } = extractGreenInvoice(order.meta_data || []);
+        if (ex_invUrl && !existing.invoiceUrl) {
+          await prisma.payment.update({
+            where: { id: existing.id },
+            data: { invoiceUrl: ex_invUrl, invoiceNumber: ex_invNum || undefined },
+          });
+          updated++;
+        } else {
+          skipped++;
+        }
+        continue;
+      }
 
       const email = order.billing?.email;
       const phone = (order.billing?.phone || '').replace(/\D/g, '');
@@ -374,8 +390,8 @@ router.post('/sync-woo', async (req: any, res) => {
       created++;
     }
 
-    console.log(`[sync-woo] Synced ${created} new, skipped ${skipped} existing`);
-    res.json({ ok: true, created, skipped, total: orders.length, days });
+    console.log(`[sync-woo] Synced ${created} new, updated ${updated} invoices, skipped ${skipped}`);
+    res.json({ ok: true, created, updated, skipped, total: orders.length, days });
   } catch (err: any) {
     console.error('[sync-woo] Error:', err);
     res.status(500).json({ error: err.message });

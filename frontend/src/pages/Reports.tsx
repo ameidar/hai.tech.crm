@@ -17,7 +17,7 @@ export default function Reports() {
       });
       const data = await res.json();
       if (data.ok) {
-        setSyncStatus({ loading: false, result: `✅ סונכרנו ${data.created} הזמנות חדשות (${data.skipped} קיימות כבר)` });
+        setSyncStatus({ loading: false, result: `✅ ${data.created} חדשות, ${data.updated || 0} עודכנו עם חשבונית, ${data.skipped} ללא שינוי` });
       } else {
         setSyncStatus({ loading: false, error: data.error || 'שגיאה' });
       }

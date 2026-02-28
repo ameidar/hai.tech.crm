@@ -1429,15 +1429,15 @@ function PaymentHistory({ customerId }: { customerId: string }) {
                     className="shrink-0 text-green-600 hover:text-green-800">
                     <FileText size={16} />
                   </a>
-                ) : p.wooOrderId ? (
+                ) : (
                   <a
-                    href={`https://haitechdigitalcourses.hai.tech/wp-admin/post.php?post=${p.wooOrderId}&action=edit`}
+                    href={`https://app.greeninvoice.co.il/app/documents?search=${encodeURIComponent(p.customerName || '')}`}
                     target="_blank" rel="noreferrer"
-                    title="פתח הזמנה ב-WooCommerce"
-                    className="shrink-0 text-gray-400 hover:text-purple-600">
+                    title="חפש חשבונית ב-Morning (Green Invoice)"
+                    className="shrink-0 text-orange-400 hover:text-orange-600">
                     <FileText size={16} />
                   </a>
-                ) : null}
+                )}
               </div>
             );
           })}

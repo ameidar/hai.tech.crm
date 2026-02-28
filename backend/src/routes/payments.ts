@@ -297,4 +297,82 @@ router.post('/wc-webhook', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/payments/sync-woo
+ * Admin only — syncs recent paid WooCommerce orders into the CRM.
+ * Fetches orders with status on-hold/processing/completed from the last N days.
+ */
+router.post('/sync-woo', async (req: any, res) => {
+  if (!req.user || !['admin', 'manager'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'אין הרשאה' });
+  }
+
+  const days = Number(req.query.days) || 7;
+  const after = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  try {
+    const wooRes = await fetch(
+      `${config.woo.siteUrl}/wp-json/wc/v3/orders?per_page=50&status=on-hold,processing,completed&after=${after}`,
+      { headers: { Authorization: 'Basic ' + Buffer.from(`${config.woo.consumerKey}:${config.woo.consumerSecret}`).toString('base64') } }
+    );
+    if (!wooRes.ok) throw new Error('WooCommerce API error');
+    const orders = await wooRes.json() as any[];
+
+    let created = 0;
+    let skipped = 0;
+
+    for (const order of orders) {
+      const existing = await prisma.payment.findFirst({ where: { wooOrderId: Number(order.id) } });
+      if (existing) { skipped++; continue; }
+
+      const email = order.billing?.email;
+      const phone = (order.billing?.phone || '').replace(/\D/g, '');
+      const firstName = order.billing?.first_name || '';
+      const lastName = order.billing?.last_name || '';
+      const fullName = `${firstName} ${lastName}`.trim();
+
+      let customerId: string | undefined;
+      if (email) {
+        const byEmail = await prisma.customer.findFirst({ where: { email } });
+        if (byEmail) customerId = byEmail.id;
+      }
+      if (!customerId && phone.length >= 9) {
+        const byPhone = await prisma.customer.findFirst({ where: { phone: { contains: phone.slice(-9) } } });
+        if (byPhone) customerId = byPhone.id;
+      }
+
+      const items: string[] = [];
+      for (const li of order.line_items || []) items.push(li.name);
+      for (const fl of order.fee_lines || []) items.push(fl.name);
+
+      const invoiceMeta = order.meta_data?.find((m: any) => m.key === '_greeninvoice_document_url' || m.key === 'greeninvoice_document_url');
+      const invoiceNumberMeta = order.meta_data?.find((m: any) => m.key === '_greeninvoice_document_number' || m.key === 'greeninvoice_document_number');
+
+      await prisma.payment.create({
+        data: {
+          wooOrderId: Number(order.id),
+          amount: parseFloat(order.total || '0'),
+          description: items.join(', ') || 'קורס דיגיטלי',
+          status: 'paid',
+          paidAt: new Date(order.date_paid || order.date_modified || Date.now()),
+          paymentMethod: order.payment_method || undefined,
+          customerName: fullName || email || `הזמנה #${order.id}`,
+          customerEmail: email || undefined,
+          customerPhone: phone || undefined,
+          invoiceUrl: invoiceMeta?.value || undefined,
+          invoiceNumber: invoiceNumberMeta?.value || undefined,
+          ...(customerId ? { customerId } : {}),
+        },
+      });
+      created++;
+    }
+
+    console.log(`[sync-woo] Synced ${created} new, skipped ${skipped} existing`);
+    res.json({ ok: true, created, skipped, total: orders.length, days });
+  } catch (err: any) {
+    console.error('[sync-woo] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export const paymentsRouter = router;

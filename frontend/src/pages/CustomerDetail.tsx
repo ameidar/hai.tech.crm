@@ -1423,13 +1423,21 @@ function PaymentHistory({ customerId }: { customerId: string }) {
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${st.cls}`}>
                   {st.label}
                 </span>
-                {p.invoiceUrl && (
+                {p.invoiceUrl ? (
                   <a href={p.invoiceUrl} target="_blank" rel="noreferrer"
                     title="פתח חשבונית ירוקה"
                     className="shrink-0 text-green-600 hover:text-green-800">
                     <FileText size={16} />
                   </a>
-                )}
+                ) : p.wooOrderId ? (
+                  <a
+                    href={`https://haitechdigitalcourses.hai.tech/wp-admin/post.php?post=${p.wooOrderId}&action=edit`}
+                    target="_blank" rel="noreferrer"
+                    title="פתח הזמנה ב-WooCommerce"
+                    className="shrink-0 text-gray-400 hover:text-purple-600">
+                    <FileText size={16} />
+                  </a>
+                ) : null}
               </div>
             );
           })}

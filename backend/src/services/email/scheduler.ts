@@ -3,6 +3,7 @@ import { prisma } from '../../utils/prisma.js';
 import { queueEmail, EmailPriority } from './queue.js';
 import {
   sendMorningWhatsAppReminders,
+  sendMorningUnresolvedAlert,
   sendPreMeetingReminders,
   sendEveningStatusCheck,
 } from '../whatsapp-reminder.service.js';
@@ -362,13 +363,15 @@ export const initEmailScheduler = () => {
   scheduledTasks.forEach(task => task.stop());
   scheduledTasks = [];
 
-  // Schedule instructor reminders (08:00) — email + WhatsApp
+  // Schedule instructor reminders (08:00) — email + WhatsApp + unresolved alert
   const instructorTask = cron.schedule(schedules.instructorReminders, () => {
     sendInstructorReminders();
     sendMorningWhatsAppReminders();
+    sendMorningUnresolvedAlert(); // alert management about yesterday's unresolved meetings
   }, { timezone: 'Asia/Jerusalem' });
   scheduledTasks.push(instructorTask);
   console.log('   ✓ Instructor reminders (email + WhatsApp): 08:00 daily');
+  console.log('   ✓ Unresolved meetings alert to management: 08:00 daily');
 
   // Schedule parent reminders (18:00)
   const parentTask = cron.schedule(schedules.parentReminders, () => {
@@ -413,5 +416,6 @@ export const triggerInstructorReminders = () => sendInstructorReminders();
 export const triggerParentReminders = () => sendParentReminders();
 export const triggerManagementSummary = () => sendManagementSummary();
 export const triggerMorningWhatsApp = () => sendMorningWhatsAppReminders();
+export const triggerMorningUnresolvedAlert = () => sendMorningUnresolvedAlert();
 export const triggerPreMeetingWhatsApp = () => sendPreMeetingReminders();
 export const triggerEveningStatusCheck = () => sendEveningStatusCheck();

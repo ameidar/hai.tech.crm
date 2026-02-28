@@ -1118,7 +1118,6 @@ export default function WhatsAppInbox() {
         customerName={selected.contactName || selected.leadName || ''}
         customerPhone={selected.phone}
         waConversationId={selected.id}
-        waPhoneNumberId={selected.phoneNumberId || undefined}
       />
     )}
     </div>

@@ -251,6 +251,26 @@ export default function CustomerDetail() {
                   <p className="text-gray-700">{customer.notes}</p>
                 </div>
               )}
+
+              {(customer.lmsUsername || customer.lmsPassword) && (
+                <div className="pt-4 border-t">
+                  <p className="text-sm font-semibold text-indigo-600 mb-2">🎓 פרטי כניסה לקורסים דיגיטליים</p>
+                  <div className="bg-indigo-50 rounded-lg p-3 space-y-1 text-sm" dir="ltr">
+                    {customer.lmsUsername && (
+                      <div className="flex gap-2">
+                        <span className="text-gray-500">User:</span>
+                        <span className="font-mono font-medium">{customer.lmsUsername}</span>
+                      </div>
+                    )}
+                    {customer.lmsPassword && (
+                      <div className="flex gap-2">
+                        <span className="text-gray-500">Pass:</span>
+                        <span className="font-mono font-medium">{customer.lmsPassword}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -775,6 +795,8 @@ function CustomerEditForm({ customer, onSubmit, onCancel, isLoading }: CustomerE
     address: customer.address || '',
     city: customer.city || '',
     notes: customer.notes || '',
+    lmsUsername: customer.lmsUsername || '',
+    lmsPassword: customer.lmsPassword || '',
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -848,6 +870,35 @@ function CustomerEditForm({ customer, onSubmit, onCancel, isLoading }: CustomerE
             className="form-input"
             rows={3}
           />
+        </div>
+
+        {/* LMS Credentials */}
+        <div className="col-span-2 border-t pt-3">
+          <p className="text-sm font-semibold text-gray-600 mb-2">🎓 פרטי כניסה לקורסים דיגיטליים</p>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">שם משתמש (LMS)</label>
+              <input
+                type="text"
+                value={formData.lmsUsername}
+                onChange={(e) => setFormData({ ...formData, lmsUsername: e.target.value })}
+                className="form-input"
+                dir="ltr"
+                placeholder="username"
+              />
+            </div>
+            <div>
+              <label className="form-label">סיסמה (LMS)</label>
+              <input
+                type="text"
+                value={formData.lmsPassword}
+                onChange={(e) => setFormData({ ...formData, lmsPassword: e.target.value })}
+                className="form-input"
+                dir="ltr"
+                placeholder="password"
+              />
+            </div>
+          </div>
         </div>
       </div>
 

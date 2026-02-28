@@ -33,6 +33,8 @@ export interface Customer {
   address?: string;
   city?: string;
   notes?: string;
+  lmsUsername?: string;
+  lmsPassword?: string;
   createdAt: string;
   students?: Student[];
   _count?: {

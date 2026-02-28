@@ -18,6 +18,32 @@ function generatePayToken(orderId: number): { token: string; ts: number } {
   return { token, ts };
 }
 
+/** Extract Morning/GreenInvoice invoice URL and number from WC order meta_data */
+function extractGreenInvoice(metaData: any[]): { invoiceUrl: string | null; invoiceNumber: string | null } {
+  // Primary: greeninvoice_data JSON object (contains id → view URL)
+  const giData = metaData?.find((m: any) => m.key === 'greeninvoice_data');
+  if (giData?.value) {
+    let gd = giData.value;
+    // WooCommerce REST API may return it as a string — parse if needed
+    if (typeof gd === 'string') {
+      try { gd = JSON.parse(gd); } catch { gd = null; }
+    }
+    if (gd && typeof gd === 'object' && gd.id) {
+      return {
+        invoiceUrl: `https://app.greeninvoice.co.il/incomes/documents/${gd.id}`,
+        invoiceNumber: String(gd.number || gd.document_id || ''),
+      };
+    }
+  }
+  // Fallback: _greeninvoice_document_url (older format)
+  const urlMeta = metaData?.find((m: any) => m.key === '_greeninvoice_document_url' || m.key === 'greeninvoice_document_url');
+  const numMeta = metaData?.find((m: any) => m.key === '_greeninvoice_document_number' || m.key === 'greeninvoice_document_number');
+  return {
+    invoiceUrl: urlMeta?.value || null,
+    invoiceNumber: numMeta?.value || null,
+  };
+}
+
 /** Fetch WooCommerce order details */
 async function getWooOrder(orderId: number) {
   const { siteUrl, consumerKey, consumerSecret } = config.woo;
@@ -36,6 +62,7 @@ const router = Router();
 router.use('/create-link', authenticate);
 router.use('/order-status', authenticate);
 router.use('/customer', authenticate);
+router.use('/sync-woo', authenticate);
 
 /**
  * POST /api/payments/create-link
@@ -151,17 +178,10 @@ router.get('/order-status/:orderId', async (req, res) => {
   if (!wooRes.ok) return res.status(502).json({ error: 'Failed to fetch order' });
 
   const order = (await wooRes.json()) as any;
-  const paid = ['processing', 'completed'].includes(order.status);
+  const paid = ['processing', 'completed', 'on-hold'].includes(order.status);
 
   // Extract Morning invoice URL from order meta
-  const invoiceMeta = order.meta_data?.find(
-    (m: any) => m.key === '_greeninvoice_document_url' || m.key === 'greeninvoice_document_url'
-  );
-  const invoiceNumberMeta = order.meta_data?.find(
-    (m: any) => m.key === '_greeninvoice_document_number' || m.key === 'greeninvoice_document_number'
-  );
-  const invoiceUrl = invoiceMeta?.value || null;
-  const invoiceNumber = invoiceNumberMeta?.value || null;
+  const { invoiceUrl, invoiceNumber } = extractGreenInvoice(order.meta_data || []);
 
   // Update DB if paid
   if (paid) {
@@ -220,15 +240,10 @@ router.post('/wc-webhook', async (req, res) => {
     const order = req.body as any;
     if (!order?.id) return;
 
-    const paid = ['processing', 'completed'].includes(order.status);
+    const paid = ['processing', 'completed', 'on-hold'].includes(order.status);
 
     // Extract Morning invoice URL
-    const invoiceMeta = order.meta_data?.find(
-      (m: any) => m.key === '_greeninvoice_document_url' || m.key === 'greeninvoice_document_url'
-    );
-    const invoiceNumberMeta = order.meta_data?.find(
-      (m: any) => m.key === '_greeninvoice_document_number' || m.key === 'greeninvoice_document_number'
-    );
+    const { invoiceUrl: wh_invoiceUrl, invoiceNumber: wh_invoiceNumber } = extractGreenInvoice(order.meta_data || []);
 
     const updateData: any = {
       status: paid ? 'paid' : order.status === 'cancelled' ? 'cancelled' : 'pending',
@@ -238,17 +253,155 @@ router.post('/wc-webhook', async (req, res) => {
     if (paid) {
       updateData.paidAt = new Date(order.date_paid || order.date_modified || Date.now());
     }
-    if (invoiceMeta?.value) updateData.invoiceUrl = invoiceMeta.value;
-    if (invoiceNumberMeta?.value) updateData.invoiceNumber = invoiceNumberMeta.value;
+    if (wh_invoiceUrl) updateData.invoiceUrl = wh_invoiceUrl;
+    if (wh_invoiceNumber) updateData.invoiceNumber = wh_invoiceNumber;
 
-    await prisma.payment.updateMany({
-      where: { wooOrderId: Number(order.id) },
-      data: updateData,
-    });
+    // Try to update existing payment record
+    const existing = await prisma.payment.findFirst({ where: { wooOrderId: Number(order.id) } });
 
-    console.log(`[WC Webhook] Order ${order.id} → ${order.status}`, invoiceMeta?.value || '');
+    if (existing) {
+      await prisma.payment.update({ where: { id: existing.id }, data: updateData });
+      console.log(`[WC Webhook] Updated order ${order.id} → ${order.status}`);
+    } else if (paid) {
+      // New order from website (not initiated from CRM) — create record + link to customer
+      const email = order.billing?.email;
+      const phone = (order.billing?.phone || '').replace(/\D/g, '');
+      const firstName = order.billing?.first_name || '';
+      const lastName = order.billing?.last_name || '';
+      const fullName = `${firstName} ${lastName}`.trim();
+
+      // Try to find existing customer by email or phone
+      let customerId: string | undefined;
+      if (email) {
+        const byEmail = await prisma.customer.findFirst({ where: { email } });
+        if (byEmail) customerId = byEmail.id;
+      }
+      if (!customerId && phone.length >= 9) {
+        const byPhone = await prisma.customer.findFirst({
+          where: { phone: { contains: phone.slice(-9) } },
+        });
+        if (byPhone) customerId = byPhone.id;
+      }
+
+      // Build description from line items or fee lines
+      const items: string[] = [];
+      for (const li of order.line_items || []) items.push(li.name);
+      for (const fl of order.fee_lines || []) items.push(fl.name);
+      const description = items.join(', ') || 'קורס דיגיטלי';
+
+      await prisma.payment.create({
+        data: {
+          wooOrderId: Number(order.id),
+          amount: parseFloat(order.total || '0'),
+          description,
+          status: 'paid',
+          paidAt: new Date(order.date_paid || order.date_modified || Date.now()),
+          paymentMethod: order.payment_method || undefined,
+          customerName: fullName || email || `הזמנה #${order.id}`,
+          customerEmail: email || undefined,
+          customerPhone: phone || undefined,
+          invoiceUrl: wh_invoiceUrl || undefined,
+          invoiceNumber: wh_invoiceNumber || undefined,
+          ...(customerId ? { customerId } : {}),
+        },
+      });
+      console.log(`[WC Webhook] Created new payment for order ${order.id} (${fullName}, ${email})`);
+    }
   } catch (e) {
     console.error('[WC Webhook] Error:', e);
+  }
+});
+
+/**
+ * POST /api/payments/sync-woo
+ * Admin only — syncs recent paid WooCommerce orders into the CRM.
+ * Fetches orders with status on-hold/processing/completed from the last N days.
+ */
+router.post('/sync-woo', async (req: any, res) => {
+  if (!req.user || !['admin', 'manager'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'אין הרשאה' });
+  }
+
+  const days = Number(req.query.days) || 7;
+  const after = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  try {
+    const wooRes = await fetch(
+      `${config.woo.siteUrl}/wp-json/wc/v3/orders?per_page=50&status=on-hold,processing,completed&after=${after}`,
+      { headers: { Authorization: 'Basic ' + Buffer.from(`${config.woo.consumerKey}:${config.woo.consumerSecret}`).toString('base64') } }
+    );
+    if (!wooRes.ok) throw new Error('WooCommerce API error');
+    const orders = await wooRes.json() as any[];
+
+    let created = 0;
+    let skipped = 0;
+
+    let updated = 0;
+
+    for (const order of orders) {
+      const existing = await prisma.payment.findFirst({ where: { wooOrderId: Number(order.id) } });
+
+      // If exists but missing invoice URL — update it
+      if (existing) {
+        const { invoiceUrl: ex_invUrl, invoiceNumber: ex_invNum } = extractGreenInvoice(order.meta_data || []);
+        if (ex_invUrl && !existing.invoiceUrl) {
+          await prisma.payment.update({
+            where: { id: existing.id },
+            data: { invoiceUrl: ex_invUrl, invoiceNumber: ex_invNum || undefined },
+          });
+          updated++;
+        } else {
+          skipped++;
+        }
+        continue;
+      }
+
+      const email = order.billing?.email;
+      const phone = (order.billing?.phone || '').replace(/\D/g, '');
+      const firstName = order.billing?.first_name || '';
+      const lastName = order.billing?.last_name || '';
+      const fullName = `${firstName} ${lastName}`.trim();
+
+      let customerId: string | undefined;
+      if (email) {
+        const byEmail = await prisma.customer.findFirst({ where: { email } });
+        if (byEmail) customerId = byEmail.id;
+      }
+      if (!customerId && phone.length >= 9) {
+        const byPhone = await prisma.customer.findFirst({ where: { phone: { contains: phone.slice(-9) } } });
+        if (byPhone) customerId = byPhone.id;
+      }
+
+      const items: string[] = [];
+      for (const li of order.line_items || []) items.push(li.name);
+      for (const fl of order.fee_lines || []) items.push(fl.name);
+
+      const { invoiceUrl: sync_invoiceUrl, invoiceNumber: sync_invoiceNumber } = extractGreenInvoice(order.meta_data || []);
+
+      await prisma.payment.create({
+        data: {
+          wooOrderId: Number(order.id),
+          amount: parseFloat(order.total || '0'),
+          description: items.join(', ') || 'קורס דיגיטלי',
+          status: 'paid',
+          paidAt: new Date(order.date_paid || order.date_modified || Date.now()),
+          paymentMethod: order.payment_method || undefined,
+          customerName: fullName || email || `הזמנה #${order.id}`,
+          customerEmail: email || undefined,
+          customerPhone: phone || undefined,
+          invoiceUrl: sync_invoiceUrl || undefined,
+          invoiceNumber: sync_invoiceNumber || undefined,
+          ...(customerId ? { customerId } : {}),
+        },
+      });
+      created++;
+    }
+
+    console.log(`[sync-woo] Synced ${created} new, updated ${updated} invoices, skipped ${skipped}`);
+    res.json({ ok: true, created, updated, skipped, total: orders.length, days });
+  } catch (err: any) {
+    console.error('[sync-woo] Error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

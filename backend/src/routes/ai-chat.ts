@@ -13,41 +13,45 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // ─── DB Schema summary for GPT ─────────────────────────────────────────────
 const DB_SCHEMA = `
-PostgreSQL schema (relevant tables):
+PostgreSQL schema — exact columns only, do NOT invent columns that are not listed:
 
-customers (id, name, phone, email, city, notes, created_at, deleted_at)
+customers (id, name, email, phone, address, city, notes, created_at, updated_at, deleted_at)
   → Filter active: WHERE deleted_at IS NULL
 
-students (id, customer_id, name, age, created_at, deleted_at)
+students (id, customer_id, name, birth_date, grade, notes, created_at, updated_at, deleted_at)
   → Filter active: WHERE deleted_at IS NULL
 
-cycles (id, name, branch_id, instructor_id, start_date, end_date, status, day_of_week, start_time, end_time, max_students, deleted_at)
+cycles (id, name, course_id, branch_id, instructor_id, type, start_date, end_date, day_of_week, start_time, end_time, duration_minutes, total_meetings, price_per_student, max_students, is_online, completed_meetings, remaining_meetings, status, created_at, updated_at, meeting_revenue, student_count, activity_type, deleted_at)
   → Filter active: WHERE deleted_at IS NULL
-  → day_of_week enum values (lowercase only!): 'sunday','monday','tuesday','wednesday','thursday','friday','saturday'
-  → status values: 'active','completed','cancelled','draft'
+  → day_of_week enum (lowercase ONLY): 'sunday','monday','tuesday','wednesday','thursday','friday','saturday'
+  → בעברית: ראשון=sunday, שני=monday, שלישי=tuesday, רביעי=wednesday, חמישי=thursday
+  → status: 'active','completed','cancelled','draft'
+  → NO column named "price" — use price_per_student
 
-meetings (id, cycle_id, instructor_id, scheduled_date, start_time, end_time, status, zoom_join_url, lesson_transcript, created_at, deleted_at)
+meetings (id, cycle_id, instructor_id, scheduled_date, start_time, end_time, status, revenue, instructor_payment, profit, topic, notes, zoom_join_url, lesson_transcript, lesson_summary, created_at, updated_at, deleted_at)
   → Filter active: WHERE deleted_at IS NULL
-  → status values: 'scheduled','completed','cancelled'
+  → status: 'scheduled','completed','cancelled'
 
-registrations (id, cycle_id, customer_id, student_id, status, created_at, deleted_at)
+registrations (id, student_id, cycle_id, registration_date, status, amount, payment_status, payment_method, created_at, updated_at, deleted_at)
   → Filter active: WHERE deleted_at IS NULL
+  → payment_status: 'pending','paid','partial','refunded'
 
-instructors (id, user_id, name, email, phone, created_at)
-  → NO deleted_at column — do NOT add WHERE deleted_at IS NULL
+instructors (id, user_id, name, phone, email, rate_frontal, rate_online, rate_private, is_active, employment_type, created_at, updated_at)
+  → NO deleted_at column — never add WHERE deleted_at IS NULL here
 
-branches (id, name, city, created_at)
+branches (id, name, type, address, city, contact_name, contact_phone, is_active, created_at, updated_at)
   → NO deleted_at column
 
-lead_appointments (id, customer_name, customer_phone, customer_email, source, appointment_status, appointment_date, appointment_notes, whatsapp_sent, email_sent, created_at, updated_at)
+lead_appointments (id, customer_id, customer_name, customer_phone, customer_email, child_name, interest, source, appointment_status, appointment_date, appointment_notes, whatsapp_sent, email_sent, created_at, updated_at)
   → NO deleted_at column
-  → appointment_status values: 'pending','contacted','scheduled','converted','rejected'
+  → appointment_status: 'pending','contacted','scheduled','converted','rejected'
 
-wa_conversations (id, phone, contact_name, lead_name, lead_email, summary, created_at, updated_at)
+wa_conversations (id, phone, contact_name, status, unread_count, last_message_at, lead_name, lead_email, child_name, lead_type, summary, ai_enabled, created_at, updated_at, business_phone)
   → NO deleted_at column
 
-wa_messages (id, conversation_id, direction, content, created_at)
+wa_messages (id, conversation_id, direction, content, status, is_ai_generated, created_at)
   → direction: 'inbound' (from customer) or 'outbound' (from bot/agent)
+  → NO deleted_at column
 `;
 
 // ─── Role-based system prompts ──────────────────────────────────────────────

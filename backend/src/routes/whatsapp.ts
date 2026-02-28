@@ -125,7 +125,7 @@ ${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}
   }
 
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4o',
+    model: 'gpt-4o-mini',
     messages: chatMessages,
     max_tokens: 500,
     temperature: 0.7
@@ -152,7 +152,7 @@ async function extractLeadData(conversationId: string) {
 
   try {
     const res = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',

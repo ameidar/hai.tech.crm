@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Phone, Mail, MapPin, Plus, Edit, User, Trash2, BookOpen, MessageCircle, Send, ExternalLink, Clock } from 'lucide-react';
+import { ArrowRight, Phone, Mail, MapPin, Plus, Edit, User, Trash2, BookOpen, MessageCircle, Send, ExternalLink, Clock, CreditCard } from 'lucide-react';
 import { useCustomer, useStudents, useCreateStudent, useUpdateCustomer, useUpdateStudent, useDeleteStudent, useDeleteCustomer, useCycles, useCreateRegistration, useSendWhatsApp, useSendEmail, useCourses, useBranches, useInstructors, useCreateCycle } from '../hooks/useApi';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import Modal from '../components/ui/Modal';
 import EmptyState from '../components/ui/EmptyState';
+import WooPayModal from '../components/WooPayModal';
 import type { Customer, Student, Cycle, PaymentStatus, PaymentMethod } from '../types';
 
 export default function CustomerDetail() {
@@ -18,6 +19,7 @@ export default function CustomerDetail() {
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
+  const [showPayModal, setShowPayModal] = useState(false);
 
   const { data: customer, isLoading } = useCustomer(id!);
   const { data: students } = useStudents(id);
@@ -198,6 +200,13 @@ export default function CustomerDetail() {
                     title="שלח הודעת וואטסאפ"
                   >
                     <MessageCircle size={16} className="text-green-600" />
+                  </button>
+                  <button
+                    onClick={() => setShowPayModal(true)}
+                    className="p-2 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
+                    title="שלח לינק תשלום"
+                  >
+                    <CreditCard size={16} className="text-purple-600" />
                   </button>
                 </div>
               </div>
@@ -442,6 +451,15 @@ export default function CustomerDetail() {
           isLoading={sendEmail.isPending}
         />
       </Modal>
+
+      {showPayModal && (
+        <WooPayModal
+          onClose={() => setShowPayModal(false)}
+          customerName={customer.name}
+          customerPhone={customer.phone}
+          customerEmail={customer.email}
+        />
+      )}
     </>
   );
 }

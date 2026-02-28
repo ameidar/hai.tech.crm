@@ -747,6 +747,8 @@ webhookRouter.patch('/meetings/:id', async (req, res, next) => {
 
 // ==================== Incoming WhatsApp (Green API) ====================
 // POST /api/webhook/whatsapp-incoming
+// Handles: instructor poll replies + text replies for CRM status updates only.
+// Group messages are ignored.
 webhookRouter.post('/whatsapp-incoming', async (req: Request, res: Response) => {
   // Always return 200 quickly to Green API
   res.json({ received: true });
@@ -759,9 +761,14 @@ webhookRouter.post('/whatsapp-incoming', async (req: Request, res: Response) => 
     if (typeWebhook !== 'incomingMessageReceived') return;
 
     const chatId: string = body?.senderData?.chatId || '';
+    const senderPhone: string = body?.senderData?.sender?.replace('@c.us', '') || '';
+
+    // Ignore all group messages
+    if (chatId.includes('@g.us')) return;
+
     // Extract phone number (remove @c.us)
-    const phone = chatId.replace('@c.us', '').replace('@g.us', '');
-    if (!phone || chatId.includes('@g.us')) return; // ignore group messages
+    const phone = chatId.replace('@c.us', '');
+    if (!phone) return;
 
     const msgType = body?.messageData?.typeMessage;
     let isYes: boolean | null = null;

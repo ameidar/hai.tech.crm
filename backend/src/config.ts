@@ -55,4 +55,11 @@ export const config = {
   vapiApiKey: process.env.VAPI_API_KEY || '',
   vapiAssistantId: process.env.VAPI_ASSISTANT_ID || '',
   vapiPhoneNumberId: process.env.VAPI_PHONE_NUMBER_ID || '',
+
+  // WooCommerce payments
+  woo: {
+    siteUrl: process.env.WOO_SITE_URL || 'https://haitechdigitalcourses.hai.tech',
+    consumerKey: process.env.WOO_CONSUMER_KEY || '',
+    consumerSecret: process.env.WOO_CONSUMER_SECRET || '',
+  },
 };

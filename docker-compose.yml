@@ -63,6 +63,9 @@ services:
       WA_VERIFY_TOKEN: ${WA_VERIFY_TOKEN:-haitech-wa-verify-2026}
       WA_PHONE_NUMBER_ID_2: ${WA_PHONE_NUMBER_ID_2:-228042450389470}
       WA_WABA_ID_2: ${WA_WABA_ID_2:-188758740996373}
+      WOO_SITE_URL: ${WOO_SITE_URL:-https://haitechdigitalcourses.hai.tech}
+      WOO_CONSUMER_KEY: ${WOO_CONSUMER_KEY}
+      WOO_CONSUMER_SECRET: ${WOO_CONSUMER_SECRET}
     volumes:
       - ./backend/uploads:/app/uploads
     ports:

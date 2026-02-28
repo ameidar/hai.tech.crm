@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp, Search, PenSquare, Plus, CheckCircle, AlertCircle } from 'lucide-react';
+import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp, Search, PenSquare, Plus, CheckCircle, AlertCircle, CreditCard } from 'lucide-react';
 import WaSendModal from '../components/WaSendModal';
+import WooPayModal from '../components/WooPayModal';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface WaConversation {
@@ -116,6 +117,7 @@ export default function WhatsAppInbox() {
   const [searchingCustomers, setSearchingCustomers] = useState(false);
   const [newConvTarget, setNewConvTarget] = useState<{ phone: string; name: string } | null>(null);
   const [templateSearch, setTemplateSearch] = useState('');
+  const [showPayModal, setShowPayModal] = useState(false);
   const [activePhones, setActivePhones] = useState<{ phoneNumberId: string; businessPhone: string; label: string }[]>([]);
   const [selectedFromPhone, setSelectedFromPhone] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -866,6 +868,14 @@ export default function WhatsAppInbox() {
               >
                 {loadingTemplates ? <RefreshCw size={16} className="animate-spin" /> : <FileText size={18} />}
               </button>
+              {/* Payment link button */}
+              <button
+                onClick={() => setShowPayModal(true)}
+                title="שלח לינק תשלום"
+                className="w-10 h-10 bg-purple-50 hover:bg-purple-100 text-purple-500 rounded-full flex items-center justify-center transition-colors flex-shrink-0"
+              >
+                <CreditCard size={18} />
+              </button>
               <textarea
                 value={input}
                 onChange={e => setInput(e.target.value)}
@@ -1100,6 +1110,17 @@ export default function WhatsAppInbox() {
       )}
     </div>
     {/* close inbox view wrapper */}
+
+    {/* Payment link modal */}
+    {showPayModal && selected && (
+      <WooPayModal
+        onClose={() => setShowPayModal(false)}
+        customerName={selected.contactName || selected.leadName || ''}
+        customerPhone={selected.phone}
+        waConversationId={selected.id}
+        waPhoneNumberId={selected.phoneNumberId || undefined}
+      />
+    )}
     </div>
   );
 }

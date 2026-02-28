@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { CreditCard, Copy, Check, Send, X, RefreshCw, ExternalLink, Clock } from 'lucide-react';
+import { CreditCard, Copy, Check, Send, X, RefreshCw, ExternalLink, Clock, FileText } from 'lucide-react';
 import api from '../api/client';
 
 interface Props {
   onClose: () => void;
+  customerId?: string;
   customerName?: string;
   customerPhone?: string;
   customerEmail?: string;
@@ -12,7 +13,7 @@ interface Props {
 
 type Stage = 'form' | 'waiting' | 'paid';
 
-export default function WooPayModal({ onClose, customerName = '', customerPhone = '', customerEmail = '', waConversationId }: Props) {
+export default function WooPayModal({ onClose, customerId, customerName = '', customerPhone = '', customerEmail = '', waConversationId }: Props) {
   const [stage, setStage] = useState<Stage>('form');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
@@ -22,6 +23,7 @@ export default function WooPayModal({ onClose, customerName = '', customerPhone 
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
   const [directPaymentUrl, setDirectPaymentUrl] = useState<string | null>(null);
   const [orderId, setOrderId] = useState<number | null>(null);
+  const [invoiceUrl, setInvoiceUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [waSent, setWaSent] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(false);
@@ -37,6 +39,7 @@ export default function WooPayModal({ onClose, customerName = '', customerPhone 
         setPollCount(c => c + 1);
         if (r.data.paid) {
           if (pollRef.current) clearInterval(pollRef.current);
+          if (r.data.invoiceUrl) setInvoiceUrl(r.data.invoiceUrl);
           setStage('paid');
         }
       } catch {}
@@ -52,6 +55,7 @@ export default function WooPayModal({ onClose, customerName = '', customerPhone 
     setLoading(true);
     try {
       const r = await api.post('/payments/create-link', {
+        customerId: customerId || undefined,
         customerName, customerPhone, customerEmail,
         amount: Number(amount), description: description.trim(),
       });
@@ -93,8 +97,10 @@ export default function WooPayModal({ onClose, customerName = '', customerPhone 
     setError('');
     try {
       const r = await api.get(`/payments/order-status/${orderId}`);
-      if (r.data.paid) setStage('paid');
-      else setError('התשלום טרם בוצע — המתן ולחץ שוב');
+      if (r.data.paid) {
+        if (r.data.invoiceUrl) setInvoiceUrl(r.data.invoiceUrl);
+        setStage('paid');
+      } else setError('התשלום טרם בוצע — המתן ולחץ שוב');
     } catch { setError('שגיאה בבדיקת סטטוס'); }
     finally { setCheckingStatus(false); }
   };
@@ -207,6 +213,16 @@ export default function WooPayModal({ onClose, customerName = '', customerPhone 
             <p className="text-gray-600">{description}</p>
             <p className="text-2xl font-bold text-green-600">₪{Number(amount).toLocaleString()}</p>
             {customerName && <p className="text-sm text-gray-500">מאת: {customerName}</p>}
+            {invoiceUrl && (
+              <a href={invoiceUrl} target="_blank" rel="noreferrer"
+                className="inline-flex items-center gap-2 bg-green-50 text-green-700 border border-green-200 rounded-lg px-4 py-2.5 text-sm font-medium hover:bg-green-100 transition-colors">
+                <FileText size={16} />
+                פתח חשבונית ירוקה
+              </a>
+            )}
+            {!invoiceUrl && (
+              <p className="text-xs text-gray-400">החשבונית תישלח אוטומטית במייל ע"י Morning</p>
+            )}
             <button onClick={onClose} className="btn btn-primary w-full mt-2">סגור</button>
           </div>
         )}

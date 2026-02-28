@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Phone, Mail, MapPin, Plus, Edit, User, Trash2, BookOpen, MessageCircle, Send, ExternalLink, Clock, CreditCard } from 'lucide-react';
+import { ArrowRight, Phone, Mail, MapPin, Plus, Edit, User, Trash2, BookOpen, MessageCircle, Send, ExternalLink, Clock, CreditCard, FileText } from 'lucide-react';
 import { useCustomer, useStudents, useCreateStudent, useUpdateCustomer, useUpdateStudent, useDeleteStudent, useDeleteCustomer, useCycles, useCreateRegistration, useSendWhatsApp, useSendEmail, useCourses, useBranches, useInstructors, useCreateCycle } from '../hooks/useApi';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
@@ -341,6 +341,9 @@ export default function CustomerDetail() {
 
           {/* Communication History */}
           <CommunicationHistory customerId={customer.id} />
+
+          {/* Payment History */}
+          <PaymentHistory customerId={customer.id} />
         </div>
       </div>
 
@@ -455,9 +458,10 @@ export default function CustomerDetail() {
       {showPayModal && (
         <WooPayModal
           onClose={() => setShowPayModal(false)}
+          customerId={customer.id}
           customerName={customer.name}
           customerPhone={customer.phone}
-          customerEmail={customer.email}
+          customerEmail={customer.email || undefined}
         />
       )}
     </>
@@ -1363,6 +1367,72 @@ function CommunicationHistory({ customerId }: { customerId: string }) {
           <MessageCircle size={48} className="mx-auto mb-4 text-gray-300" />
           <p className="text-gray-500">אין היסטוריית תקשורת</p>
           <p className="text-sm text-gray-400 mt-1">הודעות וואטסאפ ואימיילים יופיעו כאן</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Payment History Component
+function PaymentHistory({ customerId }: { customerId: string }) {
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['payment-history', customerId],
+    queryFn: async () => {
+      const res = await api.get(`/payments/customer/${customerId}`);
+      return res.data as any[];
+    },
+    refetchInterval: 30000, // refresh every 30s
+  });
+
+  const payments = data || [];
+  const formatDate = (d: string) => new Date(d).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+  const statusLabel = (s: string) => {
+    if (s === 'paid') return { label: 'שולם ✅', cls: 'bg-green-100 text-green-700' };
+    if (s === 'cancelled') return { label: 'בוטל ❌', cls: 'bg-red-100 text-red-700' };
+    return { label: 'ממתין ⏳', cls: 'bg-yellow-100 text-yellow-700' };
+  };
+
+  if (!isLoading && payments.length === 0) return null;
+
+  return (
+    <div className="lg:col-span-3 card">
+      <div className="card-header flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <CreditCard size={18} className="text-purple-600" />
+          <h2 className="font-semibold">היסטוריית תשלומים ({payments.length})</h2>
+        </div>
+        <button onClick={() => refetch()} className="text-xs text-gray-400 hover:text-gray-600">רענן</button>
+      </div>
+
+      {isLoading ? (
+        <div className="p-4 text-center text-gray-500">טוען...</div>
+      ) : (
+        <div className="divide-y divide-gray-100">
+          {payments.map((p: any) => {
+            const st = statusLabel(p.status);
+            return (
+              <div key={p.id} className="px-5 py-3 flex items-center gap-4 hover:bg-gray-50">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm truncate">{p.description}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{formatDate(p.createdAt)}</p>
+                </div>
+                <span className="text-base font-bold text-purple-700 shrink-0">
+                  ₪{Number(p.amount).toLocaleString()}
+                </span>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${st.cls}`}>
+                  {st.label}
+                </span>
+                {p.invoiceUrl && (
+                  <a href={p.invoiceUrl} target="_blank" rel="noreferrer"
+                    title="פתח חשבונית ירוקה"
+                    className="shrink-0 text-green-600 hover:text-green-800">
+                    <FileText size={16} />
+                  </a>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

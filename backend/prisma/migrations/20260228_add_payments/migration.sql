@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS "payments" (
+    "id" TEXT NOT NULL,
+    "customer_id" TEXT,
+    "customer_name" TEXT NOT NULL,
+    "customer_email" TEXT,
+    "customer_phone" TEXT,
+    "description" TEXT NOT NULL,
+    "amount" DOUBLE PRECISION NOT NULL,
+    "currency" TEXT NOT NULL DEFAULT 'ILS',
+    "woo_order_id" INTEGER UNIQUE,
+    "woo_order_key" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "invoice_url" TEXT,
+    "invoice_number" TEXT,
+    "payment_method" TEXT,
+    "paid_at" TIMESTAMP(3),
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "payments_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "payments_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "customers"("id") ON DELETE SET NULL ON UPDATE CASCADE
+);

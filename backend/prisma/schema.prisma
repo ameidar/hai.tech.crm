@@ -172,6 +172,7 @@ model Customer {
   quotes           Quote[]
   leadAppointments LeadAppointment[]
   upsellLeads      UpsellLead[]
+  payments         Payment[]
 
   @@map("customers")
 }
@@ -840,4 +841,32 @@ model WaMessage {
   conversation WaConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@map("wa_messages")
+}
+
+// ===================
+// PAYMENTS
+// ===================
+
+model Payment {
+  id               String   @id @default(uuid())
+  customerId       String?  @map("customer_id")
+  customerName     String   @map("customer_name")
+  customerEmail    String?  @map("customer_email")
+  customerPhone    String?  @map("customer_phone")
+  description      String
+  amount           Float
+  currency         String   @default("ILS")
+  wooOrderId       Int?     @unique @map("woo_order_id")
+  wooOrderKey      String?  @map("woo_order_key")
+  status           String   @default("pending")    // pending | paid | cancelled | refunded
+  invoiceUrl       String?  @map("invoice_url")    // Morning/GreenInvoice document URL
+  invoiceNumber    String?  @map("invoice_number")
+  paymentMethod    String?  @map("payment_method")  // creditcard | bit | google-pay
+  paidAt           DateTime? @map("paid_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@map("payments")
 }

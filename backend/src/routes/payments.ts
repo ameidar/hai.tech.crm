@@ -82,8 +82,9 @@ router.post('/create-link', async (req, res) => {
 
   // Generate auto-login URL so iframe can authenticate as crm-payments user
   const { token, ts } = generatePayToken(order.id);
-  const paymentUrl = `${siteUrl}/wp-json/haitech/v1/auto-pay?order_id=${order.id}&ts=${ts}&token=${token}`;
-  // Also keep the direct URL for "open in tab" fallback
+  // v3: use init-hook endpoint (more reliable cookie setting than REST context)
+  const paymentUrl = `${siteUrl}/?haitech_pay=1&order_id=${order.id}&ts=${ts}&token=${token}`;
+  // Direct URL (fallback reference, not used in frontend)
   const directPaymentUrl = `${siteUrl}/checkout/order-pay/${order.id}/?pay_for_order=true&key=${order.order_key}`;
 
   return res.json({

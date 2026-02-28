@@ -18,6 +18,25 @@ function generatePayToken(orderId: number): { token: string; ts: number } {
   return { token, ts };
 }
 
+/** Extract Morning/GreenInvoice invoice URL and number from WC order meta_data */
+function extractGreenInvoice(metaData: any[]): { invoiceUrl: string | null; invoiceNumber: string | null } {
+  // Primary: greeninvoice_data JSON object (contains id → view URL)
+  const giData = metaData?.find((m: any) => m.key === 'greeninvoice_data');
+  if (giData?.value && typeof giData.value === 'object' && giData.value.id) {
+    return {
+      invoiceUrl: `https://app.greeninvoice.co.il/incomes/documents/${giData.value.id}`,
+      invoiceNumber: giData.value.number || null,
+    };
+  }
+  // Fallback: _greeninvoice_document_url (older format)
+  const urlMeta = metaData?.find((m: any) => m.key === '_greeninvoice_document_url' || m.key === 'greeninvoice_document_url');
+  const numMeta = metaData?.find((m: any) => m.key === '_greeninvoice_document_number' || m.key === 'greeninvoice_document_number');
+  return {
+    invoiceUrl: urlMeta?.value || null,
+    invoiceNumber: numMeta?.value || null,
+  };
+}
+
 /** Fetch WooCommerce order details */
 async function getWooOrder(orderId: number) {
   const { siteUrl, consumerKey, consumerSecret } = config.woo;
@@ -155,14 +174,7 @@ router.get('/order-status/:orderId', async (req, res) => {
   const paid = ['processing', 'completed', 'on-hold'].includes(order.status);
 
   // Extract Morning invoice URL from order meta
-  const invoiceMeta = order.meta_data?.find(
-    (m: any) => m.key === '_greeninvoice_document_url' || m.key === 'greeninvoice_document_url'
-  );
-  const invoiceNumberMeta = order.meta_data?.find(
-    (m: any) => m.key === '_greeninvoice_document_number' || m.key === 'greeninvoice_document_number'
-  );
-  const invoiceUrl = invoiceMeta?.value || null;
-  const invoiceNumber = invoiceNumberMeta?.value || null;
+  const { invoiceUrl, invoiceNumber } = extractGreenInvoice(order.meta_data || []);
 
   // Update DB if paid
   if (paid) {
@@ -224,12 +236,7 @@ router.post('/wc-webhook', async (req, res) => {
     const paid = ['processing', 'completed', 'on-hold'].includes(order.status);
 
     // Extract Morning invoice URL
-    const invoiceMeta = order.meta_data?.find(
-      (m: any) => m.key === '_greeninvoice_document_url' || m.key === 'greeninvoice_document_url'
-    );
-    const invoiceNumberMeta = order.meta_data?.find(
-      (m: any) => m.key === '_greeninvoice_document_number' || m.key === 'greeninvoice_document_number'
-    );
+    const { invoiceUrl: wh_invoiceUrl, invoiceNumber: wh_invoiceNumber } = extractGreenInvoice(order.meta_data || []);
 
     const updateData: any = {
       status: paid ? 'paid' : order.status === 'cancelled' ? 'cancelled' : 'pending',
@@ -239,8 +246,8 @@ router.post('/wc-webhook', async (req, res) => {
     if (paid) {
       updateData.paidAt = new Date(order.date_paid || order.date_modified || Date.now());
     }
-    if (invoiceMeta?.value) updateData.invoiceUrl = invoiceMeta.value;
-    if (invoiceNumberMeta?.value) updateData.invoiceNumber = invoiceNumberMeta.value;
+    if (wh_invoiceUrl) updateData.invoiceUrl = wh_invoiceUrl;
+    if (wh_invoiceNumber) updateData.invoiceNumber = wh_invoiceNumber;
 
     // Try to update existing payment record
     const existing = await prisma.payment.findFirst({ where: { wooOrderId: Number(order.id) } });
@@ -286,8 +293,8 @@ router.post('/wc-webhook', async (req, res) => {
           customerName: fullName || email || `הזמנה #${order.id}`,
           customerEmail: email || undefined,
           customerPhone: phone || undefined,
-          invoiceUrl: invoiceMeta?.value || undefined,
-          invoiceNumber: invoiceNumberMeta?.value || undefined,
+          invoiceUrl: wh_invoiceUrl || undefined,
+          invoiceNumber: wh_invoiceNumber || undefined,
           ...(customerId ? { customerId } : {}),
         },
       });
@@ -346,8 +353,7 @@ router.post('/sync-woo', async (req: any, res) => {
       for (const li of order.line_items || []) items.push(li.name);
       for (const fl of order.fee_lines || []) items.push(fl.name);
 
-      const invoiceMeta = order.meta_data?.find((m: any) => m.key === '_greeninvoice_document_url' || m.key === 'greeninvoice_document_url');
-      const invoiceNumberMeta = order.meta_data?.find((m: any) => m.key === '_greeninvoice_document_number' || m.key === 'greeninvoice_document_number');
+      const { invoiceUrl: sync_invoiceUrl, invoiceNumber: sync_invoiceNumber } = extractGreenInvoice(order.meta_data || []);
 
       await prisma.payment.create({
         data: {
@@ -360,8 +366,8 @@ router.post('/sync-woo', async (req: any, res) => {
           customerName: fullName || email || `הזמנה #${order.id}`,
           customerEmail: email || undefined,
           customerPhone: phone || undefined,
-          invoiceUrl: invoiceMeta?.value || undefined,
-          invoiceNumber: invoiceNumberMeta?.value || undefined,
+          invoiceUrl: sync_invoiceUrl || undefined,
+          invoiceNumber: sync_invoiceNumber || undefined,
           ...(customerId ? { customerId } : {}),
         },
       });

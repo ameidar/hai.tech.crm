@@ -252,4 +252,30 @@ router.post('/wc-webhook', async (req, res) => {
   }
 });
 
+/**
+ * PATCH /api/payments/:id
+ * Update payment fields (invoiceUrl, invoiceNumber, status). Admin/manager only.
+ */
+router.patch('/:id', authenticate, async (req, res) => {
+  const user = (req as any).user;
+  if (!['admin', 'manager'].includes(user?.role)) {
+    return res.status(403).json({ error: 'אין הרשאה' });
+  }
+  const { id } = req.params;
+  const { invoiceUrl, invoiceNumber, status } = req.body;
+
+  const updateData: any = { updatedAt: new Date() };
+  if (invoiceUrl !== undefined) updateData.invoiceUrl = invoiceUrl || null;
+  if (invoiceNumber !== undefined) updateData.invoiceNumber = invoiceNumber || null;
+  if (status !== undefined) updateData.status = status;
+
+  try {
+    const updated = await prisma.payment.update({ where: { id }, data: updateData });
+    return res.json(updated);
+  } catch (e: any) {
+    if (e?.code === 'P2025') return res.status(404).json({ error: 'לא נמצא' });
+    throw e;
+  }
+});
+
 export const paymentsRouter = router;

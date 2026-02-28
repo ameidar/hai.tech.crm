@@ -75,3 +75,28 @@ router.post('/create-link', async (req, res) => {
 });
 
 export const paymentsRouter = router;
+
+/**
+ * GET /api/payments/order-status/:orderId
+ * Checks WooCommerce order payment status.
+ */
+router.get('/order-status/:orderId', async (req, res) => {
+  const { orderId } = req.params;
+  const { siteUrl, consumerKey, consumerSecret } = config.woo;
+  const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
+
+  const wooRes = await fetch(`${siteUrl}/wp-json/wc/v3/orders/${orderId}`, {
+    headers: { Authorization: `Basic ${auth}` },
+  });
+
+  if (!wooRes.ok) return res.status(502).json({ error: 'Failed to fetch order' });
+
+  const order = (await wooRes.json()) as { id: number; status: string; total: string; billing?: { first_name?: string; last_name?: string } };
+  res.json({
+    orderId: order.id,
+    status: order.status,
+    total: order.total,
+    paid: ['processing', 'completed'].includes(order.status),
+    customerName: order.billing ? `${order.billing.first_name || ''} ${order.billing.last_name || ''}`.trim() : '',
+  });
+});

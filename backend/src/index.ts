@@ -45,6 +45,7 @@ import { meetingRequestsRouter } from './routes/meeting-requests.js';
 import { filesRouter } from './routes/files.js';
 import { systemUsersRouter } from './routes/system-users.js';
 import waRouter from './routes/whatsapp.js';
+import aiChatRouter from './routes/ai-chat.js';
 import { paymentsRouter } from './routes/payments.js';
 import { devReadOnly } from './middleware/devReadOnly.js';
 
@@ -199,6 +200,7 @@ app.use('/api/institutional-orders', institutionalOrdersRouter); // Institutiona
 app.use('/api/meeting-requests', meetingRequestsRouter); // Meeting change requests
 app.use('/api/files', filesRouter); // File attachments (instructors, quotes)
 app.use('/api/wa', waRouter); // WhatsApp Cloud API inbox
+app.use('/api/ai-chat', aiChatRouter); // AI Chat — NL queries with role-based access
 app.use('/api/payments', paymentsRouter); // WooCommerce payment links
 app.use('/api/system-users', systemUsersRouter); // System users management (admin/manager)
 app.use('/api/upsell-leads', upsellLeadsRouter); // Upsell leads from completed cycles

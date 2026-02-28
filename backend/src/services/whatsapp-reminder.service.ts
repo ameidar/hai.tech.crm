@@ -296,10 +296,18 @@ export async function handleStatusReply(phone: string, isYes: boolean): Promise<
         WHERE id = ${r.id}
       `;
 
-      await sendWhatsApp({ phone: ADMIN_PHONE, message: `🚨 מדריך ${r.instructor_name} דיווח שלא העביר שיעור "${r.cycle_name}" היום!` });
+      const currentNotes = r.meeting_notes || '';
+      const cancelNotes = (currentNotes + '\n[אוטומטי] מדריך דיווח שהשיעור לא התקיים דרך וואטסאפ.').trim();
+
+      await prisma.meeting.update({
+        where: { id: r.meeting_id },
+        data: { status: 'cancelled', notes: cancelNotes },
+      });
+
+      await sendWhatsApp({ phone: ADMIN_PHONE, message: `🚨 מדריך ${r.instructor_name} דיווח שלא העביר שיעור "${r.cycle_name}" היום — הפגישה עברה לסטטוס בוטל.` });
       await sendWhatsApp({ phone, message: `תודה על העדכון ${r.instructor_name}. נצור איתך קשר בנוגע לשיעור.` });
 
-      console.log(`[WhatsApp] No-show reported for ${r.instructor_name}`);
+      console.log(`[WhatsApp] No-show reported for ${r.instructor_name} — meeting cancelled`);
     }
   } catch (error: any) {
     console.error('[WhatsApp] Error handling status reply:', error.message);

@@ -33,6 +33,11 @@ customersRouter.get('/', async (req, res, next) => {
         where,
         include: {
           _count: { select: { students: true } },
+          payments: {
+            where: { wooOrderId: { not: null }, status: 'paid' },
+            select: { id: true },
+            take: 1,
+          },
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,

@@ -143,12 +143,12 @@ export default function Campaigns() {
 
   const { data: courses = [] } = useQuery<Course[]>({
     queryKey: ['courses'],
-    queryFn: async () => (await api.get('/courses')).data.map((c: Course & { isActive?: boolean }) => c),
+    queryFn: async () => { const res = (await api.get('/courses')).data; return Array.isArray(res) ? res : (res.data ?? []); },
   });
 
   const { data: branches = [] } = useQuery<Branch[]>({
     queryKey: ['branches'],
-    queryFn: async () => (await api.get('/branches')).data,
+    queryFn: async () => { const res = (await api.get('/branches')).data; return Array.isArray(res) ? res : (res.data ?? []); },
   });
 
   // ─── Mutations ─────────────────────────────────────────────────────────────

@@ -9,7 +9,7 @@ function getCalendarClient() {
   const auth = new google.auth.GoogleAuth({
     keyFile: SA_KEY_PATH,
     scopes: ['https://www.googleapis.com/auth/calendar'],
-    clientOptions: { subject: 'info@hai.tech' },
+    // No subject/impersonation — calendar is shared directly with SA email
   });
   return google.calendar({ version: 'v3', auth });
 }

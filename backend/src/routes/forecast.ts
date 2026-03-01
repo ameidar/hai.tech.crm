@@ -47,6 +47,9 @@ interface MonthlyData {
   profit: number;
   meetingCount: number;
   isHistorical: boolean;
+  isPartial?: boolean; // current month: mix of actual + estimated
+  completedCount?: number; // actual completed meetings in partial month
+  scheduledCount?: number; // estimated scheduled meetings in partial month
 }
 
 interface ExpensePattern {
@@ -301,6 +304,100 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
       cycleAvgPayment.set(cycleId, count > 0 ? totalPayment / count : 0);
     }
 
+    // Global averages (used in both current-month blend and forecast)
+    const globalAvgRevenue = cycleAvgRevenue.size > 0
+      ? Array.from(cycleAvgRevenue.values()).reduce((a, b) => a + b, 0) / cycleAvgRevenue.size
+      : 0;
+    const globalAvgPayment = cycleAvgPayment.size > 0
+      ? Array.from(cycleAvgPayment.values()).reduce((a, b) => a + b, 0) / cycleAvgPayment.size
+      : 0;
+
+    // ============================================
+    // CURRENT MONTH BLEND: completed + scheduled (estimated)
+    // ============================================
+
+    const currentMonthEnd = new Date(currentMonth);
+    currentMonthEnd.setMonth(currentMonthEnd.getMonth() + 1);
+
+    // Fetch scheduled meetings in the current month that haven't happened yet
+    const currentMonthScheduled = await prisma.meeting.findMany({
+      where: {
+        scheduledDate: {
+          gte: tomorrow, // from tomorrow onwards
+          lt: currentMonthEnd,
+        },
+        status: 'scheduled',
+        deletedAt: null,
+      },
+      include: {
+        cycle: {
+          include: { expenses: true },
+        },
+        instructor: {
+          select: {
+            id: true,
+            rateFrontal: true,
+            rateOnline: true,
+            ratePrivate: true,
+          },
+        },
+      },
+    });
+
+    const currentMonthKey = getMonthKey(currentMonth);
+    const currentMonthData = historicalByMonth.get(currentMonthKey);
+
+    if (currentMonthData && currentMonthScheduled.length > 0) {
+      const completedCount = currentMonthData.meetingCount;
+
+      for (const meeting of currentMonthScheduled) {
+        const cycle   = meeting.cycle   as any;
+        const instr   = meeting.instructor as any;
+        const aType   = meeting.activityType || 'frontal';
+
+        let estRevenue = toNumber(meeting.revenue);
+        if (estRevenue === 0) {
+          if (toNumber(cycle.meetingRevenue) > 0) {
+            estRevenue = toNumber(cycle.meetingRevenue);
+          } else if (toNumber(cycle.pricePerStudent) > 0 && (cycle.studentCount ?? 0) > 0) {
+            estRevenue = toNumber(cycle.pricePerStudent) * (cycle.studentCount ?? 0);
+          } else {
+            estRevenue = cycleAvgRevenue.get(meeting.cycleId) ?? globalAvgRevenue;
+          }
+        }
+
+        let estPayment = toNumber(meeting.instructorPayment);
+        if (estPayment === 0 && instr) {
+          if (aType === 'online' && toNumber(instr.rateOnline) > 0) {
+            estPayment = toNumber(instr.rateOnline);
+          } else if (aType === 'private' && toNumber(instr.ratePrivate) > 0) {
+            estPayment = toNumber(instr.ratePrivate);
+          } else if (toNumber(instr.rateFrontal) > 0) {
+            estPayment = toNumber(instr.rateFrontal);
+          } else {
+            estPayment = cycleAvgPayment.get(meeting.cycleId) ?? globalAvgPayment;
+          }
+        }
+
+        currentMonthData.revenue           += estRevenue;
+        currentMonthData.instructorPayments += estPayment;
+        currentMonthData.meetingCount       += 1;
+      }
+
+      // Recalculate totals for current month
+      currentMonthData.totalExpenses =
+        currentMonthData.instructorPayments +
+        currentMonthData.cycleExpenses +
+        currentMonthData.meetingExpenses;
+      currentMonthData.profit =
+        currentMonthData.revenue - currentMonthData.totalExpenses;
+
+      // Mark as partial so frontend can display indicator
+      currentMonthData.isPartial      = true;
+      currentMonthData.completedCount = completedCount;
+      currentMonthData.scheduledCount = currentMonthScheduled.length;
+    }
+
     // ============================================
     // FORECAST DATA
     // ============================================
@@ -360,13 +457,6 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
     }
 
     // Calculate forecast based on actual cycle & instructor data (not statistical averages)
-    const globalAvgRevenue = cycleAvgRevenue.size > 0
-      ? Array.from(cycleAvgRevenue.values()).reduce((a, b) => a + b, 0) / cycleAvgRevenue.size
-      : 0;
-    const globalAvgPayment = cycleAvgPayment.size > 0
-      ? Array.from(cycleAvgPayment.values()).reduce((a, b) => a + b, 0) / cycleAvgPayment.size
-      : 0;
-
     for (const meeting of futureMeetings) {
       const monthKey = getMonthKey(new Date(meeting.scheduledDate));
       const data = forecastByMonth.get(monthKey);

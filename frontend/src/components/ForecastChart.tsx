@@ -283,6 +283,15 @@ export default function ForecastChart() {
                   const strName = String(name || '');
                   return [`₪${numValue.toLocaleString()}`, labels[strName] || strName];
                 }}
+                labelFormatter={(label, payload) => {
+                  if (payload && payload[0]) {
+                    const d = payload[0].payload as { isPartial?: boolean; completedCount?: number; scheduledCount?: number };
+                    if (d.isPartial) {
+                      return `${label} ✦ (${d.completedCount ?? 0} הושלמו + ${d.scheduledCount ?? 0} מתוכנן)`;
+                    }
+                  }
+                  return label;
+                }}
                 contentStyle={{
                   backgroundColor: 'white',
                   border: '1px solid #e5e7eb',
@@ -301,6 +310,19 @@ export default function ForecastChart() {
                 }}
               />
               
+              {/* Partial month indicator (current month: actual + estimated) */}
+              {chartData.map((d: { isPartial?: boolean; monthName?: string }) =>
+                d.isPartial ? (
+                  <ReferenceLine
+                    key={`partial-${d.monthName}`}
+                    x={d.monthName}
+                    stroke="#f59e0b"
+                    strokeDasharray="4 4"
+                    label={{ value: '✦ חלקי', position: 'insideTopRight', fill: '#d97706', fontSize: 11 }}
+                  />
+                ) : null
+              )}
+
               {/* Forecast area indicator */}
               {forecastStartIndex > 0 && chartData[forecastStartIndex] && (
                 <ReferenceLine 
@@ -362,12 +384,16 @@ export default function ForecastChart() {
                   <tr 
                     key={row.month} 
                     className={`border-b border-gray-100 hover:bg-gray-50 ${
-                      row.type === 'forecast' ? 'bg-indigo-50/50' : ''
+                      row.isPartial ? 'bg-amber-50/60' : row.type === 'forecast' ? 'bg-indigo-50/50' : ''
                     }`}
                   >
                     <td className="py-3 px-2 font-medium">{row.monthName}</td>
                     <td className="py-3 px-2">
-                      {row.type === 'forecast' ? (
+                      {row.isPartial ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700" title={`${row.completedCount} הושלמו + ${row.scheduledCount} מתוכנן`}>
+                          ✦ חלקי ({row.completedCount}+{row.scheduledCount})
+                        </span>
+                      ) : row.type === 'forecast' ? (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700">
                           <Sparkles className="w-3 h-3" />
                           תחזית

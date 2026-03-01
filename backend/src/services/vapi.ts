@@ -404,3 +404,83 @@ function _buildEmailHtml(
     </div>
   `;
 }
+
+// Update VAPI assistant system prompt with current date (run daily)
+export async function updateVapiAssistantDate(): Promise<void> {
+  const assistantId = config.vapiAssistantId;
+  const apiKey = config.vapiApiKey;
+  if (!assistantId || !apiKey) {
+    console.warn('[VAPI] Cannot update assistant date: missing VAPI_ASSISTANT_ID or VAPI_API_KEY');
+    return;
+  }
+
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }));
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const today = `${year}-${month}-${day}`;
+  const dayNames = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+  const dayHe = dayNames[now.getDay()];
+
+  const systemPrompt = `אתה טל, נציג טלפוני של דרך ההייטק. אתה גבר. דבר תמיד בלשון זכר.
+
+## תאריך נוכחי
+היום: ${today} (יום ${dayHe}). כשמדברים על "יום שלישי הקרוב", "מחר" וכו' — חשב לפי התאריך הזה.
+
+## כלל ברזל — שיחה נכנסת
+ברגע שהמתקשר מתחיל לדבר (כל מילה שהוא אומר), **קרא מיד ל-lookupCaller לפני כל תגובה**.
+אל תשאל שם. אל תגיד כלום. קרא קודם ל-lookupCaller.
+רק אחרי שהtool חזר — תגיב:
+- מצא לקוח: "היי [שם], שמחנו שחזרת. אפשר לקבוע שיחת היכרות עם מדריך — מה יום שנוח לך?"
+- לא מצא: "שלום, דרך ההייטק, במה אוכל לעזור?"
+
+## שיחות יוצאות (חיוג יזום)
+ה-firstMessage כבר יועבר ממי שיצר את השיחה. אל תקרא ל-lookupCaller.
+
+## מטרת השיחה
+לקבוע שיחת היכרות טלפונית עם מדריך. **לך ישיר לעניין** — אל תשאל שאלות מיותרות.
+
+**Flow לקביעת פגישה:**
+1. שאל מה יום שנוח (אם לא אמר עדיין)
+2. **מיד** — בלי שאלות נוספות — אמור "רגע אחד" וקרא ל-checkAvailability (תאריך YYYY-MM-DD, חשב לפי היום ${today})
+3. הצע 2-3 שעות פנויות במילים ("תשע בבוקר", "אחת עשרה")
+4. קבל אישור → קרא ל-bookAppointment
+5. "מצוין! קבענו ביום [יום] בשעה [שעה]. נדבר אז!"
+
+**אל תשאל** גיל, שם ילד, פרטים נוספים לפני שקובעים — קבע קודם.
+
+## זיהוי מגדר
+גברים: עמי, דוד, יוסי, אבי, משה, רון, גיל, אלון, אלי, אריק.
+נשים: נועה, מיכל, שרה, רחל, אינה, יעל, דנה, הילה, שירה.
+ספק → לשון זכר.
+
+## בזמן tool call
+לפני checkAvailability ו-bookAppointment — אמור תמיד "רגע אחד" לפני הקריאה.`;
+
+  const payload = {
+    model: {
+      provider: 'openai',
+      model: 'gpt-4o',
+      temperature: 0.5,
+      messages: [{ role: 'system', content: systemPrompt }],
+      tools: [
+        { type: 'function', function: { name: 'lookupCaller', description: 'חובה לקרוא לtool הזה ראשון בכל שיחה נכנסת, לפני כל תגובה למתקשר.', parameters: { type: 'object', required: [], properties: { phone: { type: 'string', description: 'טלפון (אופציונלי)' } } } } },
+        { type: 'function', function: { name: 'checkAvailability', description: 'בודק שעות פנויות לפגישה', parameters: { type: 'object', required: ['date'], properties: { date: { type: 'string', description: 'תאריך YYYY-MM-DD' } } } } },
+        { type: 'function', function: { name: 'bookAppointment', description: 'קובע פגישת היכרות', parameters: { type: 'object', required: ['date', 'time', 'customerName'], properties: { date: { type: 'string' }, time: { type: 'string' }, customerName: { type: 'string' }, phone: { type: 'string' }, notes: { type: 'string' } } } } },
+      ],
+    },
+  };
+
+  const response = await fetch(`https://api.vapi.ai/assistant/${assistantId}`, {
+    method: 'PATCH',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    console.error(`[VAPI] Failed to update assistant date: ${err}`);
+  } else {
+    console.log(`[VAPI] Assistant date updated to ${today} (${dayHe})`);
+  }
+}

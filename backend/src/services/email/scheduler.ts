@@ -16,6 +16,7 @@ import {
 import { buildInstructorMonthlyReport, getPreviousMonth } from '../instructorReport.service.js';
 import { generateInstructorReportExcel } from '../../utils/excelReportGenerator.js';
 import { sendInstructorMonthlyReportEmail } from './instructorReportEmail.js';
+import { updateVapiAssistantDate } from '../vapi.js';
 
 // Management email list (configure via env or database)
 const MANAGEMENT_EMAILS = (process.env.MANAGEMENT_EMAILS || 'ami@hai.tech').split(',');
@@ -429,6 +430,15 @@ export const initEmailScheduler = () => {
   }, { timezone: 'Asia/Jerusalem' });
   scheduledTasks.push(monthlyReportTask);
   console.log('   ✓ Monthly instructor report: 08:00 on 1st of month → hila@hai.tech, ami@hai.tech, inna@hai.tech');
+
+  // Update VAPI assistant date daily at 00:01 Israel time
+  const vapiDateTask = cron.schedule('1 0 * * *', () => {
+    updateVapiAssistantDate().catch((err: any) =>
+      console.error('[VAPI] Date update cron failed:', err)
+    );
+  }, { timezone: 'Asia/Jerusalem' });
+  scheduledTasks.push(vapiDateTask);
+  console.log('   ✓ VAPI assistant date update: 00:01 daily');
 
   console.log('📅 Email scheduler initialized');
 };

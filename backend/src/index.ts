@@ -38,6 +38,7 @@ import { publicQuoteRouter } from './routes/public-quote.js';
 import { publicCancelRouter } from './routes/public-cancel.js';
 import { vapiWebhookRouter } from './routes/vapi-webhook.js';
 import { vapiToolsRouter } from './routes/vapi-tools.js';
+import { updateVapiAssistantDate } from './services/vapi.js';
 import { upsellLeadsRouter } from './routes/upsell-leads.js';
 import { reportsRouter } from './routes/reports.js';
 import { leadAppointmentsRouter } from './routes/lead-appointments.js';
@@ -258,6 +259,10 @@ const start = async () => {
     } else {
       initEmailScheduler();
       initCancellationScheduler();
+      // Update VAPI assistant date on startup + daily cron handles ongoing updates
+      updateVapiAssistantDate().catch((err: any) =>
+        console.error('[VAPI] Startup date update failed:', err)
+      );
     }
 
     app.listen(config.port, () => {

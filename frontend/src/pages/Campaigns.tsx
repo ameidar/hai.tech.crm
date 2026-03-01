@@ -38,6 +38,7 @@ interface Campaign {
 }
 
 interface AudienceFilters {
+  cycleIds?: string[];
   courseIds?: string[];
   branchIds?: string[];
   ageMin?: number;
@@ -59,6 +60,13 @@ interface Course {
 interface Branch {
   id: string;
   name: string;
+}
+
+interface Cycle {
+  id: string;
+  name: string;
+  status: string;
+  course?: { name: string };
 }
 
 // ─── Status config ──────────────────────────────────────────────────────────
@@ -110,6 +118,7 @@ export default function Campaigns() {
     channel: 'email',
   });
   const [filters, setFilters] = useState<AudienceFilters>({
+    cycleIds: [],
     courseIds: [],
     branchIds: [],
     cycleStatus: 'all',
@@ -158,6 +167,16 @@ export default function Campaigns() {
     queryFn: async () => { const res = (await api.get('/branches')).data; return Array.isArray(res) ? res : (res.data ?? []); },
   });
 
+  const { data: allCycles = [] } = useQuery<Cycle[]>({
+    queryKey: ['cycles-for-campaigns'],
+    queryFn: async () => {
+      const res = (await api.get('/cycles?limit=500&status=active')).data;
+      return Array.isArray(res) ? res : (res.data ?? []);
+    },
+  });
+
+  const [cycleSearch, setCycleSearch] = useState('');
+
   // ─── Mutations ─────────────────────────────────────────────────────────────
 
   const deleteMutation = useMutation({
@@ -172,7 +191,8 @@ export default function Campaigns() {
     setWorkingId(null);
     setStep(0);
     setForm({ name: '', description: '', channel: 'email' });
-    setFilters({ courseIds: [], branchIds: [], cycleStatus: 'all' });
+    setFilters({ cycleIds: [], courseIds: [], branchIds: [], cycleStatus: 'all' });
+    setCycleSearch('');
     setContent({ subject: '', contentHtml: '', contentWa: '' });
     setSchedule({ type: 'now', scheduledAt: '' });
     setAudienceCount(null);
@@ -500,6 +520,58 @@ export default function Campaigns() {
               {step === 1 && (
                 <div className="space-y-4">
                   <h3 className="font-semibold text-gray-900">קהל יעד</h3>
+
+                  {/* Cycles multi-select (primary filter) */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      מחזורים ספציפיים
+                      {(filters.cycleIds?.length ?? 0) > 0 && (
+                        <span className="mr-2 text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
+                          {filters.cycleIds!.length} נבחרו
+                        </span>
+                      )}
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="חיפוש מחזור..."
+                      value={cycleSearch}
+                      onChange={e => setCycleSearch(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm mb-1 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    />
+                    <div className="border border-gray-200 rounded-lg p-2 max-h-44 overflow-y-auto space-y-1">
+                      {allCycles
+                        .filter(c => !cycleSearch || c.name.includes(cycleSearch) || c.course?.name?.includes(cycleSearch))
+                        .map(c => (
+                          <label key={c.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 px-2 py-1 rounded">
+                            <input
+                              type="checkbox"
+                              checked={filters.cycleIds?.includes(c.id) || false}
+                              onChange={e => {
+                                setFilters(f => ({
+                                  ...f,
+                                  cycleIds: e.target.checked
+                                    ? [...(f.cycleIds || []), c.id]
+                                    : (f.cycleIds || []).filter(id => id !== c.id),
+                                }));
+                              }}
+                              className="rounded accent-indigo-600"
+                            />
+                            <span className="text-sm">{c.name}</span>
+                            {c.course?.name && (
+                              <span className="text-xs text-gray-400">({c.course.name})</span>
+                            )}
+                          </label>
+                        ))}
+                      {allCycles.length === 0 && (
+                        <p className="text-sm text-gray-400 px-2 py-1">אין מחזורים פעילים</p>
+                      )}
+                    </div>
+                    {(filters.cycleIds?.length ?? 0) > 0 && (
+                      <p className="text-xs text-indigo-600 mt-1">
+                        ✦ בחרת מחזורים ספציפיים — פילטרי קורס/סניף/סטטוס לא יחולו
+                      </p>
+                    )}
+                  </div>
 
                   {/* Courses multi-select */}
                   <div>

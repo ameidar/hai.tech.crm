@@ -12,6 +12,7 @@ export function buildTrackingUrl(campaignId: string, recipientId: string, target
 }
 
 export interface AudienceFilters {
+  cycleIds?: string[];
   courseIds?: string[];
   branchIds?: string[];
   ageMin?: number;
@@ -38,22 +39,27 @@ function sleep(ms: number) {
 }
 
 export async function resolveAudience(filters: AudienceFilters): Promise<AudienceResult> {
-  const { courseIds, branchIds, ageMin, ageMax, cycleStatus = 'all' } = filters;
+  const { cycleIds, courseIds, branchIds, ageMin, ageMax, cycleStatus = 'all' } = filters;
 
   // Build cycle where clause
   const cycleWhere: Record<string, unknown> = {};
-  if (courseIds && courseIds.length > 0) {
-    cycleWhere.courseId = { in: courseIds };
+  if (cycleIds && cycleIds.length > 0) {
+    // Direct cycle filter — takes priority, ignore courseIds/branchIds/cycleStatus
+    cycleWhere.id = { in: cycleIds };
+  } else {
+    if (courseIds && courseIds.length > 0) {
+      cycleWhere.courseId = { in: courseIds };
+    }
+    if (branchIds && branchIds.length > 0) {
+      cycleWhere.branchId = { in: branchIds };
+    }
+    if (cycleStatus === 'active') {
+      cycleWhere.status = 'active';
+    } else if (cycleStatus === 'completed') {
+      cycleWhere.status = 'completed';
+    }
+    // 'all' = no status filter
   }
-  if (branchIds && branchIds.length > 0) {
-    cycleWhere.branchId = { in: branchIds };
-  }
-  if (cycleStatus === 'active') {
-    cycleWhere.status = 'active';
-  } else if (cycleStatus === 'completed') {
-    cycleWhere.status = 'completed';
-  }
-  // 'all' = no status filter
 
   // Build student where clause for age
   const studentWhere: Record<string, unknown> = {};

@@ -19,6 +19,60 @@ vapiToolsRouter.post('/', async (req: Request, res: Response) => {
       return res.json({ success: true });
     }
 
+    // Handle call-start — lookup caller and return dynamic firstMessage
+    if (messageType === 'call-start') {
+      const callType = message?.call?.type;
+      const callerNumber = message?.call?.customer?.number || '';
+      console.log(`[VAPI TOOLS] call-start: type=${callType}, from=${callerNumber}`);
+
+      if (callType === 'inboundPhoneCall' && callerNumber) {
+        let normalized = callerNumber.replace(/\D/g, '');
+        if (normalized.startsWith('972')) normalized = '0' + normalized.substring(3);
+        const last9 = normalized.slice(-9);
+
+        const customer = last9 ? await prisma.customer.findFirst({
+          where: { phone: { contains: last9 } },
+          include: { students: { select: { name: true } } },
+        }) : null;
+
+        const lastLead = last9 ? await prisma.leadAppointment.findFirst({
+          where: { customerPhone: { contains: last9 } },
+          orderBy: { createdAt: 'desc' },
+        }) : null;
+
+        let firstName = '';
+        let context = '';
+
+        if (customer) {
+          firstName = customer.name.split(' ')[0];
+          if (lastLead?.interest) context = ` בנושא ${lastLead.interest}`;
+          else if (lastLead?.childName) context = ` לגבי ${lastLead.childName}`;
+          console.log(`[VAPI TOOLS] call-start lookup: found customer ${customer.name} (${callerNumber})`);
+        } else if (lastLead) {
+          firstName = lastLead.customerName.split(' ')[0];
+          if (lastLead.interest) context = ` בנושא ${lastLead.interest}`;
+          console.log(`[VAPI TOOLS] call-start lookup: found lead ${lastLead.customerName} (${callerNumber})`);
+        }
+
+        if (firstName) {
+          const firstMessage = `היי ${firstName}, מדבר טל מדרך ההייטק${context}. איך אוכל לעזור?`;
+          console.log(`[VAPI TOOLS] call-start returning firstMessage: ${firstMessage}`);
+          return res.json({
+            messageResponse: {
+              assistant: { firstMessage }
+            }
+          });
+        }
+      }
+
+      // Unknown caller or outbound — use default greeting
+      return res.json({
+        messageResponse: {
+          assistant: { firstMessage: 'שלום, דרך ההייטק, במה אוכל לעזור?' }
+        }
+      });
+    }
+
     // Handle status-update silently
     if (messageType === 'status-update') {
       const callId = message?.call?.id;

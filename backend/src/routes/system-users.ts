@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { prisma } from '../utils/prisma.js';
-import { authenticate, adminOnly } from '../middleware/auth.js';
+import { authenticate, adminOnly, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { z } from 'zod';
 import { logAudit } from '../utils/audit.js';
@@ -202,6 +202,30 @@ systemUsersRouter.delete('/:id', adminOnly, async (req, res, next) => {
     await logAudit({ req, action: 'DELETE', entity: 'SystemUser', entityId: id, oldValue: existing });
 
     res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── GET /api/system-users/online — who's currently active (last 5 min)
+systemUsersRouter.get('/online', managerOrAdmin, async (req, res, next) => {
+  try {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    const onlineUsers = await prisma.user.findMany({
+      where: {
+        lastActive: { gte: fiveMinutesAgo },
+        isActive: true,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        lastActive: true,
+      },
+      orderBy: { lastActive: 'desc' },
+    });
+    res.json({ onlineUsers, count: onlineUsers.length });
   } catch (error) {
     next(error);
   }

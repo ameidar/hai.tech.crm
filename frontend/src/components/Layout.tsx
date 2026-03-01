@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import OnlineUsers from './OnlineUsers';
 import {
   LayoutDashboard,
   Users,
@@ -129,6 +130,13 @@ export default function Layout() {
           {new Date(__BUILD_TIME__).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
         </span>
       </div>
+
+      {/* Online Users (admin/manager only) */}
+      {(user?.role === 'admin' || user?.role === 'manager') && (
+        <div className="px-4 pb-2">
+          <OnlineUsers />
+        </div>
+      )}
 
       {/* User section */}
       <div className="p-4 border-t border-slate-700">

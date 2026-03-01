@@ -14,6 +14,14 @@ interface InstructorReportSummary {
   totalExpenses: number;
   grandTotal: number;
 }
+interface UnresolvedMeeting {
+  id: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  instructorName: string;
+  cycleName: string;
+}
 interface MonthOption { value: string; label: string; }
 
 // ─── Instructor Report Tab ─────────────────────────────────────────────────────
@@ -22,7 +30,7 @@ function InstructorReportTab() {
   const [months, setMonths] = useState<MonthOption[]>([]);
   const [selectedMonth, setSelectedMonth] = useState('');
   const [loadingMonths, setLoadingMonths] = useState(false);
-  const [report, setReport] = useState<{ monthLabel: string; instructors: InstructorReportSummary[]; summaryTotalPayment: number; summaryTotalExpenses: number; summaryGrandTotal: number } | null>(null);
+  const [report, setReport] = useState<{ monthLabel: string; instructors: InstructorReportSummary[]; summaryTotalPayment: number; summaryTotalExpenses: number; summaryGrandTotal: number; unresolvedMeetings: UnresolvedMeeting[] } | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
   const [sending, setSending] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -162,53 +170,97 @@ function InstructorReportTab() {
 
       {/* Report preview */}
       {report && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="p-4 border-b bg-blue-50 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-blue-900">
-              📊 דוח {report.monthLabel}
-            </h3>
-            <button onClick={downloadExcel} disabled={downloading}
-              className="flex items-center gap-1.5 text-sm text-blue-700 hover:text-blue-900 font-medium">
-              <Download size={15} />
-              הורד Excel
-            </button>
+        <div className="space-y-4">
+          {/* Main report table */}
+          <div className="bg-white rounded-lg shadow overflow-hidden">
+            <div className="p-4 border-b bg-blue-50 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-blue-900">
+                📊 דוח {report.monthLabel}
+              </h3>
+              <button onClick={downloadExcel} disabled={downloading}
+                className="flex items-center gap-1.5 text-sm text-blue-700 hover:text-blue-900 font-medium">
+                <Download size={15} />
+                הורד Excel
+              </button>
+            </div>
+
+            {report.instructors.length === 0 ? (
+              <div className="p-8 text-center text-gray-500">אין פגישות שהושלמו בחודש זה</div>
+            ) : (
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="text-right p-3 font-medium text-gray-600 text-sm">מדריך</th>
+                    <th className="text-center p-3 font-medium text-gray-600 text-sm">פגישות</th>
+                    <th className="text-center p-3 font-medium text-gray-600 text-sm">שעות</th>
+                    <th className="text-center p-3 font-medium text-gray-600 text-sm">תשלום</th>
+                    <th className="text-center p-3 font-medium text-gray-600 text-sm">הוצאות נוספות</th>
+                    <th className="text-center p-3 font-medium text-gray-600 text-sm font-bold">סה"כ לתשלום</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.instructors.map((instr, i) => (
+                    <tr key={i} className="border-t hover:bg-blue-50 transition-colors">
+                      <td className="p-3 font-semibold text-gray-800">{instr.instructorName}</td>
+                      <td className="p-3 text-center text-gray-700">{instr.totalMeetings}</td>
+                      <td className="p-3 text-center text-gray-700">{instr.totalHours.toFixed(1)}</td>
+                      <td className="p-3 text-center text-gray-700">₪{instr.totalPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                      <td className="p-3 text-center text-gray-500 text-sm">{instr.totalExpenses > 0 ? `₪${instr.totalExpenses.toLocaleString('he-IL', { minimumFractionDigits: 2 })}` : '—'}</td>
+                      <td className="p-3 text-center font-bold text-blue-700">₪{instr.grandTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-blue-100">
+                  <tr>
+                    <td colSpan={3} className="p-3 font-bold text-blue-900">סה"כ כולל</td>
+                    <td className="p-3 text-center font-bold text-blue-900">₪{report.summaryTotalPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                    <td className="p-3 text-center font-bold text-blue-900">{report.summaryTotalExpenses > 0 ? `₪${report.summaryTotalExpenses.toLocaleString('he-IL', { minimumFractionDigits: 2 })}` : '—'}</td>
+                    <td className="p-3 text-center font-bold text-blue-900 text-lg">₪{report.summaryGrandTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
           </div>
 
-          {report.instructors.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">אין פגישות שהושלמו בחודש זה</div>
-          ) : (
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="text-right p-3 font-medium text-gray-600 text-sm">מדריך</th>
-                  <th className="text-center p-3 font-medium text-gray-600 text-sm">פגישות</th>
-                  <th className="text-center p-3 font-medium text-gray-600 text-sm">שעות</th>
-                  <th className="text-center p-3 font-medium text-gray-600 text-sm">תשלום</th>
-                  <th className="text-center p-3 font-medium text-gray-600 text-sm">הוצאות נוספות</th>
-                  <th className="text-center p-3 font-medium text-gray-600 text-sm font-bold">סה"כ לתשלום</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.instructors.map((instr, i) => (
-                  <tr key={i} className="border-t hover:bg-blue-50 transition-colors">
-                    <td className="p-3 font-semibold text-gray-800">{instr.instructorName}</td>
-                    <td className="p-3 text-center text-gray-700">{instr.totalMeetings}</td>
-                    <td className="p-3 text-center text-gray-700">{instr.totalHours.toFixed(1)}</td>
-                    <td className="p-3 text-center text-gray-700">₪{instr.totalPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
-                    <td className="p-3 text-center text-gray-500 text-sm">{instr.totalExpenses > 0 ? `₪${instr.totalExpenses.toLocaleString('he-IL', { minimumFractionDigits: 2 })}` : '—'}</td>
-                    <td className="p-3 text-center font-bold text-blue-700">₪{instr.grandTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+          {/* Unresolved meetings */}
+          {report.unresolvedMeetings && report.unresolvedMeetings.length > 0 ? (
+            <div className="bg-white rounded-lg shadow overflow-hidden border-r-4 border-red-600">
+              <div className="p-4 border-b bg-red-50">
+                <h3 className="text-base font-semibold text-red-800 flex items-center gap-2">
+                  ⚠️ {report.unresolvedMeetings.length} פגישות ללא סטטוס — דורשות בדיקה
+                </h3>
+                <p className="text-sm text-red-600 mt-1">פגישות שתוכננו בחודש זה ונשארו בסטטוס "מתוכנן"</p>
+              </div>
+              <table className="w-full">
+                <thead className="bg-red-700">
+                  <tr>
+                    <th className="text-right p-3 text-white text-sm font-medium">תאריך</th>
+                    <th className="text-center p-3 text-white text-sm font-medium">שעה</th>
+                    <th className="text-right p-3 text-white text-sm font-medium">מדריך</th>
+                    <th className="text-right p-3 text-white text-sm font-medium">קורס / מחזור</th>
+                    <th className="text-center p-3 text-white text-sm font-medium">סטטוס</th>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot className="bg-blue-100">
-                <tr>
-                  <td colSpan={3} className="p-3 font-bold text-blue-900">סה"כ כולל</td>
-                  <td className="p-3 text-center font-bold text-blue-900">₪{report.summaryTotalPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
-                  <td className="p-3 text-center font-bold text-blue-900">{report.summaryTotalExpenses > 0 ? `₪${report.summaryTotalExpenses.toLocaleString('he-IL', { minimumFractionDigits: 2 })}` : '—'}</td>
-                  <td className="p-3 text-center font-bold text-blue-900 text-lg">₪{report.summaryGrandTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
-                </tr>
-              </tfoot>
-            </table>
+                </thead>
+                <tbody>
+                  {report.unresolvedMeetings.map((m, i) => (
+                    <tr key={m.id} className={`border-t ${i % 2 === 0 ? 'bg-orange-50' : 'bg-white'}`}>
+                      <td className="p-3 text-gray-800">{new Date(m.date).toLocaleDateString('he-IL')}</td>
+                      <td className="p-3 text-center text-gray-700">{m.startTime}</td>
+                      <td className="p-3 font-semibold text-gray-800">{m.instructorName}</td>
+                      <td className="p-3 text-gray-700">{m.cycleName}</td>
+                      <td className="p-3 text-center">
+                        <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-bold">מתוכנן ⚠️</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : report.unresolvedMeetings && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
+              <span className="text-2xl">✅</span>
+              <span className="text-green-800 font-medium">כל הפגישות בחודש זה קיבלו עדכון סטטוס — אין פגישות פתוחות</span>
+            </div>
           )}
         </div>
       )}

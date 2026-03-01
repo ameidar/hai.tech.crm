@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-import type { InstructorMonthlyReport } from '../services/instructorReport.service.js';
+import type { InstructorMonthlyReport, UnresolvedMeeting } from '../services/instructorReport.service.js';
 
 // ─── Style helpers ────────────────────────────────────────────────────────────
 
@@ -322,6 +322,93 @@ function buildInstructorSheet(
   });
 }
 
+// ─── Unresolved meetings sheet ────────────────────────────────────────────────
+
+function buildUnresolvedSheet(
+  wb: ExcelJS.Workbook,
+  meetings: UnresolvedMeeting[],
+  monthLabel: string,
+) {
+  const ws = wb.addWorksheet('⚠️ פגישות ללא סטטוס', { views: [{ rightToLeft: true }] });
+  ws.properties.defaultRowHeight = 22;
+
+  // ── Title ──────────────────────────────────────────────────────────────────
+  ws.mergeCells('A1:F1');
+  const title = ws.getCell('A1');
+  title.value = `⚠️ פגישות ללא סטטוס — ${monthLabel} (${meetings.length})`;
+  title.font  = font({ size: 15, bold: true, color: { argb: 'FFFFFFFF' } });
+  title.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFB91C1C' } }; // red
+  title.alignment = { ...center };
+  title.border = thickBorder;
+  ws.getRow(1).height = 34;
+
+  // ── Sub-title ──────────────────────────────────────────────────────────────
+  if (meetings.length === 0) {
+    ws.mergeCells('A2:F2');
+    const ok = ws.getCell('A2');
+    ok.value = '✅ כל הפגישות בחודש זה קיבלו עדכון סטטוס — אין פגישות פתוחות';
+    ok.font  = font({ size: 12, bold: true, color: { argb: 'FF166534' } });
+    ok.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
+    ok.alignment = { ...center };
+    ws.getRow(2).height = 28;
+    return;
+  }
+
+  ws.mergeCells('A2:F2');
+  const sub = ws.getCell('A2');
+  sub.value = 'פגישות אלו תוכננו בחודש הדוח אך נשארו בסטטוס "מתוכנן" — יש לבדוק ולעדכן';
+  sub.font  = font({ size: 11, italic: true, color: { argb: 'FF92400E' } });
+  sub.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+  sub.alignment = { ...center };
+  ws.getRow(2).height = 22;
+
+  // ── Columns ────────────────────────────────────────────────────────────────
+  ws.columns = [
+    { width: 16 }, // תאריך
+    { width: 12 }, // שעת התחלה
+    { width: 12 }, // שעת סיום
+    { width: 26 }, // מדריך
+    { width: 28 }, // קורס/מחזור
+    { width: 16 }, // סטטוס
+  ];
+
+  // ── Header row ─────────────────────────────────────────────────────────────
+  const headerRow = ws.getRow(3);
+  headerRow.values = ['תאריך', 'שעת התחלה', 'שעת סיום', 'מדריך', 'קורס / מחזור', 'סטטוס'];
+  headerRow.height = 26;
+  headerRow.eachCell({ includeEmpty: false }, cell => {
+    cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFB91C1C' } };
+    cell.font      = font({ bold: true, color: { argb: 'FFFFFFFF' } });
+    cell.alignment = { ...center };
+    cell.border    = border;
+  });
+
+  // ── Data rows ──────────────────────────────────────────────────────────────
+  meetings.forEach((mtg, i) => {
+    const r = ws.getRow(4 + i);
+    const dateStr = mtg.date instanceof Date
+      ? mtg.date.toLocaleDateString('he-IL')
+      : new Date(mtg.date).toLocaleDateString('he-IL');
+
+    r.values = [dateStr, mtg.startTime, mtg.endTime, mtg.instructorName, mtg.cycleName, 'מתוכנן ⚠️'];
+    r.height = 22;
+
+    const rowFill: ExcelJS.Fill = {
+      type: 'pattern', pattern: 'solid',
+      fgColor: { argb: i % 2 === 0 ? 'FFFFF7ED' : 'FFFFFFFF' },
+    };
+    r.eachCell({ includeEmpty: false }, (cell, col) => {
+      cell.border = border;
+      cell.fill   = rowFill;
+      cell.alignment = { ...right };
+      if (col === 6) {
+        cell.font = font({ bold: true, color: { argb: 'FFB91C1C' } });
+        cell.alignment = { ...center };
+      }
+    });
+  });
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
@@ -337,6 +424,9 @@ export async function generateInstructorReportExcel(
 
   // Summary sheet first
   buildSummarySheet(wb, report);
+
+  // Unresolved meetings sheet (always second — attention-grabbing)
+  buildUnresolvedSheet(wb, report.unresolvedMeetings ?? [], report.monthLabel);
 
   // One sheet per instructor
   for (const instr of report.instructors) {

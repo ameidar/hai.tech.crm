@@ -38,6 +38,16 @@ export interface InstructorReportData {
   grandTotal: number;
 }
 
+export interface UnresolvedMeeting {
+  id: string;
+  date: Date;
+  startTime: string;
+  endTime: string;
+  instructorName: string;
+  cycleName: string;
+  status: string;
+}
+
 export interface InstructorMonthlyReport {
   month: string; // "YYYY-MM"
   monthLabel: string; // "פברואר 2026"
@@ -46,6 +56,7 @@ export interface InstructorMonthlyReport {
   summaryTotalPayment: number;
   summaryTotalExpenses: number;
   summaryGrandTotal: number;
+  unresolvedMeetings: UnresolvedMeeting[]; // meetings still "scheduled" after the month ended
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -196,6 +207,30 @@ export async function buildInstructorMonthlyReport(
   const summaryTotalPayment  = instructors.reduce((s, i) => s + i.totalPayment, 0);
   const summaryTotalExpenses = instructors.reduce((s, i) => s + i.totalExpenses, 0);
 
+  // 5. Unresolved meetings — scheduled but date has passed (still in the report month)
+  const unresolvedRaw = await prisma.meeting.findMany({
+    where: {
+      scheduledDate: { gte: from, lt: to },
+      status: 'scheduled',
+      deletedAt: null,
+    },
+    include: {
+      instructor: true,
+      cycle: { include: { course: true } },
+    },
+    orderBy: [{ scheduledDate: 'asc' }, { startTime: 'asc' }],
+  });
+
+  const unresolvedMeetings: UnresolvedMeeting[] = unresolvedRaw.map(m => ({
+    id:             m.id,
+    date:           m.scheduledDate,
+    startTime:      formatTime(m.startTime as unknown),
+    endTime:        formatTime(m.endTime as unknown),
+    instructorName: (m.instructor as { name: string }).name,
+    cycleName:      (m.cycle as { course: { name: string } }).course.name,
+    status:         m.status,
+  }));
+
   return {
     month,
     monthLabel: getMonthLabel(month),
@@ -204,6 +239,7 @@ export async function buildInstructorMonthlyReport(
     summaryTotalPayment,
     summaryTotalExpenses,
     summaryGrandTotal: summaryTotalPayment + summaryTotalExpenses,
+    unresolvedMeetings,
   };
 }
 

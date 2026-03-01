@@ -47,6 +47,8 @@ import { filesRouter } from './routes/files.js';
 import { systemUsersRouter } from './routes/system-users.js';
 import waRouter from './routes/whatsapp.js';
 import { paymentsRouter } from './routes/payments.js';
+import { campaignsRouter } from './routes/campaigns.js';
+import { campaignLeadsRouter } from './routes/campaign-leads.js';
 import { devReadOnly } from './middleware/devReadOnly.js';
 
 // API v1 Router
@@ -204,6 +206,8 @@ app.use('/api/payments', paymentsRouter); // WooCommerce payment links
 app.use('/api/system-users', systemUsersRouter); // System users management (admin/manager)
 app.use('/api/upsell-leads', upsellLeadsRouter); // Upsell leads from completed cycles
 app.use('/api/reports', reportsRouter); // Instructor activity reports
+app.use('/api/campaigns', campaignsRouter); // Marketing campaigns
+app.use('/api/campaign-leads', campaignLeadsRouter); // Public campaign lead form submissions
 
 // Error handling for API routes
 app.use('/api', errorHandler);

@@ -68,6 +68,57 @@ vapiToolsRouter.post('/', async (req: Request, res: Response) => {
             return { toolCallId, result: `שגיאה בקביעת הפגישה: ${result.error}` };
           }
 
+          case 'lookupCaller': {
+            // Use phone from args or fall back to caller ID from the call object
+            const rawPhone = args.phone || message?.call?.customer?.number || '';
+            let normalized = rawPhone.replace(/\D/g, '');
+            if (normalized.startsWith('972')) normalized = '0' + normalized.substring(3);
+            if (normalized.startsWith('00972')) normalized = '0' + normalized.substring(5);
+            const last9 = normalized.slice(-9);
+
+            if (!last9) {
+              return { toolCallId, result: 'לא זוהה מספר טלפון של המתקשר' };
+            }
+
+            // Search in customers table
+            const customer = await prisma.customer.findFirst({
+              where: { phone: { contains: last9 } },
+              include: { students: { select: { name: true, grade: true } } },
+            });
+
+            // Also check latest lead appointment by phone
+            const lastLead = await prisma.leadAppointment.findFirst({
+              where: { customerPhone: { contains: last9 } },
+              orderBy: { createdAt: 'desc' },
+            });
+
+            if (customer) {
+              let result = `מצאתי לקוח במערכת: שם — ${customer.name}`;
+              if (customer.students?.length) {
+                result += `. ילדים: ${customer.students.map((s: any) => s.name + (s.grade ? ' כיתה ' + s.grade : '')).join(', ')}`;
+              }
+              if (lastLead?.interest) result += `. תחום עניין: ${lastLead.interest}`;
+              if (lastLead?.childName && !customer.students?.length) result += `. ילד: ${lastLead.childName}`;
+              if (customer.notes) {
+                const firstNote = customer.notes.split('\n')[0].substring(0, 120);
+                result += `. הערות: ${firstNote}`;
+              }
+              console.log(`[VAPI TOOLS] lookupCaller found customer: ${customer.name} (${rawPhone})`);
+              return { toolCallId, result };
+            }
+
+            if (lastLead) {
+              let result = `לקוח מוכר מפנייה קודמת: שם — ${lastLead.customerName}`;
+              if (lastLead.interest) result += `. תחום עניין: ${lastLead.interest}`;
+              if (lastLead.childName) result += `. ילד: ${lastLead.childName}`;
+              console.log(`[VAPI TOOLS] lookupCaller found lead: ${lastLead.customerName} (${rawPhone})`);
+              return { toolCallId, result };
+            }
+
+            console.log(`[VAPI TOOLS] lookupCaller — unknown caller: ${rawPhone}`);
+            return { toolCallId, result: 'מתקשר לא מוכר במערכת' };
+          }
+
           default:
             return { toolCallId, result: `Unknown function: ${functionName}` };
         }

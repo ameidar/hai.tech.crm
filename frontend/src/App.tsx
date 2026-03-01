@@ -30,6 +30,8 @@ import LeadAppointments from './pages/LeadAppointments';
 import InstitutionalOrders from './pages/InstitutionalOrders';
 import SystemUsers from './pages/SystemUsers';
 import WhatsAppInbox from './pages/WhatsAppInbox';
+import Campaigns from './pages/Campaigns';
+import CampaignLanding from './pages/CampaignLanding';
 
 // Mobile instructor pages
 import MobileMeetings from './pages/instructor/MobileMeetings';
@@ -103,6 +105,7 @@ function AppRoutes() {
       <Route path="/reset-password/:token" element={<ResetPassword />} />
       <Route path="/public/quote/:id" element={<PublicQuoteView />} />
       <Route path="/cancel/:token" element={<PublicCancelForm />} />
+      <Route path="/campaign/:campaignId" element={<CampaignLanding />} />
       <Route path="/m/:meetingId/:token" element={<MeetingStatus />} />
       <Route path="/i/:meetingId/:token" element={<InstructorMagicMeeting />} />
       
@@ -157,6 +160,7 @@ function AppRoutes() {
             <Route path="system-users" element={<NonSalesRoute><SystemUsers /></NonSalesRoute>} />
             <Route path="reports" element={<NonSalesRoute><Reports /></NonSalesRoute>} />
             <Route path="audit" element={<NonSalesRoute><AuditLog /></NonSalesRoute>} />
+            <Route path="campaigns" element={<NonSalesRoute><Campaigns /></NonSalesRoute>} />
           </>
         )}
         <Route path="instructor" element={<InstructorDashboard />} />

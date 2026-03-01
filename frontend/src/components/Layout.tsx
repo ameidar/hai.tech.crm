@@ -21,6 +21,7 @@ import {
   ChevronDown,
   UserCog,
   MessageCircle,
+  Megaphone,
 } from 'lucide-react';
 
 // Admin/Manager navigation
@@ -38,6 +39,7 @@ const adminNavItems = [
   { path: '/institutional-orders', icon: FileText, label: 'הזמנות מוסדיות', testId: 'nav-institutional-orders' },
   { path: '/lead-appointments', icon: PhoneCall, label: 'יומן לידים', testId: 'nav-lead-appointments' },
   { path: '/whatsapp', icon: MessageCircle, label: 'WhatsApp', testId: 'nav-whatsapp' },
+  { path: '/campaigns', icon: Megaphone, label: 'קמפיינים', testId: 'nav-campaigns' },
   { path: '/reports', icon: BarChart3, label: 'דוחות', testId: 'nav-reports' },
   { path: '/audit', icon: FileText, label: 'יומן פעילות', testId: 'nav-audit' },
 ];

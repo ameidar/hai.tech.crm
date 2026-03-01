@@ -316,6 +316,97 @@ function scheduleLeadExtraction(conversationId: string) {
 }
 
 // ============================================================
+// Callback Request Detection
+// ============================================================
+
+const CALLBACK_KEYWORDS = [
+  // Hebrew
+  'שיחזרו אליי', 'שיחזרו אלי', 'לחזור אליי', 'לחזור אלי',
+  'חזרו אליי', 'חזרו אלי', 'להתקשר אליי', 'להתקשר אלי',
+  'שמישהו יחזור', 'שנציג יחזור', 'שיתקשרו אליי', 'שיתקשרו אלי',
+  'רוצה שיחזרו', 'רוצה שיתקשרו', 'אפשר שיחזרו', 'אפשר לחזור',
+  'לדבר עם נציג', 'לדבר עם אדם', 'לדבר עם מישהו',
+  'נציג אנושי', 'שיחה טלפונית', 'שיחת טלפון',
+  // English fallback
+  'call me back', 'call me', 'callback', 'call back',
+  'speak to someone', 'talk to someone', 'human agent'
+];
+
+function detectCallbackIntent(text: string): boolean {
+  const lower = text.toLowerCase();
+  return CALLBACK_KEYWORDS.some(kw => lower.includes(kw));
+}
+
+async function handleCallbackRequest(conv: any, messageText: string): Promise<void> {
+  try {
+    // Check if there's already a pending callback request for this conversation in the last 24h
+    const recent = await (prisma as any).waCallbackRequest.findFirst({
+      where: {
+        conversationId: conv.id,
+        status: 'pending',
+        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+      }
+    });
+    if (recent) return; // Already registered, skip
+
+    // Save callback request
+    await (prisma as any).waCallbackRequest.create({
+      data: {
+        conversationId: conv.id,
+        phone: conv.phone,
+        contactName: conv.contactName || null,
+        message: messageText,
+        status: 'pending'
+      }
+    });
+
+    // Send email to info@hai.tech
+    const convLink = `https://crm.orma-ai.com/whatsapp?conv=${conv.id}`;
+    const customerLabel = conv.contactName
+      ? `${conv.contactName} (${conv.phone})`
+      : conv.phone;
+
+    await sendEmail({
+      to: 'info@hai.tech',
+      subject: `📞 בקשת חזרה מ-WhatsApp — ${customerLabel}`,
+      html: `
+        <div dir="rtl" style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+          <div style="background:#1a56db;padding:20px;border-radius:8px 8px 0 0;">
+            <h2 style="color:#fff;margin:0;">📞 בקשת חזרה — WhatsApp</h2>
+          </div>
+          <div style="background:#f9fafb;padding:24px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px;">
+            <p style="font-size:16px;color:#111827;margin:0 0 16px 0;">
+              לקוח ביקש שנחזור אליו דרך הבוט:
+            </p>
+            <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:16px;margin-bottom:20px;">
+              <p style="margin:4px 0;color:#374151;"><strong>שם:</strong> ${conv.contactName || '—'}</p>
+              <p style="margin:4px 0;color:#374151;"><strong>טלפון:</strong> <a href="tel:${conv.phone}" style="color:#1a56db;">${conv.phone}</a></p>
+              <p style="margin:4px 0;color:#374151;"><strong>הודעה:</strong></p>
+              <blockquote style="background:#f3f4f6;border-right:4px solid #1a56db;padding:10px 14px;margin:8px 0;border-radius:4px;color:#1f2937;">
+                ${messageText}
+              </blockquote>
+            </div>
+            <div style="text-align:center;">
+              <a href="${convLink}" style="background:#1a56db;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-size:15px;display:inline-block;">
+                פתח שיחה ב-CRM →
+              </a>
+            </div>
+          </div>
+          <p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:12px;">
+            HaiTech CRM · דרך ההייטק
+          </p>
+        </div>
+      `
+    });
+
+    console.log(`[WA] Callback request registered for ${conv.phone}`);
+    broadcastSSE('callback_request', { conversationId: conv.id, phone: conv.phone, contactName: conv.contactName });
+  } catch (err) {
+    console.error('[WA] Callback request handling error:', err);
+  }
+}
+
+// ============================================================
 // Routes
 // ============================================================
 
@@ -483,11 +574,71 @@ router.post('/webhook', async (req: Request, res: Response) => {
           }
 
           scheduleLeadExtraction(conv.id);
+
+          // Callback request detection
+          if (detectCallbackIntent(text)) {
+            handleCallbackRequest(conv, text); // fire-and-forget (async)
+          }
         }
       }
     }
   } catch (err) {
     console.error('[WA] Webhook error:', err);
+  }
+});
+
+// ── GET /api/wa/callbacks — List callback requests
+router.get('/callbacks', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { status } = req.query;
+    const where: any = {};
+    if (status) where.status = status;
+
+    const rows = await (prisma as any).waCallbackRequest.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 100
+    });
+    res.json(rows);
+  } catch (err) {
+    console.error('[WA] Callbacks list error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── PATCH /api/wa/callbacks/:id — Mark callback as done/pending
+router.patch('/callbacks/:id', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    if (!['pending', 'done'].includes(status)) {
+      res.status(400).json({ error: 'Invalid status' });
+      return;
+    }
+    const updated = await (prisma as any).waCallbackRequest.update({
+      where: { id },
+      data: {
+        status,
+        resolvedAt: status === 'done' ? new Date() : null,
+        resolvedBy: status === 'done' ? (req as any).user?.email : null
+      }
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error('[WA] Callbacks update error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── GET /api/wa/callbacks/count — Pending count for badge
+router.get('/callbacks/count', authenticate, async (req: Request, res: Response) => {
+  try {
+    const count = await (prisma as any).waCallbackRequest.count({
+      where: { status: 'pending' }
+    });
+    res.json({ count });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

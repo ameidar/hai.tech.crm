@@ -4,35 +4,49 @@ import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, Ph
 import WaSendModal from '../components/WaSendModal';
 import WooPayModal from '../components/WooPayModal';
 
-// ─── Notification sound (same approach as mirit-cig) ─────────────────────────
-function playDing(frequency = 880, duration = 0.4, volume = 0.35) {
-  try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const play = () => {
-      const osc  = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(frequency, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(frequency * 0.5, ctx.currentTime + duration);
-      gain.gain.setValueAtTime(volume, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + duration);
-      osc.onended = () => ctx.close();
-    };
-    if (ctx.state === 'suspended') { ctx.resume().then(play); } else { play(); }
-  } catch {}
+// ─── Notification sound — singleton AudioContext ──────────────────────────────
+let _audioCtx: AudioContext | null = null;
+let _audioUnlocked = false;
+
+function getAudioCtx(): AudioContext {
+  if (!_audioCtx) {
+    _audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  }
+  return _audioCtx;
 }
 
-function unlockAudio() { /* no-op — AudioContext unlocks on any user interaction */ }
+/** Call this inside a user-gesture handler (click/touchend) to unlock audio */
+function unlockAudio(): Promise<void> {
+  const ctx = getAudioCtx();
+  return ctx.resume().then(() => { _audioUnlocked = true; });
+}
+
+function isAudioUnlocked(): boolean {
+  return _audioUnlocked && !!_audioCtx && _audioCtx.state === 'running';
+}
+
+function _playDing(frequency: number, duration: number, volume: number) {
+  const ctx = getAudioCtx();
+  const osc  = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(frequency, ctx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(frequency * 0.5, ctx.currentTime + duration);
+  gain.gain.setValueAtTime(volume, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+  osc.start(ctx.currentTime);
+  osc.stop(ctx.currentTime + duration);
+}
 
 function playWaNotification() {
-  // Three rising tones like WA
-  playDing(830, 0.15, 0.4);
-  setTimeout(() => playDing(1046, 0.15, 0.35), 160);
-  setTimeout(() => playDing(1318, 0.25, 0.3), 320);
+  if (!isAudioUnlocked()) return; // silently skip — context not yet unlocked
+  try {
+    _playDing(830,  0.15, 0.4);
+    setTimeout(() => _playDing(1046, 0.15, 0.35), 160);
+    setTimeout(() => _playDing(1318, 0.25, 0.3),  320);
+  } catch {}
 }
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -137,6 +151,8 @@ export default function WhatsAppInbox() {
   const [callbackRequests, setCallbackRequests] = useState<any[]>([]);
   const [callbackPending, setCallbackPending] = useState(0);
   const [loadingCallbacks, setLoadingCallbacks] = useState(false);
+  // Audio unlock state
+  const [audioReady, setAudioReady] = useState(false);
   // Create template (inside template modal)
   const [showCreateTemplate, setShowCreateTemplate] = useState(false);
   const [createForm, setCreateForm] = useState({ name: '', category: 'MARKETING', headerText: '', bodyText: '', footerText: '' });
@@ -159,11 +175,9 @@ export default function WhatsAppInbox() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  // Unlock AudioContext on first user interaction (browser autoplay policy)
+  // Check if audio was already unlocked (e.g. from a previous interaction)
   useEffect(() => {
-    const handler = () => { unlockAudio(); document.removeEventListener('click', handler); };
-    document.addEventListener('click', handler);
-    return () => document.removeEventListener('click', handler);
+    if (isAudioUnlocked()) setAudioReady(true);
   }, []);
 
   // Load conversations
@@ -489,6 +503,21 @@ export default function WhatsAppInbox() {
             <span className="bg-orange-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">{callbackPending}</span>
           )}
         </button>
+
+        {/* Audio unlock button — shown until user enables sound */}
+        <div className="mr-auto pr-2">
+          {!audioReady ? (
+            <button
+              onClick={() => unlockAudio().then(() => { setAudioReady(true); playWaNotification(); })}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-300 text-amber-700 rounded-lg text-xs font-medium hover:bg-amber-100 transition-colors animate-pulse"
+              title="לחץ להפעלת צליל התראות"
+            >
+              🔔 הפעל צליל
+            </button>
+          ) : (
+            <span className="text-xs text-green-600 flex items-center gap-1">🔔 צליל פעיל</span>
+          )}
+        </div>
       </div>
 
       {/* ── Template Manager View ── */}

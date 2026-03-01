@@ -178,6 +178,7 @@ export default function WhatsAppInbox() {
   const [activePhones, setActivePhones] = useState<{ phoneNumberId: string; businessPhone: string; label: string }[]>([]);
   const [selectedFromPhone, setSelectedFromPhone] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   // Unlock AudioContext on first user interaction (browser autoplay policy)
@@ -290,7 +291,8 @@ export default function WhatsAppInbox() {
   }, [selected, loadMessages]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = messagesContainerRef.current;
+    if (container) container.scrollTop = container.scrollHeight;
   }, [messages]);
 
   const selectConversation = (conv: WaConversation) => {
@@ -883,7 +885,7 @@ export default function WhatsAppInbox() {
           )}
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-2">
             {messages.length === 0 && (
               <div className="text-center text-gray-400 text-sm mt-8">טוען הודעות...</div>
             )}

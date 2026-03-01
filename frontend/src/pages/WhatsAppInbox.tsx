@@ -4,19 +4,35 @@ import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, Ph
 import WaSendModal from '../components/WaSendModal';
 import WooPayModal from '../components/WooPayModal';
 
-// ─── Notification sound ──────────────────────────────────────────────────────
-// Pre-load audio element; "unlock" it on first user click (browser autoplay policy)
-const _notifAudio = new Audio('/wa-notification.wav');
-_notifAudio.volume = 0.6;
-
-function unlockAudio() {
-  _notifAudio.play().then(() => _notifAudio.pause()).catch(() => {});
-  _notifAudio.currentTime = 0;
+// ─── Notification sound (same approach as mirit-cig) ─────────────────────────
+function playDing(frequency = 880, duration = 0.4, volume = 0.35) {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const play = () => {
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(frequency, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(frequency * 0.5, ctx.currentTime + duration);
+      gain.gain.setValueAtTime(volume, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + duration);
+      osc.onended = () => ctx.close();
+    };
+    if (ctx.state === 'suspended') { ctx.resume().then(play); } else { play(); }
+  } catch {}
 }
 
+function unlockAudio() { /* no-op — AudioContext unlocks on any user interaction */ }
+
 function playWaNotification() {
-  _notifAudio.currentTime = 0;
-  _notifAudio.play().catch(() => {});
+  // Three rising tones like WA
+  playDing(830, 0.15, 0.4);
+  setTimeout(() => playDing(1046, 0.15, 0.35), 160);
+  setTimeout(() => playDing(1318, 0.25, 0.3), 320);
 }
 
 // ─── Types ──────────────────────────────────────────────────────────────────

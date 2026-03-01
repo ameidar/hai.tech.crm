@@ -79,6 +79,45 @@ function buildEmailHtml(report: InstructorMonthlyReport): string {
       </table>
     </div>
 
+    <!-- Unresolved meetings alert -->
+    ${report.unresolvedMeetings && report.unresolvedMeetings.length > 0 ? `
+    <div style="margin:0 36px 24px;padding:20px;background:#FEF2F2;border-radius:10px;border-right:4px solid #B91C1C">
+      <div style="font-weight:700;color:#B91C1C;font-size:15px;margin-bottom:12px">
+        ⚠️ ${report.unresolvedMeetings.length} פגישות ללא סטטוס — דורשות בדיקה
+      </div>
+      <div style="color:#7F1D1D;font-size:13px;margin-bottom:10px">
+        הפגישות הבאות תוכננו בחודש הדוח אך נשארו בסטטוס "מתוכנן":
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="background:#B91C1C">
+            <th style="padding:8px;text-align:right;color:#fff">תאריך</th>
+            <th style="padding:8px;text-align:right;color:#fff">שעה</th>
+            <th style="padding:8px;text-align:right;color:#fff">מדריך</th>
+            <th style="padding:8px;text-align:right;color:#fff">קורס</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${report.unresolvedMeetings.map((m, i) => `
+            <tr style="background:${i % 2 === 0 ? '#FFF7ED' : '#fff'}">
+              <td style="padding:7px 10px;border-bottom:1px solid #FEE2E2">${new Date(m.date).toLocaleDateString('he-IL')}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid #FEE2E2">${m.startTime}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid #FEE2E2;font-weight:600">${m.instructorName}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid #FEE2E2">${m.cycleName}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      <div style="margin-top:10px;color:#92400E;font-size:12px">
+        📋 הפגישות המלאות מפורטות בלשונית "⚠️ פגישות ללא סטטוס" בקובץ ה-Excel המצורף
+      </div>
+    </div>
+    ` : `
+    <div style="margin:0 36px 24px;padding:16px;background:#D1FAE5;border-radius:10px;border-right:4px solid #059669;text-align:center;color:#064E3B;font-weight:600;font-size:13px">
+      ✅ כל הפגישות בחודש זה קיבלו עדכון סטטוס — אין פגישות פתוחות
+    </div>
+    `}
+
     <!-- Note -->
     <div style="padding:0 36px 24px;color:#64748b;font-size:13px;text-align:center">
       הפירוט המלא מצורף כקובץ Excel לאימייל זה

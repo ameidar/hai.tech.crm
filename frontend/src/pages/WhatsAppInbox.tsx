@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp, Search, PenSquare, Plus, CheckCircle, AlertCircle, CreditCard } from 'lucide-react';
+import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp, Search, PenSquare, Plus, CheckCircle, AlertCircle, CreditCard, Settings, Save } from 'lucide-react';
 import WaSendModal from '../components/WaSendModal';
 import WooPayModal from '../components/WooPayModal';
+import { useAuth } from '../context/AuthContext';
 
 // ─── Notification sound — singleton AudioContext ──────────────────────────────
 let _audioCtx: AudioContext | null = null;
@@ -131,6 +132,8 @@ function StatusIcon({ status }: { status: string }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function WhatsAppInbox() {
   const [searchParams] = useSearchParams();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
   const [conversations, setConversations] = useState<WaConversation[]>([]);
   const [selected, setSelected] = useState<WaConversation | null>(null);
   const [messages, setMessages] = useState<WaMessage[]>([]);
@@ -144,7 +147,14 @@ export default function WhatsAppInbox() {
   const [templateVars, setTemplateVars] = useState<string[]>([]);
   const [expandedTemplate, setExpandedTemplate] = useState<string | null>(null);
   // Top-level view mode
-  const [viewMode, setViewMode] = useState<'inbox' | 'templates' | 'callbacks'>('inbox');
+  const [viewMode, setViewMode] = useState<'inbox' | 'templates' | 'callbacks' | 'bot-settings'>('inbox');
+  // Bot settings
+  const [botSystemPrompt, setBotSystemPrompt] = useState('');
+  const [botKnowledgeBase, setBotKnowledgeBase] = useState('');
+  const [loadingBotConfig, setLoadingBotConfig] = useState(false);
+  const [savingBotConfig, setSavingBotConfig] = useState(false);
+  const [botConfigMsg, setBotConfigMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [botActiveTab, setBotActiveTab] = useState<'prompt' | 'kb'>('prompt');
   // Template Manager state (top-level)
   const [tmplMgrTab, setTmplMgrTab] = useState<'list' | 'create'>('list');
   // Callback requests
@@ -283,6 +293,35 @@ export default function WhatsAppInbox() {
     await api(`/callbacks/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'done' }) });
     setCallbackRequests(prev => prev.map(r => r.id === id ? { ...r, status: 'done' } : r));
     setCallbackPending(prev => Math.max(0, prev - 1));
+  };
+
+  const loadBotConfig = useCallback(async () => {
+    setLoadingBotConfig(true);
+    try {
+      const data = await api('/bot-config');
+      setBotSystemPrompt(data.systemPrompt || '');
+      setBotKnowledgeBase(data.knowledgeBase || '{}');
+    } catch (e) {
+      console.error('Failed to load bot config', e);
+    } finally {
+      setLoadingBotConfig(false);
+    }
+  }, []);
+
+  const saveBotConfig = async () => {
+    setSavingBotConfig(true);
+    setBotConfigMsg(null);
+    try {
+      await api('/bot-config', {
+        method: 'PUT',
+        body: JSON.stringify({ systemPrompt: botSystemPrompt, knowledgeBase: botKnowledgeBase })
+      });
+      setBotConfigMsg({ ok: true, text: '✅ הגדרות נשמרו בהצלחה! הבוט יעשה שימוש בהן מיד.' });
+    } catch (e: any) {
+      setBotConfigMsg({ ok: false, text: '❌ שגיאה בשמירה: ' + (e.message || 'Unknown error') });
+    } finally {
+      setSavingBotConfig(false);
+    }
   };
 
   useEffect(() => { loadConversations(); loadCallbacks(); }, [loadConversations, loadCallbacks]);
@@ -503,6 +542,17 @@ export default function WhatsAppInbox() {
             <span className="bg-orange-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">{callbackPending}</span>
           )}
         </button>
+
+        {/* Bot Settings tab — admin only */}
+        {isAdmin && (
+          <button
+            onClick={() => { setViewMode('bot-settings'); if (!botSystemPrompt) loadBotConfig(); }}
+            className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'bot-settings' ? 'border-purple-500 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <Settings size={16} />
+            הגדרות בוט
+          </button>
+        )}
 
         {/* Audio unlock button — shown until user enables sound */}
         <div className="mr-auto pr-2">
@@ -749,6 +799,89 @@ export default function WhatsAppInbox() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ── Bot Settings View ── */}
+      {viewMode === 'bot-settings' && isAdmin && (
+        <div className="flex-1 overflow-hidden flex flex-col" dir="rtl">
+          {/* Sub-tabs */}
+          <div className="bg-white border-b border-gray-200 flex items-center gap-2 px-6 flex-shrink-0">
+            <button onClick={() => setBotActiveTab('prompt')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${botActiveTab === 'prompt' ? 'border-purple-500 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+              📝 System Prompt
+            </button>
+            <button onClick={() => setBotActiveTab('kb')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${botActiveTab === 'kb' ? 'border-purple-500 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+              📚 Knowledge Base (JSON)
+            </button>
+          </div>
+
+          {loadingBotConfig ? (
+            <div className="flex-1 flex items-center justify-center text-gray-400">טוען הגדרות...</div>
+          ) : (
+            <div className="flex-1 flex flex-col overflow-hidden p-4 gap-3">
+              {botActiveTab === 'prompt' ? (
+                <div className="flex-1 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold text-gray-800">System Prompt</h3>
+                      <p className="text-xs text-gray-500">ההוראות לבוט — אופי, כללי התנהגות, תסריט שיחה</p>
+                    </div>
+                    <span className="text-xs text-gray-400">{botSystemPrompt.length.toLocaleString()} תווים</span>
+                  </div>
+                  <textarea
+                    value={botSystemPrompt}
+                    onChange={e => setBotSystemPrompt(e.target.value)}
+                    className="flex-1 border border-gray-300 rounded-xl p-4 font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-purple-400 bg-gray-50 text-gray-800 leading-relaxed"
+                    placeholder="הכנס כאן את ה-system prompt..."
+                    dir="rtl"
+                    style={{ minHeight: '400px' }}
+                  />
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold text-gray-800">Knowledge Base</h3>
+                      <p className="text-xs text-gray-500">המידע שהבוט מכיר — קורסים, מחירים, שאלות נפוצות (פורמט JSON)</p>
+                    </div>
+                    <span className="text-xs text-gray-400">{botKnowledgeBase.length.toLocaleString()} תווים</span>
+                  </div>
+                  <textarea
+                    value={botKnowledgeBase}
+                    onChange={e => setBotKnowledgeBase(e.target.value)}
+                    className="flex-1 border border-gray-300 rounded-xl p-4 font-mono text-xs resize-none focus:outline-none focus:ring-2 focus:ring-purple-400 bg-gray-50 text-gray-800 leading-relaxed"
+                    placeholder='{"courses": [...], "faq": [...]}'
+                    dir="ltr"
+                    style={{ minHeight: '400px' }}
+                  />
+                  <p className="text-xs text-amber-600">⚠️ חייב להיות JSON תקין. שגיאה תמנע שמירה.</p>
+                </div>
+              )}
+
+              {/* Save button + status */}
+              <div className="flex items-center gap-3 flex-shrink-0">
+                <button
+                  onClick={saveBotConfig}
+                  disabled={savingBotConfig}
+                  className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-5 py-2.5 rounded-xl font-medium text-sm disabled:opacity-50 transition-colors"
+                >
+                  <Save size={16} />
+                  {savingBotConfig ? 'שומר...' : 'שמור הגדרות'}
+                </button>
+                <button
+                  onClick={loadBotConfig}
+                  className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-100"
+                >
+                  ↺ טען מחדש
+                </button>
+                {botConfigMsg && (
+                  <span className={`text-sm ${botConfigMsg.ok ? 'text-green-600' : 'text-red-600'}`}>
+                    {botConfigMsg.text}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

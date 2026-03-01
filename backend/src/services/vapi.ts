@@ -223,19 +223,13 @@ export async function handleEndOfCallReport(payload: any): Promise<void> {
   if (!leadAppointment) {
     const callType = payload.call?.type;
     const callerNumber = payload.call?.customer?.number || '';
-    
     if (callType === 'inboundPhoneCall' && callerNumber) {
-      // Normalize caller number
       let normalizedPhone = callerNumber.replace(/\D/g, '');
       if (normalizedPhone.startsWith('972')) normalizedPhone = '0' + normalizedPhone.substring(3);
       const last9 = normalizedPhone.slice(-9);
-
-      // Try to find existing customer
       const existingCustomer = last9 ? await prisma.customer.findFirst({
         where: { phone: { contains: last9 } },
       }) : null;
-
-      // Create a new LeadAppointment for this inbound call
       leadAppointment = await prisma.leadAppointment.create({
         data: {
           customerId: existingCustomer?.id || null,

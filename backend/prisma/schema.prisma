@@ -876,6 +876,7 @@ model Campaign {
   recipientCount  Int       @default(0) @map("recipient_count")
   deliveredCount  Int       @default(0) @map("delivered_count")
   failedCount     Int       @default(0) @map("failed_count")
+  landingUrl      String?   @map("landing_url")
   createdBy       User                @relation(fields: [createdById], references: [id])
   recipients      CampaignRecipient[]
 
@@ -891,6 +892,8 @@ model CampaignRecipient {
   status      String    @default("pending")
   error       String?
   sentAt      DateTime? @map("sent_at")
+  clickedAt   DateTime? @map("clicked_at")
+  clickCount  Int       @default(0) @map("click_count")
   createdAt   DateTime  @default(now()) @map("created_at")
   campaign    Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   customer    Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)

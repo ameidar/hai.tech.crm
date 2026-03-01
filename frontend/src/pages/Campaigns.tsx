@@ -33,6 +33,8 @@ interface Campaign {
   completedAt?: string;
   createdAt: string;
   createdBy: { name: string };
+  landingUrl?: string;
+  totalClicks?: number;
 }
 
 interface AudienceFilters {
@@ -132,6 +134,11 @@ export default function Campaigns() {
   // AI variants
   const [variants, setVariants] = useState<ContentVariant[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiContext, setAiContext] = useState('');
+  const [testRecipient, setTestRecipient] = useState('');
+  const [testSending, setTestSending] = useState(false);
+  const [testResult, setTestResult] = useState('');
+  const [landingUrl, setLandingUrl] = useState('');
   const [selectedVariant, setSelectedVariant] = useState<number | null>(null);
 
   // ─── Data queries ──────────────────────────────────────────────────────────
@@ -171,6 +178,10 @@ export default function Campaigns() {
     setAudienceCount(null);
     setVariants([]);
     setSelectedVariant(null);
+    setAiContext('');
+    setLandingUrl('');
+    setTestRecipient('');
+    setTestResult('');
     setBuilderOpen(true);
   };
 
@@ -179,6 +190,9 @@ export default function Campaigns() {
     setWorkingId(c.id);
     setStep(0);
     setForm({ name: c.name, description: c.description || '', channel: c.channel });
+    setLandingUrl(c.landingUrl || '');
+    setTestRecipient('');
+    setTestResult('');
     setBuilderOpen(true);
   };
 
@@ -203,8 +217,9 @@ export default function Campaigns() {
       await api.put(`/campaigns/${workingId}`, { audienceFilters: filters });
     }
     if (step === 2 && workingId) {
-      // Save content
-      await api.put(`/campaigns/${workingId}`, { ...content });
+      // Save content + landing URL
+      const effectiveLandingUrl = landingUrl || `https://crm.orma-ai.com/campaign/${workingId}`;
+      await api.put(`/campaigns/${workingId}`, { ...content, landingUrl: effectiveLandingUrl });
     }
     setStep(s => Math.min(s + 1, STEPS.length - 1));
   };
@@ -231,7 +246,7 @@ export default function Campaigns() {
     try {
       // First save filters
       await api.put(`/campaigns/${workingId}`, { audienceFilters: filters });
-      const res = await api.post(`/campaigns/${workingId}/generate-ai`);
+      const res = await api.post(`/campaigns/${workingId}/generate-ai`, { userContext: aiContext || undefined });
       setVariants(res.data.variants || []);
     } finally {
       setAiLoading(false);
@@ -245,6 +260,22 @@ export default function Campaigns() {
   };
 
   // ─── Send campaign ─────────────────────────────────────────────────────────
+
+  const handleTestSend = async () => {
+    if (!workingId || !testRecipient.trim()) return;
+    setTestSending(true);
+    setTestResult('');
+    try {
+      const isPhone = /^\d/.test(testRecipient.trim());
+      const body = isPhone ? { phone: testRecipient.trim() } : { email: testRecipient.trim() };
+      const res = await api.post(`/campaigns/${workingId}/test-send`, body);
+      setTestResult(`✅ נשלח בהצלחה ל-${res.data.sentTo}`);
+    } catch {
+      setTestResult('❌ שגיאה בשליחה — בדוק שהקמפיין נשמר');
+    } finally {
+      setTestSending(false);
+    }
+  };
 
   const sendCampaign = async () => {
     if (!workingId) return;
@@ -302,6 +333,7 @@ export default function Campaigns() {
                 <th className="text-right px-4 py-3 font-medium text-gray-600">ערוץ</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">סטטוס</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">נמענים</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600">לחיצות 🔗</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">תזמון/השלמה</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">פעולות</th>
               </tr>
@@ -333,6 +365,11 @@ export default function Campaigns() {
                         </span>
                       )}
                     </div>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {(c.totalClicks ?? 0) > 0
+                      ? <span className="font-semibold text-blue-600">{c.totalClicks}</span>
+                      : <span className="text-gray-300">—</span>}
                   </td>
                   <td className="px-4 py-3 text-gray-500 text-xs">
                     {c.scheduledAt
@@ -577,6 +614,19 @@ export default function Campaigns() {
               {/* Step 2 — Content */}
               {step === 2 && (
                 <div className="space-y-4">
+                  {/* AI Context Input */}
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                    <label className="block text-sm font-semibold text-purple-800 mb-1">💡 הנחיות ל-AI (אופציונלי)</label>
+                    <textarea
+                      value={aiContext}
+                      onChange={e => setAiContext(e.target.value)}
+                      placeholder="לדוגמה: קמפיין לקראת פסח, להדגיש קורסי קיץ, מחיר מוזל 20%, לשים דגש על כיף ויצירתיות..."
+                      rows={2}
+                      className="w-full border border-purple-200 rounded-lg p-2.5 text-sm bg-white mt-1 focus:ring-2 focus:ring-purple-400 resize-none"
+                    />
+                    <p className="text-xs text-purple-500 mt-1">הנחיות אלו יועברו ל-AI לצד נתוני הקהל והטרנדים</p>
+                  </div>
+
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold text-gray-900">תוכן הקמפיין</h3>
                     <button
@@ -657,7 +707,7 @@ export default function Campaigns() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         הודעת WhatsApp
                         <span className="text-xs text-gray-400 mr-1">
-                          (השתמש ב-{'{שם_הורה}'} ו-{'{שם_ילד}'})
+                          (השתמש ב-{'{שם_הורה}'} ו-{'{שם_ילד}'} ו-{'{utm_link}'} לקישור מעקב)
                         </span>
                       </label>
                       <textarea
@@ -669,6 +719,22 @@ export default function Campaigns() {
                       />
                     </div>
                   )}
+
+                  {/* Landing Page URL */}
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <label className="block text-sm font-semibold text-blue-800 mb-1">🔗 כתובת נחיתה (landing page URL)</label>
+                    <input
+                      type="url"
+                      value={landingUrl}
+                      onChange={e => setLandingUrl(e.target.value)}
+                      placeholder={workingId ? `https://crm.orma-ai.com/campaign/${workingId}` : 'https://crm.orma-ai.com/campaign/...'}
+                      className="w-full border border-blue-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-400 outline-none"
+                      dir="ltr"
+                    />
+                    <p className="text-xs text-blue-500 mt-1">
+                      השתמש ב-<code className="bg-blue-100 px-1 rounded">{'{utm_link}'}</code> בתוכן ההודעה כדי להוסיף לינק מעקב אישי לכל נמען
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -712,6 +778,29 @@ export default function Campaigns() {
                       />
                     </div>
                   )}
+
+                  {/* Test Send */}
+                  <div className="border border-yellow-300 bg-yellow-50 rounded-xl p-4">
+                    <h4 className="font-medium text-yellow-800 mb-2 text-sm">📤 שלח הודעת בדיקה לפני השליחה</h4>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="מספר טלפון או מייל לבדיקה"
+                        value={testRecipient}
+                        onChange={e => { setTestRecipient(e.target.value); setTestResult(''); }}
+                        className="flex-1 border border-yellow-200 rounded-lg px-3 py-2 text-sm bg-white"
+                        dir="ltr"
+                      />
+                      <button
+                        onClick={handleTestSend}
+                        disabled={testSending || !testRecipient.trim() || !workingId}
+                        className="px-4 py-2 bg-yellow-500 text-white rounded-lg text-sm font-medium hover:bg-yellow-600 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {testSending ? '⏳' : '🧪 שלח בדיקה'}
+                      </button>
+                    </div>
+                    {testResult && <p className="mt-2 text-sm font-medium">{testResult}</p>}
+                  </div>
                 </div>
               )}
 

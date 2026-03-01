@@ -49,8 +49,9 @@ async function generateCampaignContent(params: {
   channel: string;
   courseNames: string[];
   ageRange: string;
+  userContext?: string;
 }): Promise<ContentVariant[]> {
-  const { audienceDesc, trends, channel, courseNames, ageRange } = params;
+  const { audienceDesc, trends, channel, courseNames, ageRange, userContext } = params;
 
   const prompt = `אתה מומחה שיווק עבור "דרך ההייטק" - עסק לחוגי תכנות לילדים בישראל.
 
@@ -58,7 +59,7 @@ async function generateCampaignContent(params: {
 קורסים: ${courseNames.join(', ') || 'חוגי תכנות'}
 גיל: ${ageRange}
 
-${trends ? `מגמות עדכניות: ${trends}` : ''}
+${trends ? `מגמות עדכניות: ${trends}` : ''}${userContext ? `\n\nהנחיות נוספות מהמנהל: ${userContext}` : ''}
 
 כל גרסה חייבת לכלול:
 1. subject - שורת נושא למייל (עברית, מושכת, עד 60 תווים)  
@@ -107,7 +108,8 @@ ${trends ? `מגמות עדכניות: ${trends}` : ''}
 export async function generateCampaignAI(
   filters: AudienceFilters,
   courses: { id: string; name: string }[],
-  branches: { id: string; name: string }[]
+  branches: { id: string; name: string }[],
+  userContext?: string
 ): Promise<ContentVariant[]> {
   const courseNames = filters.courseIds
     ? courses.filter(c => filters.courseIds!.includes(c.id)).map(c => c.name)
@@ -140,6 +142,7 @@ export async function generateCampaignAI(
     channel: 'both',
     courseNames,
     ageRange,
+    userContext,
   });
 
   return variants;

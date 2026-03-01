@@ -2,6 +2,15 @@ import { prisma } from '../utils/prisma.js';
 import { sendEmail } from './email/sender.js';
 import axios from 'axios';
 
+const BASE_URL = process.env.BASE_URL || 'https://crm.orma-ai.com';
+
+/**
+ * Build a UTM tracking URL for a specific recipient
+ */
+export function buildTrackingUrl(campaignId: string, recipientId: string, targetUrl: string): string {
+  return `${BASE_URL}/api/campaigns/click?cid=${encodeURIComponent(campaignId)}&rid=${encodeURIComponent(recipientId)}&url=${encodeURIComponent(targetUrl)}`;
+}
+
 export interface AudienceFilters {
   courseIds?: string[];
   branchIds?: string[];
@@ -132,6 +141,10 @@ export async function sendCampaign(campaignId: string): Promise<void> {
   const waToken = process.env.WA_CLOUD_TOKEN;
   const waPhoneId = process.env.WA_CLOUD_PHONE_NUMBER_ID;
 
+  // Landing URL for UTM tracking (fallback to the public campaign landing page)
+  const landingUrl = (campaign as { landingUrl?: string }).landingUrl ||
+    `${BASE_URL}/campaign/${campaign.id}`;
+
   let deliveredCount = 0;
   let failedCount = 0;
 
@@ -141,16 +154,21 @@ export async function sendCampaign(campaignId: string): Promise<void> {
     let recipientError: string | undefined;
     let sent = false;
 
+    // Build per-recipient tracking URL and replace {utm_link} placeholder
+    const trackingUrl = buildTrackingUrl(campaign.id, recipient.id, landingUrl);
+    const resolvedHtml = campaign.contentHtml?.replace(/\{utm_link\}/g, trackingUrl) ?? '';
+    const resolvedWa = campaign.contentWa?.replace(/\{utm_link\}/g, trackingUrl) ?? '';
+
     const shouldSendEmail = (channel === 'email' || channel === 'both') && recipient.email;
     const shouldSendWa = (channel === 'whatsapp' || channel === 'both') && recipient.phone;
 
     // Send email
-    if (shouldSendEmail && campaign.subject && campaign.contentHtml) {
+    if (shouldSendEmail && campaign.subject && resolvedHtml) {
       try {
         const result = await sendEmail({
           to: recipient.email!,
           subject: campaign.subject,
-          html: campaign.contentHtml,
+          html: resolvedHtml,
         });
         if (result.success) {
           sent = true;
@@ -164,7 +182,7 @@ export async function sendCampaign(campaignId: string): Promise<void> {
     }
 
     // Send WhatsApp
-    if (shouldSendWa && campaign.contentWa) {
+    if (shouldSendWa && resolvedWa) {
       try {
         const phone = recipient.phone!.replace(/\D/g, '');
         const resp = await axios.post(
@@ -173,7 +191,7 @@ export async function sendCampaign(campaignId: string): Promise<void> {
             messaging_product: 'whatsapp',
             to: phone,
             type: 'text',
-            text: { body: campaign.contentWa },
+            text: { body: resolvedWa },
           },
           {
             headers: {

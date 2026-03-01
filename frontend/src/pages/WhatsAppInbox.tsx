@@ -130,9 +130,13 @@ export default function WhatsAppInbox() {
   const [templateVars, setTemplateVars] = useState<string[]>([]);
   const [expandedTemplate, setExpandedTemplate] = useState<string | null>(null);
   // Top-level view mode
-  const [viewMode, setViewMode] = useState<'inbox' | 'templates'>('inbox');
+  const [viewMode, setViewMode] = useState<'inbox' | 'templates' | 'callbacks'>('inbox');
   // Template Manager state (top-level)
   const [tmplMgrTab, setTmplMgrTab] = useState<'list' | 'create'>('list');
+  // Callback requests
+  const [callbackRequests, setCallbackRequests] = useState<any[]>([]);
+  const [callbackPending, setCallbackPending] = useState(0);
+  const [loadingCallbacks, setLoadingCallbacks] = useState(false);
   // Create template (inside template modal)
   const [showCreateTemplate, setShowCreateTemplate] = useState(false);
   const [createForm, setCreateForm] = useState({ name: '', category: 'MARKETING', headerText: '', bodyText: '', footerText: '' });
@@ -238,10 +242,36 @@ export default function WhatsAppInbox() {
       setMessages(prev => prev.map(m => m.waMessageId === waMessageId ? { ...m, status } : m));
     });
 
+    es.addEventListener('callback_request', () => {
+      setCallbackPending(prev => prev + 1);
+    });
+
     return () => es.close();
   }, []);
 
-  useEffect(() => { loadConversations(); }, [loadConversations]);
+  // Load callback requests
+  const loadCallbacks = useCallback(async (statusFilter?: string) => {
+    setLoadingCallbacks(true);
+    try {
+      const qs = statusFilter ? `?status=${statusFilter}` : '';
+      const data = await api(`/callbacks${qs}`);
+      setCallbackRequests(data);
+      const pending = data.filter((r: any) => r.status === 'pending').length;
+      setCallbackPending(pending);
+    } catch (e) {
+      console.error('Failed to load callbacks', e);
+    } finally {
+      setLoadingCallbacks(false);
+    }
+  }, []);
+
+  const resolveCallback = async (id: string) => {
+    await api(`/callbacks/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'done' }) });
+    setCallbackRequests(prev => prev.map(r => r.id === id ? { ...r, status: 'done' } : r));
+    setCallbackPending(prev => Math.max(0, prev - 1));
+  };
+
+  useEffect(() => { loadConversations(); loadCallbacks(); }, [loadConversations, loadCallbacks]);
 
   // Auto-select conversation from URL param (?conv=<id>)
   useEffect(() => {
@@ -450,6 +480,15 @@ export default function WhatsAppInbox() {
           <FileText size={16} />
           ניהול תבניות
         </button>
+        <button
+          onClick={() => { setViewMode('callbacks'); loadCallbacks(); }}
+          className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'callbacks' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          📞 בקשות חזרה
+          {callbackPending > 0 && (
+            <span className="bg-orange-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">{callbackPending}</span>
+          )}
+        </button>
       </div>
 
       {/* ── Template Manager View ── */}
@@ -622,6 +661,62 @@ export default function WhatsAppInbox() {
                   className="mt-4 flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-blue-600">
                   <Plus size={16} /> תבנית חדשה
                 </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Callback Requests View ── */}
+      {viewMode === 'callbacks' && (
+        <div className="flex-1 overflow-y-auto p-6" dir="rtl">
+          <div className="max-w-3xl mx-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-800">📞 בקשות חזרה מלקוחות</h2>
+              <div className="flex gap-2">
+                <button onClick={() => loadCallbacks('pending')} className="text-xs px-3 py-1.5 rounded-lg bg-orange-100 text-orange-700 hover:bg-orange-200 font-medium">ממתינות</button>
+                <button onClick={() => loadCallbacks()} className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium">הכל</button>
+              </div>
+            </div>
+
+            {loadingCallbacks ? (
+              <div className="text-center text-gray-400 py-12">טוען...</div>
+            ) : callbackRequests.length === 0 ? (
+              <div className="text-center text-gray-400 py-12">אין בקשות חזרה</div>
+            ) : (
+              <div className="space-y-3">
+                {callbackRequests.map(r => (
+                  <div key={r.id} className={`bg-white rounded-xl border p-4 flex gap-4 items-start ${r.status === 'done' ? 'opacity-60' : 'border-orange-200 shadow-sm'}`}>
+                    <div className="text-2xl">{r.status === 'done' ? '✅' : '📞'}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-gray-800">{r.contactName || r.phone}</span>
+                        <span className="text-gray-400 text-sm">{r.phone}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${r.status === 'done' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                          {r.status === 'done' ? 'טופל' : 'ממתין'}
+                        </span>
+                      </div>
+                      <p className="text-gray-600 text-sm mt-1 bg-gray-50 rounded-lg px-3 py-2 border-r-4 border-orange-300">
+                        {r.message}
+                      </p>
+                      <div className="flex items-center gap-3 mt-2 flex-wrap">
+                        <span className="text-xs text-gray-400">{new Date(r.createdAt).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' })}</span>
+                        <button
+                          onClick={() => { setViewMode('inbox'); const conv = conversations.find(c => c.id === r.conversationId); if (conv) setSelected(conv); }}
+                          className="text-xs text-blue-600 hover:underline"
+                        >פתח שיחה →</button>
+                      </div>
+                    </div>
+                    {r.status === 'pending' && (
+                      <button
+                        onClick={() => resolveCallback(r.id)}
+                        className="flex-shrink-0 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-lg text-xs font-medium"
+                      >
+                        סמן כטופל ✓
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>

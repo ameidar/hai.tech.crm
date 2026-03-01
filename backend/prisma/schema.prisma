@@ -853,6 +853,24 @@ model WaMessage {
 // ===================
 
 // ===================
+// CALLBACK REQUESTS
+// ===================
+
+model WaCallbackRequest {
+  id             String    @id @default(uuid())
+  conversationId String    @map("conversation_id")
+  phone          String
+  contactName    String?   @map("contact_name")
+  message        String    // The message that triggered the callback request
+  status         String    @default("pending")  // pending / done
+  resolvedAt     DateTime? @map("resolved_at")
+  resolvedBy     String?   @map("resolved_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@map("wa_callback_requests")
+}
+
+// ===================
 // CAMPAIGNS
 // ===================
 

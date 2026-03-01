@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Play, Trash2 } from 'lucide-react';
+import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Play, Trash2, PhoneIncoming, PhoneOutgoing } from 'lucide-react';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -14,6 +14,7 @@ interface LeadAppointment {
   childName?: string;
   interest: string;
   source: string;
+  callDirection?: string;
   vapiCallId?: string;
   callStatus?: string;
   callTranscript?: string;
@@ -145,6 +146,7 @@ export default function LeadAppointments() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">תאריך פנייה</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">כיוון</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">שם</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">טלפון</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ילד/ה</th>
@@ -160,6 +162,17 @@ export default function LeadAppointments() {
                 <tr key={lead.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedLead(lead)}>
                   <td className="px-4 py-3 text-sm whitespace-nowrap">
                     {new Date(lead.createdAt).toLocaleDateString('he-IL')}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {lead.callDirection === 'inbound' ? (
+                      <span title="שיחה נכנסת" className="inline-flex items-center gap-1 text-green-600">
+                        <PhoneIncoming className="w-4 h-4" />
+                      </span>
+                    ) : (
+                      <span title="שיחה יוצאת" className="inline-flex items-center gap-1 text-blue-600">
+                        <PhoneOutgoing className="w-4 h-4" />
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-sm font-medium">{lead.customerName}</td>
                   <td className="px-4 py-3 text-sm" dir="ltr">{lead.customerPhone}</td>
@@ -315,6 +328,18 @@ function LeadDetailModal({
             <div>
               <span className="text-gray-500">מקור:</span>
               <span className="mr-2">{lead.source || '-'}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-gray-500">כיוון שיחה:</span>
+              {lead.callDirection === 'inbound' ? (
+                <span className="flex items-center gap-1 text-green-600 font-medium mr-2">
+                  <PhoneIncoming className="w-4 h-4" /> נכנסת
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-blue-600 font-medium mr-2">
+                  <PhoneOutgoing className="w-4 h-4" /> יוצאת
+                </span>
+              )}
             </div>
             <div>
               <span className="text-gray-500">תאריך פנייה:</span>

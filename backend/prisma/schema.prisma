@@ -689,6 +689,7 @@ model LeadAppointment {
   source          String    @default("website")
 
   // Vapi call details
+  callDirection   String    @default("outbound") @map("call_direction") // "inbound" | "outbound"
   vapiCallId      String?   @map("vapi_call_id")
   callStatus      String?   @map("call_status")
   callTranscript  String?   @map("call_transcript")

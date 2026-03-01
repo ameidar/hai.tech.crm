@@ -30,6 +30,7 @@ import LeadAppointments from './pages/LeadAppointments';
 import InstitutionalOrders from './pages/InstitutionalOrders';
 import SystemUsers from './pages/SystemUsers';
 import WhatsAppInbox from './pages/WhatsAppInbox';
+import Campaigns from './pages/Campaigns';
 
 // Mobile instructor pages
 import MobileMeetings from './pages/instructor/MobileMeetings';
@@ -157,6 +158,7 @@ function AppRoutes() {
             <Route path="system-users" element={<NonSalesRoute><SystemUsers /></NonSalesRoute>} />
             <Route path="reports" element={<NonSalesRoute><Reports /></NonSalesRoute>} />
             <Route path="audit" element={<NonSalesRoute><AuditLog /></NonSalesRoute>} />
+            <Route path="campaigns" element={<NonSalesRoute><Campaigns /></NonSalesRoute>} />
           </>
         )}
         <Route path="instructor" element={<InstructorDashboard />} />

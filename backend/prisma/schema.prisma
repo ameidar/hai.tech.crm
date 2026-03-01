@@ -151,6 +151,7 @@ model User {
   reviewedExpenses      MeetingExpense[] @relation("ExpenseReviewer")
   quotes                Quote[]
   uploadedFiles         FileAttachment[]
+  campaigns             Campaign[]
 
   @@map("users")
 }
@@ -171,11 +172,12 @@ model Customer {
   deletedBy    String?   @map("deleted_by")
 
   // Relations
-  students         Student[]
-  quotes           Quote[]
-  leadAppointments LeadAppointment[]
-  upsellLeads      UpsellLead[]
-  payments         Payment[]
+  students           Student[]
+  quotes             Quote[]
+  leadAppointments   LeadAppointment[]
+  upsellLeads        UpsellLead[]
+  payments           Payment[]
+  campaignRecipients CampaignRecipient[]
 
   @@map("customers")
 }
@@ -849,6 +851,52 @@ model WaMessage {
 // ===================
 // PAYMENTS
 // ===================
+
+// ===================
+// CAMPAIGNS
+// ===================
+
+model Campaign {
+  id              String    @id @default(uuid())
+  name            String
+  description     String?
+  channel         String    @default("email")
+  status          String    @default("draft")
+  audienceFilters Json      @map("audience_filters")
+  subject         String?
+  contentHtml     String?   @map("content_html")
+  contentWa       String?   @map("content_wa")
+  aiContext       Json?     @map("ai_context")
+  scheduledAt     DateTime? @map("scheduled_at")
+  startedAt       DateTime? @map("started_at")
+  completedAt     DateTime? @map("completed_at")
+  createdById     String    @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  recipientCount  Int       @default(0) @map("recipient_count")
+  deliveredCount  Int       @default(0) @map("delivered_count")
+  failedCount     Int       @default(0) @map("failed_count")
+  createdBy       User                @relation(fields: [createdById], references: [id])
+  recipients      CampaignRecipient[]
+
+  @@map("campaigns")
+}
+
+model CampaignRecipient {
+  id          String    @id @default(uuid())
+  campaignId  String    @map("campaign_id")
+  customerId  String    @map("customer_id")
+  phone       String?
+  email       String?
+  status      String    @default("pending")
+  error       String?
+  sentAt      DateTime? @map("sent_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  campaign    Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  customer    Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("campaign_recipients")
+}
 
 model Payment {
   id               String   @id @default(uuid())

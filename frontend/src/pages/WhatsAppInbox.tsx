@@ -5,34 +5,59 @@ import WaSendModal from '../components/WaSendModal';
 import WooPayModal from '../components/WooPayModal';
 
 // ─── Notification sound (Web Audio API) ─────────────────────────────────────
+// Shared AudioContext — created once on first user interaction to satisfy browser autoplay policy
+let _audioCtx: AudioContext | null = null;
+
+function getAudioContext(): AudioContext {
+  if (!_audioCtx) {
+    _audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+  }
+  return _audioCtx;
+}
+
+// Call this on any user interaction to "unlock" audio
+function unlockAudio() {
+  try {
+    const ctx = getAudioContext();
+    if (ctx.state === 'suspended') ctx.resume();
+  } catch (_) { /* ignore */ }
+}
+
 function playWaNotification() {
   try {
-    const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-    const master = ctx.createGain();
-    master.gain.setValueAtTime(0.35, ctx.currentTime);
-    master.connect(ctx.destination);
+    const ctx = getAudioContext();
+    // Resume if suspended (browser autoplay policy)
+    const doPlay = () => {
+      const master = ctx.createGain();
+      master.gain.setValueAtTime(0.4, ctx.currentTime);
+      master.connect(ctx.destination);
 
-    const notes = [
-      { freq: 830, start: 0,    dur: 0.12 },
-      { freq: 1109, start: 0.13, dur: 0.12 },
-      { freq: 1480, start: 0.26, dur: 0.18 },
-    ];
+      const notes = [
+        { freq: 830,  start: 0,    dur: 0.12 },
+        { freq: 1109, start: 0.13, dur: 0.12 },
+        { freq: 1480, start: 0.26, dur: 0.20 },
+      ];
 
-    notes.forEach(({ freq, start, dur }) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
-      gain.gain.setValueAtTime(0, ctx.currentTime + start);
-      gain.gain.linearRampToValueAtTime(1, ctx.currentTime + start + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
-      osc.connect(gain);
-      gain.connect(master);
-      osc.start(ctx.currentTime + start);
-      osc.stop(ctx.currentTime + start + dur + 0.05);
-    });
+      notes.forEach(({ freq, start, dur }) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+        gain.gain.setValueAtTime(0, ctx.currentTime + start);
+        gain.gain.linearRampToValueAtTime(1, ctx.currentTime + start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+        osc.connect(gain);
+        gain.connect(master);
+        osc.start(ctx.currentTime + start);
+        osc.stop(ctx.currentTime + start + dur + 0.05);
+      });
+    };
 
-    setTimeout(() => ctx.close(), 1000);
+    if (ctx.state === 'suspended') {
+      ctx.resume().then(doPlay);
+    } else {
+      doPlay();
+    }
   } catch (_) { /* silent fail */ }
 }
 
@@ -154,6 +179,13 @@ export default function WhatsAppInbox() {
   const [selectedFromPhone, setSelectedFromPhone] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+
+  // Unlock AudioContext on first user interaction (browser autoplay policy)
+  useEffect(() => {
+    const handler = () => { unlockAudio(); document.removeEventListener('click', handler); };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, []);
 
   // Load conversations
   const loadConversations = useCallback(async () => {

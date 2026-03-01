@@ -4,6 +4,38 @@ import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, Ph
 import WaSendModal from '../components/WaSendModal';
 import WooPayModal from '../components/WooPayModal';
 
+// ─── Notification sound (Web Audio API) ─────────────────────────────────────
+function playWaNotification() {
+  try {
+    const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.35, ctx.currentTime);
+    master.connect(ctx.destination);
+
+    const notes = [
+      { freq: 830, start: 0,    dur: 0.12 },
+      { freq: 1109, start: 0.13, dur: 0.12 },
+      { freq: 1480, start: 0.26, dur: 0.18 },
+    ];
+
+    notes.forEach(({ freq, start, dur }) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+      gain.gain.setValueAtTime(0, ctx.currentTime + start);
+      gain.gain.linearRampToValueAtTime(1, ctx.currentTime + start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+      osc.connect(gain);
+      gain.connect(master);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + dur + 0.05);
+    });
+
+    setTimeout(() => ctx.close(), 1000);
+  } catch (_) { /* silent fail */ }
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface WaConversation {
   id: string;
@@ -157,6 +189,10 @@ export default function WhatsAppInbox() {
 
     es.addEventListener('new_message', (e: MessageEvent) => {
       const { conversationId, message } = JSON.parse(e.data);
+      // Play sound for inbound messages
+      if (message.direction === 'inbound') {
+        playWaNotification();
+      }
       // Update messages if in active conversation
       setSelected(prev => {
         if (prev?.id === conversationId) {

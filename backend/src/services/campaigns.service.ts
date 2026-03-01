@@ -128,7 +128,11 @@ export async function resolveAudience(filters: AudienceFilters): Promise<Audienc
 export async function sendCampaign(campaignId: string): Promise<void> {
   const campaign = await prisma.campaign.findUniqueOrThrow({
     where: { id: campaignId },
-    include: { recipients: true },
+    include: {
+      recipients: {
+        include: { customer: { select: { name: true } } },
+      },
+    },
   });
 
   // Mark as started
@@ -154,10 +158,17 @@ export async function sendCampaign(campaignId: string): Promise<void> {
     let recipientError: string | undefined;
     let sent = false;
 
-    // Build per-recipient tracking URL and replace {utm_link} placeholder
+    // Build per-recipient tracking URL and replace all placeholders
     const trackingUrl = buildTrackingUrl(campaign.id, recipient.id, landingUrl);
-    const resolvedHtml = campaign.contentHtml?.replace(/\{utm_link\}/g, trackingUrl) ?? '';
-    const resolvedWa = campaign.contentWa?.replace(/\{utm_link\}/g, trackingUrl) ?? '';
+    const recipientName = (recipient as { customer?: { name?: string } }).customer?.name || '';
+    const resolvedHtml = (campaign.contentHtml ?? '')
+      .replace(/\{utm_link\}/g, trackingUrl)
+      .replace(/\{שם_הורה\}/g, recipientName)
+      .replace(/\{שם_ילד\}/g, recipientName);
+    const resolvedWa = (campaign.contentWa ?? '')
+      .replace(/\{utm_link\}/g, trackingUrl)
+      .replace(/\{שם_הורה\}/g, recipientName)
+      .replace(/\{שם_ילד\}/g, recipientName);
 
     const shouldSendEmail = (channel === 'email' || channel === 'both') && recipient.email;
     const shouldSendWa = (channel === 'whatsapp' || channel === 'both') && recipient.phone;
@@ -167,7 +178,7 @@ export async function sendCampaign(campaignId: string): Promise<void> {
       try {
         const result = await sendEmail({
           to: recipient.email!,
-          subject: campaign.subject,
+          subject: (campaign.subject || '').replace(/\{שם_הורה\}/g, recipientName).replace(/\{שם_ילד\}/g, recipientName),
           html: resolvedHtml,
         });
         if (result.success) {

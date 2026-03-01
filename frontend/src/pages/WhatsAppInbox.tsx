@@ -4,61 +4,19 @@ import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, Ph
 import WaSendModal from '../components/WaSendModal';
 import WooPayModal from '../components/WooPayModal';
 
-// ─── Notification sound (Web Audio API) ─────────────────────────────────────
-// Shared AudioContext — created once on first user interaction to satisfy browser autoplay policy
-let _audioCtx: AudioContext | null = null;
+// ─── Notification sound ──────────────────────────────────────────────────────
+// Pre-load audio element; "unlock" it on first user click (browser autoplay policy)
+const _notifAudio = new Audio('/wa-notification.wav');
+_notifAudio.volume = 0.6;
 
-function getAudioContext(): AudioContext {
-  if (!_audioCtx) {
-    _audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-  }
-  return _audioCtx;
-}
-
-// Call this on any user interaction to "unlock" audio
 function unlockAudio() {
-  try {
-    const ctx = getAudioContext();
-    if (ctx.state === 'suspended') ctx.resume();
-  } catch (_) { /* ignore */ }
+  _notifAudio.play().then(() => _notifAudio.pause()).catch(() => {});
+  _notifAudio.currentTime = 0;
 }
 
 function playWaNotification() {
-  try {
-    const ctx = getAudioContext();
-    // Resume if suspended (browser autoplay policy)
-    const doPlay = () => {
-      const master = ctx.createGain();
-      master.gain.setValueAtTime(0.4, ctx.currentTime);
-      master.connect(ctx.destination);
-
-      const notes = [
-        { freq: 830,  start: 0,    dur: 0.12 },
-        { freq: 1109, start: 0.13, dur: 0.12 },
-        { freq: 1480, start: 0.26, dur: 0.20 },
-      ];
-
-      notes.forEach(({ freq, start, dur }) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
-        gain.gain.setValueAtTime(0, ctx.currentTime + start);
-        gain.gain.linearRampToValueAtTime(1, ctx.currentTime + start + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
-        osc.connect(gain);
-        gain.connect(master);
-        osc.start(ctx.currentTime + start);
-        osc.stop(ctx.currentTime + start + dur + 0.05);
-      });
-    };
-
-    if (ctx.state === 'suspended') {
-      ctx.resume().then(doPlay);
-    } else {
-      doPlay();
-    }
-  } catch (_) { /* silent fail */ }
+  _notifAudio.currentTime = 0;
+  _notifAudio.play().catch(() => {});
 }
 
 // ─── Types ──────────────────────────────────────────────────────────────────

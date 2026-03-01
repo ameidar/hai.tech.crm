@@ -117,8 +117,16 @@ ${conv.childName ? `שם הילד: ${conv.childName}` : ''}
 ${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}
 `;
 
+  // Messages to exclude from GPT history to prevent looping
+  const BOT_SKIP_PHRASES = [
+    'אני יכול לעזור רק עם מידע על קורסים ושירותי דרך ההייטק',
+    'קיבלנו את בקשתך 😊 נציג מדרך ההייטק יחזור'
+  ];
+
   const chatMessages: any[] = [{ role: 'system', content: fullSystemPrompt }];
   for (const m of messages.slice(-15)) {
+    // Skip certain outbound messages from history — prevents GPT from looping
+    if (m.direction === 'outbound' && BOT_SKIP_PHRASES.some(p => m.content.includes(p))) continue;
     chatMessages.push({
       role: m.direction === 'inbound' ? 'user' : 'assistant',
       content: m.content

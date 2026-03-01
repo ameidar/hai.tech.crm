@@ -4,6 +4,9 @@ import { prisma } from '../utils/prisma.js';
 import { handleEndOfCallReport } from '../services/vapi.js';
 export const vapiToolsRouter = Router();
 
+// In-memory cache: callId → appointment data (bridging bookAppointment tool call → end-of-call-report)
+const pendingAppointments = new Map<string, { date: string; time: string; notes: string }>();
+
 // Single endpoint that handles all Vapi tool calls AND end-of-call webhooks
 vapiToolsRouter.post('/', async (req: Request, res: Response) => {
   try {
@@ -13,7 +16,28 @@ vapiToolsRouter.post('/', async (req: Request, res: Response) => {
     // Handle end-of-call-report (same serverUrl for tools + webhooks in VAPI)
     if (messageType === 'end-of-call-report') {
       console.log('[VAPI TOOLS] Received end-of-call-report, delegating to handler');
-      handleEndOfCallReport(message || req.body).catch((err: any) => {
+      const eocCallId = message?.call?.id || req.body?.call?.id;
+      handleEndOfCallReport(message || req.body).then(async () => {
+        // Apply cached appointment data (from bookAppointment tool during the call)
+        if (eocCallId && pendingAppointments.has(eocCallId)) {
+          const appt = pendingAppointments.get(eocCallId)!;
+          pendingAppointments.delete(eocCallId);
+          try {
+            const rows = await prisma.$executeRaw`
+              UPDATE lead_appointments
+              SET appointment_date = ${new Date(appt.date)}::timestamp,
+                  appointment_time = ${appt.time},
+                  appointment_status = 'scheduled',
+                  appointment_notes = ${appt.notes || 'נקבע ע"י טל (AI)'},
+                  updated_at = NOW()
+              WHERE vapi_call_id = ${eocCallId}
+            `;
+            console.log(`[VAPI TOOLS] Applied cached appointment for call ${eocCallId}: ${appt.date} ${appt.time} (rows: ${rows})`);
+          } catch (err: any) {
+            console.error('[VAPI TOOLS] Failed to apply cached appointment:', err.message);
+          }
+        }
+      }).catch((err: any) => {
         console.error('[VAPI TOOLS] Error processing end-of-call-report:', err);
       });
       return res.json({ success: true });
@@ -115,26 +139,12 @@ vapiToolsRouter.post('/', async (req: Request, res: Response) => {
             }
             const result = await bookAppointment(date, time, customerName, phone, notes);
             if (result.success) {
-              // Also update the lead_appointments record in CRM
-              try {
-                const callId = message?.call?.id;
-                if (callId) {
-                  const appointmentDate = `${date}T${time}:00`;
-                  const appointmentNotes = notes || `פגישת היכרות - נקבעה ע"י טל`;
-                  console.log(`[VAPI TOOLS] Updating lead appointment via raw SQL: callId=${callId}, date=${appointmentDate}, time=${time}`);
-                  const updateResult = await prisma.$executeRaw`
-                    UPDATE lead_appointments 
-                    SET appointment_date = ${new Date(appointmentDate)}::timestamp,
-                        appointment_time = ${time},
-                        appointment_status = 'scheduled',
-                        appointment_notes = ${appointmentNotes},
-                        updated_at = NOW()
-                    WHERE vapi_call_id = ${callId}
-                  `;
-                  console.log(`[VAPI TOOLS] Updated lead appointment for call ${callId}: ${date} ${time}, rows: ${updateResult}`);
-                }
-              } catch (dbErr: any) {
-                console.error('[VAPI TOOLS] Failed to update lead appointment:', dbErr.message);
+              // Cache appointment data — will be applied to DB in end-of-call-report handler
+              const callId = message?.call?.id;
+              if (callId) {
+                const appointmentNotes = notes || `פגישת היכרות - נקבעה ע"י טל`;
+                pendingAppointments.set(callId, { date: `${date}T${time}:00`, time, notes: appointmentNotes });
+                console.log(`[VAPI TOOLS] Cached appointment for call ${callId}: ${date} ${time}`);
               }
               const [, month, day] = date.split('-');
               return { toolCallId, result: `הפגישה נקבעה בהצלחה! ${day}/${month} בשעה ${time} עם ${customerName}` };

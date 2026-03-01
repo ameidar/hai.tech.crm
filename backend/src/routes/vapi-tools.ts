@@ -1,12 +1,32 @@
 import { Router, Request, Response } from 'express';
 import { getAvailableSlots, bookAppointment } from '../services/google-calendar.js';
 import { prisma } from '../utils/prisma.js';
+import { handleEndOfCallReport } from '../services/vapi.js';
 export const vapiToolsRouter = Router();
 
-// Single endpoint that handles all Vapi tool calls
+// Single endpoint that handles all Vapi tool calls AND end-of-call webhooks
 vapiToolsRouter.post('/', async (req: Request, res: Response) => {
   try {
     const { message } = req.body;
+    const messageType = message?.type || req.body.type;
+
+    // Handle end-of-call-report (same serverUrl for tools + webhooks in VAPI)
+    if (messageType === 'end-of-call-report') {
+      console.log('[VAPI TOOLS] Received end-of-call-report, delegating to handler');
+      handleEndOfCallReport(message || req.body).catch((err: any) => {
+        console.error('[VAPI TOOLS] Error processing end-of-call-report:', err);
+      });
+      return res.json({ success: true });
+    }
+
+    // Handle status-update silently
+    if (messageType === 'status-update') {
+      const callId = message?.call?.id;
+      const status = message?.status;
+      console.log(`[VAPI TOOLS] Call ${callId} status: ${status}`);
+      return res.json({ success: true });
+    }
+
     const toolCallList = message?.toolCallList || [];
     
     console.log('[VAPI TOOLS] Received tool calls:', JSON.stringify(toolCallList.map((tc: any) => tc.function?.name)));

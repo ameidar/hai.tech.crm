@@ -135,6 +135,7 @@ model User {
   role         UserRole  @default(instructor)
   isActive          Boolean   @default(true) @map("is_active")
   lastLogin         DateTime? @map("last_login")
+  lastActive        DateTime? @map("last_active")
   resetToken        String?   @unique @map("reset_token")
   resetTokenExpiry  DateTime? @map("reset_token_expiry")
   createdAt         DateTime  @default(now()) @map("created_at")

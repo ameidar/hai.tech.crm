@@ -39,6 +39,7 @@ import { publicCancelRouter } from './routes/public-cancel.js';
 import { vapiWebhookRouter } from './routes/vapi-webhook.js';
 import { vapiToolsRouter } from './routes/vapi-tools.js';
 import { upsellLeadsRouter } from './routes/upsell-leads.js';
+import { reportsRouter } from './routes/reports.js';
 import { leadAppointmentsRouter } from './routes/lead-appointments.js';
 import { institutionalOrdersRouter } from './routes/institutional-orders.js';
 import { meetingRequestsRouter } from './routes/meeting-requests.js';
@@ -202,6 +203,7 @@ app.use('/api/wa', waRouter); // WhatsApp Cloud API inbox
 app.use('/api/payments', paymentsRouter); // WooCommerce payment links
 app.use('/api/system-users', systemUsersRouter); // System users management (admin/manager)
 app.use('/api/upsell-leads', upsellLeadsRouter); // Upsell leads from completed cycles
+app.use('/api/reports', reportsRouter); // Instructor activity reports
 
 // Error handling for API routes
 app.use('/api', errorHandler);

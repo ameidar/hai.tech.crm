@@ -13,6 +13,9 @@ import {
   ParentReminderData, 
   ManagementSummaryData 
 } from './templates.js';
+import { buildInstructorMonthlyReport, getPreviousMonth } from '../instructorReport.service.js';
+import { generateInstructorReportExcel } from '../../utils/excelReportGenerator.js';
+import { sendInstructorMonthlyReportEmail } from './instructorReportEmail.js';
 
 // Management email list (configure via env or database)
 const MANAGEMENT_EMAILS = (process.env.MANAGEMENT_EMAILS || 'ami@hai.tech').split(',');
@@ -345,11 +348,30 @@ const sendManagementSummary = async () => {
   }
 };
 
+// ─── Monthly instructor activity report ────────────────────────────────────────
+const sendMonthlyInstructorReport = async () => {
+  console.log('📊 Running monthly instructor report job...');
+  try {
+    const month = getPreviousMonth();
+    const report = await buildInstructorMonthlyReport(month);
+    if (report.instructors.length === 0) {
+      console.log(`📊 No completed meetings found for ${report.monthLabel} — skipping report`);
+      return;
+    }
+    const buf = await generateInstructorReportExcel(report);
+    await sendInstructorMonthlyReportEmail(report, buf);
+    console.log(`✅ Monthly instructor report sent for ${report.monthLabel}`);
+  } catch (err) {
+    console.error('❌ Monthly instructor report failed:', err);
+  }
+};
+
 // Cron job schedule definitions
 const schedules = {
-  instructorReminders: '0 8 * * *',    // 08:00 daily
-  parentReminders: '0 18 * * *',       // 18:00 daily
-  managementSummary: '0 23 * * *',     // 23:00 daily
+  instructorReminders:      '0 8 * * *',    // 08:00 daily
+  parentReminders:          '0 18 * * *',   // 18:00 daily
+  managementSummary:        '0 23 * * *',   // 23:00 daily
+  monthlyInstructorReport:  '0 8 1 * *',    // 08:00 on 1st of every month
 };
 
 // Scheduled tasks
@@ -401,6 +423,13 @@ export const initEmailScheduler = () => {
   scheduledTasks.push(eveningStatusTask);
   console.log('   ✓ Evening status check (WhatsApp poll): 22:00 daily');
 
+  // Schedule monthly instructor report (08:00 on 1st of every month)
+  const monthlyReportTask = cron.schedule(schedules.monthlyInstructorReport, () => {
+    sendMonthlyInstructorReport();
+  }, { timezone: 'Asia/Jerusalem' });
+  scheduledTasks.push(monthlyReportTask);
+  console.log('   ✓ Monthly instructor report: 08:00 on 1st of month → hila@hai.tech, ami@hai.tech, inna@hai.tech');
+
   console.log('📅 Email scheduler initialized');
 };
 
@@ -419,3 +448,4 @@ export const triggerMorningWhatsApp = () => sendMorningWhatsAppReminders();
 export const triggerMorningUnresolvedAlert = () => sendMorningUnresolvedAlert();
 export const triggerPreMeetingWhatsApp = () => sendPreMeetingReminders();
 export const triggerEveningStatusCheck = () => sendEveningStatusCheck();
+export const triggerMonthlyInstructorReport = () => sendMonthlyInstructorReport();

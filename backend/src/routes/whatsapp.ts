@@ -43,17 +43,45 @@ const ACTIVE_PHONES: { phoneNumberId: string; businessPhone: string; label: stri
 // OpenAI
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Load bot data
+// Load bot data — files as defaults, DB overrides at startup
 const DATA_DIR = path.join(__dirname, '../data');
 let systemPrompt = '';
 let knowledgeBase: any = {};
+let knowledgeBaseRaw = '{}'; // raw JSON string for editing
+
+// 1. Load from files (sync, always as fallback)
 try {
   systemPrompt = fs.readFileSync(path.join(DATA_DIR, 'wa_system_prompt.md'), 'utf8');
-  knowledgeBase = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'wa_knowledge_base.json'), 'utf8'));
-  console.log('[WA] System prompt and knowledge base loaded');
+  knowledgeBaseRaw = fs.readFileSync(path.join(DATA_DIR, 'wa_knowledge_base.json'), 'utf8');
+  knowledgeBase = JSON.parse(knowledgeBaseRaw);
+  console.log('[WA] System prompt and knowledge base loaded from files');
 } catch (e) {
-  console.warn('[WA] Could not load system prompt / knowledge base:', e);
+  console.warn('[WA] Could not load system prompt / knowledge base from files:', e);
 }
+
+// 2. Override from DB if admin has saved custom values
+async function initBotConfigFromDB() {
+  try {
+    const rows = await prisma.$queryRaw<{ key: string; value: string }[]>`
+      SELECT key, value FROM bot_config WHERE key IN ('system_prompt', 'knowledge_base')
+    `;
+    for (const row of rows) {
+      if (row.key === 'system_prompt') {
+        systemPrompt = row.value;
+        console.log('[WA] System prompt loaded from DB');
+      }
+      if (row.key === 'knowledge_base') {
+        knowledgeBaseRaw = row.value;
+        try { knowledgeBase = JSON.parse(row.value); } catch {}
+        console.log('[WA] Knowledge base loaded from DB');
+      }
+    }
+  } catch (e) {
+    console.warn('[WA] Could not load bot config from DB:', e);
+  }
+}
+// Fire-and-forget at startup
+initBotConfigFromDB();
 
 // SSE clients for real-time updates
 const sseClients = new Set<Response>();
@@ -672,6 +700,50 @@ router.get('/callbacks/count', authenticate, async (req: Request, res: Response)
     res.json({ count });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── GET /api/wa/bot-config — Get current system prompt + knowledge base (admin)
+router.get('/bot-config', authenticate, async (req: Request, res: Response) => {
+  const user = (req as any).user;
+  if (!['admin', 'manager'].includes(user?.role)) { res.status(403).json({ error: 'Forbidden' }); return; }
+  res.json({ systemPrompt, knowledgeBase: knowledgeBaseRaw });
+});
+
+// ── PUT /api/wa/bot-config — Save system prompt and/or knowledge base (admin)
+router.put('/bot-config', authenticate, async (req: Request, res: Response) => {
+  const user = (req as any).user;
+  if (!['admin', 'manager'].includes(user?.role)) { res.status(403).json({ error: 'Forbidden' }); return; }
+
+  const { systemPrompt: newPrompt, knowledgeBase: newKB } = req.body;
+
+  try {
+    if (typeof newPrompt === 'string') {
+      systemPrompt = newPrompt;
+      await prisma.$executeRaw`
+        INSERT INTO bot_config (key, value, updated_at, updated_by)
+        VALUES ('system_prompt', ${newPrompt}, NOW(), ${user.email})
+        ON CONFLICT (key) DO UPDATE SET value = ${newPrompt}, updated_at = NOW(), updated_by = ${user.email}
+      `;
+    }
+
+    if (typeof newKB === 'string') {
+      // Validate JSON
+      try { JSON.parse(newKB); } catch { res.status(400).json({ error: 'Knowledge base must be valid JSON' }); return; }
+      knowledgeBaseRaw = newKB;
+      knowledgeBase = JSON.parse(newKB);
+      await prisma.$executeRaw`
+        INSERT INTO bot_config (key, value, updated_at, updated_by)
+        VALUES ('knowledge_base', ${newKB}, NOW(), ${user.email})
+        ON CONFLICT (key) DO UPDATE SET value = ${newKB}, updated_at = NOW(), updated_by = ${user.email}
+      `;
+    }
+
+    console.log(`[WA] Bot config updated by ${user.email}`);
+    res.json({ ok: true, message: 'Bot configuration saved successfully' });
+  } catch (err) {
+    console.error('[WA] Bot config save error:', err);
+    res.status(500).json({ error: 'Failed to save configuration' });
   }
 });
 

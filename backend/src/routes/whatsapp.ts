@@ -542,8 +542,38 @@ router.post('/webhook', async (req: Request, res: Response) => {
             contactName
           });
 
-          // AI auto-reply (if enabled)
-          if (conv.aiEnabled) {
+          // Callback request detection — takes priority over AI reply
+          const isCallbackRequest = detectCallbackIntent(text);
+
+          if (isCallbackRequest) {
+            handleCallbackRequest(conv, text); // save to DB + email info@hai.tech
+
+            // Send confirmation to customer instead of generic AI reply
+            if (conv.aiEnabled) {
+              try {
+                const confirmMsg = 'תודה! קיבלנו את בקשתך 😊 נציג מדרך ההייטק יחזור אליך בהקדם האפשרי.';
+                const waId = await sendWhatsAppMessage(phone, confirmMsg, conv.phoneNumberId);
+                const botMsg = await prisma.waMessage.create({
+                  data: {
+                    conversationId: conv.id,
+                    direction: 'outbound',
+                    content: confirmMsg,
+                    waMessageId: waId || undefined,
+                    status: 'sent',
+                    isAiGenerated: true
+                  }
+                });
+                await prisma.waConversation.update({
+                  where: { id: conv.id },
+                  data: { lastMessageAt: new Date(), lastMessagePreview: confirmMsg.slice(0, 100), updatedAt: new Date() }
+                });
+                broadcastSSE('new_message', { conversationId: conv.id, message: botMsg });
+              } catch (e) {
+                console.error('[WA] Callback confirmation send error:', e);
+              }
+            }
+          } else if (conv.aiEnabled) {
+            // Regular AI auto-reply
             try {
               const reply = await generateAIReply(conv.id);
               if (reply) {
@@ -574,11 +604,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
           }
 
           scheduleLeadExtraction(conv.id);
-
-          // Callback request detection
-          if (detectCallbackIntent(text)) {
-            handleCallbackRequest(conv, text); // fire-and-forget (async)
-          }
         }
       }
     }

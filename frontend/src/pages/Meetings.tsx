@@ -60,6 +60,9 @@ export default function Meetings() {
 
   // Read filters from URL
   const selectedDate = searchParams.get('date') || new Date().toISOString().split('T')[0];
+  const dateFrom = searchParams.get('from') || '';
+  const dateTo = searchParams.get('to') || '';
+  const rangeMode = !!(dateFrom || dateTo) || searchParams.get('rangeMode') === '1';
   const instructorFilter = searchParams.get('instructorId') || '';
   const statusFilter = searchParams.get('status') || '';
   const branchFilter = searchParams.get('branchId') || '';
@@ -78,15 +81,45 @@ export default function Meetings() {
   };
 
   const setSelectedDate = (v: string) => updateFilter('date', v);
+  const setDateFrom = (v: string) => updateFilter('from', v);
+  const setDateTo = (v: string) => updateFilter('to', v);
   const setInstructorFilter = (v: string) => updateFilter('instructorId', v);
   const setStatusFilter = (v: string) => updateFilter('status', v);
   const setBranchFilter = (v: string) => updateFilter('branchId', v);
   const setSortColumn = (v: string) => updateFilter('sort', v);
   const setSortDirection = (v: 'asc' | 'desc') => updateFilter('dir', v);
 
+  const enableRangeMode = () => {
+    const newParams = new URLSearchParams(searchParams);
+    // Default range: this month
+    const today = new Date();
+    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+    newParams.set('from', firstDay);
+    newParams.set('to', lastDay);
+    newParams.set('rangeMode', '1');
+    newParams.delete('date');
+    setSearchParams(newParams, { replace: true });
+  };
+
+  const disableRangeMode = () => {
+    const newParams = new URLSearchParams(searchParams);
+    newParams.delete('from');
+    newParams.delete('to');
+    newParams.delete('rangeMode');
+    newParams.set('date', new Date().toISOString().split('T')[0]);
+    setSearchParams(newParams, { replace: true });
+  };
+
   const clearFilters = () => {
     const newParams = new URLSearchParams();
-    if (searchParams.get('date')) newParams.set('date', searchParams.get('date')!);
+    if (rangeMode) {
+      if (dateFrom) newParams.set('from', dateFrom);
+      if (dateTo) newParams.set('to', dateTo);
+      newParams.set('rangeMode', '1');
+    } else {
+      if (searchParams.get('date')) newParams.set('date', searchParams.get('date')!);
+    }
     setSearchParams(newParams, { replace: true });
   };
   const hasActiveFilters = statusFilter || branchFilter || instructorFilter;
@@ -251,8 +284,11 @@ export default function Meetings() {
   const { data: branches } = useBranches();
   const { data: instructors } = useInstructors();
 
-  const { data: meetings, isLoading, refetch } = useMeetings({ 
-    date: instructorFilter ? undefined : selectedDate,  // When filtering by instructor, show all dates
+  const { data: meetings, isLoading, refetch } = useMeetings({
+    // Range mode: use from/to; single date mode: use date (unless instructor filter which shows all dates)
+    ...(rangeMode
+      ? { from: dateFrom || undefined, to: dateTo || undefined, limit: 500 }
+      : { date: instructorFilter ? undefined : selectedDate }),
     instructorId: instructorFilter || undefined,
     status: statusFilter || undefined,
     branchId: branchFilter || undefined,
@@ -533,7 +569,9 @@ export default function Meetings() {
     <>
       <PageHeader
         title="פגישות"
-        subtitle={formatDate(selectedDate)}
+        subtitle={rangeMode
+          ? `${dateFrom ? new Date(dateFrom).toLocaleDateString('he-IL') : '?'} — ${dateTo ? new Date(dateTo).toLocaleDateString('he-IL') : '?'}`
+          : formatDate(selectedDate)}
       />
 
       <div className="flex-1 p-4 md:p-6 overflow-auto">
@@ -596,39 +634,58 @@ export default function Meetings() {
 
         {/* Date Navigation */}
         <div className="mb-4 md:mb-6 flex flex-wrap items-center gap-2 md:gap-4">
-          <div className="flex items-center gap-1 md:gap-2 bg-white rounded-lg border p-1">
-            <button
-              onClick={() => changeDate(-1)}
-              className="p-2 rounded hover:bg-gray-100 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-            >
-              <ChevronRight size={20} />
-            </button>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => {
-                setSelectedDate(e.target.value);
-                setSelectedIds(new Set());
-              }}
-              className="px-2 md:px-3 py-2 border-0 focus:ring-0 text-sm md:text-base"
-            />
-            <button
-              onClick={() => changeDate(1)}
-              className="p-2 rounded hover:bg-gray-100 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-            >
-              <ChevronLeft size={20} />
-            </button>
-          </div>
-
-          <button
-            onClick={() => {
-              setSelectedDate(new Date().toISOString().split('T')[0]);
-              setSelectedIds(new Set());
-            }}
-            className="btn btn-secondary min-h-[44px]"
-          >
-            היום
-          </button>
+          {!rangeMode ? (
+            /* Single date mode */
+            <>
+              <div className="flex items-center gap-1 md:gap-2 bg-white rounded-lg border p-1">
+                <button onClick={() => changeDate(-1)} className="p-2 rounded hover:bg-gray-100 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center">
+                  <ChevronRight size={20} />
+                </button>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => { setSelectedDate(e.target.value); setSelectedIds(new Set()); }}
+                  className="px-2 md:px-3 py-2 border-0 focus:ring-0 text-sm md:text-base"
+                />
+                <button onClick={() => changeDate(1)} className="p-2 rounded hover:bg-gray-100 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center">
+                  <ChevronLeft size={20} />
+                </button>
+              </div>
+              <button onClick={() => { setSelectedDate(new Date().toISOString().split('T')[0]); setSelectedIds(new Set()); }} className="btn btn-secondary min-h-[44px]">
+                היום
+              </button>
+              <button onClick={enableRangeMode} className="btn btn-secondary min-h-[44px] flex items-center gap-1.5 text-sm text-blue-600 border-blue-300 hover:bg-blue-50">
+                📅 טווח תאריכים
+              </button>
+            </>
+          ) : (
+            /* Date range mode */
+            <div className="flex flex-wrap items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2">
+              <span className="text-sm font-medium text-blue-700">טווח:</span>
+              <div className="flex items-center gap-1">
+                <label className="text-xs text-blue-600">מ-</label>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => { setDateFrom(e.target.value); setSelectedIds(new Set()); }}
+                  className="px-2 py-1.5 border border-blue-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-300 focus:outline-none"
+                />
+              </div>
+              <div className="flex items-center gap-1">
+                <label className="text-xs text-blue-600">עד-</label>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => { setDateTo(e.target.value); setSelectedIds(new Set()); }}
+                  className="px-2 py-1.5 border border-blue-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-300 focus:outline-none"
+                />
+              </div>
+              {meetings && <span className="text-xs text-blue-600 font-medium">{meetings.length} פגישות</span>}
+              <button onClick={disableRangeMode} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-white transition-colors flex items-center gap-1">
+                <X size={12} /> חזור לתאריך יחיד
+              </button>
+            </div>
+          )}
 
           {/* Filter Button (minimalistic) */}
           <div className="hidden md:flex items-center gap-2">
@@ -954,7 +1011,7 @@ export default function Meetings() {
           <EmptyState
             icon={<Calendar size={64} />}
             title="אין פגישות"
-            description={`אין פגישות מתוכננות ל${formatDate(selectedDate)}`}
+            description={rangeMode ? 'אין פגישות בטווח התאריכים שנבחר' : `אין פגישות מתוכננות ל${formatDate(selectedDate)}`}
           />
         )}
       </div>

@@ -94,9 +94,12 @@ meetingsRouter.get('/', async (req, res, next) => {
       ...(date && { scheduledDate: new Date(date) }),
       ...(from && to && {
         scheduledDate: {
-          gte: new Date(from),
-          lte: new Date(to),
+          gte: new Date(from + 'T00:00:00.000Z'),
+          lte: new Date(to + 'T23:59:59.999Z'),
         },
+      }),
+      ...(from && !to && {
+        scheduledDate: { gte: new Date(from + 'T00:00:00.000Z') }
       }),
       ...(status && { status: status as any }),
       ...(instructorId && { instructorId }),

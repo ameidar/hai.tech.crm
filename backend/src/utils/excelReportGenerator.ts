@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-import type { InstructorMonthlyReport, UnresolvedMeeting } from '../services/instructorReport.service.js';
+import type { InstructorMonthlyReport, UnresolvedMeeting, ActivityTypeSummary } from '../services/instructorReport.service.js';
 
 // ─── Style helpers ────────────────────────────────────────────────────────────
 
@@ -162,6 +162,96 @@ function buildSummarySheet(
 
 // ─── Per-instructor sheet ─────────────────────────────────────────────────────
 
+function buildRatesBlock(
+  ws: ExcelJS.Worksheet,
+  startRow: number,
+  byActivityType: ActivityTypeSummary[],
+): number {
+  // Section title
+  const titleRowNum = startRow;
+  ws.mergeCells(`A${titleRowNum}:J${titleRowNum}`);
+  const titleCell = ws.getCell(`A${titleRowNum}`);
+  titleCell.value     = 'פירוט תעריפים לפי סוג פעילות';
+  titleCell.font      = font({ bold: true, color: { argb: 'FF312E81' } }); // indigo-900
+  titleCell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E7FF' } }; // indigo-100
+  titleCell.alignment = { ...center };
+  titleCell.border    = border;
+  ws.getRow(titleRowNum).height = 22;
+
+  // Header row
+  const hRowNum = startRow + 1;
+  const hRow    = ws.getRow(hRowNum);
+  hRow.values   = ['סוג פעילות', 'שעות', 'תעריף לשעה', 'חישוב (שעות × תעריף)', 'סה"כ בפועל', '', '', '', '', ''];
+  hRow.height   = 22;
+  [1, 2, 3, 4, 5].forEach(col => {
+    const cell     = hRow.getCell(col);
+    cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } }; // indigo-600
+    cell.font      = font({ bold: true, color: { argb: 'FFFFFFFF' } });
+    cell.alignment = { ...center };
+    cell.border    = border;
+  });
+
+  // Data rows
+  let r = startRow + 2;
+  for (const at of byActivityType) {
+    const dr   = ws.getRow(r);
+    const calc = (at.hourlyRate != null)
+      ? `${at.hours.toFixed(2)} × ₪${at.hourlyRate} = ₪${(at.hours * at.hourlyRate).toFixed(2)}`
+      : '—';
+    dr.values  = [at.activityType, at.hours, at.hourlyRate ?? '—', calc, at.subtotal, '', '', '', '', ''];
+    dr.height  = 20;
+    const rowFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: r % 2 === 0 ? 'FFEEF2FF' : 'FFFFFFFF' } };
+    dr.getCell(1).font = font({ bold: true });
+    dr.getCell(1).alignment = { ...right };
+    dr.getCell(2).numFmt = hoursFmt;
+    dr.getCell(2).alignment = { ...center };
+    if (at.hourlyRate != null) {
+      dr.getCell(3).numFmt = moneyFmt;
+      dr.getCell(3).font   = font({ bold: true, color: { argb: 'FF4F46E5' } });
+    } else {
+      dr.getCell(3).font   = font({ color: { argb: 'FF9CA3AF' } });
+    }
+    dr.getCell(3).alignment = { ...center };
+    dr.getCell(4).font      = font({ size: 10, italic: true, color: { argb: 'FF6B7280' } });
+    dr.getCell(4).alignment = { ...center };
+    dr.getCell(5).numFmt    = moneyFmt;
+    dr.getCell(5).font      = font({ bold: true, color: { argb: 'FF312E81' } });
+    dr.getCell(5).alignment = { ...center };
+    [1, 2, 3, 4, 5].forEach(col => {
+      dr.getCell(col).border = border;
+      dr.getCell(col).fill   = rowFill;
+    });
+    r++;
+  }
+
+  // Total row
+  const totalRow   = ws.getRow(r);
+  const totalHours = byActivityType.reduce((s, a) => s + a.hours, 0);
+  const totalPay   = byActivityType.reduce((s, a) => s + a.subtotal, 0);
+  ws.mergeCells(`A${r}:D${r}`);
+  totalRow.getCell(1).value     = `סה"כ — ${byActivityType.length} סוגי פעילות`;
+  totalRow.getCell(1).font      = font({ bold: true, color: { argb: 'FFFFFFFF' } });
+  totalRow.getCell(1).fill      = headerFill('4F46E5');
+  totalRow.getCell(1).alignment = { ...center };
+  totalRow.getCell(1).border    = thickBorder;
+  totalRow.getCell(2).value     = totalHours;
+  totalRow.getCell(2).numFmt    = hoursFmt;
+  totalRow.getCell(5).value     = totalPay;
+  totalRow.getCell(5).numFmt    = moneyFmt;
+  totalRow.getCell(5).font      = font({ bold: true, color: { argb: 'FFFFFFFF' } });
+  totalRow.getCell(5).fill      = headerFill('4F46E5');
+  totalRow.getCell(5).alignment = { ...center };
+  totalRow.getCell(5).border    = thickBorder;
+  totalRow.height = 24;
+  r++;
+
+  // Blank separator
+  ws.getRow(r).height = 8;
+  r++;
+
+  return r; // next available row
+}
+
 function buildInstructorSheet(
   wb: ExcelJS.Workbook,
   instr: InstructorMonthlyReport['instructors'][number],
@@ -172,8 +262,23 @@ function buildInstructorSheet(
   const ws = wb.addWorksheet(sheetName, { views: [{ rightToLeft: true }] });
   ws.properties.defaultRowHeight = 22;
 
+  // ── Column definitions ─────────────────────────────────────────────────────
+  ws.columns = [
+    { key: 'date',        width: 16, header: 'תאריך' },
+    { key: 'start',       width: 10, header: 'שעת התחלה' },
+    { key: 'end',         width: 10, header: 'שעת סיום' },
+    { key: 'duration',    width: 10, header: 'משך (שעות)' },
+    { key: 'course',      width: 22, header: 'מחזור / קורס' },
+    { key: 'activity',    width: 14, header: 'סוג פעילות' },
+    { key: 'topic',       width: 20, header: 'נושא' },
+    { key: 'rate',        width: 14, header: 'תעריף/שעה' },
+    { key: 'payment',     width: 16, header: 'תשלום' },
+    { key: 'expenses',    width: 16, header: 'הוצאות נוספות' },
+    { key: 'total',       width: 16, header: 'סה"כ' },
+  ];
+
   // ── Title ──────────────────────────────────────────────────────────────────
-  ws.mergeCells('A1:I1');
+  ws.mergeCells('A1:K1');
   const title = ws.getCell('A1');
   title.value = `${instr.instructorName} — פעילות ${monthLabel}`;
   title.font  = font({ size: 15, bold: true, color: { argb: 'FF' + HEADER_FG } });
@@ -182,22 +287,11 @@ function buildInstructorSheet(
   title.border = thickBorder;
   ws.getRow(1).height = 34;
 
-  // ── Column definitions ─────────────────────────────────────────────────────
-  ws.columns = [
-    { key: 'date',        width: 14, header: 'תאריך' },
-    { key: 'start',       width: 10, header: 'שעת התחלה' },
-    { key: 'end',         width: 10, header: 'שעת סיום' },
-    { key: 'duration',    width: 10, header: 'משך (שעות)' },
-    { key: 'course',      width: 22, header: 'מחזור / קורס' },
-    { key: 'activity',    width: 14, header: 'סוג פעילות' },
-    { key: 'topic',       width: 22, header: 'נושא' },
-    { key: 'payment',     width: 16, header: 'תשלום' },
-    { key: 'expenses',    width: 16, header: 'הוצאות נוספות' },
-    { key: 'total',       width: 16, header: 'סה"כ' },
-  ];
+  // ── Rates block ────────────────────────────────────────────────────────────
+  const meetingsStartRow = buildRatesBlock(ws, 2, instr.byActivityType ?? []);
 
   // ── Header row ─────────────────────────────────────────────────────────────
-  const headerRow = ws.getRow(2);
+  const headerRow = ws.getRow(meetingsStartRow);
   headerRow.values = ws.columns.map(c => (typeof c.header === 'string' ? c.header : '')) as ExcelJS.CellValue[];
   headerRow.height = 26;
   headerRow.eachCell({ includeEmpty: true }, cell => {
@@ -208,7 +302,7 @@ function buildInstructorSheet(
   });
 
   // ── Data rows ──────────────────────────────────────────────────────────────
-  let rowIdx = 3;
+  let rowIdx = meetingsStartRow + 1;
   for (const mtg of instr.meetings) {
     const dateStr = mtg.date instanceof Date
       ? mtg.date.toLocaleDateString('he-IL')
@@ -223,9 +317,10 @@ function buildInstructorSheet(
       mtg.cycleName,
       mtg.activityType ?? '—',
       mtg.topic ?? '—',
-      mtg.instructorPayment,
-      mtg.totalExpenses,
-      mtg.total,
+      mtg.hourlyRate ?? '—',   // col 8: rate/hour
+      mtg.instructorPayment,   // col 9
+      mtg.totalExpenses,       // col 10
+      mtg.total,               // col 11
     ];
     r.height = 22;
 
@@ -243,7 +338,17 @@ function buildInstructorSheet(
         cell.numFmt    = hoursFmt;
         cell.alignment = { ...center };
       }
-      if (col >= 8) {
+      if (col === 8) {
+        // rate column — number only if we have a rate
+        if (typeof cell.value === 'number') {
+          cell.numFmt = moneyFmt;
+          cell.font   = font({ bold: true, color: { argb: 'FF4F46E5' } });
+        } else {
+          cell.font   = font({ color: { argb: 'FF9CA3AF' } });
+        }
+        cell.alignment = { ...center };
+      }
+      if (col >= 9) {
         cell.numFmt    = moneyFmt;
         cell.alignment = { ...center };
       }
@@ -263,6 +368,7 @@ function buildInstructorSheet(
           exp.rateType ?? '',
           '',
           '',
+          '',
           exp.amount,
           '',
         ];
@@ -273,8 +379,8 @@ function buildInstructorSheet(
           cell.border = border;
           cell.alignment = { ...right };
         });
-        er.getCell(9).numFmt    = moneyFmt;
-        er.getCell(9).alignment = { ...center };
+        er.getCell(10).numFmt    = moneyFmt;
+        er.getCell(10).alignment = { ...center };
       }
     }
 
@@ -282,7 +388,7 @@ function buildInstructorSheet(
   }
 
   // ── Totals row ─────────────────────────────────────────────────────────────
-  ws.mergeCells(`A${rowIdx}:G${rowIdx}`);
+  ws.mergeCells(`A${rowIdx}:H${rowIdx}`);
   const totalsRow = ws.getRow(rowIdx);
   totalsRow.height = 28;
   totalsRow.getCell(1).value     = `סה"כ — ${instr.instructorName}`;
@@ -292,9 +398,9 @@ function buildInstructorSheet(
   totalsRow.getCell(1).border    = thickBorder;
 
   [
-    [8, instr.totalPayment],
-    [9, instr.totalExpenses],
-    [10, instr.grandTotal],
+    [9,  instr.totalPayment],
+    [10, instr.totalExpenses],
+    [11, instr.grandTotal],
   ].forEach(([col, val]) => {
     const cell = totalsRow.getCell(col as number);
     cell.value     = val;
@@ -313,12 +419,12 @@ function buildInstructorSheet(
     ['סה"כ לתשלום:', `₪${instr.grandTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}`],
   ].forEach(([label, val], i) => {
     const r = statsRow + i;
-    ws.getCell(`H${r}`).value      = label;
-    ws.getCell(`H${r}`).font       = font({ bold: true });
-    ws.getCell(`H${r}`).alignment  = { ...right };
-    ws.getCell(`I${r}`).value      = val;
-    ws.getCell(`I${r}`).font       = font({ color: { argb: 'FF1E40AF' } });
-    ws.getCell(`I${r}`).alignment  = { ...center };
+    ws.getCell(`I${r}`).value      = label;
+    ws.getCell(`I${r}`).font       = font({ bold: true });
+    ws.getCell(`I${r}`).alignment  = { ...right };
+    ws.getCell(`J${r}`).value      = val;
+    ws.getCell(`J${r}`).font       = font({ color: { argb: 'FF1E40AF' } });
+    ws.getCell(`J${r}`).alignment  = { ...center };
   });
 }
 

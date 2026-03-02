@@ -19,11 +19,21 @@ export interface MeetingDetail {
   cycleName: string;
   courseName: string;
   activityType: string | null;
+  activityTypeRaw: string | null; // raw enum value: frontal/online/private
   topic: string | null;
+  hourlyRate: number | null; // instructor's rate for this activity type
   instructorPayment: number;
   expenses: MeetingExpenseDetail[];
   totalExpenses: number;
   total: number;
+}
+
+export interface ActivityTypeSummary {
+  activityType: string;    // translated label: פרונטלי / אונליין / פרטי
+  activityTypeRaw: string; // raw: frontal / online / private
+  hours: number;
+  hourlyRate: number | null;
+  subtotal: number; // sum of instructorPayment for meetings of this type
 }
 
 export interface InstructorReportData {
@@ -31,6 +41,7 @@ export interface InstructorReportData {
   instructorName: string;
   instructorEmail: string | null;
   meetings: MeetingDetail[];
+  byActivityType: ActivityTypeSummary[]; // breakdown by type
   totalMeetings: number;
   totalHours: number;
   totalPayment: number;
@@ -90,9 +101,44 @@ const calcDuration = (start: unknown, end: unknown): number => {
 };
 
 const ACTIVITY_TYPE_LABELS: Record<string, string> = {
-  frontal: 'פרונטלי',
-  online:  'אונליין',
-  private: 'פרטי',
+  frontal:     'פרונטלי',
+  online:      'אונליין',
+  private:     'פרטי',
+  preparation: 'הכנה',
+};
+
+// Map raw activityType → instructor rate field name
+const ACTIVITY_RATE_FIELD: Record<string, keyof typeof RATE_FIELDS> = {
+  frontal:     'rateFrontal',
+  online:      'rateOnline',
+  private:     'ratePrivate',
+  preparation: 'ratePreparation',
+};
+
+// Dummy type for rate fields (used for type-safe lookup)
+const RATE_FIELDS = {
+  rateFrontal: 0,
+  rateOnline: 0,
+  ratePrivate: 0,
+  ratePreparation: 0,
+};
+
+type InstructorWithRates = {
+  id: string;
+  name: string;
+  email: string | null;
+  rateFrontal: { toString(): string } | null;
+  rateOnline: { toString(): string } | null;
+  ratePrivate: { toString(): string } | null;
+  ratePreparation: { toString(): string } | null;
+};
+
+const getHourlyRate = (instr: InstructorWithRates, actType: string | null): number | null => {
+  if (!actType) return null;
+  const field = ACTIVITY_RATE_FIELD[actType];
+  if (!field) return null;
+  const val = (instr as unknown as Record<string, { toString(): string } | null>)[field];
+  return val ? Number(val.toString()) : null;
 };
 
 const EXPENSE_TYPE_LABELS: Record<string, string> = {
@@ -155,7 +201,7 @@ export async function buildInstructorMonthlyReport(
   const instructors: InstructorReportData[] = [];
 
   for (const [instructorId, mtgs] of byInstructor) {
-    const instr = mtgs[0].instructor as { id: string; name: string; email: string | null };
+    const instr = mtgs[0].instructor as InstructorWithRates;
     const meetingDetails: MeetingDetail[] = [];
 
     for (const mtg of mtgs) {
@@ -169,6 +215,7 @@ export async function buildInstructorMonthlyReport(
 
       const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
       const instructorPayment = Number(mtg.instructorPayment);
+      const rawType = mtg.activityType as string | null;
 
       meetingDetails.push({
         id:                mtg.id,
@@ -178,8 +225,10 @@ export async function buildInstructorMonthlyReport(
         durationHours:     calcDuration(mtg.startTime as unknown, mtg.endTime as unknown),
         cycleName:         (mtg.cycle as { course: { name: string } }).course.name,
         courseName:        (mtg.cycle as { course: { name: string } }).course.name,
-        activityType:      activityLabel(mtg.activityType),
+        activityType:      activityLabel(rawType),
+        activityTypeRaw:   rawType,
         topic:             mtg.topic ?? null,
+        hourlyRate:        getHourlyRate(instr, rawType),
         instructorPayment,
         expenses,
         totalExpenses,
@@ -190,11 +239,31 @@ export async function buildInstructorMonthlyReport(
     const totalPayment  = meetingDetails.reduce((s, r) => s + r.instructorPayment, 0);
     const totalExpenses = meetingDetails.reduce((s, r) => s + r.totalExpenses, 0);
 
+    // Build byActivityType breakdown
+    const actMap = new Map<string, { hours: number; subtotal: number; rate: number | null; label: string }>();
+    for (const mtg of meetingDetails) {
+      const key = mtg.activityTypeRaw ?? 'unknown';
+      const existing = actMap.get(key) ?? { hours: 0, subtotal: 0, rate: mtg.hourlyRate, label: mtg.activityType ?? 'לא מוגדר' };
+      existing.hours   += mtg.durationHours;
+      existing.subtotal += mtg.instructorPayment;
+      actMap.set(key, existing);
+    }
+    const byActivityType: ActivityTypeSummary[] = Array.from(actMap.entries())
+      .map(([raw, val]) => ({
+        activityType:    val.label,
+        activityTypeRaw: raw,
+        hours:           parseFloat(val.hours.toFixed(2)),
+        hourlyRate:      val.rate,
+        subtotal:        val.subtotal,
+      }))
+      .sort((a, b) => b.subtotal - a.subtotal);
+
     instructors.push({
       instructorId,
       instructorName:  instr.name,
       instructorEmail: instr.email ?? null,
       meetings:        meetingDetails,
+      byActivityType,
       totalMeetings:   meetingDetails.length,
       totalHours:      parseFloat(meetingDetails.reduce((s, r) => s + r.durationHours, 0).toFixed(2)),
       totalPayment,

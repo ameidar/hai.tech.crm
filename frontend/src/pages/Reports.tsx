@@ -23,11 +23,21 @@ interface MeetingDetail {
   cycleName: string;
   courseName: string;
   activityType: string | null;
+  activityTypeRaw: string | null;
   topic: string | null;
+  hourlyRate: number | null;
   instructorPayment: number;
   expenses: MeetingExpenseDetail[];
   totalExpenses: number;
   total: number;
+}
+
+interface ActivityTypeSummary {
+  activityType: string;
+  activityTypeRaw: string;
+  hours: number;
+  hourlyRate: number | null;
+  subtotal: number;
 }
 
 interface InstructorReportSummary {
@@ -38,6 +48,7 @@ interface InstructorReportSummary {
   totalExpenses: number;
   grandTotal: number;
   meetings?: MeetingDetail[];
+  byActivityType?: ActivityTypeSummary[];
 }
 interface UnresolvedMeeting {
   id: string;
@@ -274,6 +285,51 @@ function InstructorReportTab() {
                   <X size={18} />
                 </button>
               </div>
+              {/* Activity type rate breakdown */}
+              {selectedInstructor.byActivityType && selectedInstructor.byActivityType.length > 0 && (
+                <div className="p-4 bg-indigo-50 border-b">
+                  <p className="text-xs font-semibold text-indigo-600 mb-2 uppercase tracking-wide">פירוט לפי סוג פעילות ותעריף</p>
+                  <table className="text-sm w-auto min-w-[480px]">
+                    <thead>
+                      <tr className="text-indigo-700">
+                        <th className="text-right pb-1 pr-4 font-semibold">סוג פעילות</th>
+                        <th className="text-center pb-1 px-4 font-semibold">שעות</th>
+                        <th className="text-center pb-1 px-4 font-semibold">תעריף לשעה</th>
+                        <th className="text-center pb-1 px-4 font-semibold">חישוב</th>
+                        <th className="text-center pb-1 font-semibold">סה"כ בפועל</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedInstructor.byActivityType.map((at, i) => (
+                        <tr key={i} className="border-t border-indigo-100">
+                          <td className="py-1.5 pr-4 font-medium text-gray-800">{at.activityType}</td>
+                          <td className="py-1.5 px-4 text-center text-gray-700">{at.hours.toFixed(2)}</td>
+                          <td className="py-1.5 px-4 text-center">
+                            {at.hourlyRate != null
+                              ? <span className="font-semibold text-indigo-700">₪{at.hourlyRate.toLocaleString('he-IL')}</span>
+                              : <span className="text-gray-400 text-xs">לא הוגדר</span>}
+                          </td>
+                          <td className="py-1.5 px-4 text-center text-xs text-gray-500">
+                            {at.hourlyRate != null
+                              ? `${at.hours.toFixed(2)} × ₪${at.hourlyRate} = ₪${(at.hours * at.hourlyRate).toLocaleString('he-IL', { minimumFractionDigits: 2 })}`
+                              : '—'}
+                          </td>
+                          <td className="py-1.5 text-center font-bold text-indigo-700">₪{at.subtotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="border-t-2 border-indigo-200">
+                      <tr>
+                        <td className="py-1.5 pr-4 font-bold text-indigo-900">סה"כ</td>
+                        <td className="py-1.5 px-4 text-center font-bold text-indigo-900">{selectedInstructor.totalHours.toFixed(2)}</td>
+                        <td colSpan={2} />
+                        <td className="py-1.5 text-center font-bold text-indigo-900">₪{selectedInstructor.totalPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
               {selectedInstructor.meetings && selectedInstructor.meetings.length > 0 ? (
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
@@ -282,6 +338,7 @@ function InstructorReportTab() {
                       <th className="text-center p-2.5 font-medium text-gray-600">שעות</th>
                       <th className="text-right p-2.5 font-medium text-gray-600">קורס / מחזור</th>
                       <th className="text-center p-2.5 font-medium text-gray-600">סוג</th>
+                      <th className="text-center p-2.5 font-medium text-gray-600">תעריף/שעה</th>
                       <th className="text-center p-2.5 font-medium text-gray-600">תשלום מדריך</th>
                       <th className="text-center p-2.5 font-medium text-gray-600">הוצאות נוספות</th>
                       <th className="text-center p-2.5 font-medium text-gray-600 font-bold">סה"כ</th>
@@ -300,6 +357,9 @@ function InstructorReportTab() {
                           {mtg.topic && <div className="text-xs text-gray-400">{mtg.topic}</div>}
                         </td>
                         <td className="p-2.5 text-center text-gray-500">{mtg.activityType || '—'}</td>
+                        <td className="p-2.5 text-center text-indigo-600 font-medium text-xs">
+                          {mtg.hourlyRate != null ? `₪${mtg.hourlyRate}` : '—'}
+                        </td>
                         <td className="p-2.5 text-center text-gray-700">₪{mtg.instructorPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
                         <td className="p-2.5 text-center">
                           {mtg.expenses.length > 0 ? (
@@ -321,7 +381,7 @@ function InstructorReportTab() {
                   <tfoot className="bg-blue-50 font-bold border-t-2 border-blue-200">
                     <tr>
                       <td colSpan={2} className="p-2.5 text-blue-900">סה"כ</td>
-                      <td colSpan={2} className="p-2.5 text-blue-700 text-center">{selectedInstructor.totalHours.toFixed(2)} שעות</td>
+                      <td colSpan={3} className="p-2.5 text-blue-700 text-center">{selectedInstructor.totalHours.toFixed(2)} שעות</td>
                       <td className="p-2.5 text-center text-blue-900">₪{selectedInstructor.totalPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
                       <td className="p-2.5 text-center text-orange-800">{selectedInstructor.totalExpenses > 0 ? `₪${selectedInstructor.totalExpenses.toLocaleString('he-IL', { minimumFractionDigits: 2 })}` : '—'}</td>
                       <td className="p-2.5 text-center text-blue-900 text-base">₪{selectedInstructor.grandTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>

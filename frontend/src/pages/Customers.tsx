@@ -245,14 +245,13 @@ function CustomerForm({ onSubmit, onCancel, isLoading, initialData }: CustomerFo
         </div>
 
         <div>
-          <label className="form-label">אימייל *</label>
+          <label className="form-label">אימייל</label>
           <input
             type="email"
             value={formData.email}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             className="form-input"
             dir="ltr"
-            required
           />
         </div>
 

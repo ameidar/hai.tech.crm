@@ -1,10 +1,34 @@
 import { useState, useMemo, useEffect } from 'react';
-import { BarChart3, Calendar, TrendingUp, DollarSign, Building2, FileText, Download, RefreshCw, CreditCard, Users, Send, FileSpreadsheet, Loader2 } from 'lucide-react';
+import { BarChart3, Calendar, TrendingUp, DollarSign, Building2, FileText, Download, RefreshCw, CreditCard, Users, Send, FileSpreadsheet, Loader2, ChevronDown, X } from 'lucide-react';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import { useMeetings, useCycles, useInstructors, useBranches } from '../hooks/useApi';
 
 // ─── Instructor Report Types ───────────────────────────────────────────────────
+
+interface MeetingExpenseDetail {
+  type: string;
+  amount: number;
+  hours: number | null;
+  rateType: string | null;
+  description: string | null;
+}
+
+interface MeetingDetail {
+  id: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  durationHours: number;
+  cycleName: string;
+  courseName: string;
+  activityType: string | null;
+  topic: string | null;
+  instructorPayment: number;
+  expenses: MeetingExpenseDetail[];
+  totalExpenses: number;
+  total: number;
+}
 
 interface InstructorReportSummary {
   instructorName: string;
@@ -13,6 +37,7 @@ interface InstructorReportSummary {
   totalPayment: number;
   totalExpenses: number;
   grandTotal: number;
+  meetings?: MeetingDetail[];
 }
 interface UnresolvedMeeting {
   id: string;
@@ -35,6 +60,7 @@ function InstructorReportTab() {
   const [sending, setSending] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [selectedInstructor, setSelectedInstructor] = useState<InstructorReportSummary | null>(null);
 
   const token = () => localStorage.getItem('accessToken') || '';
 
@@ -53,6 +79,7 @@ function InstructorReportTab() {
     if (!selectedMonth) return;
     setLoadingReport(true);
     setReport(null);
+    setSelectedInstructor(null);
     setMsg(null);
     try {
       const res = await fetch(`/api/reports/instructors?month=${selectedMonth}`, { headers: { Authorization: `Bearer ${token()}` } });
@@ -199,16 +226,27 @@ function InstructorReportTab() {
                   </tr>
                 </thead>
                 <tbody>
-                  {report.instructors.map((instr, i) => (
-                    <tr key={i} className="border-t hover:bg-blue-50 transition-colors">
-                      <td className="p-3 font-semibold text-gray-800">{instr.instructorName}</td>
-                      <td className="p-3 text-center text-gray-700">{instr.totalMeetings}</td>
-                      <td className="p-3 text-center text-gray-700">{instr.totalHours.toFixed(1)}</td>
-                      <td className="p-3 text-center text-gray-700">₪{instr.totalPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
-                      <td className="p-3 text-center text-gray-500 text-sm">{instr.totalExpenses > 0 ? `₪${instr.totalExpenses.toLocaleString('he-IL', { minimumFractionDigits: 2 })}` : '—'}</td>
-                      <td className="p-3 text-center font-bold text-blue-700">₪{instr.grandTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
-                    </tr>
-                  ))}
+                  {report.instructors.map((instr, i) => {
+                    const isSelected = selectedInstructor?.instructorName === instr.instructorName;
+                    return (
+                      <tr
+                        key={i}
+                        onClick={() => setSelectedInstructor(isSelected ? null : instr)}
+                        className={`border-t cursor-pointer transition-colors ${isSelected ? 'bg-blue-100 hover:bg-blue-100' : 'hover:bg-blue-50'}`}
+                        title="לחץ לצפייה בפירוט פגישות"
+                      >
+                        <td className="p-3 font-semibold text-gray-800 flex items-center gap-2">
+                          <ChevronDown size={15} className={`text-blue-500 transition-transform ${isSelected ? 'rotate-180' : ''}`} />
+                          {instr.instructorName}
+                        </td>
+                        <td className="p-3 text-center text-gray-700">{instr.totalMeetings}</td>
+                        <td className="p-3 text-center text-gray-700">{instr.totalHours.toFixed(1)}</td>
+                        <td className="p-3 text-center text-gray-700">₪{instr.totalPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                        <td className="p-3 text-center text-gray-500 text-sm">{instr.totalExpenses > 0 ? `₪${instr.totalExpenses.toLocaleString('he-IL', { minimumFractionDigits: 2 })}` : '—'}</td>
+                        <td className="p-3 text-center font-bold text-blue-700">₪{instr.grandTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 <tfoot className="bg-blue-100">
                   <tr>
@@ -221,6 +259,80 @@ function InstructorReportTab() {
               </table>
             )}
           </div>
+
+          {/* Instructor drill-down */}
+          {selectedInstructor && (
+            <div className="bg-white rounded-lg shadow overflow-hidden border-r-4 border-blue-500">
+              <div className="p-4 border-b bg-blue-50 flex items-center justify-between">
+                <h3 className="text-base font-semibold text-blue-900 flex items-center gap-2">
+                  📋 פירוט פגישות — {selectedInstructor.instructorName}
+                  <span className="text-sm font-normal text-blue-600">
+                    ({selectedInstructor.totalMeetings} פגישות | {selectedInstructor.totalHours.toFixed(1)} שעות | סה"כ ₪{selectedInstructor.grandTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })})
+                  </span>
+                </h3>
+                <button onClick={() => setSelectedInstructor(null)} className="text-gray-400 hover:text-gray-600">
+                  <X size={18} />
+                </button>
+              </div>
+              {selectedInstructor.meetings && selectedInstructor.meetings.length > 0 ? (
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-right p-2.5 font-medium text-gray-600">תאריך</th>
+                      <th className="text-center p-2.5 font-medium text-gray-600">שעות</th>
+                      <th className="text-right p-2.5 font-medium text-gray-600">קורס / מחזור</th>
+                      <th className="text-center p-2.5 font-medium text-gray-600">סוג</th>
+                      <th className="text-center p-2.5 font-medium text-gray-600">תשלום מדריך</th>
+                      <th className="text-center p-2.5 font-medium text-gray-600">הוצאות נוספות</th>
+                      <th className="text-center p-2.5 font-medium text-gray-600 font-bold">סה"כ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedInstructor.meetings.map((mtg, idx) => (
+                      <tr key={mtg.id} className={`border-t ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                        <td className="p-2.5 text-gray-800">
+                          {new Date(mtg.date).toLocaleDateString('he-IL', { day: 'numeric', month: 'short', weekday: 'short' })}
+                          <div className="text-xs text-gray-400">{mtg.startTime}–{mtg.endTime}</div>
+                        </td>
+                        <td className="p-2.5 text-center text-gray-700">{mtg.durationHours.toFixed(2)}</td>
+                        <td className="p-2.5 text-gray-700">
+                          <div>{mtg.cycleName}</div>
+                          {mtg.topic && <div className="text-xs text-gray-400">{mtg.topic}</div>}
+                        </td>
+                        <td className="p-2.5 text-center text-gray-500">{mtg.activityType || '—'}</td>
+                        <td className="p-2.5 text-center text-gray-700">₪{mtg.instructorPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                        <td className="p-2.5 text-center">
+                          {mtg.expenses.length > 0 ? (
+                            <div className="space-y-0.5">
+                              {mtg.expenses.map((exp, ei) => (
+                                <div key={ei} className="text-xs text-orange-700 bg-orange-50 rounded px-1.5 py-0.5">
+                                  {exp.type}: ₪{exp.amount.toLocaleString('he-IL', { minimumFractionDigits: 2 })}
+                                  {exp.description && <span className="text-gray-400"> ({exp.description})</span>}
+                                </div>
+                              ))}
+                              <div className="text-xs font-semibold text-orange-800">₪{mtg.totalExpenses.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</div>
+                            </div>
+                          ) : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="p-2.5 text-center font-bold text-blue-700">₪{mtg.total.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-blue-50 font-bold border-t-2 border-blue-200">
+                    <tr>
+                      <td colSpan={2} className="p-2.5 text-blue-900">סה"כ</td>
+                      <td colSpan={2} className="p-2.5 text-blue-700 text-center">{selectedInstructor.totalHours.toFixed(2)} שעות</td>
+                      <td className="p-2.5 text-center text-blue-900">₪{selectedInstructor.totalPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                      <td className="p-2.5 text-center text-orange-800">{selectedInstructor.totalExpenses > 0 ? `₪${selectedInstructor.totalExpenses.toLocaleString('he-IL', { minimumFractionDigits: 2 })}` : '—'}</td>
+                      <td className="p-2.5 text-center text-blue-900 text-base">₪{selectedInstructor.grandTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              ) : (
+                <div className="p-6 text-center text-gray-400 text-sm">אין פרטי פגישות זמינים</div>
+              )}
+            </div>
+          )}
 
           {/* Unresolved meetings */}
           {report.unresolvedMeetings && report.unresolvedMeetings.length > 0 ? (

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
-import { BarChart3, Calendar, TrendingUp, DollarSign, Building2, FileText, Download, RefreshCw, CreditCard, Users, Send, FileSpreadsheet, Loader2, ChevronDown, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { BarChart3, Calendar, TrendingUp, DollarSign, Building2, FileText, Download, RefreshCw, CreditCard, Users, Send, FileSpreadsheet, Loader2, ChevronDown, X, ExternalLink } from 'lucide-react';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import { useMeetings, useCycles, useInstructors, useBranches } from '../hooks/useApi';
@@ -411,17 +412,30 @@ function InstructorReportTab() {
                     <th className="text-right p-3 text-white text-sm font-medium">מדריך</th>
                     <th className="text-right p-3 text-white text-sm font-medium">קורס / מחזור</th>
                     <th className="text-center p-3 text-white text-sm font-medium">סטטוס</th>
+                    <th className="text-center p-3 text-white text-sm font-medium">עריכה</th>
                   </tr>
                 </thead>
                 <tbody>
                   {report.unresolvedMeetings.map((m, i) => (
-                    <tr key={m.id} className={`border-t ${i % 2 === 0 ? 'bg-orange-50' : 'bg-white'}`}>
+                    <tr key={m.id} className={`border-t cursor-pointer transition-colors ${i % 2 === 0 ? 'bg-orange-50 hover:bg-orange-100' : 'bg-white hover:bg-orange-50'}`}
+                      onClick={() => window.open(`/meetings?openMeeting=${m.id}`, '_blank')}>
                       <td className="p-3 text-gray-800">{new Date(m.date).toLocaleDateString('he-IL')}</td>
                       <td className="p-3 text-center text-gray-700">{m.startTime}</td>
                       <td className="p-3 font-semibold text-gray-800">{m.instructorName}</td>
                       <td className="p-3 text-gray-700">{m.cycleName}</td>
                       <td className="p-3 text-center">
                         <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-bold">מתוכנן ⚠️</span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <Link
+                          to={`/meetings?openMeeting=${m.id}`}
+                          target="_blank"
+                          onClick={e => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-700 text-white rounded text-xs font-medium hover:bg-red-800 transition-colors"
+                        >
+                          <ExternalLink size={11} />
+                          פתח
+                        </Link>
                       </td>
                     </tr>
                   ))}

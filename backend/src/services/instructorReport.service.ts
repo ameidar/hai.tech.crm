@@ -101,18 +101,20 @@ const calcDuration = (start: unknown, end: unknown): number => {
 };
 
 const ACTIVITY_TYPE_LABELS: Record<string, string> = {
-  frontal:     'פרונטלי',
-  online:      'אונליין',
-  private:     'פרטי',
-  preparation: 'הכנה',
+  frontal:       'פרונטלי',
+  online:        'אונליין',
+  private:       'פרטי',        // DB value
+  private_lesson:'פרטי',        // Prisma TS enum key
+  preparation:   'הכנה',
 };
 
 // Map raw activityType → instructor rate field name
 const ACTIVITY_RATE_FIELD: Record<string, keyof typeof RATE_FIELDS> = {
-  frontal:     'rateFrontal',
-  online:      'rateOnline',
-  private:     'ratePrivate',
-  preparation: 'ratePreparation',
+  frontal:       'rateFrontal',
+  online:        'rateOnline',
+  private:       'ratePrivate',       // DB value
+  private_lesson:'ratePrivate',       // Prisma TS enum key
+  preparation:   'ratePreparation',
 };
 
 // Dummy type for rate fields (used for type-safe lookup)
@@ -241,9 +243,11 @@ export async function buildInstructorMonthlyReport(
     const totalExpenses = meetingDetails.reduce((s, r) => s + r.totalExpenses, 0);
 
     // Build byActivityType breakdown
+    // Normalize: treat 'private_lesson' (Prisma TS enum) same as 'private' (DB value)
+    const normalizeActKey = (k: string | null) => k === 'private_lesson' ? 'private' : (k ?? 'unknown');
     const actMap = new Map<string, { hours: number; subtotal: number; rate: number | null; label: string }>();
     for (const mtg of meetingDetails) {
-      const key = mtg.activityTypeRaw ?? 'unknown';
+      const key = normalizeActKey(mtg.activityTypeRaw);
       const existing = actMap.get(key) ?? { hours: 0, subtotal: 0, rate: mtg.hourlyRate, label: mtg.activityType ?? 'לא מוגדר' };
       existing.hours   += mtg.durationHours;
       existing.subtotal += mtg.instructorPayment;
@@ -251,7 +255,7 @@ export async function buildInstructorMonthlyReport(
     }
     const byActivityType: ActivityTypeSummary[] = Array.from(actMap.entries())
       .map(([raw, val]) => ({
-        activityType:    val.label,
+        activityType:    ACTIVITY_TYPE_LABELS[raw] ?? val.label,
         activityTypeRaw: raw,
         hours:           parseFloat(val.hours.toFixed(2)),
         hourlyRate:      val.rate,

@@ -25,7 +25,7 @@ export const registerSchema = z.object({
 // Customer schemas
 export const createCustomerSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
-  email: z.string().email().optional().nullable(),
+  email: z.union([z.string().email(), z.literal('').transform(() => null), z.null()]).optional().nullable(),
   phone: z.string().min(9, 'Phone must be at least 9 characters'),
   address: z.string().optional().nullable(),
   city: z.string().optional().nullable(),

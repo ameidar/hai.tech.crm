@@ -215,7 +215,8 @@ export async function buildInstructorMonthlyReport(
 
       const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
       const instructorPayment = Number(mtg.instructorPayment);
-      const rawType = mtg.activityType as string | null;
+      // Fallback: if meeting has no activityType, use the cycle's activityType (same as UI behavior)
+      const rawType = (mtg.activityType ?? (mtg.cycle as { activityType?: string | null }).activityType ?? null) as string | null;
 
       meetingDetails.push({
         id:                mtg.id,

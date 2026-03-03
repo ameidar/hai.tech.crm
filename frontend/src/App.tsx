@@ -32,6 +32,7 @@ import SystemUsers from './pages/SystemUsers';
 import WhatsAppInbox from './pages/WhatsAppInbox';
 import Campaigns from './pages/Campaigns';
 import CampaignLanding from './pages/CampaignLanding';
+import PayPage from './pages/PayPage';
 
 // Mobile instructor pages
 import MobileMeetings from './pages/instructor/MobileMeetings';
@@ -106,6 +107,7 @@ function AppRoutes() {
       <Route path="/public/quote/:id" element={<PublicQuoteView />} />
       <Route path="/cancel/:token" element={<PublicCancelForm />} />
       <Route path="/campaign/:campaignId" element={<CampaignLanding />} />
+      <Route path="/pay/:token" element={<PayPage />} />
       <Route path="/m/:meetingId/:token" element={<MeetingStatus />} />
       <Route path="/i/:meetingId/:token" element={<InstructorMagicMeeting />} />
       

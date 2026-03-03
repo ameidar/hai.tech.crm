@@ -1,0 +1,3 @@
+ALTER TABLE "payments"
+  ADD COLUMN IF NOT EXISTS "pay_token" VARCHAR(255) UNIQUE,
+  ADD COLUMN IF NOT EXISTS "max_installments" INTEGER;

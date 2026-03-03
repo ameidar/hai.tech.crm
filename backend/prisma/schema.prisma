@@ -935,6 +935,8 @@ model Payment {
   invoiceNumber    String?  @map("invoice_number")
   paymentMethod    String?  @map("payment_method")  // creditcard | bit | google-pay
   paidAt           DateTime? @map("paid_at")
+  payToken         String?  @unique @map("pay_token")  // CRM public pay page token
+  maxInstallments  Int?     @map("max_installments")   // max installments customer can choose
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 

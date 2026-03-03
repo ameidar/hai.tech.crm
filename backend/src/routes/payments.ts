@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createHmac } from 'crypto';
+import { createHmac, randomUUID } from 'crypto';
 import { authenticate } from '../middleware/auth.js';
 import { config } from '../config.js';
 import { prisma } from '../utils/prisma.js';
@@ -70,7 +70,8 @@ router.use('/sync-woo', authenticate);
  */
 router.post('/create-link', async (req, res) => {
   const { customerId, customerName, customerPhone, customerEmail, amount, description, installments } = req.body;
-  const numInstallments = installments && Number(installments) > 1 ? Number(installments) : 1;
+  // maxInstallments = customer can choose from 1 up to this number on the CRM pay page
+  const maxInstallments = installments && Number(installments) > 1 ? Number(installments) : 1;
 
   if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
     return res.status(400).json({ error: 'סכום לא תקין' });
@@ -86,9 +87,10 @@ router.post('/create-link', async (req, res) => {
   const firstName = nameParts[0] || 'לקוח';
   const lastName = nameParts.slice(1).join(' ') || '';
 
+  // Create WC order WITHOUT installments — customer picks on CRM pay page
   const orderPayload: any = {
     payment_method: 'greeninvoice-creditcard',
-    payment_method_title: numInstallments > 1 ? `כרטיס אשראי — ${numInstallments} תשלומים` : 'כרטיס אשראי / ביט',
+    payment_method_title: 'כרטיס אשראי / ביט',
     status: 'pending',
     customer_id: CRM_PAYMENTS_WP_USER_ID,
     billing: {
@@ -99,18 +101,10 @@ router.post('/create-link', async (req, res) => {
     },
     fee_lines: [
       {
-        name: numInstallments > 1 ? `${description.trim()} — ${numInstallments} תשלומים` : description.trim(),
+        name: description.trim(),
         total: String(Number(amount).toFixed(2)),
       },
     ],
-    // Installments — passed via meta_data for Morning/GreenInvoice plugin
-    ...(numInstallments > 1 && {
-      meta_data: [
-        { key: 'num_payments', value: String(numInstallments) },
-        { key: '_greeninvoice_number_of_payments', value: String(numInstallments) },
-        { key: 'installments', value: String(numInstallments) },
-      ],
-    }),
   };
 
   const wooRes = await fetch(`${siteUrl}/wp-json/wc/v3/orders`, {
@@ -140,6 +134,10 @@ router.post('/create-link', async (req, res) => {
     if (found) resolvedCustomerId = found.id;
   }
 
+  // Generate CRM pay page token
+  const payToken = randomUUID();
+  const baseUrl = process.env.BASE_URL || 'https://crm.orma-ai.com';
+
   // Save to CRM DB
   const payment = await prisma.payment.create({
     data: {
@@ -153,10 +151,15 @@ router.post('/create-link', async (req, res) => {
       wooOrderId: order.id,
       wooOrderKey: order.order_key,
       status: 'pending',
+      payToken,
+      maxInstallments: maxInstallments > 1 ? maxInstallments : null,
     },
   });
 
-  // Generate auto-login URL (init-hook, more reliable than REST context)
+  // CRM pay page — customer picks installments here
+  const crmPayUrl = `${baseUrl}/pay/${payToken}`;
+
+  // Legacy WC URL (used after installment selection)
   const { token, ts } = generatePayToken(order.id);
   const paymentUrl = `${siteUrl}/?haitech_pay=1&order_id=${order.id}&ts=${ts}&token=${token}`;
   const directPaymentUrl = `${siteUrl}/checkout/order-pay/${order.id}/?pay_for_order=true&key=${order.order_key}`;
@@ -165,12 +168,106 @@ router.post('/create-link', async (req, res) => {
     paymentId: payment.id,
     orderId: order.id,
     orderKey: order.order_key,
-    paymentUrl,
+    paymentUrl: crmPayUrl,        // ← CRM pay page with installment picker
     directPaymentUrl,
+    legacyPaymentUrl: paymentUrl, // ← direct WC URL (for fallback)
     amount: Number(amount),
     description: description.trim(),
+    maxInstallments,
   });
 });
+
+// ─── Public pay-page routes (no auth) ────────────────────────────────────────
+
+/**
+ * GET /api/payments/pay-page/:token
+ * Public — returns order info for the CRM pay page (installment selection).
+ */
+router.get('/pay-page/:token', async (req, res) => {
+  const { token } = req.params;
+  const payment = await prisma.payment.findUnique({
+    where: { payToken: token },
+    select: {
+      id: true,
+      customerName: true,
+      description: true,
+      amount: true,
+      currency: true,
+      maxInstallments: true,
+      wooOrderId: true,
+      wooOrderKey: true,
+      status: true,
+    },
+  });
+  if (!payment) return res.status(404).json({ error: 'לינק לא קיים' });
+  if (payment.status === 'paid') return res.json({ ...payment, alreadyPaid: true });
+  res.json(payment);
+});
+
+/**
+ * POST /api/payments/pay-page/:token/confirm
+ * Public — customer confirms installments, WC order is updated, returns checkout URL.
+ */
+router.post('/pay-page/:token/confirm', async (req, res) => {
+  const { token } = req.params;
+  const { installments } = req.body;
+  const chosenInstallments = installments && Number(installments) > 0 ? Number(installments) : 1;
+
+  const payment = await prisma.payment.findUnique({
+    where: { payToken: token },
+  });
+  if (!payment) return res.status(404).json({ error: 'לינק לא קיים' });
+  if (payment.status === 'paid') return res.status(400).json({ error: 'התשלום כבר בוצע' });
+  if (!payment.wooOrderId || !payment.wooOrderKey) {
+    return res.status(500).json({ error: 'הזמנה לא מקושרת ל-WooCommerce' });
+  }
+
+  const { siteUrl, consumerKey, consumerSecret } = config.woo;
+  const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
+
+  // Update WC order with chosen installments
+  const updatePayload: any = {
+    payment_method_title: chosenInstallments > 1
+      ? `כרטיס אשראי — ${chosenInstallments} תשלומים`
+      : 'כרטיס אשראי / ביט',
+    meta_data: chosenInstallments > 1 ? [
+      { key: 'num_payments', value: String(chosenInstallments) },
+      { key: '_greeninvoice_number_of_payments', value: String(chosenInstallments) },
+      { key: 'installments', value: String(chosenInstallments) },
+    ] : [],
+  };
+
+  // Also update fee line name to reflect installments
+  const descWithInstallments = chosenInstallments > 1
+    ? `${payment.description} — ${chosenInstallments} תשלומים`
+    : payment.description;
+
+  // Fetch current fee lines to get their IDs for update
+  const wooFetch = await fetch(`${siteUrl}/wp-json/wc/v3/orders/${payment.wooOrderId}`, {
+    headers: { Authorization: `Basic ${auth}` },
+  });
+  if (wooFetch.ok) {
+    const wooOrder = await wooFetch.json() as any;
+    const feeLineId = wooOrder.fee_lines?.[0]?.id;
+    if (feeLineId) {
+      updatePayload.fee_lines = [{ id: feeLineId, name: descWithInstallments }];
+    }
+  }
+
+  await fetch(`${siteUrl}/wp-json/wc/v3/orders/${payment.wooOrderId}`, {
+    method: 'PUT',
+    headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(updatePayload),
+  });
+
+  // Return checkout URL
+  const { token: payToken, ts } = generatePayToken(payment.wooOrderId);
+  const checkoutUrl = `${siteUrl}/?haitech_pay=1&order_id=${payment.wooOrderId}&ts=${ts}&token=${payToken}`;
+
+  res.json({ checkoutUrl, installments: chosenInstallments });
+});
+
+// ─── Authenticated routes ─────────────────────────────────────────────────────
 
 /**
  * GET /api/payments/order-status/:orderId

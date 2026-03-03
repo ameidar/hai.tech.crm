@@ -763,6 +763,54 @@ cyclesRouter.get('/:id/registrations', async (req, res, next) => {
   }
 });
 
+// ─── GET /api/cycles/:id/students ───────────────────────────────────────────
+// Clean flat list of students enrolled in a cycle.
+// Query params:
+//   status=registered|cancelled|all  (default: registered)
+cyclesRouter.get('/:id/students', async (req, res, next) => {
+  try {
+    const id          = uuidSchema.parse(req.params.id);
+    const statusParam = (req.query.status as string | undefined) ?? 'registered';
+
+    const where: Record<string, unknown> = { cycleId: id };
+    if (statusParam !== 'all') {
+      where.status = statusParam;
+    }
+
+    const registrations = await prisma.registration.findMany({
+      where,
+      include: {
+        student: {
+          include: {
+            customer: { select: { id: true, name: true, phone: true, email: true, city: true } },
+          },
+        },
+      },
+      orderBy: { registrationDate: 'asc' },
+    });
+
+    const students = registrations.map(r => ({
+      registrationId:   r.id,
+      registrationStatus: r.status,
+      registrationDate: r.registrationDate,
+      paymentStatus:    r.paymentStatus,
+      studentId:        r.student?.id ?? null,
+      studentName:      r.student?.name ?? null,
+      studentBirthDate: r.student?.birthDate ?? null,
+      studentGrade:     r.student?.grade ?? null,
+      customerId:       r.student?.customer?.id ?? null,
+      parentName:       r.student?.customer?.name ?? null,
+      parentPhone:      r.student?.customer?.phone ?? null,
+      parentEmail:      r.student?.customer?.email ?? null,
+      parentCity:       r.student?.customer?.city ?? null,
+    }));
+
+    res.json({ cycleId: id, total: students.length, students });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Add registration to cycle
 cyclesRouter.post('/:id/registrations', managerOrAdmin, async (req, res, next) => {
   try {

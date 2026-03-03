@@ -69,7 +69,8 @@ router.use('/sync-woo', authenticate);
  * Creates a WooCommerce order and returns a payment URL. Saves to DB.
  */
 router.post('/create-link', async (req, res) => {
-  const { customerId, customerName, customerPhone, customerEmail, amount, description } = req.body;
+  const { customerId, customerName, customerPhone, customerEmail, amount, description, installments } = req.body;
+  const numInstallments = installments && Number(installments) > 1 ? Number(installments) : 1;
 
   if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
     return res.status(400).json({ error: 'סכום לא תקין' });
@@ -85,7 +86,7 @@ router.post('/create-link', async (req, res) => {
   const firstName = nameParts[0] || 'לקוח';
   const lastName = nameParts.slice(1).join(' ') || '';
 
-  const orderPayload = {
+  const orderPayload: any = {
     payment_method: 'greeninvoice-creditcard',
     payment_method_title: 'כרטיס אשראי / ביט',
     status: 'pending',
@@ -102,6 +103,14 @@ router.post('/create-link', async (req, res) => {
         total: String(Number(amount).toFixed(2)),
       },
     ],
+    // Installments — passed via meta_data for Morning/GreenInvoice plugin
+    ...(numInstallments > 1 && {
+      meta_data: [
+        { key: 'num_payments', value: String(numInstallments) },
+        { key: '_greeninvoice_number_of_payments', value: String(numInstallments) },
+        { key: 'installments', value: String(numInstallments) },
+      ],
+    }),
   };
 
   const wooRes = await fetch(`${siteUrl}/wp-json/wc/v3/orders`, {

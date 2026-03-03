@@ -88,7 +88,7 @@ router.post('/create-link', async (req, res) => {
 
   const orderPayload: any = {
     payment_method: 'greeninvoice-creditcard',
-    payment_method_title: 'כרטיס אשראי / ביט',
+    payment_method_title: numInstallments > 1 ? `כרטיס אשראי — ${numInstallments} תשלומים` : 'כרטיס אשראי / ביט',
     status: 'pending',
     customer_id: CRM_PAYMENTS_WP_USER_ID,
     billing: {
@@ -99,7 +99,7 @@ router.post('/create-link', async (req, res) => {
     },
     fee_lines: [
       {
-        name: description.trim(),
+        name: numInstallments > 1 ? `${description.trim()} — ${numInstallments} תשלומים` : description.trim(),
         total: String(Number(amount).toFixed(2)),
       },
     ],

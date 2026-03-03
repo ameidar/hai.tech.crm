@@ -174,6 +174,18 @@ customersRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     // Get old value for audit
     const oldCustomer = await prisma.customer.findUnique({ where: { id } });
 
+    // Check duplicate phone (exclude current customer)
+    if (data.phone) {
+      const phoneConflict = await prisma.customer.findFirst({
+        where: { phone: data.phone, id: { not: id } },
+      });
+      if (phoneConflict) {
+        throw new AppError(409, `לקוח עם מספר טלפון ${data.phone} כבר קיים: ${phoneConflict.name}`, {
+          existingCustomer: phoneConflict,
+        });
+      }
+    }
+
     // Check duplicate email (exclude current customer)
     if (data.email) {
       const emailConflict = await prisma.customer.findFirst({

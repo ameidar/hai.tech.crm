@@ -119,12 +119,17 @@ export default function CustomerDetail() {
     }
   };
 
+  const [updateCustomerError, setUpdateCustomerError] = useState<string | null>(null);
+
   const handleUpdateCustomer = async (data: Partial<Customer>) => {
+    setUpdateCustomerError(null);
     try {
       await updateCustomer.mutateAsync({ id: id!, data });
       setShowEditModal(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to update customer:', error);
+      const msg = error?.response?.data?.message || error?.response?.data?.error || 'שגיאה בעדכון הלקוח';
+      setUpdateCustomerError(msg);
     }
   };
 
@@ -386,14 +391,15 @@ export default function CustomerDetail() {
       {/* Edit Customer Modal */}
       <Modal
         isOpen={showEditModal}
-        onClose={() => setShowEditModal(false)}
+        onClose={() => { setShowEditModal(false); setUpdateCustomerError(null); }}
         title="עריכת לקוח"
       >
         <CustomerEditForm
           customer={customer}
           onSubmit={handleUpdateCustomer}
-          onCancel={() => setShowEditModal(false)}
+          onCancel={() => { setShowEditModal(false); setUpdateCustomerError(null); }}
           isLoading={updateCustomer.isPending}
+          error={updateCustomerError}
         />
       </Modal>
 
@@ -785,9 +791,10 @@ interface CustomerEditFormProps {
   onSubmit: (data: Partial<Customer>) => void;
   onCancel: () => void;
   isLoading?: boolean;
+  error?: string | null;
 }
 
-function CustomerEditForm({ customer, onSubmit, onCancel, isLoading }: CustomerEditFormProps) {
+function CustomerEditForm({ customer, onSubmit, onCancel, isLoading, error }: CustomerEditFormProps) {
   const [formData, setFormData] = useState({
     name: customer.name,
     email: customer.email,
@@ -806,6 +813,11 @@ function CustomerEditForm({ customer, onSubmit, onCancel, isLoading }: CustomerE
 
   return (
     <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm">
+          {error}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2">
           <label className="form-label">שם *</label>

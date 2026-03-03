@@ -478,3 +478,107 @@ export async function updateVapiAssistantDate(): Promise<void> {
     console.log(`[VAPI] Assistant date updated to ${today} (${dayHe})`);
   }
 }
+
+// Process pending VAPI calls (leads that arrived outside business hours)
+// Should be called at the start of business hours (e.g. 08:00 cron)
+export async function processPendingVapiCalls(): Promise<void> {
+  if (!isBusinessHoursInIsrael()) {
+    console.log('[VAPI] processPendingVapiCalls called outside business hours — skipping');
+    return;
+  }
+
+  const pendingLeads = await prisma.leadAppointment.findMany({
+    where: { callStatus: 'pending' },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  if (pendingLeads.length === 0) {
+    console.log('[VAPI] No pending leads to process');
+    return;
+  }
+
+  console.log(`[VAPI] Processing ${pendingLeads.length} pending leads...`);
+
+  for (const lead of pendingLeads) {
+    try {
+      console.log(`[VAPI] Initiating call for pending lead: ${lead.id} (${lead.customerName})`);
+      // Mark as queued before calling to avoid duplicate calls on retry
+      await prisma.leadAppointment.update({
+        where: { id: lead.id },
+        data: { callStatus: 'queued' },
+      });
+
+      const phoneNumber = formatPhoneForVapi(lead.customerPhone);
+      const firstName = lead.customerName.split(' ')[0];
+      const firstMessage = lead.childName && lead.interest
+        ? `היי ${firstName}, מדבר טל מדרך ההייטק. ראיתי שפנית אלינו לגבי ${lead.interest} עבור ${lead.childName}. רציתי לקבוע שיחת היכרות קצרה עם מדריך, יש לך דקה?`
+        : `היי ${firstName}, מדבר טל מדרך ההייטק. ראיתי שפנית אלינו דרך האתר. רציתי לקבוע שיחת היכרות קצרה עם מדריך, יש לך דקה?`;
+
+      const now = new Date();
+      const israelDate = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
+      const israelTime = now.toLocaleTimeString('he-IL', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit' });
+
+      const SYSTEM_PROMPT = `אתה טל, נציג טלפוני של דרך ההייטק. אתה גבר. דבר תמיד בלשון זכר. השם שלך הוא טל ורק טל.
+
+מטרת השיחה: לקבוע שיחת היכרות טלפונית עם מדריך. זו המטרה היחידה.
+
+=== מידע נוכחי ===
+התאריך היום: ${israelDate}
+השעה עכשיו: ${israelTime}
+
+=== פרטי הליד ===
+שם הלקוח: ${lead.customerName}
+${lead.childName ? `שם הילד/ה: ${lead.childName}` : ''}
+${lead.interest ? `תחום עניין: ${lead.interest}` : ''}
+מקור הפנייה: ${lead.source || 'website'}
+
+אל תשאל שוב מידע שכבר יש לך!
+סגנון: קצר, ישיר, חם. שאלה אחת בכל פעם.
+אם שואלים מחיר - המדריך יפרט בשיחה.`;
+
+      const callResp = await fetch('https://api.vapi.ai/call/phone', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${config.vapiApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          assistantId: config.vapiAssistantId,
+          phoneNumberId: config.vapiPhoneNumberId,
+          customer: { number: phoneNumber },
+          assistantOverrides: {
+            firstMessage,
+            model: {
+              model: 'gpt-4o',
+              provider: 'openai',
+              messages: [{ role: 'system', content: SYSTEM_PROMPT }],
+            },
+          },
+        }),
+      });
+
+      if (!callResp.ok) {
+        const errText = await callResp.text();
+        console.error(`[VAPI] Failed to call pending lead ${lead.id}:`, errText);
+        await prisma.leadAppointment.update({
+          where: { id: lead.id },
+          data: { callStatus: 'failed', appointmentNotes: `Vapi error: ${errText}` },
+        });
+      } else {
+        const result = await callResp.json() as { id: string };
+        await prisma.leadAppointment.update({
+          where: { id: lead.id },
+          data: { vapiCallId: result.id, callStatus: 'queued' },
+        });
+        console.log(`[VAPI] Pending lead ${lead.id} call initiated: ${result.id}`);
+      }
+
+      // Small delay between calls to avoid rate limiting
+      await new Promise(r => setTimeout(r, 2000));
+    } catch (err) {
+      console.error(`[VAPI] Error processing pending lead ${lead.id}:`, err);
+    }
+  }
+
+  console.log('[VAPI] Finished processing pending leads');
+}

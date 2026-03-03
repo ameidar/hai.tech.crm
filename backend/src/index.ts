@@ -38,7 +38,8 @@ import { publicQuoteRouter } from './routes/public-quote.js';
 import { publicCancelRouter } from './routes/public-cancel.js';
 import { vapiWebhookRouter } from './routes/vapi-webhook.js';
 import { vapiToolsRouter } from './routes/vapi-tools.js';
-import { updateVapiAssistantDate } from './services/vapi.js';
+import { updateVapiAssistantDate, processPendingVapiCalls } from './services/vapi.js';
+import cron from 'node-cron';
 import { upsellLeadsRouter } from './routes/upsell-leads.js';
 import { reportsRouter } from './routes/reports.js';
 import { leadAppointmentsRouter } from './routes/lead-appointments.js';
@@ -263,6 +264,13 @@ const start = async () => {
       updateVapiAssistantDate().catch((err: any) =>
         console.error('[VAPI] Startup date update failed:', err)
       );
+      // Process pending VAPI calls at 08:00 Israel time (06:00 UTC)
+      cron.schedule('0 6 * * *', () => {
+        console.log('[VAPI] Running morning pending calls cron...');
+        processPendingVapiCalls().catch((err: any) =>
+          console.error('[VAPI] processPendingVapiCalls failed:', err)
+        );
+      });
     }
 
     app.listen(config.port, () => {

@@ -537,4 +537,25 @@ router.patch('/:id', authenticate, async (req, res) => {
   }
 });
 
+// DELETE /api/payments/:id — admin/manager only, cannot delete already-paid payments
+router.delete('/:id', authenticate, async (req, res) => {
+  const user = (req as any).user;
+  if (!['admin', 'manager'].includes(user?.role)) {
+    return res.status(403).json({ error: 'אין הרשאה' });
+  }
+  const { id } = req.params;
+  try {
+    const payment = await prisma.payment.findUnique({ where: { id } });
+    if (!payment) return res.status(404).json({ error: 'תשלום לא נמצא' });
+    if (payment.status === 'paid') {
+      return res.status(409).json({ error: 'לא ניתן למחוק תשלום ששולם. שנה סטטוס ל"מבוטל" תחילה.' });
+    }
+    await prisma.payment.delete({ where: { id } });
+    return res.status(204).send();
+  } catch (e: any) {
+    if (e?.code === 'P2025') return res.status(404).json({ error: 'לא נמצא' });
+    throw e;
+  }
+});
+
 export const paymentsRouter = router;

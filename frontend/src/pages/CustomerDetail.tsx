@@ -1437,6 +1437,20 @@ function PaymentHistory({ customerId }: { customerId: string }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editUrl, setEditUrl] = useState('');
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  const deletePayment = async (paymentId: string, description: string) => {
+    if (!window.confirm(`למחוק את ההצעה "${description}"?\n\nלא ניתן לבטל פעולה זו.`)) return;
+    setDeleting(paymentId);
+    try {
+      await api.delete(`/payments/${paymentId}`);
+      refetch();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'שגיאה במחיקה');
+    } finally {
+      setDeleting(null);
+    }
+  };
 
   const payments = data || [];
   const formatDate = (d: string) => new Date(d).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -1527,6 +1541,17 @@ function PaymentHistory({ customerId }: { customerId: string }) {
                   >
                     <Pencil size={14} />
                   </button>
+                  {/* Delete button — only for non-paid payments */}
+                  {p.status !== 'paid' && (
+                    <button
+                      onClick={() => deletePayment(p.id, p.description)}
+                      disabled={deleting === p.id}
+                      title="מחק הצעה"
+                      className="shrink-0 p-1 rounded hover:bg-red-50 text-gray-300 hover:text-red-500 transition-colors disabled:opacity-40"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
                 {/* Inline edit row */}
                 {isEditing && (

@@ -310,33 +310,39 @@ export default function MobileMeetingDetail() {
           </div>
         )}
 
-        {/* Change Request Buttons — only for future meetings */}
+        {/* Change Request Buttons — only for future meetings with no pending request */}
         {meetingTiming.canRequest && (
           <div>
             <h2 className="text-sm font-medium text-gray-700 mb-3">בקשות שינוי</h2>
-            <div className="grid grid-cols-1 gap-3">
-              <button
-                onClick={() => openRequestModal('cancel')}
-                className="p-4 rounded-2xl border-2 border-red-200 bg-red-50 text-red-700 flex items-center gap-3 hover:border-red-400 transition-all active:scale-[0.98]"
-              >
-                <CalendarX size={24} />
-                <span className="font-medium">בקש ביטול</span>
-              </button>
-              <button
-                onClick={() => openRequestModal('postpone')}
-                className="p-4 rounded-2xl border-2 border-amber-200 bg-amber-50 text-amber-700 flex items-center gap-3 hover:border-amber-400 transition-all active:scale-[0.98]"
-              >
-                <CalendarClock size={24} />
-                <span className="font-medium">בקש דחייה</span>
-              </button>
-              <button
-                onClick={() => openRequestModal('replacement')}
-                className="p-4 rounded-2xl border-2 border-blue-200 bg-blue-50 text-blue-700 flex items-center gap-3 hover:border-blue-400 transition-all active:scale-[0.98]"
-              >
-                <UserCog size={24} />
-                <span className="font-medium">בקש החלפה</span>
-              </button>
-            </div>
+            {pendingRequests && pendingRequests.length > 0 ? (
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-700 text-sm text-center">
+                ⏳ בקשה כבר הוגשה — ממתינה לאישור מנהל
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3">
+                <button
+                  onClick={() => openRequestModal('cancel')}
+                  className="p-4 rounded-2xl border-2 border-red-200 bg-red-50 text-red-700 flex items-center gap-3 hover:border-red-400 transition-all active:scale-[0.98]"
+                >
+                  <CalendarX size={24} />
+                  <span className="font-medium">בקש ביטול</span>
+                </button>
+                <button
+                  onClick={() => openRequestModal('postpone')}
+                  className="p-4 rounded-2xl border-2 border-amber-200 bg-amber-50 text-amber-700 flex items-center gap-3 hover:border-amber-400 transition-all active:scale-[0.98]"
+                >
+                  <CalendarClock size={24} />
+                  <span className="font-medium">בקש דחייה</span>
+                </button>
+                <button
+                  onClick={() => openRequestModal('replacement')}
+                  className="p-4 rounded-2xl border-2 border-blue-200 bg-blue-50 text-blue-700 flex items-center gap-3 hover:border-blue-400 transition-all active:scale-[0.98]"
+                >
+                  <UserCog size={24} />
+                  <span className="font-medium">בקש החלפה</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 

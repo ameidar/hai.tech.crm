@@ -125,8 +125,6 @@ morningWebhookRouter.post('/', async (req, res) => {
           name: customerName,
           phone: phoneForCreate,
           email: customerEmail || null,
-          status: 'lead',
-          source: 'morning_webhook',
         },
       });
       console.log('[Morning Webhook] Created new customer:', crmCustomer.id);

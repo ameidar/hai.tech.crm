@@ -385,11 +385,10 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
       }
     }
 
-    // Update cycle meeting counts
+    // Update cycle remaining count (totalMeetings is static — set at cycle creation)
     await prisma.cycle.update({
       where: { id: cycleId },
       data: {
-        totalMeetings: { increment: 1 },
         remainingMeetings: { increment: 1 },
       },
     });

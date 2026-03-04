@@ -44,45 +44,49 @@ morningWebhookRouter.post('/', async (req, res) => {
     const payload = req.body;
     console.log('[Morning Webhook] Received:', JSON.stringify(payload, null, 2));
 
-    // Morning sends { event, data } — handle both formats
     const event: string = payload.event || payload.type || '';
     const data = payload.data || payload;
 
-    // We only care about completed payments (receipt types or paymentCreate)
-    // Morning event names: documentCreate, paymentCreate, etc.
-    const isPayment =
-      event.toLowerCase().includes('payment') ||
-      event.toLowerCase().includes('document') ||
-      event === 'documentCreate' ||
-      event === 'paymentCreate';
+    // Events we handle
+    const HANDLED_EVENTS = [
+      'payment/received',
+      'document/created',
+      'sale-pages/order-paid',
+      // legacy names just in case
+      'paymentCreate',
+      'documentCreate',
+    ];
 
-    if (!isPayment) {
+    if (!HANDLED_EVENTS.includes(event)) {
       console.log('[Morning Webhook] Ignoring event:', event);
       return res.json({ ok: true, ignored: true });
     }
 
-    // Extract data from Morning payload
-    const customer = data.customer || {};
+    // Morning uses "client" object (not "customer")
+    const client = data.client || data.customer || {};
     const customerName: string =
-      customer.name || customer.fullName || data.customerName || 'לקוח לא ידוע';
+      client.name || client.fullName || data.clientName || 'לקוח לא ידוע';
     const customerPhone: string = normalizePhone(
-      customer.mobile || customer.phone || data.customerPhone || ''
+      client.mobile || client.phone || ''
     );
-    const customerEmail: string =
-      customer.email || data.customerEmail || '';
+    const customerEmail: string = client.email || '';
 
-    const amount: number =
-      Number(data.price || data.amount || data.total || 0);
-    const description: string =
-      (data.description ||
-        (data.income && data.income[0]?.description) ||
-        DOC_TYPES[Number(data.type)] ||
-        'תשלום מורנינג') as string;
+    // Amount: Morning uses different fields per event type
+    const amount: number = Number(
+      data.amount || data.total || data.price || data.sum || 0
+    );
 
+    // Description
     const docType: number = Number(data.type || 0);
-    const docTypeLabel: string = DOC_TYPES[docType] || 'מסמך';
-    const morningDocId: string = String(data.id || data.documentId || '');
-    const paidAt = data.paymentDate ? new Date(data.paymentDate) : new Date();
+    const docTypeLabel: string = DOC_TYPES[docType] || 'תשלום';
+    const incomeDesc: string = Array.isArray(data.income)
+      ? data.income.map((i: any) => i.description).filter(Boolean).join(', ')
+      : '';
+    const description: string =
+      incomeDesc || data.description || data.title || docTypeLabel || 'תשלום מורנינג';
+
+    const morningDocId: string = String(data.id || data.documentId || data.orderId || '');
+    const paidAt = data.date ? new Date(data.date) : (data.paymentDate ? new Date(data.paymentDate) : new Date());
 
     // Skip zero-amount events
     if (amount <= 0) {

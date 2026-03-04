@@ -118,10 +118,12 @@ morningWebhookRouter.post('/', async (req, res) => {
     if (!crmCustomer) {
       // Create new customer
       isNew = true;
+      // phone is required + unique — use placeholder if not provided
+      const phoneForCreate = customerPhone || `morning_${Date.now()}`;
       crmCustomer = await prisma.customer.create({
         data: {
           name: customerName,
-          phone: customerPhone || null,
+          phone: phoneForCreate,
           email: customerEmail || null,
           status: 'lead',
           source: 'morning_webhook',

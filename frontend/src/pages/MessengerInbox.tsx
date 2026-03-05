@@ -4,7 +4,6 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useAuth } from '../context/AuthContext';
 import { MessageSquare, Send, Bot, BotOff, RefreshCw, User } from 'lucide-react';
 
 const API = '/api/messenger';
@@ -40,8 +39,12 @@ function formatTime(iso: string | null) {
   return d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' });
 }
 
+function getHeaders() {
+  const token = localStorage.getItem('accessToken');
+  return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+}
+
 export default function MessengerInbox() {
-  const { token } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -51,26 +54,24 @@ export default function MessengerInbox() {
   const [refreshing, setRefreshing] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-
   const fetchConversations = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     else setRefreshing(true);
     try {
-      const res = await fetch(`${API}/conversations`, { headers });
+      const res = await fetch(`${API}/conversations`, { headers: getHeaders() });
       const data = await res.json();
       setConversations(Array.isArray(data) ? data : []);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [token]);
+  }, []);
 
   const fetchMessages = useCallback(async (convId: string) => {
-    const res = await fetch(`${API}/conversations/${convId}/messages`, { headers });
+    const res = await fetch(`${API}/conversations/${convId}/messages`, { headers: getHeaders() });
     const data = await res.json();
     setMessages(Array.isArray(data) ? data : []);
-  }, [token]);
+  }, []);
 
   useEffect(() => { fetchConversations(); }, [fetchConversations]);
 
@@ -97,7 +98,7 @@ export default function MessengerInbox() {
     try {
       const res = await fetch(`${API}/send`, {
         method: 'POST',
-        headers,
+        headers: getHeaders(),
         body: JSON.stringify({ conversation_id: selectedConv.id, psid: selectedConv.psid, text: replyText }),
       });
       const msg = await res.json();
@@ -121,7 +122,7 @@ export default function MessengerInbox() {
     if (selectedConv?.id === convId) setSelectedConv(prev => prev ? { ...prev, ai_enabled: newVal } : prev);
     await fetch(`${API}/conversations/${convId}/ai`, {
       method: 'PATCH',
-      headers,
+      headers: getHeaders(),
       body: JSON.stringify({ aiEnabled: newVal }),
     });
   };

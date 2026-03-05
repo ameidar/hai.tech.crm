@@ -341,6 +341,9 @@ async function extractLeadData(conversationId: string) {
 // Track idle timers per conversation
 const idleTimers = new Map<string, NodeJS.Timeout>();
 
+// Reply lock per conversation — prevents parallel AI replies causing duplicate/stale responses
+const replyLocks = new Map<string, Promise<void>>();
+
 function scheduleLeadExtraction(conversationId: string) {
   const existing = idleTimers.get(conversationId);
   if (existing) clearTimeout(existing);
@@ -609,34 +612,44 @@ router.post('/webhook', async (req: Request, res: Response) => {
               }
             }
           } else if (conv.aiEnabled) {
-            // Regular AI auto-reply
-            try {
-              const reply = await generateAIReply(conv.id);
-              if (reply) {
-                const waId = await sendWhatsAppMessage(phone, reply, conv.phoneNumberId);
-                const botMsg = await prisma.waMessage.create({
-                  data: {
-                    conversationId: conv.id,
-                    direction: 'outbound',
-                    content: reply,
-                    waMessageId: waId || undefined,
-                    status: 'sent',
-                    isAiGenerated: true
-                  }
-                });
-                await prisma.waConversation.update({
-                  where: { id: conv.id },
-                  data: {
-                    lastMessageAt: new Date(),
-                    lastMessagePreview: reply.slice(0, 100),
-                    updatedAt: new Date()
-                  }
-                });
-                broadcastSSE('new_message', { conversationId: conv.id, message: botMsg });
+            // Regular AI auto-reply — queued per conversation to prevent parallel/duplicate replies
+            const prevLock = replyLocks.get(conv.id) || Promise.resolve();
+            const currentLock = prevLock.then(async () => {
+              try {
+                const reply = await generateAIReply(conv.id);
+                if (reply) {
+                  const waId = await sendWhatsAppMessage(phone, reply, conv.phoneNumberId);
+                  const botMsg = await prisma.waMessage.create({
+                    data: {
+                      conversationId: conv.id,
+                      direction: 'outbound',
+                      content: reply,
+                      waMessageId: waId || undefined,
+                      status: 'sent',
+                      isAiGenerated: true
+                    }
+                  });
+                  await prisma.waConversation.update({
+                    where: { id: conv.id },
+                    data: {
+                      lastMessageAt: new Date(),
+                      lastMessagePreview: reply.slice(0, 100),
+                      updatedAt: new Date()
+                    }
+                  });
+                  broadcastSSE('new_message', { conversationId: conv.id, message: botMsg });
+                }
+              } catch (e) {
+                console.error('[WA] AI reply error:', e);
               }
-            } catch (e) {
-              console.error('[WA] AI reply error:', e);
-            }
+            });
+            replyLocks.set(conv.id, currentLock);
+            // Clean up lock reference after completion to prevent memory leak
+            currentLock.finally(() => {
+              if (replyLocks.get(conv.id) === currentLock) {
+                replyLocks.delete(conv.id);
+              }
+            });
           }
 
           scheduleLeadExtraction(conv.id);

@@ -938,7 +938,7 @@ cyclesRouter.post('/:id/freeze', managerOrAdmin, async (req, res, next) => {
       where: {
         cycleId: id,
         status: 'scheduled',
-        date: { gte: new Date() },
+        scheduledDate: { gte: new Date() },
       },
       data: { status: 'postponed' },
     });
@@ -959,12 +959,7 @@ cyclesRouter.post('/:id/freeze', managerOrAdmin, async (req, res, next) => {
       },
     });
 
-    await logAudit(req, 'UPDATE', 'cycle', id, {
-      action: 'freeze',
-      reason,
-      resumeDate,
-      postponedMeetings: postponed.count,
-    });
+    await logAudit({ req, action: 'UPDATE', entity: 'cycle', entityId: id, newValue: { action: 'freeze', reason, resumeDate, postponedMeetings: postponed.count } });
 
     res.json({ ...updated, postponedMeetings: postponed.count });
   } catch (error) {
@@ -984,7 +979,7 @@ cyclesRouter.post('/:id/resume', managerOrAdmin, async (req, res, next) => {
 
     const cycle = await prisma.cycle.findUnique({
       where: { id },
-      include: { meetings: { where: { status: 'postponed' }, orderBy: { date: 'asc' } } },
+      include: { meetings: { where: { status: 'postponed' }, orderBy: { scheduledDate: 'asc' } } },
     });
     if (!cycle) throw new AppError(404, 'מחזור לא נמצא');
     if (cycle.status !== 'frozen') throw new AppError(400, 'המחזור לא מוקפא');
@@ -999,7 +994,7 @@ cyclesRouter.post('/:id/resume', managerOrAdmin, async (req, res, next) => {
         newDate.setDate(start.getDate() + i * 7); // weekly intervals
         await prisma.meeting.update({
           where: { id: cycle.meetings[i].id },
-          data: { status: 'scheduled', date: newDate },
+          data: { status: 'scheduled', scheduledDate: newDate },
         });
         rescheduledCount++;
       }
@@ -1021,11 +1016,7 @@ cyclesRouter.post('/:id/resume', managerOrAdmin, async (req, res, next) => {
       },
     });
 
-    await logAudit(req, 'UPDATE', 'cycle', id, {
-      action: 'resume',
-      newStartDate,
-      rescheduledMeetings: rescheduledCount,
-    });
+    await logAudit({ req, action: 'UPDATE', entity: 'cycle', entityId: id, newValue: { action: 'resume', newStartDate, rescheduledMeetings: rescheduledCount } });
 
     res.json({ ...updated, rescheduledMeetings: rescheduledCount });
   } catch (error) {

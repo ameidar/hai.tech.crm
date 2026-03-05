@@ -3,7 +3,7 @@ export type CourseCategory = 'programming' | 'ai' | 'robotics' | 'printing_3d';
 export type BranchType = 'school' | 'community_center' | 'frontal' | 'online';
 export type OrderStatus = 'draft' | 'active' | 'completed' | 'cancelled';
 export type CycleType = 'private' | 'institutional_per_child' | 'institutional_fixed';
-export type CycleStatus = 'active' | 'completed' | 'cancelled';
+export type CycleStatus = 'active' | 'completed' | 'cancelled' | 'frozen';
 export type DayOfWeek = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday';
 export type MeetingStatus = 'scheduled' | 'completed' | 'cancelled' | 'postponed' | 'pending_cancellation' | 'pending_postponement';
 export type RegistrationStatus = 'registered' | 'active' | 'completed' | 'pending_cancellation' | 'cancelled';
@@ -157,6 +157,9 @@ export interface Cycle {
   completedMeetings: number;
   remainingMeetings: number;
   status: CycleStatus;
+  frozenAt?: string | null;
+  frozenReason?: string | null;
+  resumeDate?: string | null;
   createdAt: string;
   course?: Course;
   branch?: Branch;
@@ -286,6 +289,7 @@ export const cycleStatusHebrew: Record<CycleStatus, string> = {
   active: 'פעיל',
   completed: 'הושלם',
   cancelled: 'בוטל',
+  frozen: '❄️ מוקפא',
 };
 
 export const cycleTypeHebrew: Record<CycleType, string> = {

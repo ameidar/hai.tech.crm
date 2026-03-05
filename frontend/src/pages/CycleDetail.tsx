@@ -324,6 +324,12 @@ export default function CycleDetail() {
   const createMeeting = useCreateMeeting();
 
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [showFreezeModal, setShowFreezeModal] = useState(false);
+  const [showResumeModal, setShowResumeModal] = useState(false);
+  const [freezeReason, setFreezeReason] = useState('');
+  const [freezeResumeDate, setFreezeResumeDate] = useState('');
+  const [resumeNewStartDate, setResumeNewStartDate] = useState('');
+  const [freezeLoading, setFreezeLoading] = useState(false);
 
   // Calculate total cycle expenses and expense per meeting
   const calculateCycleExpensePerMeeting = () => {
@@ -429,6 +435,44 @@ export default function CycleDetail() {
     } catch (error) {
       console.error('Failed to update cycle:', error);
       alert('שגיאה בעדכון המחזור');
+    }
+  };
+
+  const handleFreeze = async () => {
+    if (!id) return;
+    setFreezeLoading(true);
+    try {
+      await api.post(`/cycles/${id}/freeze`, {
+        reason: freezeReason.trim() || undefined,
+        resumeDate: freezeResumeDate || undefined,
+      });
+      setShowFreezeModal(false);
+      setFreezeReason('');
+      setFreezeResumeDate('');
+      window.location.reload();
+    } catch (error) {
+      console.error('Failed to freeze cycle:', error);
+      alert('שגיאה בהקפאת המחזור');
+    } finally {
+      setFreezeLoading(false);
+    }
+  };
+
+  const handleResume = async () => {
+    if (!id) return;
+    setFreezeLoading(true);
+    try {
+      await api.post(`/cycles/${id}/resume`, {
+        newStartDate: resumeNewStartDate || undefined,
+      });
+      setShowResumeModal(false);
+      setResumeNewStartDate('');
+      window.location.reload();
+    } catch (error) {
+      console.error('Failed to resume cycle:', error);
+      alert('שגיאה בחידוש המחזור');
+    } finally {
+      setFreezeLoading(false);
     }
   };
 
@@ -715,13 +759,48 @@ export default function CycleDetail() {
                   }`}>
                     {cycleTypeHebrew[cycle.type]}
                   </span>
-                  <span className={`badge ${
-                    cycle.status === 'active' ? 'badge-success' :
-                    cycle.status === 'completed' ? 'badge-info' : 'badge-danger'
-                  }`}>
-                    {cycleStatusHebrew[cycle.status]}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`badge ${
+                      cycle.status === 'active' ? 'badge-success' :
+                      cycle.status === 'completed' ? 'badge-info' :
+                      cycle.status === 'frozen' ? 'badge-secondary' : 'badge-danger'
+                    }`}>
+                      {cycleStatusHebrew[cycle.status]}
+                    </span>
+                    {isAdmin && cycle.status === 'active' && (
+                      <button
+                        onClick={() => setShowFreezeModal(true)}
+                        className="btn btn-sm text-xs px-2 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 rounded-lg"
+                        title="הקפא מחזור"
+                      >
+                        ❄️ הקפא
+                      </button>
+                    )}
+                    {isAdmin && cycle.status === 'frozen' && (
+                      <button
+                        onClick={() => setShowResumeModal(true)}
+                        className="btn btn-sm text-xs px-2 py-1 bg-green-50 text-green-600 hover:bg-green-100 border border-green-200 rounded-lg"
+                        title="חדש מחזור"
+                      >
+                        ▶️ חדש
+                      </button>
+                    )}
+                  </div>
                 </div>
+                {/* Frozen info */}
+                {cycle.status === 'frozen' && (
+                  <div className="mt-3 p-3 bg-blue-50 rounded-lg text-sm space-y-1">
+                    {cycle.frozenReason && (
+                      <div className="text-blue-700"><span className="font-medium">סיבה:</span> {cycle.frozenReason}</div>
+                    )}
+                    {cycle.resumeDate && (
+                      <div className="text-blue-700"><span className="font-medium">תאריך חזרה מתוכנן:</span> {new Date(cycle.resumeDate).toLocaleDateString('he-IL')}</div>
+                    )}
+                    {cycle.frozenAt && (
+                      <div className="text-blue-500 text-xs">הוקפא: {new Date(cycle.frozenAt).toLocaleDateString('he-IL')}</div>
+                    )}
+                  </div>
+                )}
 
                 {/* Revenue per meeting */}
                 {(cycle.type === 'institutional_fixed' || cycle.type === 'institutional_per_child') && (
@@ -1791,6 +1870,91 @@ export default function CycleDetail() {
             isLoading={createMeeting.isPending}
           />
         )}
+      </Modal>
+
+      {/* ── Freeze Modal ───────────────────────────── */}
+      <Modal
+        isOpen={showFreezeModal}
+        onClose={() => setShowFreezeModal(false)}
+        title="❄️ הקפאת מחזור"
+      >
+        <div className="space-y-4 p-1" dir="rtl">
+          <p className="text-sm text-gray-600">
+            הקפאת המחזור תעביר את {cycle?.remainingMeetings || 0} הפגישות הקרובות לסטטוס "נדחה". ניתן לחדש בכל עת.
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">סיבה להקפאה *</label>
+            <textarea
+              value={freezeReason}
+              onChange={e => setFreezeReason(e.target.value)}
+              placeholder="לדוגמה: בקשת הלקוח, חגי בית ספר, מחלה..."
+              className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              rows={3}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">תאריך חזרה מתוכנן (אופציונלי)</label>
+            <input
+              type="date"
+              value={freezeResumeDate}
+              onChange={e => setFreezeResumeDate(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-xs text-gray-400 mt-1">תקבל תזכורת ביום זה לחדש את המחזור</p>
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button
+              onClick={handleFreeze}
+              disabled={freezeLoading || !freezeReason.trim()}
+              className="btn btn-primary flex-1 disabled:opacity-50"
+            >
+              {freezeLoading ? 'מקפיא...' : '❄️ הקפא מחזור'}
+            </button>
+            <button onClick={() => setShowFreezeModal(false)} className="btn btn-secondary">
+              ביטול
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Resume Modal ───────────────────────────── */}
+      <Modal
+        isOpen={showResumeModal}
+        onClose={() => setShowResumeModal(false)}
+        title="▶️ חידוש מחזור"
+      >
+        <div className="space-y-4 p-1" dir="rtl">
+          {cycle?.frozenReason && (
+            <div className="p-3 bg-blue-50 rounded-lg text-sm text-blue-700">
+              <span className="font-medium">סיבת הקפאה:</span> {cycle.frozenReason}
+            </div>
+          )}
+          <p className="text-sm text-gray-600">
+            בחר תאריך לפגישה הראשונה — הפגישות הנותרות ייקבעו בהמשך (שבועי, לפי יום המחזור).
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">תאריך פגישה ראשונה</label>
+            <input
+              type="date"
+              value={resumeNewStartDate}
+              onChange={e => setResumeNewStartDate(e.target.value)}
+              min={new Date().toISOString().split('T')[0]}
+              className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-green-500"
+            />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button
+              onClick={handleResume}
+              disabled={freezeLoading}
+              className="btn flex-1 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              {freezeLoading ? 'מחדש...' : '▶️ חדש מחזור'}
+            </button>
+            <button onClick={() => setShowResumeModal(false)} className="btn btn-secondary">
+              ביטול
+            </button>
+          </div>
+        </div>
       </Modal>
     </>
   );

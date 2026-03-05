@@ -52,6 +52,7 @@ enum CycleStatus {
   active
   completed
   cancelled
+  frozen
 }
 
 enum DayOfWeek {
@@ -334,6 +335,9 @@ model Cycle {
   completedMeetings    Int         @default(0) @map("completed_meetings")
   remainingMeetings    Int         @default(0) @map("remaining_meetings")
   status               CycleStatus  @default(active)
+  frozenAt             DateTime?    @map("frozen_at")
+  frozenReason         String?      @map("frozen_reason")
+  resumeDate           DateTime?    @map("resume_date") @db.Date
   createdAt            DateTime     @default(now()) @map("created_at")
   updatedAt            DateTime     @updatedAt @map("updated_at")
   deletedAt            DateTime?    @map("deleted_at")

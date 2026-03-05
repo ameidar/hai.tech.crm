@@ -420,6 +420,7 @@ export default function Cycles() {
                 <option value="active">פעיל</option>
                 <option value="completed">הושלם</option>
                 <option value="cancelled">בוטל</option>
+                <option value="frozen">❄️ מוקפא</option>
               </select>
             </div>
             <div className="hidden md:block w-28">
@@ -498,7 +499,7 @@ export default function Cycles() {
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-semibold text-blue-600 text-sm">{cycle.name}</span>
-                    <span className={`badge text-xs ${cycle.status === 'active' ? 'badge-success' : cycle.status === 'completed' ? 'badge-info' : 'badge-danger'}`}>
+                    <span className={`badge text-xs ${cycle.status === 'active' ? 'badge-success' : cycle.status === 'completed' ? 'badge-info' : cycle.status === 'frozen' ? 'badge-secondary' : 'badge-danger'}`}>
                       {cycleStatusHebrew[cycle.status]}
                     </span>
                   </div>
@@ -651,7 +652,7 @@ export default function Cycles() {
                         <td>
                           <span className={`badge ${
                             cycle.status === 'active' ? 'badge-success' :
-                            cycle.status === 'completed' ? 'badge-info' : 'badge-danger'
+                            cycle.status === 'completed' ? 'badge-info' : cycle.status === 'frozen' ? 'badge-secondary' : 'badge-danger'
                           }`}>
                             {cycleStatusHebrew[cycle.status]}
                           </span>

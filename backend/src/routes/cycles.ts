@@ -915,3 +915,120 @@ cyclesRouter.post('/:id/sync-progress', managerOrAdmin, async (req, res, next) =
     next(error);
   }
 });
+
+// ─── Freeze / Resume ──────────────────────────────────────────────────────────
+
+/**
+ * POST /api/cycles/:id/freeze
+ * Freeze a cycle — set status=frozen, postpone future scheduled meetings.
+ * Body: { reason?: string, resumeDate?: string (ISO date) }
+ */
+cyclesRouter.post('/:id/freeze', managerOrAdmin, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { reason, resumeDate } = req.body;
+
+    const cycle = await prisma.cycle.findUnique({ where: { id } });
+    if (!cycle) throw new AppError(404, 'מחזור לא נמצא');
+    if (cycle.status === 'frozen') throw new AppError(400, 'המחזור כבר מוקפא');
+    if (cycle.status === 'cancelled') throw new AppError(400, 'לא ניתן להקפיא מחזור מבוטל');
+
+    // Postpone all future scheduled meetings
+    const postponed = await prisma.meeting.updateMany({
+      where: {
+        cycleId: id,
+        status: 'scheduled',
+        date: { gte: new Date() },
+      },
+      data: { status: 'postponed' },
+    });
+
+    // Freeze the cycle
+    const updated = await prisma.cycle.update({
+      where: { id },
+      data: {
+        status: 'frozen',
+        frozenAt: new Date(),
+        frozenReason: reason?.trim() || null,
+        resumeDate: resumeDate ? new Date(resumeDate) : null,
+      },
+      include: {
+        course: { select: { id: true, name: true } },
+        branch: { select: { id: true, name: true } },
+        instructor: { select: { id: true, name: true } },
+      },
+    });
+
+    await logAudit(req, 'UPDATE', 'cycle', id, {
+      action: 'freeze',
+      reason,
+      resumeDate,
+      postponedMeetings: postponed.count,
+    });
+
+    res.json({ ...updated, postponedMeetings: postponed.count });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/cycles/:id/resume
+ * Resume a frozen cycle — set status=active, reschedule postponed meetings from newStartDate.
+ * Body: { newStartDate: string (ISO date) }
+ */
+cyclesRouter.post('/:id/resume', managerOrAdmin, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { newStartDate } = req.body;
+
+    const cycle = await prisma.cycle.findUnique({
+      where: { id },
+      include: { meetings: { where: { status: 'postponed' }, orderBy: { date: 'asc' } } },
+    });
+    if (!cycle) throw new AppError(404, 'מחזור לא נמצא');
+    if (cycle.status !== 'frozen') throw new AppError(400, 'המחזור לא מוקפא');
+
+    let rescheduledCount = 0;
+
+    if (newStartDate && cycle.meetings.length > 0) {
+      // Reschedule postponed meetings starting from newStartDate, keeping original day-of-week interval
+      const start = new Date(newStartDate);
+      for (let i = 0; i < cycle.meetings.length; i++) {
+        const newDate = new Date(start);
+        newDate.setDate(start.getDate() + i * 7); // weekly intervals
+        await prisma.meeting.update({
+          where: { id: cycle.meetings[i].id },
+          data: { status: 'scheduled', date: newDate },
+        });
+        rescheduledCount++;
+      }
+    }
+
+    // Activate the cycle
+    const updated = await prisma.cycle.update({
+      where: { id },
+      data: {
+        status: 'active',
+        frozenAt: null,
+        frozenReason: null,
+        resumeDate: null,
+      },
+      include: {
+        course: { select: { id: true, name: true } },
+        branch: { select: { id: true, name: true } },
+        instructor: { select: { id: true, name: true } },
+      },
+    });
+
+    await logAudit(req, 'UPDATE', 'cycle', id, {
+      action: 'resume',
+      newStartDate,
+      rescheduledMeetings: rescheduledCount,
+    });
+
+    res.json({ ...updated, rescheduledMeetings: rescheduledCount });
+  } catch (error) {
+    next(error);
+  }
+});

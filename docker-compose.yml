@@ -66,6 +66,11 @@ services:
       WOO_SITE_URL: ${WOO_SITE_URL:-https://haitechdigitalcourses.hai.tech}
       WOO_CONSUMER_KEY: ${WOO_CONSUMER_KEY}
       WOO_CONSUMER_SECRET: ${WOO_CONSUMER_SECRET}
+      VAPI_API_KEY: ${VAPI_API_KEY}
+      VAPI_ASSISTANT_ID: ${VAPI_ASSISTANT_ID}
+      VAPI_PHONE_NUMBER_ID: ${VAPI_PHONE_NUMBER_ID}
+      MESSENGER_PAGE_ACCESS_TOKEN: ${MESSENGER_PAGE_ACCESS_TOKEN}
+      MESSENGER_VERIFY_TOKEN: ${MESSENGER_VERIFY_TOKEN:-haitech-messenger-verify-2026}
     volumes:
       - ./backend/uploads:/app/uploads
     ports:

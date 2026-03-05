@@ -23,6 +23,7 @@ import {
   MessageCircle,
   MessagesSquare,
   Megaphone,
+  Camera,
 } from 'lucide-react';
 
 // Admin/Manager navigation
@@ -41,6 +42,7 @@ const adminNavItems = [
   { path: '/lead-appointments', icon: PhoneCall, label: 'יומן לידים', testId: 'nav-lead-appointments' },
   { path: '/whatsapp', icon: MessageCircle, label: 'WhatsApp', testId: 'nav-whatsapp' },
   { path: '/messenger', icon: MessagesSquare, label: 'Messenger', testId: 'nav-messenger' },
+  { path: '/instagram', icon: Camera, label: 'Instagram', testId: 'nav-instagram' },
   { path: '/campaigns', icon: Megaphone, label: 'קמפיינים', testId: 'nav-campaigns' },
   { path: '/reports', icon: BarChart3, label: 'דוחות', testId: 'nav-reports' },
   { path: '/audit', icon: FileText, label: 'יומן פעילות', testId: 'nav-audit' },

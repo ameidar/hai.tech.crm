@@ -31,6 +31,7 @@ import InstitutionalOrders from './pages/InstitutionalOrders';
 import SystemUsers from './pages/SystemUsers';
 import WhatsAppInbox from './pages/WhatsAppInbox';
 import MessengerInbox from './pages/MessengerInbox';
+import InstagramInbox from './pages/InstagramInbox';
 import Campaigns from './pages/Campaigns';
 import CampaignLanding from './pages/CampaignLanding';
 import PayPage from './pages/PayPage';
@@ -146,6 +147,7 @@ function AppRoutes() {
             <Route path="customers/:id" element={<CustomerDetail />} />
             <Route path="whatsapp" element={<WhatsAppInbox />} />
             <Route path="messenger" element={<MessengerInbox />} />
+            <Route path="instagram" element={<InstagramInbox />} />
 
             {/* Admin/Manager only routes — sales gets redirected to /whatsapp */}
             <Route path="students" element={<NonSalesRoute><Students /></NonSalesRoute>} />

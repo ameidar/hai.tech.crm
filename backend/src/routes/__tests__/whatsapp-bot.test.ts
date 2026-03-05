@@ -801,3 +801,82 @@ describe('Bot Skip Phrases', () => {
     expect(shouldSkip('outbound', '')).toBe(false);
   });
 });
+
+// ============================================================
+// 11. Lead Creation for All Conversations
+// ============================================================
+
+describe('Lead Creation Logic', () => {
+  // Simulate the lead creation logic from whatsapp.ts
+  function createLeadData(
+    phone: string,
+    contactName: string | null,
+    convId: string,
+    knownCustomer: boolean
+  ) {
+    const waLink = `https://crm.orma-ai.com/whatsapp?conv=${convId}`;
+    return {
+      customerName: contactName || phone,
+      customerPhone: phone,
+      source: 'whatsapp',
+      appointmentNotes: knownCustomer
+        ? `לקוח קיים פנה שוב בוואטסאפ. לשיחה: ${waLink}`
+        : `ליד חדש מוואטסאפ. לשיחה: ${waLink}`,
+      appointmentStatus: 'pending',
+    };
+  }
+
+  it('should create lead for new customer', () => {
+    const lead = createLeadData('+972501234567', 'דנה', 'conv-1', false);
+    expect(lead.customerName).toBe('דנה');
+    expect(lead.customerPhone).toBe('+972501234567');
+    expect(lead.source).toBe('whatsapp');
+    expect(lead.appointmentNotes).toContain('ליד חדש');
+    expect(lead.appointmentNotes).toContain('conv-1');
+    expect(lead.appointmentStatus).toBe('pending');
+  });
+
+  it('should create lead for existing customer', () => {
+    const lead = createLeadData('+972501234567', 'דנה', 'conv-2', true);
+    expect(lead.appointmentNotes).toContain('לקוח קיים פנה שוב');
+    expect(lead.appointmentNotes).toContain('conv-2');
+  });
+
+  it('should use phone as name when contactName is null', () => {
+    const lead = createLeadData('+972501234567', null, 'conv-3', false);
+    expect(lead.customerName).toBe('+972501234567');
+  });
+
+  it('should use phone as name when contactName is empty', () => {
+    const lead = createLeadData('+972501234567', '', 'conv-4', false);
+    // empty string is falsy, so falls back to phone
+    expect(lead.customerName).toBe('+972501234567');
+  });
+
+  it('should include WhatsApp conversation link', () => {
+    const lead = createLeadData('+972501234567', 'דנה', 'conv-abc-123', false);
+    expect(lead.appointmentNotes).toContain('https://crm.orma-ai.com/whatsapp?conv=conv-abc-123');
+  });
+
+  it('should always set source as whatsapp', () => {
+    const newLead = createLeadData('+972501234567', 'דנה', 'c1', false);
+    const existingLead = createLeadData('+972501234567', 'דנה', 'c2', true);
+    expect(newLead.source).toBe('whatsapp');
+    expect(existingLead.source).toBe('whatsapp');
+  });
+
+  it('should always set status as pending', () => {
+    const newLead = createLeadData('+972501234567', 'דנה', 'c1', false);
+    const existingLead = createLeadData('+972501234567', 'דנה', 'c2', true);
+    expect(newLead.appointmentStatus).toBe('pending');
+    expect(existingLead.appointmentStatus).toBe('pending');
+  });
+
+  it('should differentiate notes between new and existing', () => {
+    const newLead = createLeadData('+972501234567', 'דנה', 'c1', false);
+    const existingLead = createLeadData('+972501234567', 'דנה', 'c2', true);
+    expect(newLead.appointmentNotes).not.toBe(existingLead.appointmentNotes);
+    expect(newLead.appointmentNotes).toContain('חדש');
+    expect(existingLead.appointmentNotes).toContain('קיים');
+  });
+});

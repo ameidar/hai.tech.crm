@@ -143,6 +143,10 @@ ${JSON.stringify(knowledgeBase, null, 2)}
 ${conv.contactName ? `שם: ${conv.contactName}` : ''}
 ${conv.childName ? `שם הילד: ${conv.childName}` : ''}
 ${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}
+
+---
+## כלל אנטי-לופ (חובה!)
+אל תחזור על תשובה שכבר נתת בשיחה הזו. אם שאלתם אותך משהו שכבר ענית עליו — ענה אחרת או הפנה לנציג. אם הלקוח אמר שלא שאל על נושא מסוים — אל תחזור לאותו נושא. הסתכל על ההיסטוריה ותן תשובה שלא כבר נאמרה.
 `;
 
   // Messages to exclude from GPT history to prevent looping
@@ -152,29 +156,20 @@ ${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}
   ];
 
   const chatMessages: any[] = [{ role: 'system', content: fullSystemPrompt }];
-  
-  // Detect repeated bot responses — if the same response appears 2+ times, skip duplicates
-  const responseCounts = new Map<string, number>();
-  for (const m of messages.slice(-15)) {
-    if (m.direction === 'outbound') {
-      const key = m.content.trim().slice(0, 100);
-      responseCounts.set(key, (responseCounts.get(key) || 0) + 1);
-    }
-  }
-  
+  const seenOutboundContents = new Set<string>();
+
   for (const m of messages.slice(-15)) {
     // Skip certain outbound messages from history — prevents GPT from looping
     if (m.direction === 'outbound' && BOT_SKIP_PHRASES.some(p => m.content.includes(p))) continue;
-    
-    // Skip duplicate bot responses — keep only the first occurrence to break repetition loops
+
+    // Deduplicate outbound messages — skip if identical content appeared before in this history window
+    // This prevents GPT from repeating the same response when it sees its own pattern in context
     if (m.direction === 'outbound') {
-      const key = m.content.trim().slice(0, 100);
-      if ((responseCounts.get(key) || 0) > 1) {
-        responseCounts.set(key, responseCounts.get(key)! - 1);
-        if (responseCounts.get(key)! >= 1) continue; // skip all but last occurrence
-      }
+      const normalized = m.content.trim().slice(0, 80); // compare first 80 chars
+      if (seenOutboundContents.has(normalized)) continue;
+      seenOutboundContents.add(normalized);
     }
-    
+
     chatMessages.push({
       role: m.direction === 'inbound' ? 'user' : 'assistant',
       content: m.content

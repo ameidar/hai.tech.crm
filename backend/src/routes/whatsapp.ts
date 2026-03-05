@@ -122,9 +122,10 @@ async function sendWhatsAppMessage(phone: string, text: string, phoneNumberId?: 
 async function generateAIReply(conversationId: string): Promise<string | null> {
   const messages = await prisma.waMessage.findMany({
     where: { conversationId },
-    orderBy: { createdAt: 'asc' },
-    take: 20
+    orderBy: { createdAt: 'desc' },
+    take: 15
   });
+  messages.reverse(); // Now newest 15 messages in chronological order
 
   const conv = await prisma.waConversation.findUnique({ where: { id: conversationId } });
   if (!conv) return null;
@@ -158,7 +159,7 @@ ${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}
   const chatMessages: any[] = [{ role: 'system', content: fullSystemPrompt }];
   const seenOutboundContents = new Set<string>();
 
-  for (const m of messages.slice(-15)) {
+  for (const m of messages) {
     // Skip certain outbound messages from history — prevents GPT from looping
     if (m.direction === 'outbound' && BOT_SKIP_PHRASES.some(p => m.content.includes(p))) continue;
 

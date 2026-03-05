@@ -549,19 +549,19 @@ router.post('/webhook', async (req: Request, res: Response) => {
               `;
               const knownCustomer = allCustomers.find(c => last9(c.phone) === phoneLast9);
 
-              if (!knownCustomer) {
-                const waLink = `https://crm.orma-ai.com/whatsapp?conv=${conv.id}`;
-                await prisma.leadAppointment.create({
-                  data: {
-                    customerName: contactName || phone,
-                    customerPhone: phone,
-                    source: 'whatsapp',
-                    appointmentNotes: `ליד מוואטסאפ. לשיחה: ${waLink}`,
-                    appointmentStatus: 'pending',
-                  }
-                });
-                console.log(`[WA] New lead created for unknown phone ${phone}`);
-              }
+              const waLink = `https://crm.orma-ai.com/whatsapp?conv=${conv.id}`;
+              await prisma.leadAppointment.create({
+                data: {
+                  customerName: contactName || phone,
+                  customerPhone: phone,
+                  source: 'whatsapp',
+                  appointmentNotes: knownCustomer
+                    ? `לקוח קיים פנה שוב בוואטסאפ. לשיחה: ${waLink}`
+                    : `ליד חדש מוואטסאפ. לשיחה: ${waLink}`,
+                  appointmentStatus: 'pending',
+                }
+              });
+              console.log(`[WA] Lead created for ${knownCustomer ? 'existing' : 'new'} customer ${phone}`);
             } catch (e) {
               console.error('[WA] Lead creation error:', e);
             }

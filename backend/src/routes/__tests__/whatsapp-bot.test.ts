@@ -204,8 +204,23 @@ ${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}
 `;
 
   const chatMessages: any[] = [{ role: 'system', content: fullSystemPrompt }];
-  for (const m of messages.slice(-15)) {
+  
+  // Take last 15 messages (simulating orderBy desc + take 15 + reverse)
+  const recent = messages.slice(-15);
+  
+  // Deduplicate outbound messages — skip if identical content appeared before
+  const seenOutboundContents = new Set<string>();
+  
+  for (const m of recent) {
     if (m.direction === 'outbound' && BOT_SKIP_PHRASES.some(p => m.content.includes(p))) continue;
+    
+    // Deduplicate outbound
+    if (m.direction === 'outbound') {
+      const normalized = m.content.trim().slice(0, 80);
+      if (seenOutboundContents.has(normalized)) continue;
+      seenOutboundContents.add(normalized);
+    }
+    
     chatMessages.push({
       role: m.direction === 'inbound' ? 'user' : 'assistant',
       content: m.content
@@ -298,6 +313,80 @@ describe('Chat Message Building', () => {
   it('should handle empty message history', () => {
     const msgs = buildChatMessages(prompt, kb, { phone: '+972501234567' }, []);
     expect(msgs.length).toBe(1); // Only system
+  });
+
+  it('should deduplicate repeated bot responses', () => {
+    const repeatedResponse = 'בכיף! 😊 בקורס מיינקראפט בניית עולמות הילדים לומדים לבנות עיר שלמה. המחיר הוא 497₪.';
+    const messages: MockMessage[] = [
+      { direction: 'inbound', content: 'היי', createdAt: new Date() },
+      { direction: 'outbound', content: repeatedResponse, createdAt: new Date() },
+      { direction: 'inbound', content: 'מה שלומך?', createdAt: new Date() },
+      { direction: 'outbound', content: repeatedResponse, createdAt: new Date() },
+      { direction: 'inbound', content: 'לא שאלתי את זה', createdAt: new Date() },
+      { direction: 'outbound', content: repeatedResponse, createdAt: new Date() },
+      { direction: 'inbound', content: 'הלו??', createdAt: new Date() },
+    ];
+    const msgs = buildChatMessages(prompt, kb, { phone: '+972501234567' }, messages);
+    // Should have: system + 4 inbound + 1 outbound (deduped from 3) = 6
+    const assistantMsgs = msgs.filter((m: any) => m.role === 'assistant');
+    expect(assistantMsgs.length).toBe(1);
+  });
+
+  it('should keep different bot responses (not deduplicate unique messages)', () => {
+    const messages: MockMessage[] = [
+      { direction: 'inbound', content: 'היי', createdAt: new Date() },
+      { direction: 'outbound', content: 'שלום! אשמח לעזור 😊', createdAt: new Date() },
+      { direction: 'inbound', content: 'מה הקורסים?', createdAt: new Date() },
+      { direction: 'outbound', content: 'יש לנו קורס מיינקראפט, בן כמה הילד?', createdAt: new Date() },
+      { direction: 'inbound', content: 'בן 10', createdAt: new Date() },
+      { direction: 'outbound', content: 'מעולה! קורס מיינקראפט מתאים בדיוק לגיל הזה.', createdAt: new Date() },
+    ];
+    const msgs = buildChatMessages(prompt, kb, { phone: '+972501234567' }, messages);
+    const assistantMsgs = msgs.filter((m: any) => m.role === 'assistant');
+    expect(assistantMsgs.length).toBe(3); // All 3 are unique, none deduped
+  });
+
+  it('should use most recent 15 messages (not oldest)', () => {
+    const messages: MockMessage[] = [];
+    // Create 20 messages — first 5 should be dropped
+    for (let i = 0; i < 20; i++) {
+      messages.push({ direction: 'inbound', content: `msg-${i}`, createdAt: new Date(Date.now() + i * 1000) });
+    }
+    const msgs = buildChatMessages(prompt, kb, { phone: '+972501234567' }, messages);
+    const userMsgs = msgs.filter((m: any) => m.role === 'user');
+    // Should start from msg-5 (index 5), not msg-0
+    expect(userMsgs[0].content).toBe('msg-5');
+    // Should end with msg-19 (the latest)
+    expect(userMsgs[userMsgs.length - 1].content).toBe('msg-19');
+  });
+
+  it('should always include the last user message', () => {
+    const messages: MockMessage[] = [];
+    for (let i = 0; i < 30; i++) {
+      messages.push({ direction: 'inbound', content: `old-${i}`, createdAt: new Date(Date.now() + i * 1000) });
+    }
+    messages.push({ direction: 'inbound', content: 'מה שלומך?', createdAt: new Date(Date.now() + 30000) });
+    const msgs = buildChatMessages(prompt, kb, { phone: '+972501234567' }, messages);
+    const lastMsg = msgs[msgs.length - 1];
+    expect(lastMsg.content).toBe('מה שלומך?');
+  });
+
+  it('should handle mixed repeated and unique outbound messages', () => {
+    const repeated = 'תשובה חוזרת על מיינקראפט בניית עולמות שהבוט חוזר עליה כל הזמן';
+    const messages: MockMessage[] = [
+      { direction: 'inbound', content: 'היי', createdAt: new Date() },
+      { direction: 'outbound', content: repeated, createdAt: new Date() },
+      { direction: 'inbound', content: 'מה שלומך', createdAt: new Date() },
+      { direction: 'outbound', content: repeated, createdAt: new Date() },
+      { direction: 'inbound', content: 'יש קורסים?', createdAt: new Date() },
+      { direction: 'outbound', content: 'בטח! בן כמה הילד?', createdAt: new Date() }, // unique
+      { direction: 'inbound', content: 'בן 9', createdAt: new Date() },
+      { direction: 'outbound', content: repeated, createdAt: new Date() },
+    ];
+    const msgs = buildChatMessages(prompt, kb, { phone: '+972501234567' }, messages);
+    const assistantMsgs = msgs.filter((m: any) => m.role === 'assistant');
+    // 1 unique + 1 first occurrence of repeated = 2
+    expect(assistantMsgs.length).toBe(2);
   });
 });
 

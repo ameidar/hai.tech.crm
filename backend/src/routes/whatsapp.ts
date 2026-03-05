@@ -152,9 +152,29 @@ ${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}
   ];
 
   const chatMessages: any[] = [{ role: 'system', content: fullSystemPrompt }];
+  
+  // Detect repeated bot responses — if the same response appears 2+ times, skip duplicates
+  const responseCounts = new Map<string, number>();
+  for (const m of messages.slice(-15)) {
+    if (m.direction === 'outbound') {
+      const key = m.content.trim().slice(0, 100);
+      responseCounts.set(key, (responseCounts.get(key) || 0) + 1);
+    }
+  }
+  
   for (const m of messages.slice(-15)) {
     // Skip certain outbound messages from history — prevents GPT from looping
     if (m.direction === 'outbound' && BOT_SKIP_PHRASES.some(p => m.content.includes(p))) continue;
+    
+    // Skip duplicate bot responses — keep only the first occurrence to break repetition loops
+    if (m.direction === 'outbound') {
+      const key = m.content.trim().slice(0, 100);
+      if ((responseCounts.get(key) || 0) > 1) {
+        responseCounts.set(key, responseCounts.get(key)! - 1);
+        if (responseCounts.get(key)! >= 1) continue; // skip all but last occurrence
+      }
+    }
+    
     chatMessages.push({
       role: m.direction === 'inbound' ? 'user' : 'assistant',
       content: m.content

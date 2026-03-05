@@ -49,6 +49,7 @@ import { meetingRequestsRouter } from './routes/meeting-requests.js';
 import { filesRouter } from './routes/files.js';
 import { systemUsersRouter } from './routes/system-users.js';
 import waRouter from './routes/whatsapp.js';
+import { messengerRouter } from './routes/messenger.js';
 import { paymentsRouter } from './routes/payments.js';
 import { campaignsRouter } from './routes/campaigns.js';
 import { campaignLeadsRouter } from './routes/campaign-leads.js';
@@ -201,11 +202,13 @@ app.use('/api/quotes', quotesRouter); // Quote management
 app.use('/api/vapi-webhook', vapiWebhookRouter); // Vapi AI webhook (no auth)
 app.use('/api/vapi-tools', vapiToolsRouter); // Vapi AI tool calls - Google Calendar (no auth)
 app.use('/api/morning-webhook', morningWebhookRouter); // Morning (GreenInvoice) payment webhook (no auth)
+app.use('/api/messenger/webhook', cors({ origin: '*', credentials: false, methods: ['GET', 'POST', 'OPTIONS'] }));
 app.use('/api/lead-appointments', leadAppointmentsRouter); // Lead appointment management
 app.use('/api/institutional-orders', institutionalOrdersRouter); // Institutional orders
 app.use('/api/meeting-requests', meetingRequestsRouter); // Meeting change requests
 app.use('/api/files', filesRouter); // File attachments (instructors, quotes)
 app.use('/api/wa', waRouter); // WhatsApp Cloud API inbox
+app.use('/api/messenger', messengerRouter); // Facebook Messenger inbox
 app.use('/api/payments', paymentsRouter); // WooCommerce payment links
 app.use('/api/system-users', systemUsersRouter); // System users management (admin/manager)
 app.use('/api/upsell-leads', upsellLeadsRouter); // Upsell leads from completed cycles

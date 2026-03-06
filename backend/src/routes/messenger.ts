@@ -301,6 +301,12 @@ async function fetchAndSaveFBLead(leadgenId: string) {
           interest: interest || campaignLabel || 'פייסבוק',
           source: 'facebook',
           appointmentStatus: 'pending',
+          campaignId: lead.campaign_id || null,
+          campaignName: lead.campaign_name || null,
+          adId: lead.ad_id || null,
+          adName: lead.ad_name || null,
+          adsetName: lead.adset_name || null,
+          formId: lead.form_id || null,
         },
       });
       console.log(`[FB LeadAds] Created LeadAppointment for: ${fullName || phone}`);

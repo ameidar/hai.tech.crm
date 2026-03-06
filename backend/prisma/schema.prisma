@@ -693,6 +693,14 @@ model LeadAppointment {
   interest        String?
   source          String    @default("website")
 
+  // Campaign details (Facebook Lead Ads)
+  campaignId    String?   @map("campaign_id")
+  campaignName  String?   @map("campaign_name")
+  adId          String?   @map("ad_id")
+  adName        String?   @map("ad_name")
+  adsetName     String?   @map("adset_name")
+  formId        String?   @map("form_id")
+
   // Vapi call details
   vapiCallId      String?   @map("vapi_call_id")
   callStatus      String?   @map("call_status")

@@ -27,6 +27,13 @@ interface LeadAppointment {
   whatsappSent?: boolean;
   emailSent?: boolean;
   createdAt: string;
+  // Campaign fields (Facebook)
+  campaignId?: string;
+  campaignName?: string;
+  adId?: string;
+  adName?: string;
+  adsetName?: string;
+  formId?: string;
 }
 
 const statusColors: Record<string, string> = {
@@ -343,6 +350,38 @@ function LeadDetailModal({
                  lead.source || '-'}
               </span>
             </div>
+            {/* Campaign details — Facebook only */}
+            {lead.source === 'facebook' && (lead.campaignName || lead.campaignId) && (
+              <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-100 space-y-1 text-sm">
+                <p className="font-medium text-blue-800 mb-1">📊 פרטי קמפיין</p>
+                {lead.campaignName && (
+                  <div className="flex gap-2">
+                    <span className="text-gray-500 w-24 shrink-0">קמפיין:</span>
+                    <span className="font-medium">{lead.campaignName}</span>
+                    {lead.campaignId && <span className="text-gray-400 text-xs">({lead.campaignId})</span>}
+                  </div>
+                )}
+                {lead.adsetName && (
+                  <div className="flex gap-2">
+                    <span className="text-gray-500 w-24 shrink-0">Ad Set:</span>
+                    <span>{lead.adsetName}</span>
+                  </div>
+                )}
+                {lead.adName && (
+                  <div className="flex gap-2">
+                    <span className="text-gray-500 w-24 shrink-0">מודעה:</span>
+                    <span>{lead.adName}</span>
+                    {lead.adId && <span className="text-gray-400 text-xs">({lead.adId})</span>}
+                  </div>
+                )}
+                {lead.formId && (
+                  <div className="flex gap-2">
+                    <span className="text-gray-500 w-24 shrink-0">Form ID:</span>
+                    <span className="text-gray-600 text-xs font-mono">{lead.formId}</span>
+                  </div>
+                )}
+              </div>
+            )}
             <div>
               <span className="text-gray-500">תאריך פנייה:</span>
               <span className="mr-2">{new Date(lead.createdAt).toLocaleString('he-IL')}</span>

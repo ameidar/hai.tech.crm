@@ -4,7 +4,7 @@ import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
-import { TrendingUp, Users, Eye, Globe, Monitor, RefreshCw, ExternalLink } from 'lucide-react';
+import { TrendingUp, Users, Eye, Globe, Monitor, RefreshCw, ExternalLink, MapPin } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
@@ -39,6 +39,8 @@ export default function Analytics() {
   const [traffic, setTraffic] = useState<any>(null);
   const [topPages, setTopPages] = useState<any>(null);
   const [devices, setDevices] = useState<any>(null);
+  const [geo, setGeo] = useState<any>(null);
+  const [geoDimension, setGeoDimension] = useState<'city' | 'region' | 'country'>('city');
   const [error, setError] = useState('');
 
   const fetchAll = async () => {
@@ -46,22 +48,33 @@ export default function Analytics() {
     setError('');
     try {
       const headers = { Authorization: `Bearer ${token}` };
-      const [ov, tr, tp, dv] = await Promise.all([
+      const [ov, tr, tp, dv, gv] = await Promise.all([
         fetch(`${API_BASE}/analytics/overview?days=${days}`, { headers }).then(r => r.json()),
         fetch(`${API_BASE}/analytics/traffic-sources?days=${days}`, { headers }).then(r => r.json()),
         fetch(`${API_BASE}/analytics/top-pages?days=${days}&limit=10`, { headers }).then(r => r.json()),
         fetch(`${API_BASE}/analytics/devices?days=${days}`, { headers }).then(r => r.json()),
+        fetch(`${API_BASE}/analytics/geo?days=${days}&dimension=${geoDimension}&limit=15`, { headers }).then(r => r.json()),
       ]);
       if (ov.error) throw new Error(ov.error);
       setOverview(ov);
       setTraffic(tr);
       setTopPages(tp);
       setDevices(dv);
+      setGeo(gv);
     } catch (e: any) {
       setError(e.message || 'שגיאה בטעינת נתוני Analytics');
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchGeo = async (dim: 'city' | 'region' | 'country') => {
+    setGeoDimension(dim);
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      const gv = await fetch(`${API_BASE}/analytics/geo?days=${days}&dimension=${dim}&limit=15`, { headers }).then(r => r.json());
+      setGeo(gv);
+    } catch {}
   };
 
   useEffect(() => { fetchAll(); }, [days]);
@@ -217,6 +230,63 @@ export default function Analytics() {
               </div>
             )}
           </div>
+
+          {/* Geo breakdown */}
+          {geo?.rows?.length > 0 && (
+            <div className="card bg-base-100 shadow-sm border border-base-200 p-5 mb-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-semibold text-gray-700 flex items-center gap-2">
+                  <MapPin size={18} className="text-blue-500" /> גיאוגרפיה
+                </h2>
+                <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+                  {([['city', 'עיר'], ['region', 'אזור'], ['country', 'מדינה']] as const).map(([dim, label]) => (
+                    <button
+                      key={dim}
+                      onClick={() => fetchGeo(dim)}
+                      className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                        geoDimension === dim ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-6">
+                <ResponsiveContainer width="55%" height={220}>
+                  <BarChart data={geo.rows.slice(0, 10)} layout="vertical" margin={{ right: 20, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis type="number" tick={{ fontSize: 11 }} />
+                    <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} width={90} />
+                    <Tooltip formatter={(v: any) => [`${v} סשנים`]} />
+                    <Bar dataKey="sessions" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="flex-1 overflow-auto max-h-[220px]">
+                  <table className="table table-xs w-full">
+                    <thead>
+                      <tr className="text-right">
+                        <th>#</th>
+                        <th>{geoDimension === 'city' ? 'עיר' : geoDimension === 'region' ? 'אזור' : 'מדינה'}</th>
+                        <th className="text-center">סשנים</th>
+                        <th className="text-center">משתמשים</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {geo.rows.map((r: any, i: number) => (
+                        <tr key={i} className="hover">
+                          <td className="text-gray-400">{i + 1}</td>
+                          <td className="font-medium text-sm">{r.name}</td>
+                          <td className="text-center">{r.sessions}</td>
+                          <td className="text-center text-gray-500">{r.users}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Top Pages */}
           {topPages?.rows?.length > 0 && (

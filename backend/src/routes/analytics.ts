@@ -180,4 +180,43 @@ router.get('/devices', authenticate, async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/analytics/geo?days=30&dimension=city|region|country
+router.get('/geo', authenticate, async (req: Request, res: Response) => {
+  try {
+    const days = parseInt(req.query.days as string) || 30;
+    const dimension = (req.query.dimension as string) || 'city';
+    const limit = parseInt(req.query.limit as string) || 15;
+    const client = getGAClient();
+
+    const dimMap: Record<string, string> = {
+      city: 'city',
+      region: 'region',
+      country: 'country',
+    };
+    const gaDimension = dimMap[dimension] || 'city';
+
+    const [report] = await client.runReport({
+      property: `properties/${PROPERTY_ID}`,
+      dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+      metrics: [{ name: 'sessions' }, { name: 'activeUsers' }],
+      dimensions: [{ name: gaDimension }],
+      orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+      limit,
+    });
+
+    const rows = (report.rows || [])
+      .map(r => ({
+        name: r.dimensionValues![0].value || '(לא ידוע)',
+        sessions: parseInt(r.metricValues![0].value || '0'),
+        users: parseInt(r.metricValues![1].value || '0'),
+      }))
+      .filter(r => r.name !== '(not set)');
+
+    res.json({ rows, dimension });
+  } catch (err: any) {
+    console.error('GA geo error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

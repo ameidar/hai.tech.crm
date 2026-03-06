@@ -19,6 +19,7 @@ import {
   Menu,
   X,
   ChevronDown,
+  ChevronLeft,
   UserCog,
   MessageCircle,
   MessagesSquare,
@@ -27,27 +28,45 @@ import {
   Facebook,
 } from 'lucide-react';
 
-// Admin/Manager navigation
-const adminNavItems = [
-  { path: '/', icon: LayoutDashboard, label: 'דשבורד', testId: 'nav-dashboard' },
-  { path: '/customers', icon: Users, label: 'לקוחות', testId: 'nav-customers' },
-  { path: '/students', icon: GraduationCap, label: 'תלמידים', testId: 'nav-students' },
-  { path: '/courses', icon: BookOpen, label: 'קורסים', testId: 'nav-courses' },
-  { path: '/branches', icon: Building2, label: 'סניפים', testId: 'nav-branches' },
-  { path: '/instructors', icon: UserCheck, label: 'מדריכים', testId: 'nav-instructors' },
-  { path: '/system-users', icon: UserCog, label: 'ניהול הנהלה', testId: 'nav-system-users' },
-  { path: '/cycles', icon: RefreshCcw, label: 'מחזורים', testId: 'nav-cycles' },
-  { path: '/meetings', icon: Calendar, label: 'פגישות', testId: 'nav-meetings' },
-  { path: '/quotes', icon: Receipt, label: 'הצעות מחיר', testId: 'nav-quotes' },
-  { path: '/institutional-orders', icon: FileText, label: 'הזמנות מוסדיות', testId: 'nav-institutional-orders' },
-  { path: '/lead-appointments', icon: PhoneCall, label: 'יומן לידים', testId: 'nav-lead-appointments' },
-  { path: '/whatsapp', icon: MessageCircle, label: 'WhatsApp', testId: 'nav-whatsapp' },
-  { path: '/messenger', icon: MessagesSquare, label: 'Messenger', testId: 'nav-messenger' },
-  { path: '/instagram', icon: Camera, label: 'Instagram', testId: 'nav-instagram' },
-  { path: '/campaigns', icon: Megaphone, label: 'קמפיינים', testId: 'nav-campaigns' },
-  { path: '/facebook-leads', icon: Facebook, label: 'לידים פייסבוק', testId: 'nav-facebook-leads' },
-  { path: '/reports', icon: BarChart3, label: 'דוחות', testId: 'nav-reports' },
-  { path: '/audit', icon: FileText, label: 'יומן פעילות', testId: 'nav-audit' },
+// Admin/Manager navigation — grouped
+const adminNavGroups = [
+  {
+    key: 'management',
+    label: 'ניהול',
+    items: [
+      { path: '/', icon: LayoutDashboard, label: 'דשבורד', testId: 'nav-dashboard' },
+      { path: '/customers', icon: Users, label: 'לקוחות', testId: 'nav-customers' },
+      { path: '/students', icon: GraduationCap, label: 'תלמידים', testId: 'nav-students' },
+      { path: '/courses', icon: BookOpen, label: 'קורסים', testId: 'nav-courses' },
+      { path: '/branches', icon: Building2, label: 'סניפים', testId: 'nav-branches' },
+      { path: '/instructors', icon: UserCheck, label: 'מדריכים', testId: 'nav-instructors' },
+      { path: '/cycles', icon: RefreshCcw, label: 'מחזורים', testId: 'nav-cycles' },
+      { path: '/meetings', icon: Calendar, label: 'פגישות', testId: 'nav-meetings' },
+      { path: '/quotes', icon: Receipt, label: 'הצעות מחיר', testId: 'nav-quotes' },
+      { path: '/institutional-orders', icon: FileText, label: 'הזמנות מוסדיות', testId: 'nav-institutional-orders' },
+    ],
+  },
+  {
+    key: 'marketing',
+    label: '📣 שיווק',
+    items: [
+      { path: '/lead-appointments', icon: PhoneCall, label: 'יומן לידים', testId: 'nav-lead-appointments' },
+      { path: '/whatsapp', icon: MessageCircle, label: 'WhatsApp', testId: 'nav-whatsapp' },
+      { path: '/messenger', icon: MessagesSquare, label: 'Messenger', testId: 'nav-messenger' },
+      { path: '/instagram', icon: Camera, label: 'Instagram', testId: 'nav-instagram' },
+      { path: '/campaigns', icon: Megaphone, label: 'קמפיינים', testId: 'nav-campaigns' },
+      { path: '/facebook-leads', icon: Facebook, label: 'לידים פייסבוק', testId: 'nav-facebook-leads' },
+    ],
+  },
+  {
+    key: 'system',
+    label: 'מערכת',
+    items: [
+      { path: '/system-users', icon: UserCog, label: 'ניהול הנהלה', testId: 'nav-system-users' },
+      { path: '/reports', icon: BarChart3, label: 'דוחות', testId: 'nav-reports' },
+      { path: '/audit', icon: FileText, label: 'יומן פעילות', testId: 'nav-audit' },
+    ],
+  },
 ];
 
 // Instructor-only navigation
@@ -61,6 +80,8 @@ const salesNavItems = [
   { path: '/customers', icon: Users, label: 'לקוחות', testId: 'nav-customers' },
 ];
 
+const COLLAPSED_KEY = 'nav-collapsed-sections';
+
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -68,6 +89,23 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+
+  // Collapsed sections state — persisted in localStorage
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '{}');
+    } catch {
+      return {};
+    }
+  });
+
+  const toggleSection = (key: string) => {
+    setCollapsedSections(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      localStorage.setItem(COLLAPSED_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
 
   // Close mobile sidebar on route change
   useEffect(() => {
@@ -79,11 +117,30 @@ export default function Layout() {
     navigate('/login');
   };
 
-  const navItems = user?.role === 'instructor'
-    ? instructorNavItems
-    : user?.role === 'sales'
-    ? salesNavItems
-    : adminNavItems;
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+  const isInstructor = user?.role === 'instructor';
+  const isSales = user?.role === 'sales';
+
+  // Flat items for non-admin roles
+  const flatNavItems = isInstructor ? instructorNavItems : isSales ? salesNavItems : [];
+
+  const renderNavItem = (item: { path: string; icon: any; label: string; testId: string }) => (
+    <NavLink
+      key={item.path}
+      to={item.path}
+      data-testid={item.testId}
+      className={({ isActive }) =>
+        `flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg transition-colors min-h-[40px] ${
+          isActive
+            ? 'bg-blue-600 text-white'
+            : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+        }`
+      }
+    >
+      <item.icon size={20} className="flex-shrink-0" />
+      {sidebarOpen && <span className="text-sm">{item.label}</span>}
+    </NavLink>
+  );
 
   const sidebarContent = (
     <>
@@ -111,24 +168,43 @@ export default function Layout() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 py-4 overflow-y-auto" data-testid="main-nav">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            data-testid={item.testId}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-4 py-3 mx-2 rounded-lg transition-colors min-h-[44px] ${
-                isActive
-                  ? 'bg-blue-600 text-white'
-                  : 'text-slate-300 hover:bg-slate-700 hover:text-white'
-              }`
-            }
-          >
-            <item.icon size={20} />
-            <span>{item.label}</span>
-          </NavLink>
-        ))}
+      <nav className="flex-1 py-2 overflow-y-auto" data-testid="main-nav">
+        {isAdmin ? (
+          // Grouped navigation for admin/manager
+          adminNavGroups.map((group) => {
+            const isCollapsed = !!collapsedSections[group.key];
+            return (
+              <div key={group.key} className="mb-1">
+                {/* Section header — only when sidebar is expanded */}
+                {sidebarOpen ? (
+                  <button
+                    onClick={() => toggleSection(group.key)}
+                    className="w-full flex items-center justify-between px-4 py-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wider hover:text-slate-200 transition-colors select-none"
+                  >
+                    <span>{group.label}</span>
+                    {isCollapsed
+                      ? <ChevronLeft size={14} />
+                      : <ChevronDown size={14} />
+                    }
+                  </button>
+                ) : (
+                  // Narrow mode: separator line
+                  <div className="mx-3 my-1 border-t border-slate-700" />
+                )}
+
+                {/* Items — hidden when collapsed (only when sidebar is open) */}
+                {(!sidebarOpen || !isCollapsed) && (
+                  <div className="mt-0.5">
+                    {group.items.map(renderNavItem)}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        ) : (
+          // Flat navigation for instructor/sales
+          flatNavItems.map(renderNavItem)
+        )}
       </nav>
 
       {/* Version + Build Time */}
@@ -140,7 +216,7 @@ export default function Layout() {
       </div>
 
       {/* Online Users (admin/manager only) */}
-      {(user?.role === 'admin' || user?.role === 'manager') && (
+      {isAdmin && (
         <div className="px-4 pb-2">
           <OnlineUsers />
         </div>
@@ -156,11 +232,15 @@ export default function Layout() {
             <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
               {user?.name?.charAt(0) || 'U'}
             </div>
-            <div className="flex-1 text-right">
-              <p className="text-sm font-medium">{user?.name}</p>
-              <p className="text-xs text-slate-400">{user?.role}</p>
-            </div>
-            <ChevronDown size={16} />
+            {sidebarOpen && (
+              <>
+                <div className="flex-1 text-right">
+                  <p className="text-sm font-medium">{user?.name}</p>
+                  <p className="text-xs text-slate-400">{user?.role}</p>
+                </div>
+                <ChevronDown size={16} />
+              </>
+            )}
           </button>
 
           {userMenuOpen && (

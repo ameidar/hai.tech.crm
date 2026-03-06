@@ -41,7 +41,8 @@ export default function Analytics() {
   const [devices, setDevices] = useState<any>(null);
   const [geo, setGeo] = useState<any>(null);
   const [geoDimension, setGeoDimension] = useState<'city' | 'region' | 'country'>('city');
-  const [realtime, setRealtime] = useState<{ activeUsers: number; byPage: { path: string; users: number }[] } | null>(null);
+  const [realtime, setRealtime] = useState<{ activeUsers: number; byPage: { path: string; users: number }[] }>({ activeUsers: 0, byPage: [] });
+  const [realtimeLoading, setRealtimeLoading] = useState(true);
   const [error, setError] = useState('');
 
   const fetchAll = async () => {
@@ -90,6 +91,7 @@ export default function Analytics() {
         const data = await res.json();
         if (!data.error) setRealtime(data);
       } catch {}
+      finally { setRealtimeLoading(false); }
     };
     fetchRealtime();
     const interval = setInterval(fetchRealtime, 30000);
@@ -168,7 +170,7 @@ export default function Analytics() {
           </div>
 
           {/* Realtime card */}
-          {realtime !== null && (
+          {(
             <div className="card bg-base-100 shadow-sm border border-base-200 p-5 mb-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -181,7 +183,9 @@ export default function Analytics() {
                   </div>
                   <div>
                     <p className="text-xs text-gray-500 uppercase tracking-wide">אונליין עכשיו</p>
-                    <p className="text-4xl font-bold text-green-600">{realtime.activeUsers}</p>
+                    <p className="text-4xl font-bold text-green-600">
+                      {realtimeLoading ? <span className="text-2xl text-gray-400">...</span> : realtime.activeUsers}
+                    </p>
                     <p className="text-xs text-gray-400 mt-0.5">משתמשים פעילים ב-30 דקות האחרונות • מתעדכן כל 30 שניות</p>
                   </div>
                 </div>

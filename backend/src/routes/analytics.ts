@@ -185,31 +185,32 @@ router.get('/realtime', authenticate, async (req: Request, res: Response) => {
   try {
     const client = getGAClient();
 
+    // Get total active users (no dimensions = most compatible)
     const [report] = await client.runRealtimeReport({
       property: `properties/${PROPERTY_ID}`,
       metrics: [{ name: 'activeUsers' }],
-      dimensions: [{ name: 'minutesAgo' }],
     });
 
-    const totalActive = (report.rows || []).reduce(
-      (sum, r) => sum + parseInt(r.metricValues![0].value || '0'), 0
-    );
+    const totalActive = parseInt(report.rows?.[0]?.metricValues?.[0]?.value || '0');
 
-    // Also get breakdown by page
-    const [pageReport] = await client.runRealtimeReport({
-      property: `properties/${PROPERTY_ID}`,
-      metrics: [{ name: 'activeUsers' }],
-      dimensions: [{ name: 'unifiedPagePathScreen' }],
-    });
-
-    const byPage = (pageReport.rows || [])
-      .map(r => ({
-        path: r.dimensionValues![0].value || '/',
-        users: parseInt(r.metricValues![0].value || '0'),
-      }))
-      .filter(r => r.users > 0)
-      .sort((a, b) => b.users - a.users)
-      .slice(0, 5);
+    // Get breakdown by page path (separate call)
+    let byPage: { path: string; users: number }[] = [];
+    try {
+      const [pageReport] = await client.runRealtimeReport({
+        property: `properties/${PROPERTY_ID}`,
+        metrics: [{ name: 'activeUsers' }],
+        dimensions: [{ name: 'unifiedPageScreen' }],
+        limit: 5,
+      });
+      byPage = (pageReport.rows || [])
+        .map(r => ({
+          path: r.dimensionValues![0].value || '/',
+          users: parseInt(r.metricValues![0].value || '0'),
+        }))
+        .filter(r => r.users > 0);
+    } catch {
+      // page breakdown optional — ignore errors
+    }
 
     res.json({ activeUsers: totalActive, byPage });
   } catch (err: any) {

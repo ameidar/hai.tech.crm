@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Facebook, RefreshCw, Phone, Mail, MapPin, User, Tag, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
+import { RefreshCw, Phone, Mail, MapPin, User, Tag, ChevronDown, ChevronUp } from 'lucide-react';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -115,9 +115,8 @@ export default function FacebookLeads() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="לידים מפייסבוק"
+        title="🔵 לידים מפייסבוק"
         subtitle={`${pagination?.total ?? 0} לידים סה"כ`}
-        icon={<Facebook className="w-6 h-6 text-blue-600" />}
       />
 
       {/* Toolbar */}
@@ -147,7 +146,7 @@ export default function FacebookLeads() {
       {!isLoading && leads.length === 0 && !statusFilter && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
           <div className="flex items-start gap-3">
-            <Facebook className="w-5 h-5 text-blue-600 mt-0.5" />
+            <span className="text-blue-600 font-bold text-lg mt-0.5">f</span>
             <div>
               <p className="font-semibold text-blue-900">הגדרת חיבור לפייסבוק</p>
               <p className="text-sm text-blue-700 mt-1">
@@ -169,7 +168,7 @@ export default function FacebookLeads() {
       {isLoading ? (
         <Loading />
       ) : leads.length === 0 ? (
-        <EmptyState message="לא נמצאו לידים מפייסבוק" />
+        <EmptyState title="לא נמצאו לידים מפייסבוק" variant="compact" />
       ) : (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           <table className="w-full text-sm">

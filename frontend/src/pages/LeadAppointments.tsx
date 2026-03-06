@@ -60,6 +60,7 @@ function StatusBadge({ status }: { status: string }) {
 export default function LeadAppointments() {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [page, setPage] = useState(1);
@@ -70,11 +71,12 @@ export default function LeadAppointments() {
   params.set('page', String(page));
   params.set('limit', '25');
   if (statusFilter) params.set('status', statusFilter);
+  if (sourceFilter) params.set('source', sourceFilter);
   if (fromDate) params.set('from', fromDate);
   if (toDate) params.set('to', toDate);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['lead-appointments', page, statusFilter, fromDate, toDate],
+    queryKey: ['lead-appointments', page, statusFilter, sourceFilter, fromDate, toDate],
     queryFn: async () => {
       const res = await api.get(`/lead-appointments?${params.toString()}`);
       return res.data;
@@ -112,6 +114,20 @@ export default function LeadAppointments() {
             {allStatuses.map((s) => (
               <option key={s} value={s}>{statusLabels[s]}</option>
             ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">מקור</label>
+          <select
+            value={sourceFilter}
+            onChange={(e) => { setSourceFilter(e.target.value); setPage(1); }}
+            className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+          >
+            <option value="">הכל</option>
+            <option value="facebook">🔵 פייסבוק</option>
+            <option value="website">🌐 אתר</option>
+            <option value="whatsapp">💬 WhatsApp</option>
+            <option value="vapi">📞 שיחה</option>
           </select>
         </div>
         <div>
@@ -314,7 +330,18 @@ function LeadDetailModal({
             </div>
             <div>
               <span className="text-gray-500">מקור:</span>
-              <span className="mr-2">{lead.source || '-'}</span>
+              <span className={`mr-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                lead.source === 'facebook' ? 'bg-blue-100 text-blue-800' :
+                lead.source === 'whatsapp' ? 'bg-green-100 text-green-800' :
+                lead.source === 'vapi' ? 'bg-purple-100 text-purple-800' :
+                'bg-gray-100 text-gray-700'
+              }`}>
+                {lead.source === 'facebook' ? '🔵 פייסבוק' :
+                 lead.source === 'whatsapp' ? '💬 WhatsApp' :
+                 lead.source === 'vapi' ? '📞 שיחה' :
+                 lead.source === 'website' ? '🌐 אתר' :
+                 lead.source || '-'}
+              </span>
             </div>
             <div>
               <span className="text-gray-500">תאריך פנייה:</span>

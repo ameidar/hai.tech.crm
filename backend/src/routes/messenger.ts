@@ -268,7 +268,7 @@ async function fetchAndSaveFBLead(leadgenId: string) {
   const childAge = fields['child_age'] || fields['גיל הילד'] || fields['גיל'] || null;
   const interest = fields['interest'] || fields['תחום עניין'] || fields['קורס'] || null;
 
-  await prisma.facebookLead.upsert({
+  const fbLead = await prisma.facebookLead.upsert({
     where: { fbLeadId: lead.id },
     update: {},
     create: {
@@ -284,6 +284,28 @@ async function fetchAndSaveFBLead(leadgenId: string) {
       fbCreatedTime: lead.created_time ? new Date(lead.created_time) : null,
     },
   });
+
+  // Also create a LeadAppointment in the main leads journal
+  if (fullName || phone) {
+    const existingAppt = await prisma.leadAppointment.findFirst({
+      where: { customerPhone: phone || '', source: 'facebook' },
+    });
+    if (!existingAppt) {
+      const campaignLabel = [lead.campaign_name, lead.ad_name].filter(Boolean).join(' / ');
+      await prisma.leadAppointment.create({
+        data: {
+          customerName: fullName || phone || 'ליד פייסבוק',
+          customerPhone: phone || '',
+          customerEmail: email || null,
+          childName: childName || null,
+          interest: interest || campaignLabel || 'פייסבוק',
+          source: 'facebook',
+          appointmentStatus: 'pending',
+        },
+      });
+      console.log(`[FB LeadAds] Created LeadAppointment for: ${fullName || phone}`);
+    }
+  }
 
   console.log(`[FB LeadAds] Saved lead: ${fullName || leadgenId} (${phone || 'no phone'})`);
 }

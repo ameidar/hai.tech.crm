@@ -12,11 +12,13 @@ leadAppointmentsRouter.get('/', async (req: Request, res: Response, next: NextFu
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
     const status = req.query.status as string;
+    const source = req.query.source as string;
     const dateFrom = (req.query.dateFrom || req.query.from) as string;
     const dateTo = (req.query.dateTo || req.query.to) as string;
 
     const where: any = {};
     if (status) where.appointmentStatus = status;
+    if (source) where.source = source;
     if (dateFrom || dateTo) {
       where.createdAt = {};
       if (dateFrom) where.createdAt.gte = new Date(dateFrom);

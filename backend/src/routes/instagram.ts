@@ -118,7 +118,20 @@ router.post('/webhook', async (req: Request, res: Response) => {
   if (body.object !== 'instagram') return;
 
   for (const entry of body.entry || []) {
-    for (const event of entry.messaging || []) {
+    // Support both `messaging` array (real webhooks) and `changes` array (Meta test button)
+    const messagingEvents = entry.messaging || [];
+    for (const change of entry.changes || []) {
+      if (change.field === 'messages' && change.value?.sender) {
+        messagingEvents.push({
+          sender: change.value.sender,
+          recipient: change.value.recipient,
+          timestamp: change.value.timestamp,
+          message: change.value.message,
+        });
+      }
+    }
+
+    for (const event of messagingEvents) {
       if (!event.message || event.message.is_echo) continue;
 
       const igsid = event.sender.id;

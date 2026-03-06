@@ -244,6 +244,12 @@ async function fetchAndSaveFBLead(leadgenId: string) {
 
   if (lead.error) {
     console.error('[FB LeadAds] Graph API error:', lead.error.message);
+    // Save minimal record so webhook activity is visible
+    await prisma.facebookLead.upsert({
+      where: { fbLeadId: leadgenId },
+      update: {},
+      create: { fbLeadId: leadgenId, notes: `[API Error] ${lead.error.message}` },
+    });
     return;
   }
 

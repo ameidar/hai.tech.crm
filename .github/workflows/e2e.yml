@@ -110,6 +110,13 @@ jobs:
           API_KEY: test_api_key
           CORS_ORIGINS: http://localhost:3001
           NODE_ENV: test
+          OPENAI_API_KEY: sk-test-placeholder
+          GREEN_API_INSTANCE_ID: test
+          GREEN_API_TOKEN: test
+          WA_CLOUD_ACCESS_TOKEN: test
+          WA_CLOUD_PHONE_NUMBER_ID: test
+          GMAIL_USER: test@test.com
+          GMAIL_PASS: test
 
       - name: Serve frontend
         run: npx serve -s dist -l 3001 &
@@ -254,6 +261,13 @@ jobs:
           API_KEY: test_api_key
           CORS_ORIGINS: http://localhost:3001
           NODE_ENV: test
+          OPENAI_API_KEY: sk-test-placeholder
+          GREEN_API_INSTANCE_ID: test
+          GREEN_API_TOKEN: test
+          WA_CLOUD_ACCESS_TOKEN: test
+          WA_CLOUD_PHONE_NUMBER_ID: test
+          GMAIL_USER: test@test.com
+          GMAIL_PASS: test
 
       - name: Serve frontend
         run: npx serve -s dist -l 3001 &

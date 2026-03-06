@@ -180,6 +180,44 @@ router.get('/devices', authenticate, async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/analytics/realtime — active users in last 30 minutes
+router.get('/realtime', authenticate, async (req: Request, res: Response) => {
+  try {
+    const client = getGAClient();
+
+    const [report] = await client.runRealtimeReport({
+      property: `properties/${PROPERTY_ID}`,
+      metrics: [{ name: 'activeUsers' }],
+      dimensions: [{ name: 'minutesAgo' }],
+    });
+
+    const totalActive = (report.rows || []).reduce(
+      (sum, r) => sum + parseInt(r.metricValues![0].value || '0'), 0
+    );
+
+    // Also get breakdown by page
+    const [pageReport] = await client.runRealtimeReport({
+      property: `properties/${PROPERTY_ID}`,
+      metrics: [{ name: 'activeUsers' }],
+      dimensions: [{ name: 'unifiedPagePathScreen' }],
+    });
+
+    const byPage = (pageReport.rows || [])
+      .map(r => ({
+        path: r.dimensionValues![0].value || '/',
+        users: parseInt(r.metricValues![0].value || '0'),
+      }))
+      .filter(r => r.users > 0)
+      .sort((a, b) => b.users - a.users)
+      .slice(0, 5);
+
+    res.json({ activeUsers: totalActive, byPage });
+  } catch (err: any) {
+    console.error('GA realtime error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/analytics/geo?days=30&dimension=city|region|country
 router.get('/geo', authenticate, async (req: Request, res: Response) => {
   try {

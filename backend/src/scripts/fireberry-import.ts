@@ -164,7 +164,8 @@ async function main() {
             data: {
               id: generateId(),
               name: row.name || 'ללא שם',
-              phone: row.phone || '',
+              // If no phone, use unique placeholder to avoid UNIQUE constraint conflict
+              phone: row.phone || `NOTEL-${generateId()}`,
               email: row.email || null,
               notes: `Fireberry: ${row.accountid}`,
             },

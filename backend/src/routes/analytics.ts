@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { BetaAnalyticsDataClient } from '@google-analytics/data';
-import { authenticateToken } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
 
 const router = Router();
 
@@ -25,7 +25,7 @@ function formatDate(d: string) {
 }
 
 // GET /api/analytics/overview?days=30
-router.get('/overview', authenticateToken, async (req: Request, res: Response) => {
+router.get('/overview', authenticate, async (req: Request, res: Response) => {
   try {
     const days = parseInt(req.query.days as string) || 30;
     const client = getGAClient();
@@ -71,7 +71,7 @@ router.get('/overview', authenticateToken, async (req: Request, res: Response) =
 });
 
 // GET /api/analytics/traffic-sources?days=30
-router.get('/traffic-sources', authenticateToken, async (req: Request, res: Response) => {
+router.get('/traffic-sources', authenticate, async (req: Request, res: Response) => {
   try {
     const days = parseInt(req.query.days as string) || 30;
     const client = getGAClient();
@@ -114,7 +114,7 @@ router.get('/traffic-sources', authenticateToken, async (req: Request, res: Resp
 });
 
 // GET /api/analytics/top-pages?days=30&limit=10
-router.get('/top-pages', authenticateToken, async (req: Request, res: Response) => {
+router.get('/top-pages', authenticate, async (req: Request, res: Response) => {
   try {
     const days = parseInt(req.query.days as string) || 30;
     const limit = parseInt(req.query.limit as string) || 10;
@@ -145,7 +145,7 @@ router.get('/top-pages', authenticateToken, async (req: Request, res: Response) 
 });
 
 // GET /api/analytics/devices?days=30
-router.get('/devices', authenticateToken, async (req: Request, res: Response) => {
+router.get('/devices', authenticate, async (req: Request, res: Response) => {
   try {
     const days = parseInt(req.query.days as string) || 30;
     const client = getGAClient();

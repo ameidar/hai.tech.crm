@@ -102,6 +102,19 @@ router.post('/webhook', async (req: Request, res: Response) => {
   if (body.object !== 'page') return;
 
   for (const entry of body.entry || []) {
+    // ── Handle leadgen events (Facebook Lead Ads) ──
+    for (const change of entry.changes || []) {
+      if (change.field === 'leadgen') {
+        const leadgenId = change.value?.leadgen_id;
+        if (leadgenId) {
+          console.log('[FB LeadAds] New lead received:', leadgenId);
+          fetchAndSaveFBLead(leadgenId).catch((e) =>
+            console.error('[FB LeadAds] Error saving lead:', e)
+          );
+        }
+      }
+    }
+
     const pageId = entry.id;
     for (const event of entry.messaging || []) {
       if (!event.message || event.message.is_echo) continue;
@@ -208,5 +221,65 @@ router.patch('/conversations/:id/ai', authenticate, async (req: Request, res: Re
   await prisma.$queryRaw`UPDATE messenger_conversations SET ai_enabled = ${aiEnabled} WHERE id = ${id}::uuid`;
   res.json({ ok: true });
 });
+
+// ─── Facebook Lead Ads Helper ─────────────────────────────────────────────────
+
+async function fetchAndSaveFBLead(leadgenId: string) {
+  const token = process.env.FB_PAGE_ACCESS_TOKEN || PAGE_ACCESS_TOKEN;
+  if (!token) {
+    console.warn('[FB LeadAds] No access token — cannot fetch lead details');
+    // Save minimal record so we know a lead came in
+    await prisma.facebookLead.upsert({
+      where: { fbLeadId: leadgenId },
+      update: {},
+      create: { fbLeadId: leadgenId },
+    });
+    return;
+  }
+
+  const res = await fetch(
+    `https://graph.facebook.com/v19.0/${leadgenId}?access_token=${token}&fields=id,created_time,field_data,ad_id,ad_name,campaign_id,campaign_name,adset_name,form_id`
+  );
+  const lead = await res.json() as any;
+
+  if (lead.error) {
+    console.error('[FB LeadAds] Graph API error:', lead.error.message);
+    return;
+  }
+
+  const fields: Record<string, string> = {};
+  for (const f of lead.field_data || []) {
+    fields[f.name] = Array.isArray(f.values) ? f.values[0] : f.values;
+  }
+
+  const fullName =
+    fields['full_name'] || fields['שם מלא'] || fields['name'] ||
+    [fields['first_name'], fields['last_name']].filter(Boolean).join(' ') || null;
+  const phone = fields['phone_number'] || fields['phone'] || fields['טלפון'] || fields['מספר טלפון'] || null;
+  const email = fields['email'] || fields['מייל'] || null;
+  const city = fields['city'] || fields['עיר'] || null;
+  const childName = fields['child_name'] || fields['שם הילד'] || fields['שם ילד'] || null;
+  const childAge = fields['child_age'] || fields['גיל הילד'] || fields['גיל'] || null;
+  const interest = fields['interest'] || fields['תחום עניין'] || fields['קורס'] || null;
+
+  await prisma.facebookLead.upsert({
+    where: { fbLeadId: lead.id },
+    update: {},
+    create: {
+      fbLeadId: lead.id,
+      formId: lead.form_id || null,
+      adId: lead.ad_id || null,
+      adName: lead.ad_name || null,
+      campaignId: lead.campaign_id || null,
+      campaignName: lead.campaign_name || null,
+      adsetName: lead.adset_name || null,
+      fullName, phone, email, city, childName, childAge, interest,
+      rawData: lead.field_data || null,
+      fbCreatedTime: lead.created_time ? new Date(lead.created_time) : null,
+    },
+  });
+
+  console.log(`[FB LeadAds] Saved lead: ${fullName || leadgenId} (${phone || 'no phone'})`);
+}
 
 export const messengerRouter = router;

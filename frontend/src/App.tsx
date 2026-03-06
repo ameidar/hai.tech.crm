@@ -33,6 +33,7 @@ import WhatsAppInbox from './pages/WhatsAppInbox';
 import MessengerInbox from './pages/MessengerInbox';
 import InstagramInbox from './pages/InstagramInbox';
 import Campaigns from './pages/Campaigns';
+import FacebookLeads from './pages/FacebookLeads';
 import CampaignLanding from './pages/CampaignLanding';
 import PayPage from './pages/PayPage';
 
@@ -167,6 +168,7 @@ function AppRoutes() {
             <Route path="reports" element={<NonSalesRoute><Reports /></NonSalesRoute>} />
             <Route path="audit" element={<NonSalesRoute><AuditLog /></NonSalesRoute>} />
             <Route path="campaigns" element={<NonSalesRoute><Campaigns /></NonSalesRoute>} />
+            <Route path="facebook-leads" element={<NonSalesRoute><FacebookLeads /></NonSalesRoute>} />
           </>
         )}
         <Route path="instructor" element={<InstructorDashboard />} />

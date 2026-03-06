@@ -54,6 +54,7 @@ import { instagramRouter } from './routes/instagram.js';
 import { paymentsRouter } from './routes/payments.js';
 import { campaignsRouter } from './routes/campaigns.js';
 import { campaignLeadsRouter } from './routes/campaign-leads.js';
+import { facebookLeadsRouter } from './routes/facebook-leads.js';
 import { devReadOnly } from './middleware/devReadOnly.js';
 
 // API v1 Router
@@ -218,6 +219,7 @@ app.use('/api/upsell-leads', upsellLeadsRouter); // Upsell leads from completed 
 app.use('/api/reports', reportsRouter); // Instructor activity reports
 app.use('/api/campaigns', campaignsRouter); // Marketing campaigns
 app.use('/api/campaign-leads', campaignLeadsRouter); // Public campaign lead form submissions
+app.use('/api/facebook', facebookLeadsRouter);     // Facebook Lead Ads
 
 // Error handling for API routes
 app.use('/api', errorHandler);

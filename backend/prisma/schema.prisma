@@ -179,6 +179,7 @@ model Customer {
   upsellLeads        UpsellLead[]
   payments           Payment[]
   campaignRecipients CampaignRecipient[]
+  facebookLeads      FacebookLead[]
 
   @@map("customers")
 }
@@ -921,6 +922,44 @@ model CampaignRecipient {
   customer    Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@map("campaign_recipients")
+}
+
+// ===================
+// FACEBOOK LEADS
+// ===================
+
+model FacebookLead {
+  id           Int      @id @default(autoincrement())
+  fbLeadId     String   @unique @map("fb_lead_id")
+  formId       String?  @map("form_id")
+  adId         String?  @map("ad_id")
+  adName       String?  @map("ad_name")
+  campaignId   String?  @map("campaign_id")
+  campaignName String?  @map("campaign_name")
+  adsetName    String?  @map("adset_name")
+
+  // Lead fields
+  fullName     String?  @map("full_name")
+  phone        String?
+  email        String?
+  city         String?
+  childName    String?  @map("child_name")
+  childAge     String?  @map("child_age")
+  interest     String?
+  rawData      Json?    @map("raw_data")
+
+  // Status
+  status         String   @default("new")  // new | contacted | converted | dismissed
+  notes          String?
+  crmCustomerId  String?  @map("crm_customer_id")
+
+  fbCreatedTime DateTime? @map("fb_created_time")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  customer Customer? @relation(fields: [crmCustomerId], references: [id], onDelete: SetNull)
+
+  @@map("facebook_leads")
 }
 
 model Payment {

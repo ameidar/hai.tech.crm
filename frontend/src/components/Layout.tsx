@@ -24,6 +24,7 @@ import {
   MessagesSquare,
   Megaphone,
   Camera,
+  Facebook,
 } from 'lucide-react';
 
 // Admin/Manager navigation
@@ -44,6 +45,7 @@ const adminNavItems = [
   { path: '/messenger', icon: MessagesSquare, label: 'Messenger', testId: 'nav-messenger' },
   { path: '/instagram', icon: Camera, label: 'Instagram', testId: 'nav-instagram' },
   { path: '/campaigns', icon: Megaphone, label: 'קמפיינים', testId: 'nav-campaigns' },
+  { path: '/facebook-leads', icon: Facebook, label: 'לידים פייסבוק', testId: 'nav-facebook-leads' },
   { path: '/reports', icon: BarChart3, label: 'דוחות', testId: 'nav-reports' },
   { path: '/audit', icon: FileText, label: 'יומן פעילות', testId: 'nav-audit' },
 ];

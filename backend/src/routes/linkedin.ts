@@ -42,8 +42,8 @@ async function getToken(): Promise<{ accessToken: string; expiresAt: string; sub
   }
 }
 
-// GET /api/linkedin/auth — redirect to LinkedIn OAuth
-router.get('/auth', authenticate, managerOrAdmin, (_req: Request, res: Response) => {
+// GET /api/linkedin/auth — redirect to LinkedIn OAuth (public; LinkedIn handles user auth)
+router.get('/auth', (_req: Request, res: Response) => {
   if (!CLIENT_ID) {
     return res.status(503).json({ error: 'LinkedIn not configured (LINKEDIN_CLIENT_ID missing)' });
   }

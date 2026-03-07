@@ -161,7 +161,7 @@ model Customer {
   id           String    @id @default(uuid())
   name         String
   email        String?   @unique
-  phone        String    @unique
+  phone        String?   @unique
   address      String?
   city         String?
   notes        String?

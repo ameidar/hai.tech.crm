@@ -257,6 +257,15 @@ export default function CustomerDetail() {
                 </div>
               )}
 
+              {customer.source && (
+                <div className="pt-2">
+                  <p className="text-sm text-gray-500 mb-1">מקור הגעה</p>
+                  <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-700 font-medium">
+                    {({'whatsapp':'💬 WhatsApp','facebook':'👍 Facebook','instagram':'📸 Instagram','website':'🌐 אתר','phone':'📞 טלפון','upsell':'⬆️ Upsell','manual':'✏️ ידני','fireberry':'🔥 Fireberry','woocommerce':'🛒 WooCommerce'} as any)[customer.source] || customer.source}
+                  </span>
+                </div>
+              )}
+
               {(customer.lmsUsername || customer.lmsPassword) && (
                 <div className="pt-4 border-t">
                   <p className="text-sm font-semibold text-indigo-600 mb-2">🎓 פרטי כניסה לקורסים דיגיטליים</p>
@@ -804,6 +813,7 @@ function CustomerEditForm({ customer, onSubmit, onCancel, isLoading, error }: Cu
     notes: customer.notes || '',
     lmsUsername: customer.lmsUsername || '',
     lmsPassword: customer.lmsPassword || '',
+    source: (customer as any).source || '',
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -881,6 +891,27 @@ function CustomerEditForm({ customer, onSubmit, onCancel, isLoading, error }: Cu
             className="form-input"
             rows={3}
           />
+        </div>
+
+        {/* Source */}
+        <div className="col-span-2">
+          <label className="form-label">מקור הגעה</label>
+          <select
+            value={formData.source}
+            onChange={(e) => setFormData({ ...formData, source: e.target.value })}
+            className="form-input"
+          >
+            <option value="">-- לא ידוע --</option>
+            <option value="whatsapp">💬 WhatsApp</option>
+            <option value="facebook">👍 Facebook</option>
+            <option value="instagram">📸 Instagram</option>
+            <option value="website">🌐 אתר</option>
+            <option value="phone">📞 טלפון</option>
+            <option value="upsell">⬆️ Upsell</option>
+            <option value="manual">✏️ ידני</option>
+            <option value="fireberry">🔥 Fireberry</option>
+            <option value="woocommerce">🛒 WooCommerce</option>
+          </select>
         </div>
 
         {/* LMS Credentials */}

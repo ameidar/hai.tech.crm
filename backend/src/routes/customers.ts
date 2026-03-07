@@ -143,6 +143,7 @@ customersRouter.post('/', managerOrAdmin, async (req, res, next) => {
         address: data.address,
         city: data.city,
         notes: data.notes,
+        source: data.source ?? 'manual',
       },
       include: {
         _count: { select: { students: true } },

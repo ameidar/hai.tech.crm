@@ -453,6 +453,7 @@ webhookRouter.post('/leads', async (req, res, next) => {
         email: email || null,
         city: city || null,
         notes: `[${new Date().toISOString()}] ${source}: ${noteText}`,
+        source: source || 'website',
         students: studentsToCreate.length > 0
           ? { create: studentsToCreate }
           : undefined,
@@ -567,6 +568,7 @@ webhookRouter.post('/whatsapp-summary', async (req, res, next) => {
               phone,
               email: (email && email !== 'לא') ? email : null,
               notes: `[${new Date().toISOString()}] whatsapp: ${summary || 'שיחת וואטסאפ'}`,
+              source: 'whatsapp',
               students: (child_name && child_name !== 'לא') ? {
                 create: [{
                   name: child_name,

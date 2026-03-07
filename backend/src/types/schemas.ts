@@ -32,6 +32,7 @@ export const createCustomerSchema = z.object({
   notes: z.string().optional().nullable(),
   lmsUsername: z.string().optional().nullable(),
   lmsPassword: z.string().optional().nullable(),
+  source: z.enum(['whatsapp', 'facebook', 'instagram', 'website', 'phone', 'upsell', 'manual', 'fireberry', 'woocommerce']).optional().nullable(),
 });
 
 export const updateCustomerSchema = createCustomerSchema.partial();

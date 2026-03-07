@@ -5,7 +5,7 @@ export const uuidSchema = z.string().min(1);
 
 export const paginationSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
-  limit: z.coerce.number().int().min(1).max(500).default(50),
+  limit: z.coerce.number().int().min(1).max(5000).default(50),
 });
 
 // Auth schemas

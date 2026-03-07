@@ -18,7 +18,7 @@ interface PaginationMeta {
   page: number;
   limit: number;
   total: number;
-  pages: number;
+  totalPages: number;
   hasNext: boolean;
   hasPrev: boolean;
 }
@@ -61,14 +61,15 @@ export const mutateData = async <T, D>(url: string, method: 'post' | 'put' | 'de
 };
 
 // ==================== Customers ====================
-export const useCustomers = (params?: { search?: string; limit?: number }) => {
+export const useCustomers = (params?: { search?: string; limit?: number; page?: number }) => {
   const queryParams = new URLSearchParams();
   if (params?.search) queryParams.append('search', params.search);
-  queryParams.append('limit', String(params?.limit || 500));
+  queryParams.append('limit', String(params?.limit || 100));
+  if (params?.page && params.page > 1) queryParams.append('page', String(params.page));
   const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
   return useQuery({
-    queryKey: ['customers', params?.search, params?.limit],
-    queryFn: () => fetchData<Customer[]>(`/customers${queryString}`),
+    queryKey: ['customers', params?.search, params?.limit, params?.page],
+    queryFn: () => fetchDataWithPagination<Customer[]>(`/customers${queryString}`),
   });
 };
 

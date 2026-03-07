@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, User, GraduationCap, Plus, CreditCard, BookOpen, Edit, Check } from 'lucide-react';
+import { Search, User, GraduationCap, Plus, CreditCard, BookOpen, Edit, Check, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { useStudents, useCycles, useCreateRegistration, useUpdateRegistration, useUpdateStudent, useCustomers } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import { SkeletonTable } from '../components/ui/Loading';
@@ -12,6 +12,12 @@ import { paymentStatusHebrew } from '../types';
 
 export default function Students() {
   const [search, setSearch] = useState('');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() =>
+    (localStorage.getItem('students-view') as 'grid' | 'list') || 'list'
+  );
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const toggleViewMode = (mode: 'grid' | 'list') => { setViewMode(mode); localStorage.setItem('students-view', mode); };
+  const handleSort = (key: string) => setSortConfig(prev => prev?.key === key ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' });
   const [registerStudent, setRegisterStudent] = useState<Student | null>(null);
   const [editPayment, setEditPayment] = useState<{ student: Student; registration: Registration } | null>(null);
   const [editStudent, setEditStudent] = useState<Student | null>(null);
@@ -20,15 +26,42 @@ export default function Students() {
   
   const { data: students, isLoading } = useStudents();
   const { data: cycles } = useCycles({ status: 'active' });
-  const { data: customers } = useCustomers();
+  const { data: customersResult } = useCustomers({ limit: 5000 });
+  const customers = customersResult?.data ?? [];
   const createRegistration = useCreateRegistration();
   const updateRegistration = useUpdateRegistration();
   const updateStudent = useUpdateStudent();
 
-  const filteredStudents = students?.filter((student) =>
-    student.name.toLowerCase().includes(search.toLowerCase()) ||
-    student.customer?.name.toLowerCase().includes(search.toLowerCase())
-  ) || [];
+  const filteredStudents = (() => {
+    let list = students?.filter((student) =>
+      student.name.toLowerCase().includes(search.toLowerCase()) ||
+      student.customer?.name.toLowerCase().includes(search.toLowerCase())
+    ) || [];
+    if (sortConfig) {
+      list = [...list].sort((a, b) => {
+        switch (sortConfig.key) {
+          case 'name':
+            return sortConfig.direction === 'asc'
+              ? String(a.name ?? '').localeCompare(String(b.name ?? ''), 'he')
+              : String(b.name ?? '').localeCompare(String(a.name ?? ''), 'he');
+          case 'grade':
+            return sortConfig.direction === 'asc'
+              ? String(a.grade ?? '').localeCompare(String(b.grade ?? ''), 'he')
+              : String(b.grade ?? '').localeCompare(String(a.grade ?? ''), 'he');
+          case 'customer':
+            return sortConfig.direction === 'asc'
+              ? String(a.customer?.name ?? '').localeCompare(String(b.customer?.name ?? ''), 'he')
+              : String(b.customer?.name ?? '').localeCompare(String(a.customer?.name ?? ''), 'he');
+          case 'registrations': {
+            const av = a.registrations?.length ?? 0, bv = b.registrations?.length ?? 0;
+            return sortConfig.direction === 'asc' ? av - bv : bv - av;
+          }
+          default: return 0;
+        }
+      });
+    }
+    return list;
+  })();
 
   // Selection handlers
   const toggleSelectAll = () => {
@@ -124,122 +157,99 @@ export default function Students() {
     return cycles?.filter(c => !registeredCycleIds.has(c.id)) || [];
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex-1 flex flex-col">
-        <PageHeader
-          title="תלמידים"
-          subtitle="טוען..."
-        />
-        <div className="flex-1 p-4 md:p-6 overflow-auto bg-gray-50">
-          <div className="bg-white rounded-lg p-4 shadow mb-6">
-            <div className="h-10 w-80 bg-gray-200 rounded-lg animate-pulse" />
-          </div>
-          <SkeletonTable rows={8} columns={5} />
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex-1 flex flex-col">
+    <>
       <PageHeader
         title="תלמידים"
-        subtitle={`${filteredStudents.length} תלמידים במערכת`}
+        subtitle={`${filteredStudents.length} תלמידים`}
       />
 
-      <div className="flex-1 p-6 overflow-auto bg-gray-50">
-        {/* Search & Views */}
-        <div className="bg-white rounded-lg p-3 md:p-4 shadow mb-4 md:mb-6 flex flex-wrap gap-2 md:gap-4 items-center justify-between">
-          <div className="flex flex-wrap gap-2 md:gap-4 items-center w-full md:w-auto">
-            <div className="hidden md:block"><ViewSelector entity="students" onApplyView={() => {}} /></div>
-            <div className="relative w-full md:w-80">
-              <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-              <input
-                type="text"
-                placeholder="חיפוש לפי שם תלמיד או לקוח..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pr-10 pl-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
+      <div className="flex-1 p-6 overflow-auto">
+        {/* Search & Controls */}
+        <div className="mb-6 flex flex-wrap gap-3 items-center">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <input
+              type="text"
+              placeholder="חיפוש לפי שם תלמיד או לקוח..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="form-input pr-10 w-full"
+            />
           </div>
-          
-          {/* Bulk Actions */}
+          <span className="text-sm text-gray-500 mr-auto">{filteredStudents.length} תלמידים</span>
           {selectedStudentIds.size > 0 && (
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-gray-500">
-                נבחרו {selectedStudentIds.size} תלמידים
-              </span>
-              <button
-                onClick={() => setShowBulkEditModal(true)}
-                className="btn btn-primary text-sm"
-              >
-                <Edit size={16} />
-                עריכה גורפת
-              </button>
-              <button
-                onClick={() => setSelectedStudentIds(new Set())}
-                className="btn btn-secondary text-sm"
-              >
-                בטל בחירה
-              </button>
-            </div>
+            <>
+              <span className="text-sm text-blue-600 font-medium">נבחרו {selectedStudentIds.size}</span>
+              <button onClick={() => setShowBulkEditModal(true)} className="btn btn-primary text-sm"><Edit size={16} />עריכה גורפת</button>
+              <button onClick={() => setSelectedStudentIds(new Set())} className="btn btn-secondary text-sm">בטל</button>
+            </>
           )}
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+            <button onClick={() => toggleViewMode('grid')} className={`p-2 transition-colors ${viewMode === 'grid' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`} title="כרטיסיות"><LayoutGrid size={16} /></button>
+            <button onClick={() => toggleViewMode('list')} className={`p-2 transition-colors ${viewMode === 'list' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`} title="שורות"><List size={16} /></button>
+          </div>
+          <ViewSelector entity="students" onApplyView={() => {}} />
         </div>
 
         {/* Students List */}
-        {filteredStudents.length > 0 ? (
+        {isLoading ? (
+          <SkeletonTable rows={8} columns={5} />
+        ) : filteredStudents.length > 0 ? (
           <>
-          {/* Mobile card view */}
-          <div className="md:hidden space-y-2">
+          {/* Card view */}
+          <div className={`${viewMode === 'grid' ? 'grid' : 'hidden'} grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6`}>
             {filteredStudents.map((student) => (
-              <div key={student.id} className="bg-white rounded-lg border border-gray-100 p-4 shadow-sm">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 bg-gradient-to-br from-blue-100 to-blue-200 rounded-full flex items-center justify-center">
-                      <GraduationCap size={16} className="text-blue-600" />
+              <div key={student.id} className="group bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-lg hover:border-gray-200 transition-all duration-200 hover:-translate-y-0.5">
+                <div className="p-5">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-sm">
+                        <GraduationCap size={18} className="text-white" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">{student.name}</h3>
+                        {student.grade && <span className="text-xs text-gray-500">כיתה {student.grade}</span>}
+                      </div>
                     </div>
-                    <span className="font-medium text-gray-900 text-sm">{student.name}</span>
+                    <div className="flex gap-1">
+                      <button onClick={() => setEditStudent(student)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="עריכה"><Edit size={14} /></button>
+                      <button onClick={() => setRegisterStudent(student)} className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors" title="הרשמה"><Plus size={14} /></button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => setEditStudent(student)} className="p-2 text-blue-600 min-w-[44px] min-h-[44px] flex items-center justify-center"><Edit size={16} /></button>
-                    <button onClick={() => setRegisterStudent(student)} className="p-2 text-green-600 min-w-[44px] min-h-[44px] flex items-center justify-center"><Plus size={16} /></button>
-                  </div>
+                  {student.customer && (
+                    <Link to={`/customers/${student.customer.id}`} className="text-sm text-blue-600 hover:underline block mb-2">{student.customer.name}</Link>
+                  )}
+                  {student.registrations && student.registrations.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-gray-50">
+                      {student.registrations.map((reg) => (
+                        <button
+                          key={reg.id}
+                          onClick={() => setEditPayment({ student, registration: reg })}
+                          className={`px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 border ${
+                            reg.paymentStatus === 'paid' ? 'bg-green-50 text-green-700 border-green-200' :
+                            reg.paymentStatus === 'partial' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
+                            'bg-red-50 text-red-700 border-red-200'
+                          }`}
+                        >
+                          <CreditCard size={10} />
+                          {reg.cycle?.course?.name?.substring(0, 12) || 'מחזור'}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                {student.customer && (
-                  <Link to={`/customers/${student.customer.id}`} className="text-sm text-blue-600">{student.customer.name}</Link>
-                )}
-                {student.grade && <span className="text-xs text-gray-500 mr-2">כיתה {student.grade}</span>}
-                {student.registrations && student.registrations.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {student.registrations.map((reg) => (
-                      <button
-                        key={reg.id}
-                        onClick={() => setEditPayment({ student, registration: reg })}
-                        className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 border min-h-[32px] ${
-                          reg.paymentStatus === 'paid' ? 'bg-green-50 text-green-700 border-green-200' :
-                          reg.paymentStatus === 'partial' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
-                          'bg-red-50 text-red-700 border-red-200'
-                        }`}
-                      >
-                        <CreditCard size={10} />
-                        {reg.cycle?.course?.name?.substring(0, 12) || 'מחזור'}
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
             ))}
           </div>
 
-          {/* Desktop table view */}
-          <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          {/* List/table view */}
+          <div className={`${viewMode === 'list' ? 'block' : 'hidden'} bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden`}>
             <div className="overflow-x-auto">
               <table>
                 <thead>
                   <tr>
-                    <th className="w-12">
+                    <th className="w-12 p-3">
                       <input
                         type="checkbox"
                         checked={selectedStudentIds.size === filteredStudents.length && filteredStudents.length > 0}
@@ -247,18 +257,19 @@ export default function Students() {
                         className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
                     </th>
-                    <th>שם התלמיד</th>
-                    <th>לקוח (הורה)</th>
-                    <th>כיתה</th>
-                    <th>תאריך לידה</th>
-                    <th>הרשמות</th>
-                    <th>פעולות</th>
+                    {[['name','שם התלמיד','right'],['customer','לקוח (הורה)','right'],['grade','כיתה','right'],['registrations','הרשמות','center']].map(([k,l,a]) => (
+                      <th key={k} className={`p-3 font-medium text-gray-600 cursor-pointer select-none hover:bg-gray-100 transition-colors text-${a}`} onClick={() => handleSort(k)}>
+                        <span className="inline-flex items-center gap-1">{l}{sortConfig?.key===k ? (sortConfig.direction==='asc' ? <ChevronUp size={13} className="text-blue-600"/> : <ChevronDown size={13} className="text-blue-600"/>) : <ChevronsUpDown size={13} className="text-gray-400"/>}</span>
+                      </th>
+                    ))}
+                    <th className="p-3 text-right font-medium text-gray-600">תאריך לידה</th>
+                    <th className="p-3 text-right font-medium text-gray-600">פעולות</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-gray-50">
                   {filteredStudents.map((student) => (
-                    <tr key={student.id} className={`group ${selectedStudentIds.has(student.id) ? 'bg-blue-50' : ''}`}>
-                      <td>
+                    <tr key={student.id} className={`hover:bg-gray-50 transition-colors ${selectedStudentIds.has(student.id) ? 'bg-blue-50' : ''}`}>
+                      <td className="p-3">
                         <input
                           type="checkbox"
                           checked={selectedStudentIds.has(student.id)}
@@ -266,15 +277,15 @@ export default function Students() {
                           className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                         />
                       </td>
-                      <td>
+                      <td className="p-3">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-gradient-to-br from-blue-100 to-blue-200 rounded-full flex items-center justify-center shadow-sm group-hover:shadow transition-shadow">
-                            <GraduationCap size={20} className="text-blue-600" />
+                          <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center shadow-sm">
+                            <GraduationCap size={16} className="text-white" />
                           </div>
                           <span className="font-medium text-gray-900">{student.name}</span>
                         </div>
                       </td>
-                      <td>
+                      <td className="p-3">
                         {student.customer ? (
                           <Link
                             to={`/customers/${student.customer.id}`}
@@ -286,53 +297,26 @@ export default function Students() {
                           <span className="text-gray-400">-</span>
                         )}
                       </td>
-                      <td className="text-gray-600">{student.grade || <span className="text-gray-400">-</span>}</td>
-                      <td className="text-gray-600">
+                      <td className="p-3 text-gray-600">{student.grade || <span className="text-gray-400">-</span>}</td>
+                      <td className="p-3 text-gray-600">
+                        {student.registrations && student.registrations.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {student.registrations.map((reg) => (
+                              <button key={reg.id} onClick={() => setEditPayment({ student, registration: reg })}
+                                className={`px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 border ${reg.paymentStatus === 'paid' ? 'bg-green-50 text-green-700 border-green-200' : reg.paymentStatus === 'partial' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                                <CreditCard size={10} />{reg.cycle?.course?.name?.substring(0, 10) || 'מחזור'}
+                              </button>
+                            ))}
+                          </div>
+                        ) : <span className="text-gray-400 text-xs italic">אין</span>}
+                      </td>
+                      <td className="p-3 text-gray-600">
                         {student.birthDate ? new Date(student.birthDate).toLocaleDateString('he-IL') : <span className="text-gray-400">-</span>}
                       </td>
-                      <td>
-                        <div className="flex flex-wrap gap-1.5">
-                          {student.registrations && student.registrations.length > 0 ? (
-                            student.registrations.map((reg) => (
-                              <button
-                                key={reg.id}
-                                onClick={() => setEditPayment({ student, registration: reg })}
-                                className={`px-2.5 py-1 rounded-full text-xs font-medium flex items-center gap-1.5 transition-all duration-200 border ${
-                                  reg.paymentStatus === 'paid' 
-                                    ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100 hover:border-green-300' 
-                                    : reg.paymentStatus === 'partial' 
-                                    ? 'bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100 hover:border-yellow-300' 
-                                    : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100 hover:border-red-300'
-                                }`}
-                                title={`${reg.cycle?.name || 'מחזור'} - לחץ לעדכון תשלום`}
-                              >
-                                <CreditCard size={12} />
-                                {reg.cycle?.course?.name?.substring(0, 10) || 'מחזור'}
-                              </button>
-                            ))
-                          ) : (
-                            <span className="text-gray-400 text-sm italic">אין הרשמות</span>
-                          )}
-                        </div>
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-3">
-                          <button
-                            onClick={() => setEditStudent(student)}
-                            className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 text-sm font-medium transition-colors"
-                            title="ערוך תלמיד"
-                          >
-                            <Edit size={16} />
-                            עריכה
-                          </button>
-                          <button
-                            onClick={() => setRegisterStudent(student)}
-                            className="inline-flex items-center gap-1.5 text-green-600 hover:text-green-700 text-sm font-medium transition-colors"
-                            title="הרשם למחזור"
-                          >
-                            <Plus size={16} />
-                            הרשמה
-                          </button>
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => setEditStudent(student)} className="text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors flex items-center gap-1"><Edit size={14} />עריכה</button>
+                          <button onClick={() => setRegisterStudent(student)} className="text-green-600 hover:text-green-700 text-sm transition-colors flex items-center gap-1"><Plus size={14} />הרשמה</button>
                         </div>
                       </td>
                     </tr>
@@ -416,7 +400,7 @@ export default function Students() {
           />
         )}
       </Modal>
-    </div>
+    </>
   );
 }
 

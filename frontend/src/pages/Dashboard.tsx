@@ -39,7 +39,8 @@ export default function Dashboard() {
   const { data: cyclesData, isLoading: loadingCycles } = useCyclesWithTotal({ status: 'active' });
   const cycles = cyclesData?.data;
   const cyclesTotal = cyclesData?.pagination?.total;
-  const { data: customers, isLoading: loadingCustomers } = useCustomers();
+  const { data: customersResult, isLoading: loadingCustomers } = useCustomers();
+  const customers = customersResult?.data;
   const { data: instructors, isLoading: loadingInstructors } = useInstructors();
   const recalculateMeeting = useRecalculateMeeting();
 

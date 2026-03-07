@@ -312,11 +312,11 @@ export default function Cycles() {
         }
       />
 
-      <div className="flex-1 p-4 md:p-6 overflow-auto">
+      <div className="flex-1 p-6 overflow-auto">
         {/* Filters */}
-        <div className="mb-4 md:mb-6 space-y-4">
+        <div className="mb-6 space-y-4">
           {/* Search - always visible */}
-          <div className="flex flex-wrap gap-2 md:gap-4 items-center">
+          <div className="flex flex-wrap gap-3 items-center">
             <div className="relative flex-1 min-w-[150px] max-w-md">
               <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
@@ -384,7 +384,7 @@ export default function Cycles() {
           </div>
 
           {/* Collapsible filters - hidden on mobile by default */}
-          <div id="cycles-filters" className="hidden md:flex flex-wrap gap-2 md:gap-4 items-center">
+          <div id="cycles-filters" className="hidden md:flex flex-wrap gap-3 items-center">
             <div className="w-full md:w-36">
               <select value={instructorFilter} onChange={(e) => setInstructorFilter(e.target.value)} className="form-input w-full">
                 <option value="">כל המדריכים</option>

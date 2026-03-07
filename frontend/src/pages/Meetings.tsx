@@ -574,7 +574,7 @@ export default function Meetings() {
           : formatDate(selectedDate)}
       />
 
-      <div className="flex-1 p-4 md:p-6 overflow-auto">
+      <div className="flex-1 p-6 overflow-auto">
         {/* Pending requests banner - Admin only */}
         {isAdmin && <PendingMeetingRequests />}
 
@@ -633,7 +633,7 @@ export default function Meetings() {
         )}
 
         {/* Date Navigation */}
-        <div className="mb-4 md:mb-6 flex flex-wrap items-center gap-2 md:gap-4">
+        <div className="mb-6 flex flex-wrap items-center gap-3">
           {!rangeMode ? (
             /* Single date mode */
             <>

@@ -813,7 +813,7 @@ function CustomerEditForm({ customer, onSubmit, onCancel, isLoading, error }: Cu
     notes: customer.notes || '',
     lmsUsername: customer.lmsUsername || '',
     lmsPassword: customer.lmsPassword || '',
-    source: (customer as any).source || '',
+    source: customer.source || '',
   });
 
   const handleSubmit = (e: React.FormEvent) => {

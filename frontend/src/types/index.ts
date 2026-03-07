@@ -35,6 +35,7 @@ export interface Customer {
   notes?: string;
   lmsUsername?: string;
   lmsPassword?: string;
+  source?: string;
   createdAt: string;
   students?: Student[];
   payments?: { id: string }[];

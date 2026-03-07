@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound, Trash2, AlertTriangle, Edit, CheckSquare, Paperclip, LayoutGrid, List } from 'lucide-react';
+import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound, Trash2, AlertTriangle, Edit, CheckSquare, Paperclip, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { useInstructors, useCreateInstructor, useUpdateInstructor, useDeleteInstructor, useSendInstructorInvite, useResetInstructorPassword, useBulkUpdateInstructors } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import FileAttachments from '../components/FileAttachments';
@@ -26,6 +26,15 @@ export default function Instructors() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() =>
     (localStorage.getItem('instructors-view') as 'grid' | 'list') || 'grid'
   );
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+
+  const handleSort = (key: string) => {
+    setSortConfig(prev =>
+      prev?.key === key
+        ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+        : { key, direction: 'asc' }
+    );
+  };
   const toggleViewMode = (mode: 'grid' | 'list') => {
     setViewMode(mode);
     localStorage.setItem('instructors-view', mode);
@@ -58,16 +67,42 @@ export default function Instructors() {
   const { data: instructors, isLoading } = useInstructors({ isActive: isActiveParam });
   const bulkUpdate = useBulkUpdateInstructors();
 
-  // Client-side search
-  const filteredInstructors = instructors?.filter((instructor) => {
-    if (!searchFilter) return true;
-    const searchLower = searchFilter.toLowerCase();
-    return (
-      instructor.name.toLowerCase().includes(searchLower) ||
-      instructor.phone?.includes(searchFilter) ||
-      instructor.email?.toLowerCase().includes(searchLower)
-    );
-  });
+  // Client-side search + sort
+  const filteredInstructors = (() => {
+    let list = instructors?.filter((instructor) => {
+      if (!searchFilter) return true;
+      const searchLower = searchFilter.toLowerCase();
+      return (
+        instructor.name.toLowerCase().includes(searchLower) ||
+        instructor.phone?.includes(searchFilter) ||
+        instructor.email?.toLowerCase().includes(searchLower)
+      );
+    }) ?? [];
+
+    if (sortConfig) {
+      list = [...list].sort((a, b) => {
+        let aVal: any, bVal: any;
+        switch (sortConfig.key) {
+          case 'name':
+            aVal = String(a.name ?? ''); bVal = String(b.name ?? '');
+            return sortConfig.direction === 'asc' ? aVal.localeCompare(bVal, 'he') : bVal.localeCompare(aVal, 'he');
+          case 'rateFrontal':
+            aVal = a.rateFrontal != null ? parseFloat(String(a.rateFrontal)) : -1;
+            bVal = b.rateFrontal != null ? parseFloat(String(b.rateFrontal)) : -1;
+            break;
+          case 'rateOnline':
+            aVal = a.rateOnline != null ? parseFloat(String(a.rateOnline)) : -1;
+            bVal = b.rateOnline != null ? parseFloat(String(b.rateOnline)) : -1;
+            break;
+          case 'cycles': aVal = a._count?.cycles ?? 0; bVal = b._count?.cycles ?? 0; break;
+          case 'isActive': aVal = a.isActive ? 1 : 0; bVal = b.isActive ? 1 : 0; break;
+          default: return 0;
+        }
+        return sortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
+      });
+    }
+    return list;
+  })();
   const createInstructor = useCreateInstructor();
   const updateInstructor = useUpdateInstructor();
   const deleteInstructor = useDeleteInstructor();
@@ -283,13 +318,13 @@ export default function Instructors() {
                         className="rounded border-gray-300 text-blue-600"
                       />
                     </th>
-                    <th className="p-3 text-right font-medium text-gray-600">שם</th>
+                    <SortableTh label="שם" sortKey="name" sortConfig={sortConfig} onSort={handleSort} />
                     <th className="p-3 text-right font-medium text-gray-600">טלפון</th>
                     <th className="p-3 text-right font-medium text-gray-600">מייל</th>
-                    <th className="p-3 text-center font-medium text-gray-600">פרונטלי</th>
-                    <th className="p-3 text-center font-medium text-gray-600">אונליין</th>
-                    <th className="p-3 text-center font-medium text-gray-600">מחזורים</th>
-                    <th className="p-3 text-center font-medium text-gray-600">סטטוס</th>
+                    <SortableTh label="פרונטלי" sortKey="rateFrontal" sortConfig={sortConfig} onSort={handleSort} align="center" />
+                    <SortableTh label="אונליין" sortKey="rateOnline" sortConfig={sortConfig} onSort={handleSort} align="center" />
+                    <SortableTh label="מחזורים" sortKey="cycles" sortConfig={sortConfig} onSort={handleSort} align="center" />
+                    <SortableTh label="סטטוס" sortKey="isActive" sortConfig={sortConfig} onSort={handleSort} align="center" />
                     <th className="p-3 text-right font-medium text-gray-600">פעולות</th>
                   </tr>
                 </thead>
@@ -532,6 +567,29 @@ export default function Instructors() {
         </div>
       </Modal>
     </>
+  );
+}
+
+// Sortable Table Header
+function SortableTh({ label, sortKey, sortConfig, onSort, align = 'right' }: {
+  label: string;
+  sortKey: string;
+  sortConfig: { key: string; direction: 'asc' | 'desc' } | null;
+  onSort: (key: string) => void;
+  align?: 'right' | 'center' | 'left';
+}) {
+  const active = sortConfig?.key === sortKey;
+  const Icon = active ? (sortConfig?.direction === 'asc' ? ChevronUp : ChevronDown) : ChevronsUpDown;
+  return (
+    <th
+      className={`p-3 font-medium text-gray-600 cursor-pointer select-none hover:bg-gray-100 transition-colors text-${align}`}
+      onClick={() => onSort(sortKey)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        <Icon size={13} className={active ? 'text-blue-600' : 'text-gray-400'} />
+      </span>
+    </th>
   );
 }
 

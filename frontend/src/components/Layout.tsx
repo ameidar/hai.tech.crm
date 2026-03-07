@@ -28,6 +28,9 @@ import {
   Facebook,
   LineChart,
   Linkedin,
+  Youtube,
+  Video,
+  Share2,
 } from 'lucide-react';
 
 // Admin/Manager navigation — grouped
@@ -55,13 +58,21 @@ const adminNavGroups = [
       { path: '/lead-appointments', icon: PhoneCall, label: 'יומן לידים', testId: 'nav-lead-appointments' },
       { path: '/whatsapp', icon: MessageCircle, label: 'WhatsApp', testId: 'nav-whatsapp' },
       { path: '/messenger', icon: MessagesSquare, label: 'Messenger', testId: 'nav-messenger' },
-      { path: '/instagram', icon: Camera, label: 'Instagram', testId: 'nav-instagram' },
+      { path: '/instagram', icon: Camera, label: 'Instagram DMs', testId: 'nav-instagram' },
       { path: '/campaigns', icon: Megaphone, label: 'קמפיינים', testId: 'nav-campaigns' },
       { path: '/facebook-leads', icon: Facebook, label: 'לידים פייסבוק', testId: 'nav-facebook-leads' },
       { path: '/analytics', icon: LineChart, label: 'Google Analytics', testId: 'nav-analytics' },
+    ],
+  },
+  {
+    key: 'publishing',
+    label: '📢 פרסום',
+    items: [
       { path: '/linkedin', icon: Linkedin, label: 'LinkedIn', testId: 'nav-linkedin' },
-      { path: '/facebook', icon: Facebook, label: 'פייסבוק (פרסום)', testId: 'nav-facebook-post' },
-      { path: '/instagram-post', icon: Camera, label: 'אינסטגרם (פרסום)', testId: 'nav-instagram-post' },
+      { path: '/facebook', icon: Facebook, label: 'פייסבוק', testId: 'nav-facebook-post' },
+      { path: '/instagram-post', icon: Camera, label: 'אינסטגרם', testId: 'nav-instagram-post' },
+      { path: '/tiktok', icon: Video, label: 'TikTok', testId: 'nav-tiktok' },
+      { path: '/youtube', icon: Youtube, label: 'YouTube', testId: 'nav-youtube' },
     ],
   },
   {

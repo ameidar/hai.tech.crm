@@ -38,6 +38,8 @@ import Analytics from './pages/Analytics';
 import LinkedIn from './pages/LinkedIn';
 import FacebookPage from './pages/Facebook';
 import InstagramPage from './pages/Instagram';
+import TikTokPage from './pages/TikTok';
+import YouTubePage from './pages/YouTube';
 import CampaignLanding from './pages/CampaignLanding';
 import PayPage from './pages/PayPage';
 
@@ -177,6 +179,8 @@ function AppRoutes() {
             <Route path="linkedin" element={<NonSalesRoute><LinkedIn /></NonSalesRoute>} />
             <Route path="facebook" element={<NonSalesRoute><FacebookPage /></NonSalesRoute>} />
             <Route path="instagram-post" element={<NonSalesRoute><InstagramPage /></NonSalesRoute>} />
+            <Route path="tiktok" element={<NonSalesRoute><TikTokPage /></NonSalesRoute>} />
+            <Route path="youtube" element={<NonSalesRoute><YouTubePage /></NonSalesRoute>} />
           </>
         )}
         <Route path="instructor" element={<InstructorDashboard />} />

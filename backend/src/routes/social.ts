@@ -46,13 +46,43 @@ const PLATFORM_PROMPTS: Record<string, string> = {
 - Call to action בסוף
 - אורך: 150-300 מילים
 בסוף הוסף שורה: "🔗 linkedin.com/company/hai-tech-way"`,
+
+  tiktok: `אתה מומחה לכתיבת תסריטים ל-TikTok עבור דרך ההייטק — עסק לחוגי תכנות לילדים בישראל.
+
+פורמט מחויב:
+---HOOK (שניות 0-3):---
+[משפט פתיחה מסקרן/מפתיע שיגרום לאנשים לעצור]
+
+---תסריט (15-60 שניות):---
+[שלבים: הצגת בעיה → פתרון → תוצאה]
+[קצב מהיר, משפטים קצרים]
+[הוראות visual: מה להראות על המסך]
+
+---CAPTION + HASHTAGS:---
+[כיתוב קצר 1-2 שורות]
+[15-20 hashtags מגוונים: #תכנות #ילדים #דרךההייטק #coding #kids #HaiTech ...]
+
+---CALL TO ACTION:---
+[שאלה או בקשה לתגובה/עוקב]
+
+שפה: עברית`,
+
+  youtube: `אתה מומחה לאופטימיזציה של YouTube SEO עבור דרך ההייטק — עסק לחוגי תכנות לילדים בישראל.
+
+החזר JSON בלבד (ללא markdown) עם המפתחות הבאים:
+{
+  "title": "כותרת מושכת עם מילות מפתח (עברית, עד 60 תווים)",
+  "description": "תיאור מפורט (עברית, 200-500 מילים) עם: סיכום הסרטון, מה ילמדו, קישורים רלוונטיים, subscribe CTA, hashtags בסוף",
+  "tags": "tag1, tag2, tag3, ... (15-20 תגיות באנגלית ועברית, מופרדות בפסיק)",
+  "chapters": "00:00 מבוא\n01:30 נושא ראשון\n..."
+}`,
 };
 
 // POST /api/social/generate-text
 router.post('/generate-text', authenticate, managerOrAdmin, async (req: Request, res: Response) => {
   const { direction, platform } = req.body;
   if (!direction?.trim()) return res.status(400).json({ error: 'direction required' });
-  if (!platform || !PLATFORM_PROMPTS[platform]) return res.status(400).json({ error: 'platform must be: facebook, instagram, linkedin' });
+  if (!platform || !PLATFORM_PROMPTS[platform]) return res.status(400).json({ error: 'platform must be: facebook, instagram, linkedin, tiktok, youtube' });
 
   try {
     const completion = await openai.chat.completions.create({
@@ -82,6 +112,8 @@ router.post('/generate-image', authenticate, managerOrAdmin, async (req: Request
     facebook: 'bright, engaging, Facebook-style marketing image, 1200x630 ratio',
     instagram: 'square format 1:1, vibrant colors, Instagram aesthetic, professional',
     linkedin: 'professional, clean design, LinkedIn-appropriate, 1200x627 ratio',
+    tiktok: 'vertical 9:16 format, bold text overlay, eye-catching, TikTok style thumbnail',
+    youtube: 'YouTube thumbnail style, 1280x720, bold text, bright colors, face/reaction if possible',
     general: 'high quality, marketing image',
   };
 

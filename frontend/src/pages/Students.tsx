@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, User, GraduationCap, Plus, CreditCard, BookOpen, Edit, Check, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
-import { useStudents, useCycles, useCreateRegistration, useUpdateRegistration, useUpdateStudent, useCustomers } from '../hooks/useApi';
+import { Search, User, GraduationCap, Plus, CreditCard, BookOpen, Edit, Check, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown, Trash2, X, Download } from 'lucide-react';
+import { useStudents, useCycles, useCreateRegistration, useUpdateRegistration, useUpdateStudent, useDeleteStudent, useCreateStudent, useCustomers } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import { SkeletonTable } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
+import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal';
 import ViewSelector from '../components/ViewSelector';
 import type { Student, Cycle, Registration, PaymentStatus, PaymentMethod, Customer } from '../types';
 import { paymentStatusHebrew } from '../types';
@@ -21,6 +22,8 @@ export default function Students() {
   const [registerStudent, setRegisterStudent] = useState<Student | null>(null);
   const [editPayment, setEditPayment] = useState<{ student: Student; registration: Registration } | null>(null);
   const [editStudent, setEditStudent] = useState<Student | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<Student | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
   const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
   const [showBulkEditModal, setShowBulkEditModal] = useState(false);
   
@@ -31,6 +34,8 @@ export default function Students() {
   const createRegistration = useCreateRegistration();
   const updateRegistration = useUpdateRegistration();
   const updateStudent = useUpdateStudent();
+  const deleteStudent = useDeleteStudent();
+  const createStudent = useCreateStudent();
 
   const filteredStudents = (() => {
     let list = students?.filter((student) =>
@@ -148,7 +153,36 @@ export default function Students() {
     } catch (error) {
       console.error('Failed to bulk update students:', error);
       alert('שגיאה בעדכון גורף');
+      // placeholder to keep code structure
     }
+  };
+
+  const handleDeleteStudent = async () => {
+    if (!deleteConfirm) return;
+    try {
+      await deleteStudent.mutateAsync({ studentId: deleteConfirm.id, customerId: deleteConfirm.customerId || '' });
+      setDeleteConfirm(null);
+      setSelectedStudentIds(prev => { const s = new Set(prev); s.delete(deleteConfirm.id); return s; });
+    } catch (error: any) {
+      alert(error?.response?.data?.message || 'שגיאה במחיקת התלמיד');
+    }
+  };
+
+  const handleAddStudent = async (data: { customerId: string; name: string; birthDate?: string; grade?: string; notes?: string }) => {
+    const { customerId, ...studentData } = data;
+    try {
+      await createStudent.mutateAsync({ customerId, data: studentData });
+      setShowAddModal(false);
+    } catch (error: any) {
+      alert(error?.response?.data?.message || 'שגיאה בהוספת התלמיד');
+    }
+  };
+
+  const handleBulkExport = () => {
+    const selected = filteredStudents.filter(s => selectedStudentIds.has(s.id));
+    const csv = ['שם,לקוח,כיתה,הרשמות', ...selected.map(s => `"${s.name}","${s.customer?.name || ''}","${s.grade || ''}","${s.registrations?.length || 0}"`)].join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'students.csv'; link.click();
   };
 
   // Get cycles student is not already registered to
@@ -162,6 +196,11 @@ export default function Students() {
       <PageHeader
         title="תלמידים"
         subtitle={`${filteredStudents.length} תלמידים`}
+        actions={
+          <button onClick={() => setShowAddModal(true)} className="btn btn-primary">
+            <Plus size={18} /> תלמיד חדש
+          </button>
+        }
       />
 
       <div className="flex-1 p-6 overflow-auto">
@@ -180,9 +219,10 @@ export default function Students() {
           <span className="text-sm text-gray-500 mr-auto">{filteredStudents.length} תלמידים</span>
           {selectedStudentIds.size > 0 && (
             <>
-              <span className="text-sm text-blue-600 font-medium">נבחרו {selectedStudentIds.size}</span>
-              <button onClick={() => setShowBulkEditModal(true)} className="btn btn-primary text-sm"><Edit size={16} />עריכה גורפת</button>
-              <button onClick={() => setSelectedStudentIds(new Set())} className="btn btn-secondary text-sm">בטל</button>
+              <span className="text-sm text-blue-600 font-medium bg-blue-50 px-3 py-1 rounded-full">נבחרו {selectedStudentIds.size}</span>
+              <button onClick={() => setShowBulkEditModal(true)} className="btn btn-primary btn-sm flex items-center gap-1"><Edit size={14} />עריכה גורפת</button>
+              <button onClick={handleBulkExport} className="btn btn-secondary btn-sm flex items-center gap-1"><Download size={14} />ייצא</button>
+              <button onClick={() => setSelectedStudentIds(new Set())} className="btn btn-secondary btn-sm flex items-center gap-1"><X size={14} />בטל</button>
             </>
           )}
           <div className="flex rounded-lg border border-gray-200 overflow-hidden">
@@ -215,6 +255,7 @@ export default function Students() {
                     <div className="flex gap-1">
                       <button onClick={() => setEditStudent(student)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="עריכה"><Edit size={14} /></button>
                       <button onClick={() => setRegisterStudent(student)} className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors" title="הרשמה"><Plus size={14} /></button>
+                      <button onClick={() => setDeleteConfirm(student)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="מחיקה"><Trash2 size={14} /></button>
                     </div>
                   </div>
                   {student.customer && (
@@ -317,6 +358,7 @@ export default function Students() {
                         <div className="flex items-center gap-2">
                           <button onClick={() => setEditStudent(student)} className="text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors flex items-center gap-1"><Edit size={14} />עריכה</button>
                           <button onClick={() => setRegisterStudent(student)} className="text-green-600 hover:text-green-700 text-sm transition-colors flex items-center gap-1"><Plus size={14} />הרשמה</button>
+                          <button onClick={() => setDeleteConfirm(student)} className="p-1.5 hover:bg-red-100 rounded transition-colors text-red-500" title="מחיקה"><Trash2 size={14} /></button>
                         </div>
                       </td>
                     </tr>
@@ -400,6 +442,27 @@ export default function Students() {
           />
         )}
       </Modal>
+
+      {/* Add Student Modal */}
+      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="תלמיד חדש">
+        <AddStudentForm
+          customers={customers || []}
+          onSubmit={handleAddStudent}
+          onCancel={() => setShowAddModal(false)}
+          isLoading={createStudent.isPending}
+        />
+      </Modal>
+
+      {/* Delete Confirm Modal */}
+      <ConfirmDeleteModal
+        isOpen={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={handleDeleteStudent}
+        title="מחיקת תלמיד"
+        itemName={deleteConfirm?.name}
+        warningText={(deleteConfirm?.registrations?.length || 0) > 0 ? `לתלמיד יש ${deleteConfirm?.registrations?.length} הרשמות פעילות` : undefined}
+        isLoading={deleteStudent.isPending}
+      />
     </>
   );
 }
@@ -838,6 +901,100 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
         </button>
         <button type="submit" className="btn btn-primary" disabled={isLoading}>
           {isLoading ? 'שומר...' : 'שמור'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// Add Student Form
+interface AddStudentFormProps {
+  customers: Customer[];
+  onSubmit: (data: { customerId: string; name: string; birthDate?: string; grade?: string; notes?: string }) => void;
+  onCancel: () => void;
+  isLoading?: boolean;
+}
+
+function AddStudentForm({ customers, onSubmit, onCancel, isLoading }: AddStudentFormProps) {
+  const [formData, setFormData] = useState({
+    customerId: '',
+    name: '',
+    birthDate: '',
+    grade: '',
+    notes: '',
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSubmit({
+      customerId: formData.customerId,
+      name: formData.name,
+      birthDate: formData.birthDate || undefined,
+      grade: formData.grade || undefined,
+      notes: formData.notes || undefined,
+    });
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      <div>
+        <label className="form-label">לקוח (הורה) *</label>
+        <select
+          value={formData.customerId}
+          onChange={(e) => setFormData({ ...formData, customerId: e.target.value })}
+          className="form-input"
+          required
+        >
+          <option value="">בחר לקוח...</option>
+          {customers.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="form-label">שם התלמיד *</label>
+        <input
+          type="text"
+          value={formData.name}
+          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+          className="form-input"
+          required
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="form-label">תאריך לידה</label>
+          <input
+            type="date"
+            value={formData.birthDate}
+            onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
+            className="form-input"
+          />
+        </div>
+        <div>
+          <label className="form-label">כיתה</label>
+          <input
+            type="text"
+            value={formData.grade}
+            onChange={(e) => setFormData({ ...formData, grade: e.target.value })}
+            className="form-input"
+            placeholder="כיתה ג׳"
+          />
+        </div>
+      </div>
+      <div>
+        <label className="form-label">הערות</label>
+        <textarea
+          value={formData.notes}
+          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+          className="form-input"
+          rows={2}
+        />
+      </div>
+      <div className="flex justify-end gap-3 pt-4 border-t">
+        <button type="button" onClick={onCancel} className="btn btn-secondary">ביטול</button>
+        <button type="submit" className="btn btn-primary" disabled={isLoading || !formData.customerId || !formData.name}>
+          {isLoading ? 'שומר...' : 'הוסף תלמיד'}
         </button>
       </div>
     </form>

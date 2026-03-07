@@ -14,14 +14,19 @@ import {
   Calculator,
   Filter,
   Columns,
+  Plus,
+  Trash2,
 } from 'lucide-react';
-import { useMeetings, useMeeting, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus, useUpdateMeeting, useBulkUpdateMeetings, useBulkRecalculateMeetings, useBranches, useInstructors } from '../hooks/useApi';
+import { useMeetings, useMeeting, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus, useUpdateMeeting, useBulkUpdateMeetings, useBulkRecalculateMeetings, useBranches, useInstructors, useDeleteMeeting, useCreateMeeting, useCycles } from '../hooks/useApi';
+import type { CreateMeetingData } from '../hooks/useApi';
 import { useAuth } from '../context/AuthContext';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import MeetingDetailModal from '../components/MeetingDetailModal';
 import MeetingEditModal from '../components/MeetingEditModal';
+import Modal from '../components/ui/Modal';
+import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal';
 import BulkMeetingEditModal, { type BulkMeetingUpdateData } from '../components/BulkMeetingEditModal';
 import ViewSelector from '../components/ViewSelector';
 import PendingMeetingRequests from '../components/PendingMeetingRequests';
@@ -34,6 +39,8 @@ export default function Meetings() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);
+  const [deleteConfirmMeeting, setDeleteConfirmMeeting] = useState<Meeting | null>(null);
+  const [showAddMeetingModal, setShowAddMeetingModal] = useState(false);
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'date' | 'view'>('date');
   const [viewColumns, setViewColumns] = useState<string[]>([]);
@@ -313,6 +320,9 @@ export default function Meetings() {
   const updateMeeting = useUpdateMeeting();
   const bulkUpdateMeetings = useBulkUpdateMeetings();
   const bulkRecalculate = useBulkRecalculateMeetings();
+  const deleteMeeting = useDeleteMeeting();
+  const createMeeting = useCreateMeeting();
+  const { data: cycles } = useCycles();
 
   // Sort handler
   const handleSort = (column: string) => {
@@ -369,6 +379,30 @@ export default function Meetings() {
     await updateMeeting.mutateAsync({ id, data });
     setEditingMeeting(null);
     refetch();
+  };
+
+  // Handle delete meeting
+  const handleDeleteMeeting = async () => {
+    if (!deleteConfirmMeeting) return;
+    try {
+      await deleteMeeting.mutateAsync(deleteConfirmMeeting.id);
+      setDeleteConfirmMeeting(null);
+      setSelectedIds(prev => { const s = new Set(prev); s.delete(deleteConfirmMeeting.id); return s; });
+      refetch();
+    } catch (error: any) {
+      alert(error?.response?.data?.message || 'שגיאה במחיקת הפגישה');
+    }
+  };
+
+  // Handle create meeting
+  const handleCreateMeeting = async (data: CreateMeetingData) => {
+    try {
+      await createMeeting.mutateAsync(data);
+      setShowAddMeetingModal(false);
+      refetch();
+    } catch (error: any) {
+      alert(error?.response?.data?.message || 'שגיאה ביצירת הפגישה');
+    }
   };
 
   // Handle bulk edit save
@@ -572,6 +606,11 @@ export default function Meetings() {
         subtitle={rangeMode
           ? `${dateFrom ? new Date(dateFrom).toLocaleDateString('he-IL') : '?'} — ${dateTo ? new Date(dateTo).toLocaleDateString('he-IL') : '?'}`
           : formatDate(selectedDate)}
+        actions={isAdmin ? (
+          <button onClick={() => setShowAddMeetingModal(true)} className="btn btn-primary">
+            <Plus size={18} /> פגישה חדשה
+          </button>
+        ) : undefined}
       />
 
       <div className="flex-1 p-6 overflow-auto">
@@ -940,13 +979,22 @@ export default function Meetings() {
                         ))}
                         {isAdmin && (
                           <td onClick={(e) => e.stopPropagation()}>
-                            <button
-                              onClick={() => setEditingMeeting(meeting)}
-                              className="p-1.5 hover:bg-blue-100 rounded transition-colors text-blue-600"
-                              title="עריכה"
-                            >
-                              <Edit size={16} />
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => setEditingMeeting(meeting)}
+                                className="p-1.5 hover:bg-blue-100 rounded transition-colors text-blue-600"
+                                title="עריכה"
+                              >
+                                <Edit size={16} />
+                              </button>
+                              <button
+                                onClick={() => setDeleteConfirmMeeting(meeting)}
+                                className="p-1.5 hover:bg-red-100 rounded transition-colors text-red-500"
+                                title="מחיקה"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
                           </td>
                         )}
                       </tr>
@@ -1042,6 +1090,97 @@ export default function Meetings() {
         onSave={handleBulkEditSave}
         isSaving={bulkUpdateMeetings.isPending}
       />
+
+      {/* Delete Confirm Modal */}
+      <ConfirmDeleteModal
+        isOpen={!!deleteConfirmMeeting}
+        onClose={() => setDeleteConfirmMeeting(null)}
+        onConfirm={handleDeleteMeeting}
+        title="מחיקת פגישה"
+        itemName={deleteConfirmMeeting ? `${deleteConfirmMeeting.cycle?.name || ''} — ${deleteConfirmMeeting.scheduledDate ? new Date(deleteConfirmMeeting.scheduledDate).toLocaleDateString('he-IL') : ''}` : undefined}
+        warningText="מחיקת פגישה תשפיע על חישובי שעות מדריך."
+        isLoading={deleteMeeting.isPending}
+      />
+
+      {/* Add Meeting Modal */}
+      <Modal isOpen={showAddMeetingModal} onClose={() => setShowAddMeetingModal(false)} title="פגישה חדשה">
+        <CreateMeetingForm
+          cycles={cycles || []}
+          onSubmit={handleCreateMeeting}
+          onCancel={() => setShowAddMeetingModal(false)}
+          isLoading={createMeeting.isPending}
+        />
+      </Modal>
     </>
+  );
+}
+
+// Create Meeting Form
+function CreateMeetingForm({ cycles, onSubmit, onCancel, isLoading }: {
+  cycles: any[];
+  onSubmit: (data: CreateMeetingData) => void;
+  onCancel: () => void;
+  isLoading?: boolean;
+}) {
+  const { data: instructorsList } = useInstructors();
+  const [formData, setFormData] = useState<CreateMeetingData>({
+    cycleId: '',
+    instructorId: '',
+    scheduledDate: new Date().toISOString().split('T')[0],
+    startTime: '16:00',
+    endTime: '17:00',
+    activityType: 'frontal',
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSubmit(formData);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      <div>
+        <label className="form-label">מחזור *</label>
+        <select value={formData.cycleId} onChange={(e) => setFormData({ ...formData, cycleId: e.target.value })} className="form-input" required>
+          <option value="">בחר מחזור...</option>
+          {cycles.map((c: any) => (
+            <option key={c.id} value={c.id}>{c.name} — {c.course?.name} ({c.branch?.name})</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="form-label">מדריך *</label>
+        <select value={formData.instructorId} onChange={(e) => setFormData({ ...formData, instructorId: e.target.value })} className="form-input" required>
+          <option value="">בחר מדריך...</option>
+          {(instructorsList || []).map((i: any) => (
+            <option key={i.id} value={i.id}>{i.name}</option>
+          ))}
+        </select>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <label className="form-label">תאריך *</label>
+          <input type="date" value={formData.scheduledDate} onChange={(e) => setFormData({ ...formData, scheduledDate: e.target.value })} className="form-input" required />
+        </div>
+        <div>
+          <label className="form-label">שעת התחלה</label>
+          <input type="time" value={formData.startTime} onChange={(e) => setFormData({ ...formData, startTime: e.target.value })} className="form-input" />
+        </div>
+        <div>
+          <label className="form-label">שעת סיום</label>
+          <input type="time" value={formData.endTime} onChange={(e) => setFormData({ ...formData, endTime: e.target.value })} className="form-input" />
+        </div>
+      </div>
+      <div>
+        <label className="form-label">נושא</label>
+        <input type="text" value={formData.topic || ''} onChange={(e) => setFormData({ ...formData, topic: e.target.value })} className="form-input" placeholder="נושא הפגישה" />
+      </div>
+      <div className="flex justify-end gap-3 pt-4 border-t">
+        <button type="button" onClick={onCancel} className="btn btn-secondary">ביטול</button>
+        <button type="submit" className="btn btn-primary" disabled={isLoading || !formData.cycleId || !formData.instructorId}>
+          {isLoading ? 'יוצר...' : 'צור פגישה'}
+        </button>
+      </div>
+    </form>
   );
 }

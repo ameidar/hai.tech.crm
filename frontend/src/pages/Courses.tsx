@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Plus, BookOpen, RefreshCcw, Search, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown, Edit } from 'lucide-react';
-import { useCourses, useCreateCourse, useUpdateCourse } from '../hooks/useApi';
+import { Plus, BookOpen, RefreshCcw, Search, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown, Edit, Trash2, CheckSquare, Square, X, Download } from 'lucide-react';
+import { useCourses, useCreateCourse, useUpdateCourse, useDeleteCourse } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
+import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal';
 import { categoryHebrew } from '../types';
 import ViewSelector from '../components/ViewSelector';
 import type { Course, CourseCategory } from '../types';
@@ -35,6 +36,8 @@ export default function Courses() {
   const [searchParams] = useSearchParams();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<Course | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchFilter, setSearchFilter] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() =>
     (localStorage.getItem('courses-view') as 'grid' | 'list') || 'grid'
@@ -79,6 +82,7 @@ export default function Courses() {
 
   const createCourse = useCreateCourse();
   const updateCourse = useUpdateCourse();
+  const deleteCourse = useDeleteCourse();
 
   const handleAddCourse = async (data: Partial<Course>) => {
     try { await createCourse.mutateAsync(data); setShowAddModal(false); }
@@ -90,6 +94,40 @@ export default function Courses() {
     try { await updateCourse.mutateAsync({ id: editingCourse.id, data }); setEditingCourse(null); }
     catch (error) { console.error('Failed to update course:', error); }
   };
+
+  const handleDeleteCourse = async () => {
+    if (!deleteConfirm) return;
+    try {
+      await deleteCourse.mutateAsync(deleteConfirm.id);
+      setDeleteConfirm(null);
+      setSelectedIds(prev => { const s = new Set(prev); s.delete(deleteConfirm.id); return s; });
+    } catch (error: any) {
+      alert(error?.response?.data?.message || 'שגיאה במחיקת הקורס');
+    }
+  };
+
+  // Bulk selection
+  const toggleSelectAll = () => {
+    if (selectedIds.size === displayList.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(displayList.map(c => c.id)));
+  };
+  const toggleSelect = (id: string) => {
+    const s = new Set(selectedIds);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setSelectedIds(s);
+  };
+
+  const handleBulkExport = () => {
+    const selected = displayList.filter(c => selectedIds.has(c.id));
+    const csv = ['שם,קטגוריה,קהל יעד,מחזורים,פעיל', ...selected.map(c => `"${c.name}","${categoryHebrew[c.category]}","${c.targetAudience || ''}","${c._count?.cycles || 0}","${c.isActive ? 'כן' : 'לא'}"`)].join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'courses.csv';
+    link.click();
+  };
+
+  const allSelected = displayList.length > 0 && selectedIds.size === displayList.length;
 
   return (
     <>
@@ -104,6 +142,19 @@ export default function Courses() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
+        {/* Bulk Actions Bar */}
+        {selectedIds.size > 0 && (
+          <div className="mb-4 p-4 bg-blue-600 text-white rounded-lg flex items-center gap-4 flex-wrap">
+            <span className="font-semibold bg-white/20 px-3 py-1 rounded-full">{selectedIds.size} נבחרו</span>
+            <button onClick={handleBulkExport} className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors flex items-center gap-1">
+              <Download size={16} /> ייצא
+            </button>
+            <button onClick={() => setSelectedIds(new Set())} className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors flex items-center gap-1 ms-auto">
+              <X size={16} /> ביטול
+            </button>
+          </div>
+        )}
+
         <div className="mb-6 flex flex-wrap gap-3 items-center">
           <div className="relative flex-1 max-w-md">
             <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -123,7 +174,14 @@ export default function Courses() {
           viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {displayList.map((course) => (
-                <CourseCard key={course.id} course={course} onEdit={() => setEditingCourse(course)} />
+                <CourseCard
+                  key={course.id}
+                  course={course}
+                  onEdit={() => setEditingCourse(course)}
+                  onDelete={() => setDeleteConfirm(course)}
+                  isSelected={selectedIds.has(course.id)}
+                  onToggleSelect={() => toggleSelect(course.id)}
+                />
               ))}
             </div>
           ) : (
@@ -131,6 +189,11 @@ export default function Courses() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
+                    <th className="p-3 w-10">
+                      <button onClick={toggleSelectAll} className="p-1 hover:bg-gray-200 rounded transition-colors">
+                        {allSelected ? <CheckSquare size={18} className="text-blue-600" /> : <Square size={18} className="text-gray-400" />}
+                      </button>
+                    </th>
                     <SortableTh label="שם" sortKey="name" sortConfig={sortConfig} onSort={handleSort} />
                     <th className="p-3 text-right font-medium text-gray-600">קטגוריה</th>
                     <th className="p-3 text-right font-medium text-gray-600">קהל יעד</th>
@@ -141,7 +204,12 @@ export default function Courses() {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {displayList.map((course) => (
-                    <tr key={course.id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={course.id} className={`hover:bg-gray-50 transition-colors ${selectedIds.has(course.id) ? 'bg-blue-50' : ''}`}>
+                      <td className="p-3">
+                        <button onClick={() => toggleSelect(course.id)} className="p-1 hover:bg-gray-200 rounded transition-colors">
+                          {selectedIds.has(course.id) ? <CheckSquare size={18} className="text-blue-600" /> : <Square size={18} className="text-gray-400" />}
+                        </button>
+                      </td>
                       <td className="p-3">
                         <div className="flex items-center gap-2">
                           <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center text-white shrink-0">
@@ -165,7 +233,10 @@ export default function Courses() {
                         <span className={`badge ${course.isActive ? 'badge-success' : 'badge-gray'}`}>{course.isActive ? 'פעיל' : 'לא פעיל'}</span>
                       </td>
                       <td className="p-3">
-                        <button onClick={() => setEditingCourse(course)} className="text-blue-600 hover:text-blue-800 transition-colors" title="עריכה"><Edit size={14} /></button>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => setEditingCourse(course)} className="p-1.5 hover:bg-blue-100 rounded transition-colors text-blue-600" title="עריכה"><Edit size={14} /></button>
+                          <button onClick={() => setDeleteConfirm(course)} className="p-1.5 hover:bg-red-100 rounded transition-colors text-red-500" title="מחיקה"><Trash2 size={14} /></button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -189,16 +260,36 @@ export default function Courses() {
       <Modal isOpen={!!editingCourse} onClose={() => setEditingCourse(null)} title="עריכת קורס">
         {editingCourse && <CourseForm course={editingCourse} onSubmit={handleUpdateCourse} onCancel={() => setEditingCourse(null)} isLoading={updateCourse.isPending} />}
       </Modal>
+      <ConfirmDeleteModal
+        isOpen={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={handleDeleteCourse}
+        title="מחיקת קורס"
+        itemName={deleteConfirm?.name}
+        warningText={(deleteConfirm?._count?.cycles || 0) > 0 ? `לקורס זה יש ${deleteConfirm?._count?.cycles} מחזורים. לא ניתן למחוק קורס עם מחזורים פעילים.` : undefined}
+        isLoading={deleteCourse.isPending}
+      />
     </>
   );
 }
 
 // Course Card
-function CourseCard({ course, onEdit }: { course: Course; onEdit: () => void }) {
+function CourseCard({ course, onEdit, onDelete, isSelected, onToggleSelect }: {
+  course: Course;
+  onEdit: () => void;
+  onDelete: () => void;
+  isSelected: boolean;
+  onToggleSelect: () => void;
+}) {
   return (
-    <div className="card hover:shadow-md transition-shadow">
+    <div className={`card hover:shadow-md transition-shadow relative ${isSelected ? 'ring-2 ring-blue-400' : ''}`}>
+      <div className="absolute top-3 right-3 z-10">
+        <button onClick={onToggleSelect} className="p-1 hover:bg-gray-100 rounded transition-colors">
+          {isSelected ? <CheckSquare size={18} className="text-blue-600" /> : <Square size={18} className="text-gray-300 hover:text-gray-500" />}
+        </button>
+      </div>
       <div className="p-6">
-        <div className="flex items-start justify-between mb-4">
+        <div className="flex items-start justify-between mb-4 pt-4">
           <div>
             <h3 className="font-semibold text-gray-900 text-lg">{course.name}</h3>
             <span className={`inline-block mt-2 px-2 py-1 rounded-full text-xs font-medium ${categoryColors[course.category]}`}>
@@ -214,7 +305,10 @@ function CourseCard({ course, onEdit }: { course: Course; onEdit: () => void }) 
             <RefreshCcw size={14} className="group-hover:text-blue-600" />
             <span className="group-hover:underline">{course._count?.cycles || 0} מחזורים</span>
           </Link>
-          <button onClick={onEdit} className="text-blue-600 hover:underline text-sm">עריכה</button>
+          <div className="flex items-center gap-1">
+            <button onClick={onEdit} className="p-1.5 hover:bg-blue-100 rounded transition-colors text-blue-600" title="עריכה"><Edit size={14} /></button>
+            <button onClick={onDelete} className="p-1.5 hover:bg-red-100 rounded transition-colors text-red-500" title="מחיקה"><Trash2 size={14} /></button>
+          </div>
         </div>
       </div>
     </div>

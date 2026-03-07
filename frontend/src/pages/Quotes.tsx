@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
-import { Plus, Search, X, FileText, Filter, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { Plus, Search, X, FileText, Filter, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown, Edit2, Trash2, CheckSquare, Square, Download } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { quotesApi, type Quote } from '../api/quotes';
 import PageHeader from '../components/ui/PageHeader';
 import { SkeletonTable } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
+import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal';
 
 const statusTabs = [
   { value: '', label: 'הכל' },
@@ -31,8 +32,43 @@ const statusBadgeClass: Record<string, string> = {
 
 export default function Quotes() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState<Quote | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const deleteQuoteMutation = useMutation({
+    mutationFn: (id: string) => quotesApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['quotes'] });
+    },
+  });
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirm) return;
+    try {
+      await deleteQuoteMutation.mutateAsync(deleteConfirm.id);
+      setDeleteConfirm(null);
+      setSelectedIds(prev => { const s = new Set(prev); s.delete(deleteConfirm.id); return s; });
+    } catch (error: any) {
+      alert(error?.response?.data?.message || 'שגיאה במחיקת הצעת המחיר');
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    const s = new Set(selectedIds);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setSelectedIds(s);
+  };
+
+  const handleBulkExport = () => {
+    const quotes_ = sortedQuotes || [];
+    const selected = quotes_.filter((q: Quote) => selectedIds.has(q.id));
+    const csv = ['מספר,מוסד,איש קשר,סכום,סטטוס,תאריך', ...selected.map((q: Quote) => `"${q.quoteNumber}","${q.institutionName}","${q.contactName}","${q.totalAmount}","${statusHebrew[q.status]}","${new Date(q.createdAt).toLocaleDateString('he-IL')}"`)].join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'quotes.csv'; link.click();
+  };
 
   const statusFilter = searchParams.get('status') || '';
   const searchQuery = searchParams.get('search') || '';
@@ -103,6 +139,18 @@ export default function Quotes() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
+        {/* Bulk Actions Bar */}
+        {selectedIds.size > 0 && (
+          <div className="mb-4 p-4 bg-blue-600 text-white rounded-lg flex items-center gap-4 flex-wrap">
+            <span className="font-semibold bg-white/20 px-3 py-1 rounded-full">{selectedIds.size} נבחרו</span>
+            <button onClick={handleBulkExport} className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors flex items-center gap-1">
+              <Download size={16} /> ייצא
+            </button>
+            <button onClick={() => setSelectedIds(new Set())} className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors flex items-center gap-1 ms-auto">
+              <X size={16} /> ביטול
+            </button>
+          </div>
+        )}
         {/* Filters */}
         <div className="mb-6 space-y-3">
           <div className="flex flex-wrap gap-3 items-center">
@@ -175,23 +223,44 @@ export default function Quotes() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b border-gray-100">
                     <tr>
+                      <th className="p-3 w-10">
+                        <button onClick={() => {
+                          const allQuotes = sortedQuotes || [];
+                          if (selectedIds.size === allQuotes.length) setSelectedIds(new Set());
+                          else setSelectedIds(new Set(allQuotes.map((q: Quote) => q.id)));
+                        }} className="p-1 hover:bg-gray-200 rounded transition-colors">
+                          {sortedQuotes && selectedIds.size === sortedQuotes.length && sortedQuotes.length > 0 ? <CheckSquare size={18} className="text-blue-600" /> : <Square size={18} className="text-gray-400" />}
+                        </button>
+                      </th>
                       <th className="p-3 text-right font-medium text-gray-600">מספר הצעה</th>
                       <SortTh label="מוסד" k="institution" />
                       <th className="p-3 text-right font-medium text-gray-600">איש קשר</th>
                       <SortTh label="סכום" k="total" />
                       <SortTh label="סטטוס" k="status" />
                       <SortTh label="תאריך" k="date" />
+                      <th className="p-3 text-right font-medium text-gray-600">פעולות</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {sortedQuotes.map((quote) => (
-                      <tr key={quote.id} className="cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => navigate(`/quotes/${quote.id}`)}>
+                      <tr key={quote.id} className={`hover:bg-gray-50 transition-colors ${selectedIds.has(quote.id) ? 'bg-blue-50' : ''}`} onClick={() => navigate(`/quotes/${quote.id}`)}>
+                        <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => toggleSelect(quote.id)} className="p-1 hover:bg-gray-200 rounded transition-colors">
+                            {selectedIds.has(quote.id) ? <CheckSquare size={18} className="text-blue-600" /> : <Square size={18} className="text-gray-400" />}
+                          </button>
+                        </td>
                         <td className="p-3"><span className="text-blue-600 font-medium">#{quote.quoteNumber}</span></td>
                         <td className="p-3 font-medium text-gray-900">{quote.institutionName}</td>
                         <td className="p-3 text-gray-600">{quote.contactName}</td>
                         <td className="p-3 font-semibold text-green-600">₪{Number(quote.totalAmount || 0).toLocaleString()}</td>
                         <td className="p-3"><span className={`badge ${statusBadgeClass[quote.status]}`}>{statusHebrew[quote.status]}</span></td>
                         <td className="p-3 text-gray-600">{new Date(quote.createdAt).toLocaleDateString('he-IL')}</td>
+                        <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => navigate(`/quotes/${quote.id}`)} className="p-1.5 hover:bg-blue-100 rounded transition-colors text-blue-600" title="עריכה"><Edit2 size={14} /></button>
+                            <button onClick={() => setDeleteConfirm(quote)} className="p-1.5 hover:bg-red-100 rounded transition-colors text-red-500" title="מחיקה"><Trash2 size={14} /></button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -213,6 +282,15 @@ export default function Quotes() {
           />
         )}
       </div>
+      <ConfirmDeleteModal
+        isOpen={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={handleDeleteConfirm}
+        title="מחיקת הצעת מחיר"
+        itemName={deleteConfirm ? `#${deleteConfirm.quoteNumber} — ${deleteConfirm.institutionName}` : undefined}
+        warningText={deleteConfirm?.status === 'accepted' ? 'הצעה זו אושרה — מחיקתה עלולה להשפיע על עסקאות פתוחות.' : undefined}
+        isLoading={deleteQuoteMutation.isPending}
+      />
     </>
   );
 }

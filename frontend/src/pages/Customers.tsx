@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Plus, Search, Phone, Mail, MapPin, Users, Trash2, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
-import { useCustomers, useCreateCustomer, useDeleteCustomer } from '../hooks/useApi';
+import { Plus, Search, Phone, Mail, MapPin, Users, Trash2, Edit2, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown, CheckSquare, Square, X, Download } from 'lucide-react';
+import { useCustomers, useCreateCustomer, useUpdateCustomer, useDeleteCustomer } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import { SkeletonCardGrid } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
+import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal';
 import ViewSelector from '../components/ViewSelector';
 import type { Customer } from '../types';
 
@@ -26,6 +27,9 @@ function SortableTh({ label, sortKey, sortConfig, onSort, align = 'right' }: {
 export default function Customers() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<Customer | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() =>
     (localStorage.getItem('customers-view') as 'grid' | 'list') || 'grid'
   );
@@ -57,17 +61,48 @@ export default function Customers() {
   const customers = customersResult?.data ?? [];
   const pagination = customersResult?.pagination;
   const createCustomer = useCreateCustomer();
+  const updateCustomer = useUpdateCustomer();
   const deleteCustomer = useDeleteCustomer();
 
-  const handleDeleteCustomer = async (id: string) => {
-    if (confirm('האם למחוק את הלקוח? פעולה זו לא ניתנת לביטול.')) {
-      try {
-        await deleteCustomer.mutateAsync(id);
-      } catch (error) {
-        console.error('Failed to delete customer:', error);
-        alert('שגיאה במחיקת הלקוח');
-      }
+  const handleDeleteCustomer = (customer: Customer) => setDeleteConfirm(customer);
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirm) return;
+    try {
+      await deleteCustomer.mutateAsync(deleteConfirm.id);
+      setDeleteConfirm(null);
+      setSelectedIds(prev => { const s = new Set(prev); s.delete(deleteConfirm.id); return s; });
+    } catch (error) {
+      console.error('Failed to delete customer:', error);
+      alert('שגיאה במחיקת הלקוח');
     }
+  };
+
+  const handleUpdateCustomer = async (data: Partial<Customer>) => {
+    if (!editingCustomer) return;
+    try {
+      await updateCustomer.mutateAsync({ id: editingCustomer.id, data });
+      setEditingCustomer(null);
+    } catch (error: any) {
+      alert(error?.response?.data?.message || 'שגיאה בעדכון הלקוח');
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === displayList.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(displayList.map(c => c.id)));
+  };
+  const toggleSelect = (id: string) => {
+    const s = new Set(selectedIds);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setSelectedIds(s);
+  };
+
+  const handleBulkExport = () => {
+    const selected = displayList.filter(c => selectedIds.has(c.id));
+    const csv = ['שם,טלפון,אימייל,עיר', ...selected.map(c => `"${c.name}","${c.phone}","${c.email}","${c.city || ''}"`)].join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'customers.csv'; link.click();
   };
 
   const handleAddCustomer = async (data: Partial<Customer>) => {
@@ -116,6 +151,18 @@ export default function Customers() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
+        {/* Bulk Actions Bar */}
+        {selectedIds.size > 0 && (
+          <div className="mb-4 p-4 bg-blue-600 text-white rounded-lg flex items-center gap-4 flex-wrap">
+            <span className="font-semibold bg-white/20 px-3 py-1 rounded-full">{selectedIds.size} נבחרו</span>
+            <button onClick={handleBulkExport} className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors flex items-center gap-1">
+              <Download size={16} /> ייצא
+            </button>
+            <button onClick={() => setSelectedIds(new Set())} className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors flex items-center gap-1 ms-auto">
+              <X size={16} /> ביטול
+            </button>
+          </div>
+        )}
         {/* Search & Controls */}
         <div className="mb-6 flex flex-wrap gap-3 items-center">
           <div className="relative flex-1 min-w-[200px] max-w-md">
@@ -145,7 +192,14 @@ export default function Customers() {
           viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-6">
               {displayList.map((customer) => (
-                <CustomerCard key={customer.id} customer={customer} onDelete={handleDeleteCustomer} />
+                <CustomerCard
+                  key={customer.id}
+                  customer={customer}
+                  onEdit={() => setEditingCustomer(customer)}
+                  onDelete={() => handleDeleteCustomer(customer)}
+                  isSelected={selectedIds.has(customer.id)}
+                  onToggleSelect={() => toggleSelect(customer.id)}
+                />
               ))}
             </div>
           ) : (
@@ -153,6 +207,11 @@ export default function Customers() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
+                    <th className="p-3 w-10">
+                      <button onClick={toggleSelectAll} className="p-1 hover:bg-gray-200 rounded transition-colors">
+                        {selectedIds.size === displayList.length && displayList.length > 0 ? <CheckSquare size={18} className="text-blue-600" /> : <Square size={18} className="text-gray-400" />}
+                      </button>
+                    </th>
                     <SortableTh label="שם" sortKey="name" sortConfig={sortConfig} onSort={handleSort} />
                     <th className="p-3 text-right font-medium text-gray-600">טלפון</th>
                     <th className="p-3 text-right font-medium text-gray-600">מייל</th>
@@ -164,7 +223,12 @@ export default function Customers() {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {displayList.map((customer) => (
-                    <tr key={customer.id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={customer.id} className={`hover:bg-gray-50 transition-colors ${selectedIds.has(customer.id) ? 'bg-blue-50' : ''}`}>
+                      <td className="p-3">
+                        <button onClick={() => toggleSelect(customer.id)} className="p-1 hover:bg-gray-200 rounded transition-colors">
+                          {selectedIds.has(customer.id) ? <CheckSquare size={18} className="text-blue-600" /> : <Square size={18} className="text-gray-400" />}
+                        </button>
+                      </td>
                       <td className="p-3">
                         <Link to={`/customers/${customer.id}`} className="flex items-center gap-2 group">
                           <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xs shrink-0">
@@ -187,7 +251,10 @@ export default function Customers() {
                           : '-'}
                       </td>
                       <td className="p-3">
-                        <button onClick={() => handleDeleteCustomer(customer.id)} className="text-red-400 hover:text-red-600 transition-colors" title="מחק"><Trash2 size={14} /></button>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => setEditingCustomer(customer)} className="p-1.5 hover:bg-blue-100 rounded transition-colors text-blue-500" title="עריכה"><Edit2 size={14} /></button>
+                          <button onClick={() => handleDeleteCustomer(customer)} className="p-1.5 hover:bg-red-100 rounded transition-colors text-red-400" title="מחק"><Trash2 size={14} /></button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -223,12 +290,37 @@ export default function Customers() {
       <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="לקוח חדש">
         <CustomerForm onSubmit={handleAddCustomer} onCancel={() => setShowAddModal(false)} isLoading={createCustomer.isPending} />
       </Modal>
+      <Modal isOpen={!!editingCustomer} onClose={() => setEditingCustomer(null)} title="עריכת לקוח">
+        {editingCustomer && (
+          <CustomerForm
+            initialData={editingCustomer}
+            onSubmit={handleUpdateCustomer}
+            onCancel={() => setEditingCustomer(null)}
+            isLoading={updateCustomer.isPending}
+          />
+        )}
+      </Modal>
+      <ConfirmDeleteModal
+        isOpen={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={handleConfirmDelete}
+        title="מחיקת לקוח"
+        itemName={deleteConfirm?.name}
+        warningText={(deleteConfirm?._count?.students || 0) > 0 ? `ללקוח זה יש ${deleteConfirm?._count?.students} תלמידים — המחיקה תשפיע גם עליהם.` : undefined}
+        isLoading={deleteCustomer.isPending}
+      />
     </>
   );
 }
 
 // Customer Card Component
-function CustomerCard({ customer, onDelete }: { customer: Customer; onDelete: (id: string) => void }) {
+function CustomerCard({ customer, onEdit, onDelete, isSelected, onToggleSelect }: {
+  customer: Customer;
+  onEdit: () => void;
+  onDelete: () => void;
+  isSelected: boolean;
+  onToggleSelect: () => void;
+}) {
   return (
     <div className="group relative bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-lg hover:border-gray-200 transition-all duration-200 hover:-translate-y-0.5">
       <Link to={`/customers/${customer.id}`} className="block p-6">
@@ -266,13 +358,17 @@ function CustomerCard({ customer, onDelete }: { customer: Customer; onDelete: (i
           </p>
         </div>
       </Link>
-      <button
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (window.confirm(`האם למחוק את הלקוח "${customer.name}"?`)) onDelete(customer.id); }}
-        className="absolute top-3 left-3 p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
-        title="מחק לקוח"
-      >
-        <Trash2 size={18} />
-      </button>
+      <div className="absolute top-3 left-3 flex items-center gap-1">
+        <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleSelect(); }} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200" title="בחר">
+          {isSelected ? <CheckSquare size={16} className="text-blue-600" /> : <Square size={16} />}
+        </button>
+        <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200" title="ערוך">
+          <Edit2 size={16} />
+        </button>
+        <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200" title="מחק לקוח">
+          <Trash2 size={16} />
+        </button>
+      </div>
     </div>
   );
 }

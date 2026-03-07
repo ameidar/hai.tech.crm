@@ -199,6 +199,16 @@ export const useUpdateCourse = () => {
   });
 };
 
+export const useDeleteCourse = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/courses/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['courses'] });
+    },
+  });
+};
+
 // ==================== Branches ====================
 export const useBranches = () => {
   return useQuery({
@@ -233,6 +243,16 @@ export const useUpdateBranch = () => {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['branches'] });
       queryClient.invalidateQueries({ queryKey: ['branch', id] });
+    },
+  });
+};
+
+export const useDeleteBranch = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/branches/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['branches'] });
     },
   });
 };
@@ -1216,6 +1236,81 @@ export const useUpdateFileLabel = (entityType: string, entityId: string) => {
       api.patch<FileAttachment>(`/files/${id}`, { label }).then(r => r.data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['files', entityType, entityId] });
+    },
+  });
+};
+
+// ==================== Institutional Orders ====================
+export interface InstitutionalOrderData {
+  branchId: string;
+  orderNumber?: string;
+  orderDate?: string | null;
+  startDate: string;
+  endDate: string;
+  pricePerMeeting: number;
+  estimatedMeetings?: number | null;
+  estimatedTotal?: number | null;
+  contactName: string;
+  contactPhone: string;
+  contactEmail?: string | null;
+  status?: 'draft' | 'active' | 'completed' | 'cancelled';
+  notes?: string | null;
+  totalAmount?: number | null;
+  invoiceNumber?: string | null;
+  paymentStatus?: 'unpaid' | 'partial' | 'paid' | null;
+  paidAmount?: number | null;
+}
+
+export const useInstitutionalOrders = (params?: { status?: string; page?: number; limit?: number }) => {
+  const queryString = new URLSearchParams();
+  if (params?.status) queryString.set('status', params.status);
+  if (params?.page) queryString.set('page', String(params.page));
+  queryString.set('limit', String(params?.limit || 50));
+  return useQuery({
+    queryKey: ['institutional-orders', params],
+    queryFn: () => fetchData<{ data: any[]; pagination: any }>(`/institutional-orders?${queryString}`),
+  });
+};
+
+export const useCreateInstitutionalOrder = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: InstitutionalOrderData) =>
+      mutateData<any, InstitutionalOrderData>('/institutional-orders', 'post', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['institutional-orders'] });
+    },
+  });
+};
+
+export const useUpdateInstitutionalOrder = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<InstitutionalOrderData> }) =>
+      mutateData<any, Partial<InstitutionalOrderData>>(`/institutional-orders/${id}`, 'put', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['institutional-orders'] });
+    },
+  });
+};
+
+export const useDeleteInstitutionalOrder = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/institutional-orders/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['institutional-orders'] });
+    },
+  });
+};
+
+// ==================== Quotes (delete hook) ====================
+export const useDeleteQuote = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/quotes/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['quotes'] });
     },
   });
 };

@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Plus, Building2, MapPin, Phone, Mail, RefreshCcw, FileText, Search, Edit2, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
-import { useBranches, useCreateBranch, useUpdateBranch } from '../hooks/useApi';
+import { Plus, Building2, MapPin, Phone, Mail, RefreshCcw, FileText, Search, Edit2, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown, Trash2, CheckSquare, Square, X, Download } from 'lucide-react';
+import { useBranches, useCreateBranch, useUpdateBranch, useDeleteBranch } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import { SkeletonCardGrid } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
+import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal';
 import { branchTypeHebrew } from '../types';
 import ViewSelector from '../components/ViewSelector';
 import type { Branch, BranchType } from '../types';
@@ -42,6 +43,8 @@ export default function Branches() {
   const [searchParams] = useSearchParams();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<Branch | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchFilter, setSearchFilter] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() =>
     (localStorage.getItem('branches-view') as 'grid' | 'list') || 'grid'
@@ -90,6 +93,7 @@ export default function Branches() {
 
   const createBranch = useCreateBranch();
   const updateBranch = useUpdateBranch();
+  const deleteBranch = useDeleteBranch();
 
   const handleAddBranch = async (data: Partial<Branch>) => {
     try { await createBranch.mutateAsync(data); setShowAddModal(false); }
@@ -101,6 +105,36 @@ export default function Branches() {
     try { await updateBranch.mutateAsync({ id: editingBranch.id, data }); setEditingBranch(null); }
     catch (error) { console.error('Failed to update branch:', error); }
   };
+
+  const handleDeleteBranch = async () => {
+    if (!deleteConfirm) return;
+    try {
+      await deleteBranch.mutateAsync(deleteConfirm.id);
+      setDeleteConfirm(null);
+      setSelectedIds(prev => { const s = new Set(prev); s.delete(deleteConfirm.id); return s; });
+    } catch (error: any) {
+      alert(error?.response?.data?.message || 'שגיאה במחיקת הסניף');
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === displayList.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(displayList.map(b => b.id)));
+  };
+  const toggleSelect = (id: string) => {
+    const s = new Set(selectedIds);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setSelectedIds(s);
+  };
+
+  const handleBulkExport = () => {
+    const selected = displayList.filter(b => selectedIds.has(b.id));
+    const csv = ['שם,סוג,עיר,כתובת,מחזורים,פעיל', ...selected.map(b => `"${b.name}","${branchTypeHebrew[b.type]}","${b.city || ''}","${b.address || ''}","${b._count?.cycles || 0}","${b.isActive ? 'כן' : 'לא'}"`)].join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'branches.csv'; link.click();
+  };
+
+  const allSelected = displayList.length > 0 && selectedIds.size === displayList.length;
 
   return (
     <>
@@ -115,6 +149,18 @@ export default function Branches() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
+        {/* Bulk Actions Bar */}
+        {selectedIds.size > 0 && (
+          <div className="mb-4 p-4 bg-blue-600 text-white rounded-lg flex items-center gap-4 flex-wrap">
+            <span className="font-semibold bg-white/20 px-3 py-1 rounded-full">{selectedIds.size} נבחרו</span>
+            <button onClick={handleBulkExport} className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors flex items-center gap-1">
+              <Download size={16} /> ייצא
+            </button>
+            <button onClick={() => setSelectedIds(new Set())} className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors flex items-center gap-1 ms-auto">
+              <X size={16} /> ביטול
+            </button>
+          </div>
+        )}
         <div className="mb-6 flex flex-wrap gap-3 items-center">
           <div className="relative flex-1 max-w-md">
             <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -134,7 +180,14 @@ export default function Branches() {
           viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {displayList.map((branch) => (
-                <BranchCard key={branch.id} branch={branch} onEdit={() => setEditingBranch(branch)} />
+                <BranchCard
+                  key={branch.id}
+                  branch={branch}
+                  onEdit={() => setEditingBranch(branch)}
+                  onDelete={() => setDeleteConfirm(branch)}
+                  isSelected={selectedIds.has(branch.id)}
+                  onToggleSelect={() => toggleSelect(branch.id)}
+                />
               ))}
             </div>
           ) : (
@@ -142,6 +195,11 @@ export default function Branches() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
+                    <th className="p-3 w-10">
+                      <button onClick={toggleSelectAll} className="p-1 hover:bg-gray-200 rounded transition-colors">
+                        {allSelected ? <CheckSquare size={18} className="text-blue-600" /> : <Square size={18} className="text-gray-400" />}
+                      </button>
+                    </th>
                     <SortableTh label="שם" sortKey="name" sortConfig={sortConfig} onSort={handleSort} />
                     <th className="p-3 text-right font-medium text-gray-600">סוג</th>
                     <SortableTh label="עיר" sortKey="city" sortConfig={sortConfig} onSort={handleSort} />
@@ -154,7 +212,12 @@ export default function Branches() {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {displayList.map((branch) => (
-                    <tr key={branch.id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={branch.id} className={`hover:bg-gray-50 transition-colors ${selectedIds.has(branch.id) ? 'bg-blue-50' : ''}`}>
+                      <td className="p-3">
+                        <button onClick={() => toggleSelect(branch.id)} className="p-1 hover:bg-gray-200 rounded transition-colors">
+                          {selectedIds.has(branch.id) ? <CheckSquare size={18} className="text-blue-600" /> : <Square size={18} className="text-gray-400" />}
+                        </button>
+                      </td>
                       <td className="p-3">
                         <div className="flex items-center gap-2">
                           <div className={`w-8 h-8 bg-gradient-to-br ${typeGradients[branch.type]} rounded-lg flex items-center justify-center text-white shrink-0`}>
@@ -180,7 +243,10 @@ export default function Branches() {
                         <span className={`badge ${branch.isActive ? 'badge-success' : 'badge-gray'}`}>{branch.isActive ? 'פעיל' : 'לא פעיל'}</span>
                       </td>
                       <td className="p-3">
-                        <button onClick={() => setEditingBranch(branch)} className="text-blue-600 hover:text-blue-800 transition-colors" title="עריכה"><Edit2 size={14} /></button>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => setEditingBranch(branch)} className="p-1.5 hover:bg-blue-100 rounded transition-colors text-blue-600" title="עריכה"><Edit2 size={14} /></button>
+                          <button onClick={() => setDeleteConfirm(branch)} className="p-1.5 hover:bg-red-100 rounded transition-colors text-red-500" title="מחיקה"><Trash2 size={14} /></button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -204,12 +270,27 @@ export default function Branches() {
       <Modal isOpen={!!editingBranch} onClose={() => setEditingBranch(null)} title="עריכת סניף" size="lg">
         {editingBranch && <BranchForm branch={editingBranch} onSubmit={handleEditBranch} onCancel={() => setEditingBranch(null)} isLoading={updateBranch.isPending} />}
       </Modal>
+      <ConfirmDeleteModal
+        isOpen={!!deleteConfirm}
+        onClose={() => setDeleteConfirm(null)}
+        onConfirm={handleDeleteBranch}
+        title="מחיקת סניף"
+        itemName={deleteConfirm?.name}
+        warningText={(deleteConfirm?._count?.cycles || 0) > 0 ? `לסניף זה יש ${deleteConfirm?._count?.cycles} מחזורים פעילים. לא ניתן למחוק.` : undefined}
+        isLoading={deleteBranch.isPending}
+      />
     </>
   );
 }
 
 // Branch Card
-function BranchCard({ branch, onEdit }: { branch: Branch; onEdit: () => void }) {
+function BranchCard({ branch, onEdit, onDelete, isSelected, onToggleSelect }: {
+  branch: Branch;
+  onEdit: () => void;
+  onDelete: () => void;
+  isSelected: boolean;
+  onToggleSelect: () => void;
+}) {
   return (
     <div className="group bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-lg hover:border-gray-200 transition-all duration-200 hover:-translate-y-0.5">
       <div className="p-6">
@@ -226,7 +307,11 @@ function BranchCard({ branch, onEdit }: { branch: Branch; onEdit: () => void }) 
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button onClick={onToggleSelect} className="p-1 hover:bg-gray-100 rounded transition-colors" title="בחר">
+              {isSelected ? <CheckSquare size={18} className="text-blue-600" /> : <Square size={18} className="text-gray-300 hover:text-gray-500" />}
+            </button>
             <button onClick={onEdit} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200" title="ערוך סניף"><Edit2 size={16} /></button>
+            <button onClick={onDelete} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200" title="מחק סניף"><Trash2 size={16} /></button>
             <span className={`badge ${branch.isActive ? 'badge-success' : 'badge-gray'}`}>{branch.isActive ? 'פעיל' : 'לא פעיל'}</span>
           </div>
         </div>

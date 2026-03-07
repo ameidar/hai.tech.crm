@@ -35,6 +35,7 @@ import InstagramInbox from './pages/InstagramInbox';
 import Campaigns from './pages/Campaigns';
 import FacebookLeads from './pages/FacebookLeads';
 import Analytics from './pages/Analytics';
+import LinkedIn from './pages/LinkedIn';
 import CampaignLanding from './pages/CampaignLanding';
 import PayPage from './pages/PayPage';
 
@@ -171,6 +172,7 @@ function AppRoutes() {
             <Route path="campaigns" element={<NonSalesRoute><Campaigns /></NonSalesRoute>} />
             <Route path="facebook-leads" element={<NonSalesRoute><FacebookLeads /></NonSalesRoute>} />
             <Route path="analytics" element={<NonSalesRoute><Analytics /></NonSalesRoute>} />
+            <Route path="linkedin" element={<NonSalesRoute><LinkedIn /></NonSalesRoute>} />
           </>
         )}
         <Route path="instructor" element={<InstructorDashboard />} />

@@ -27,6 +27,7 @@ import {
   Camera,
   Facebook,
   LineChart,
+  Linkedin,
 } from 'lucide-react';
 
 // Admin/Manager navigation — grouped
@@ -58,6 +59,7 @@ const adminNavGroups = [
       { path: '/campaigns', icon: Megaphone, label: 'קמפיינים', testId: 'nav-campaigns' },
       { path: '/facebook-leads', icon: Facebook, label: 'לידים פייסבוק', testId: 'nav-facebook-leads' },
       { path: '/analytics', icon: LineChart, label: 'Google Analytics', testId: 'nav-analytics' },
+      { path: '/linkedin', icon: Linkedin, label: 'LinkedIn', testId: 'nav-linkedin' },
     ],
   },
   {

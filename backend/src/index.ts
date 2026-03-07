@@ -56,6 +56,7 @@ import { campaignsRouter } from './routes/campaigns.js';
 import { campaignLeadsRouter } from './routes/campaign-leads.js';
 import { facebookLeadsRouter } from './routes/facebook-leads.js';
 import analyticsRouter from './routes/analytics.js';
+import linkedinRouter from './routes/linkedin.js';
 import { devReadOnly } from './middleware/devReadOnly.js';
 
 // API v1 Router
@@ -222,6 +223,7 @@ app.use('/api/campaigns', campaignsRouter); // Marketing campaigns
 app.use('/api/campaign-leads', campaignLeadsRouter); // Public campaign lead form submissions
 app.use('/api/facebook', facebookLeadsRouter);     // Facebook Lead Ads
 app.use('/api/analytics', analyticsRouter);       // Google Analytics Data API
+app.use('/api/linkedin', linkedinRouter);         // LinkedIn integration
 
 // Error handling for API routes
 app.use('/api', errorHandler);

@@ -268,7 +268,7 @@ export default function InstitutionalOrders() {
       <PageHeader
         title="הזמנות מוסדיות"
         subtitle={`${pagination?.total || orders.length} הזמנות`}
-        action={<button className="btn btn-primary flex items-center gap-2" onClick={openAdd}><Plus size={16} />הוסף הזמנה</button>}
+        actions={<button className="btn btn-primary flex items-center gap-2" onClick={openAdd}><Plus size={16} />הוסף הזמנה</button>}
       />
 
       <div className="flex-1 p-6 overflow-auto">

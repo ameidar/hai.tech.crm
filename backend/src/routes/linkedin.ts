@@ -1,39 +1,52 @@
 import { Router, Request, Response } from 'express';
 import { authenticate, managerOrAdmin } from '../middleware/auth';
 import { prisma } from '../utils/prisma.js';
-// fetch is available globally in Node.js 18+
 
 const router = Router();
 
-const CLIENT_ID = process.env.LINKEDIN_CLIENT_ID!;
-const CLIENT_SECRET = process.env.LINKEDIN_CLIENT_SECRET!;
+const CLIENT_ID = process.env.LINKEDIN_CLIENT_ID || '';
+const CLIENT_SECRET = process.env.LINKEDIN_CLIENT_SECRET || '';
 const REDIRECT_URI = process.env.LINKEDIN_REDIRECT_URI || 'https://crm.orma-ai.com/api/linkedin/callback';
-const COMPANY_ID = process.env.LINKEDIN_COMPANY_ID || 'hai-tech-way';
 
 const SCOPES = ['openid', 'profile', 'email', 'w_member_social'];
 
-// Helper: get token from DB
-async function getToken(): Promise<{ accessToken: string; expiresAt: Date; sub: string } | null> {
-  const row = await prisma.botConfig.findUnique({ where: { key: 'linkedin_token' } });
-  if (!row) return null;
+// Helper: get config value from bot_config table
+async function getConfig(key: string): Promise<string | null> {
   try {
-    return JSON.parse(row.value);
+    const rows = await prisma.$queryRaw<{ value: string }[]>`
+      SELECT value FROM bot_config WHERE key = ${key} LIMIT 1
+    `;
+    return rows[0]?.value || null;
   } catch {
     return null;
   }
 }
 
-// Helper: save token to DB
-async function saveToken(data: object) {
-  await prisma.botConfig.upsert({
-    where: { key: 'linkedin_token' },
-    update: { value: JSON.stringify(data), updatedAt: new Date(), updatedBy: 'system' },
-    create: { key: 'linkedin_token', value: JSON.stringify(data), updatedBy: 'system' },
-  });
+// Helper: save config value to bot_config table
+async function setConfig(key: string, value: string): Promise<void> {
+  await prisma.$executeRaw`
+    INSERT INTO bot_config (key, value, updated_at, updated_by)
+    VALUES (${key}, ${value}, NOW(), 'system')
+    ON CONFLICT (key) DO UPDATE SET value = ${value}, updated_at = NOW()
+  `;
+}
+
+// Helper: get LinkedIn token
+async function getToken(): Promise<{ accessToken: string; expiresAt: string; sub: string; name?: string; email?: string } | null> {
+  const raw = await getConfig('linkedin_token');
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 // GET /api/linkedin/auth — redirect to LinkedIn OAuth
-router.get('/auth', authenticate, managerOrAdmin, (req: Request, res: Response) => {
+router.get('/auth', authenticate, managerOrAdmin, (_req: Request, res: Response) => {
+  if (!CLIENT_ID) {
+    return res.status(503).json({ error: 'LinkedIn not configured (LINKEDIN_CLIENT_ID missing)' });
+  }
   const state = Math.random().toString(36).slice(2);
   const params = new URLSearchParams({
     response_type: 'code',
@@ -73,13 +86,13 @@ router.get('/callback', async (req: Request, res: Response) => {
     });
     const profile = await profileRes.json() as any;
 
-    await saveToken({
+    await setConfig('linkedin_token', JSON.stringify({
       accessToken: tokenData.access_token,
-      expiresAt: new Date(Date.now() + tokenData.expires_in * 1000),
+      expiresAt: new Date(Date.now() + tokenData.expires_in * 1000).toISOString(),
       sub: profile.sub,
       name: profile.name,
       email: profile.email,
-    });
+    }));
 
     res.redirect('/linkedin?connected=1');
   } catch (err: any) {
@@ -89,15 +102,18 @@ router.get('/callback', async (req: Request, res: Response) => {
 });
 
 // GET /api/linkedin/status — check if connected
-router.get('/status', authenticate, async (req: Request, res: Response) => {
+router.get('/status', authenticate, async (_req: Request, res: Response) => {
+  if (!CLIENT_ID) {
+    return res.json({ connected: false, notConfigured: true });
+  }
   const token = await getToken();
   if (!token) return res.json({ connected: false });
   const isExpired = new Date(token.expiresAt) < new Date();
   res.json({
     connected: !isExpired,
     expired: isExpired,
-    name: (token as any).name,
-    email: (token as any).email,
+    name: token.name,
+    email: token.email,
     expiresAt: token.expiresAt,
   });
 });
@@ -126,7 +142,7 @@ router.post('/post', authenticate, managerOrAdmin, async (req: Request, res: Res
       },
     };
 
-    const res2 = await fetch('https://api.linkedin.com/v2/ugcPosts', {
+    const postRes = await fetch('https://api.linkedin.com/v2/ugcPosts', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${tokenData.accessToken}`,
@@ -136,15 +152,14 @@ router.post('/post', authenticate, managerOrAdmin, async (req: Request, res: Res
       body: JSON.stringify(body),
     });
 
-    const data = await res2.json() as any;
-    if (!res2.ok) throw new Error(data.message || JSON.stringify(data));
+    const data = await postRes.json() as any;
+    if (!postRes.ok) throw new Error(data.message || JSON.stringify(data));
 
-    // Save to DB
-    await prisma.botConfig.upsert({
-      where: { key: 'linkedin_posts' },
-      update: { value: JSON.stringify([{ id: data.id, text: text.slice(0, 100), createdAt: new Date(), status: 'published' }, ...JSON.parse((await prisma.botConfig.findUnique({ where: { key: 'linkedin_posts' } }))?.value || '[]').slice(0, 19)]), updatedAt: new Date(), updatedBy: 'system' },
-      create: { key: 'linkedin_posts', value: JSON.stringify([{ id: data.id, text: text.slice(0, 100), createdAt: new Date(), status: 'published' }]), updatedBy: 'system' },
-    });
+    // Save post to history
+    const existingRaw = await getConfig('linkedin_posts');
+    const existing = existingRaw ? JSON.parse(existingRaw) : [];
+    const updated = [{ id: data.id, text: text.slice(0, 100), createdAt: new Date().toISOString(), status: 'published' }, ...existing].slice(0, 20);
+    await setConfig('linkedin_posts', JSON.stringify(updated));
 
     res.json({ success: true, postId: data.id });
   } catch (err: any) {
@@ -154,14 +169,14 @@ router.post('/post', authenticate, managerOrAdmin, async (req: Request, res: Res
 });
 
 // GET /api/linkedin/posts — list saved posts
-router.get('/posts', authenticate, async (req: Request, res: Response) => {
-  const row = await prisma.botConfig.findUnique({ where: { key: 'linkedin_posts' } });
-  const posts = row ? JSON.parse(row.value) : [];
+router.get('/posts', authenticate, async (_req: Request, res: Response) => {
+  const raw = await getConfig('linkedin_posts');
+  const posts = raw ? JSON.parse(raw) : [];
   res.json({ posts });
 });
 
 // GET /api/linkedin/profile — get connected user profile
-router.get('/profile', authenticate, async (req: Request, res: Response) => {
+router.get('/profile', authenticate, async (_req: Request, res: Response) => {
   const tokenData = await getToken();
   if (!tokenData) return res.status(401).json({ error: 'not connected' });
   try {
@@ -176,9 +191,13 @@ router.get('/profile', authenticate, async (req: Request, res: Response) => {
 });
 
 // DELETE /api/linkedin/disconnect
-router.delete('/disconnect', authenticate, managerOrAdmin, async (req: Request, res: Response) => {
-  await prisma.botConfig.deleteMany({ where: { key: { in: ['linkedin_token', 'linkedin_posts'] } } });
-  res.json({ success: true });
+router.delete('/disconnect', authenticate, managerOrAdmin, async (_req: Request, res: Response) => {
+  try {
+    await prisma.$executeRaw`DELETE FROM bot_config WHERE key IN ('linkedin_token', 'linkedin_posts')`;
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

@@ -71,6 +71,37 @@ describe('Validation Schemas', () => {
       
       expect(result.success).toBe(false);
     });
+
+    // source field tests (BUG fix: 07/03/2026 — שדה source חסר במודל Customer)
+    it('should accept valid source values', () => {
+      const validSources = ['whatsapp', 'facebook', 'instagram', 'website', 'phone', 'upsell', 'manual', 'fireberry', 'woocommerce'];
+      for (const source of validSources) {
+        const result = createCustomerSchema.safeParse({
+          name: 'ישראל ישראלי',
+          phone: '050-1234567',
+          source,
+        });
+        expect(result.success, `source="${source}" should be valid`).toBe(true);
+      }
+    });
+
+    it('should reject invalid source value', () => {
+      const result = createCustomerSchema.safeParse({
+        name: 'ישראל ישראלי',
+        phone: '050-1234567',
+        source: 'unknown_channel',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('should accept customer without source (optional field)', () => {
+      const result = createCustomerSchema.safeParse({
+        name: 'ישראל ישראלי',
+        phone: '050-1234567',
+      });
+      expect(result.success).toBe(true);
+      expect(result.data?.source).toBeUndefined();
+    });
   });
 
   describe('createCourseSchema', () => {

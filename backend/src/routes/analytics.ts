@@ -185,21 +185,16 @@ router.get('/realtime', authenticate, async (req: Request, res: Response) => {
   try {
     const client = getGAClient();
 
-    // Get total active users (no dimensions = most compatible)
-    const [report] = await client.runRealtimeReport({
-      property: `properties/${PROPERTY_ID}`,
-      metrics: [{ name: 'activeUsers' }],
-    });
-
-    const totalActive = parseInt(report.rows?.[0]?.metricValues?.[0]?.value || '0');
-
-    // Get breakdown by page path (separate call)
+    // Single call with page dimension — gives both total + breakdown
+    // Fall back gracefully when there are 0 active users (API may return INVALID_ARGUMENT)
+    let totalActive = 0;
     let byPage: { path: string; users: number }[] = [];
+
     try {
       const [pageReport] = await client.runRealtimeReport({
         property: `properties/${PROPERTY_ID}`,
         metrics: [{ name: 'activeUsers' }],
-        dimensions: [{ name: 'unifiedPageScreen' }],
+        dimensions: [{ name: 'unifiedPagePathScreen' }],
         limit: 5,
       });
       byPage = (pageReport.rows || [])
@@ -208,8 +203,10 @@ router.get('/realtime', authenticate, async (req: Request, res: Response) => {
           users: parseInt(r.metricValues![0].value || '0'),
         }))
         .filter(r => r.users > 0);
-    } catch {
-      // page breakdown optional — ignore errors
+      totalActive = byPage.reduce((sum, r) => sum + r.users, 0);
+    } catch (innerErr: any) {
+      // INVALID_ARGUMENT or no data — treat as 0 active users
+      console.log('GA realtime (no active users or dimension error):', innerErr.message);
     }
 
     res.json({ activeUsers: totalActive, byPage });

@@ -80,6 +80,10 @@ services:
       INSTAGRAM_VERIFY_TOKEN: ${INSTAGRAM_VERIFY_TOKEN:-haitech-ig-verify-2026}
       GA_PROPERTY_ID: ${GA_PROPERTY_ID:-399485645}
       GA_SERVICE_ACCOUNT_JSON: ${GA_SERVICE_ACCOUNT_JSON}
+      LINKEDIN_CLIENT_ID: ${LINKEDIN_CLIENT_ID}
+      LINKEDIN_CLIENT_SECRET: ${LINKEDIN_CLIENT_SECRET}
+      LINKEDIN_COMPANY_ID: ${LINKEDIN_COMPANY_ID:-hai-tech-way}
+      LINKEDIN_REDIRECT_URI: ${LINKEDIN_REDIRECT_URI:-https://crm.orma-ai.com/api/linkedin/callback}
     volumes:
       - ./backend/uploads:/app/uploads
     ports:

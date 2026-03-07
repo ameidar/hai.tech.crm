@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { authenticate, managerOrAdmin } from '../middleware/auth';
-import prisma from '../lib/prisma';
-import fetch from 'node-fetch';
+import { prisma } from '../utils/prisma.js';
+// fetch is available globally in Node.js 18+
 
 const router = Router();
 

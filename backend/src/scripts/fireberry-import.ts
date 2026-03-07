@@ -1,12 +1,12 @@
 /**
  * Fireberry (Powerlink) Customer Import
- * Imports customers and students from לקוחות-מאוחד.csv into HaiTech CRM.
+ * Imports customers, students, and registrations from לקוחות-מאוחד.csv into HaiTech CRM.
  *
  * Logic:
  *   - For each row: find existing customer by phone OR email
  *   - If not found → create new customer
- *   - If student name exists (not "-" or empty) → create student under that customer (if not duplicate)
- *   - Duplicate student: same customer + same student name → skip
+ *   - If student name exists → create student under that customer (if not duplicate)
+ *   - If cycle name matches a CRM cycle → create registration (student → cycle)
  *   - Skips internal emails: ami@hai.tech, inna@hai.tech, etc.
  *
  * Run (DRY RUN):
@@ -14,7 +14,7 @@
  * Run (REAL):
  *   npx ts-node -r dotenv/config src/scripts/fireberry-import.ts
  */
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, RegistrationStatus, PaymentMethod } from '@prisma/client';
 import * as fs from 'fs';
 import { parse } from '@fast-csv/parse';
 
@@ -38,6 +38,10 @@ interface CsvRow {
   email: string;
   cycleName: string;
   studentName: string;
+  regStatus: string;
+  regDate: string;
+  amount: string;
+  paymentMethod: string;
 }
 
 function normalizePhone(raw: string): string {
@@ -46,14 +50,13 @@ function normalizePhone(raw: string): string {
   if (!digits || digits.length < 9) return '';
   if (digits.startsWith('972') && digits.length === 12) return '0' + digits.slice(3);
   if (digits.startsWith('0') && digits.length >= 9 && digits.length <= 11) return digits;
-  if (digits.length >= 9) return digits; // fallback
+  if (digits.length >= 9) return digits;
   return '';
 }
 
 function normalizeEmail(raw: string): string {
   if (!raw || raw.trim() === '-') return '';
   const email = raw.trim().toLowerCase();
-  // Basic validation — must contain @
   if (!email.includes('@')) return '';
   return email;
 }
@@ -70,6 +73,28 @@ function generateId(): string {
   return id;
 }
 
+function mapRegistrationStatus(raw: string): RegistrationStatus {
+  const s = raw.trim();
+  if (s === 'סיים' || s === 'Completed') return RegistrationStatus.completed;
+  if (s === 'ביטל' || s === 'ביטל אחרי נסיון' || s === 'מחכה לביטול') return RegistrationStatus.cancelled;
+  if (s === 'נרשם' || s === 'נרשם חיצוני' || s === 'נרשם לקורס דיגיטלי') return RegistrationStatus.registered;
+  return RegistrationStatus.registered; // default
+}
+
+function mapPaymentMethod(raw: string): PaymentMethod | null {
+  const s = raw.trim();
+  if (s === 'אשראי' || s === 'צ׳קים' || s === 'הוראת קבע' || s === 'ביט') return PaymentMethod.credit;
+  if (s === 'העברה בנקאית') return PaymentMethod.transfer;
+  if (s === 'מזומן') return PaymentMethod.cash;
+  return null;
+}
+
+function parseAmount(raw: string): number | null {
+  if (!raw || raw.trim() === '-' || raw.trim() === '') return null;
+  const n = parseFloat(raw.replace(/[^\d.]/g, ''));
+  return isNaN(n) ? null : n;
+}
+
 function parseCsv(filePath: string): Promise<CsvRow[]> {
   return new Promise((resolve, reject) => {
     const rows: CsvRow[] = [];
@@ -83,6 +108,10 @@ function parseCsv(filePath: string): Promise<CsvRow[]> {
           email: normalizeEmail(row['מייל (שם מלא)'] || ''),
           cycleName: normalizeName(row['שם המחזור (מחזור)'] || ''),
           studentName: normalizeName(row['שם התלמיד/ה'] || ''),
+          regStatus: (row['סטטוס הרשמה'] || '').trim(),
+          regDate: (row['תאריך הרשמה'] || '').trim(),
+          amount: (row['סכום ששולם'] || '').trim(),
+          paymentMethod: (row['אמצעי תשלום'] || '').trim(),
         });
       })
       .on('end', () => resolve(rows))
@@ -111,13 +140,29 @@ async function main() {
   let customersFound = 0;
   let studentsCreated = 0;
   let studentsSkipped = 0;
+  let registrationsCreated = 0;
+  let registrationsSkipped = 0;
   let rowsSkipped = 0;
   const errors: string[] = [];
 
-  // In-memory cache for speed
-  const phoneCache = new Map<string, string>(); // phone → customerId
-  const emailCache = new Map<string, string>(); // email → customerId
-  const studentCache = new Map<string, Set<string>>(); // customerId → Set<studentName lower>
+  // ── Load CRM cycles into name → id map ──────────────────────────────────
+  console.log('Loading CRM cycles...');
+  const crmCycles = await prisma.cycle.findMany({
+    where: { deletedAt: null },
+    select: { id: true, name: true },
+  });
+  const cycleNameToId = new Map<string, string>();
+  for (const c of crmCycles) {
+    cycleNameToId.set(c.name.trim(), c.id);
+  }
+  console.log(`  CRM cycles loaded: ${crmCycles.length}`);
+
+  // In-memory caches
+  const phoneCache = new Map<string, string>();   // phone → customerId
+  const emailCache = new Map<string, string>();   // email → customerId
+  const studentCache = new Map<string, Set<string>>();    // customerId → Set<studentName lower>
+  const studentIdCache = new Map<string, string>(); // `${customerId}:${studentName}` → studentId
+  const regCache = new Set<string>();             // `${studentId}:${cycleId}` → already registered
 
   // Pre-load existing customers
   console.log('Loading existing customers into cache...');
@@ -133,15 +178,26 @@ async function main() {
   // Pre-load existing students
   const existingStudents = await prisma.student.findMany({
     where: { deletedAt: null },
-    select: { customerId: true, name: true },
+    select: { id: true, customerId: true, name: true },
   });
   for (const s of existingStudents) {
     if (!studentCache.has(s.customerId)) studentCache.set(s.customerId, new Set());
     studentCache.get(s.customerId)!.add(s.name.trim().toLowerCase());
+    studentIdCache.set(`${s.customerId}:${s.name.trim().toLowerCase()}`, s.id);
+  }
+
+  // Pre-load existing registrations
+  const existingRegs = await prisma.registration.findMany({
+    where: { deletedAt: null },
+    select: { studentId: true, cycleId: true },
+  });
+  for (const r of existingRegs) {
+    regCache.add(`${r.studentId}:${r.cycleId}`);
   }
 
   console.log(`  Existing customers: ${existingCustomers.length}`);
   console.log(`  Existing students: ${existingStudents.length}`);
+  console.log(`  Existing registrations: ${existingRegs.length}`);
   console.log('');
 
   for (const row of rows) {
@@ -164,7 +220,6 @@ async function main() {
             data: {
               id: generateId(),
               name: row.name || 'ללא שם',
-              // If no phone, use unique placeholder to avoid UNIQUE constraint conflict
               phone: row.phone || `NOTEL-${generateId()}`,
               email: row.email || null,
               notes: `Fireberry: ${row.accountid}`,
@@ -172,7 +227,6 @@ async function main() {
           });
           customerId = newCustomer.id;
         } catch (err: any) {
-          // Race condition — find the existing one
           const found = await prisma.customer.findFirst({
             where: {
               deletedAt: null,
@@ -200,33 +254,105 @@ async function main() {
     }
 
     // Handle student
+    let studentId: string | null = null;
     const studentName = row.studentName;
+
     if (studentName && studentName !== '-') {
+      const key = `${customerId}:${studentName.toLowerCase()}`;
       const existingNames = studentCache.get(customerId) || new Set();
+
       if (existingNames.has(studentName.toLowerCase())) {
         studentsSkipped++;
+        studentId = studentIdCache.get(key) || null;
       } else {
         if (DRY_RUN) {
+          studentId = `dry_student_${generateId()}`;
           console.log(`  👦 [DRY] Student: ${studentName} → ${row.name}`);
         } else {
           try {
-            await prisma.student.create({
+            const newStudent = await prisma.student.create({
               data: {
                 id: generateId(),
                 customerId,
                 name: studentName,
               },
             });
+            studentId = newStudent.id;
           } catch (err: any) {
             errors.push(`Failed student ${studentName} for ${row.name}: ${err.message}`);
             studentsSkipped++;
-            continue;
+            // Try to get existing
+            const existingStudent = await prisma.student.findFirst({
+              where: { customerId, name: studentName, deletedAt: null },
+            });
+            if (existingStudent) studentId = existingStudent.id;
+            // continue without incrementing, go to registration attempt
           }
         }
-        studentsCreated++;
-        existingNames.add(studentName.toLowerCase());
-        studentCache.set(customerId, existingNames);
+        if (studentId) {
+          studentsCreated++;
+          existingNames.add(studentName.toLowerCase());
+          studentCache.set(customerId, existingNames);
+          studentIdCache.set(key, studentId);
+        }
       }
+    }
+
+    // Handle registration (only if we have a student + matching cycle)
+    if (studentId && row.cycleName) {
+      const cycleId = cycleNameToId.get(row.cycleName);
+      if (cycleId) {
+        const regKey = `${studentId}:${cycleId}`;
+        if (regCache.has(regKey)) {
+          registrationsSkipped++;
+        } else {
+          const status = mapRegistrationStatus(row.regStatus);
+          const paymentMethod = mapPaymentMethod(row.paymentMethod);
+          const amount = parseAmount(row.amount);
+          // Parse DD/MM/YYYY format
+          let regDate = new Date();
+          if (row.regDate) {
+            const parts = row.regDate.split('/');
+            if (parts.length === 3) {
+              const d = parseInt(parts[0], 10);
+              const m = parseInt(parts[1], 10) - 1;
+              const y = parseInt(parts[2], 10);
+              const parsed = new Date(y, m, d);
+              if (!isNaN(parsed.getTime())) regDate = parsed;
+            }
+          }
+
+          if (DRY_RUN) {
+            const studentLabel = studentName || '?';
+            console.log(`    📋 [DRY] Registration: ${studentLabel} → ${row.cycleName} [${status}] ₪${amount ?? 0}`);
+          } else {
+            try {
+              await prisma.registration.create({
+                data: {
+                  id: generateId(),
+                  studentId,
+                  cycleId,
+                  registrationDate: regDate,
+                  status,
+                  amount: amount ? amount : undefined,
+                  paymentMethod: paymentMethod || undefined,
+                  notes: `Imported from Fireberry`,
+                },
+              });
+              registrationsCreated++;
+              regCache.add(regKey);
+            } catch (err: any) {
+              errors.push(`Failed registration ${studentName} → ${row.cycleName}: ${err.message}`);
+              registrationsSkipped++;
+            }
+          }
+          if (DRY_RUN) {
+            registrationsCreated++;
+            regCache.add(regKey);
+          }
+        }
+      }
+      // If no cycle match — silently skip (most historical cycles won't match)
     }
   }
 
@@ -237,7 +363,10 @@ async function main() {
   console.log(`Customers already exist:        ${customersFound}`);
   console.log(`Students created:               ${studentsCreated}`);
   console.log(`Students already exist/skipped: ${studentsSkipped}`);
+  console.log(`Registrations created:          ${registrationsCreated}`);
+  console.log(`Registrations already exist:    ${registrationsSkipped}`);
   console.log(`Rows skipped (errors):          ${rowsSkipped}`);
+
   if (errors.length > 0) {
     console.log(`\nErrors (${errors.length}):`);
     errors.slice(0, 20).forEach(e => console.log(`  ❌ ${e}`));

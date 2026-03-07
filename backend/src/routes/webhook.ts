@@ -345,6 +345,14 @@ webhookRouter.post('/leads', async (req, res, next) => {
       throw new AppError(400, 'Either phone or email is required');
     }
 
+    // Validate phone format if provided
+    if (phone) {
+      const phoneRegex = /^[\d\s\-\+\(\)]{7,20}$/;
+      if (!phoneRegex.test(phone.trim())) {
+        throw new AppError(400, 'Invalid phone number format');
+      }
+    }
+
     // Check if customer already exists by phone or email
     let existingCustomer = null;
     if (phone) {

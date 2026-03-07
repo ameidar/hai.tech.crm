@@ -1,0 +1,188 @@
+import { useState, useEffect } from 'react';
+import { Facebook, CheckCircle, XCircle, Send, Sparkles, Image, RefreshCw } from 'lucide-react';
+
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
+function getToken() { return localStorage.getItem('accessToken') || ''; }
+const headers = () => ({ Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' });
+
+export default function FacebookPage() {
+  const [status, setStatus] = useState<any>(null);
+  const [direction, setDirection] = useState('');
+  const [postText, setPostText] = useState('');
+  const [imageBase64, setImageBase64] = useState('');
+  const [imageMime, setImageMime] = useState('image/png');
+  const [imagePrompt, setImagePrompt] = useState('');
+  const [generatingText, setGeneratingText] = useState(false);
+  const [generatingImage, setGeneratingImage] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [result, setResult] = useState<{ success?: boolean; error?: string } | null>(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/social/facebook/status`, { headers: { Authorization: `Bearer ${getToken()}` } })
+      .then(r => r.json()).then(setStatus).catch(() => setStatus({ connected: false }));
+  }, []);
+
+  const generateText = async () => {
+    if (!direction.trim()) return;
+    setGeneratingText(true);
+    try {
+      const res = await fetch(`${API_BASE}/social/generate-text`, {
+        method: 'POST', headers: headers(),
+        body: JSON.stringify({ direction, platform: 'facebook' }),
+      });
+      const d = await res.json();
+      if (d.text) { setPostText(d.text); setImagePrompt(direction); }
+      else alert(d.error || 'שגיאה');
+    } finally { setGeneratingText(false); }
+  };
+
+  const generateImage = async () => {
+    if (!imagePrompt.trim()) return;
+    setGeneratingImage(true);
+    try {
+      const res = await fetch(`${API_BASE}/social/generate-image`, {
+        method: 'POST', headers: headers(),
+        body: JSON.stringify({ prompt: imagePrompt, platform: 'facebook' }),
+      });
+      const d = await res.json();
+      if (d.imageBase64) { setImageBase64(d.imageBase64); setImageMime(d.mimeType); }
+      else alert(d.error || 'שגיאה ביצירת תמונה');
+    } finally { setGeneratingImage(false); }
+  };
+
+  const publish = async () => {
+    if (!postText.trim()) return;
+    setPublishing(true);
+    setResult(null);
+    try {
+      const res = await fetch(`${API_BASE}/social/publish/facebook`, {
+        method: 'POST', headers: headers(),
+        body: JSON.stringify({ text: postText, imageBase64: imageBase64 || undefined, mimeType: imageMime }),
+      });
+      const d = await res.json();
+      if (d.success) { setResult({ success: true }); setPostText(''); setImageBase64(''); setDirection(''); }
+      else setResult({ error: d.error });
+    } finally { setPublishing(false); }
+  };
+
+  return (
+    <div className="p-6 max-w-3xl mx-auto" dir="rtl">
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-10 h-10 bg-[#1877f2] rounded-lg flex items-center justify-center">
+          <Facebook size={24} className="text-white" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold">פייסבוק</h1>
+          <p className="text-gray-500 text-sm">פרסום פוסטים לדף דרך ההייטק</p>
+        </div>
+        <button onClick={() => fetch(`${API_BASE}/social/facebook/status`, { headers: { Authorization: `Bearer ${getToken()}` } }).then(r => r.json()).then(setStatus)} className="btn btn-outline btn-sm mr-auto">
+          <RefreshCw size={14} />
+        </button>
+      </div>
+
+      {/* Status */}
+      <div className={`card border p-4 mb-5 ${status?.connected ? 'border-blue-200 bg-blue-50' : 'border-gray-200 bg-gray-50'}`}>
+        <div className="flex items-center gap-2">
+          {status?.connected ? <CheckCircle size={20} className="text-blue-500" /> : <XCircle size={20} className="text-gray-400" />}
+          <span className="font-medium">
+            {status?.connected ? `${status.pageName} · ${status.fans?.toLocaleString()} עוקבים` : 'דף פייסבוק לא מחובר'}
+          </span>
+        </div>
+      </div>
+
+      {/* AI Text Generator */}
+      <div className="card bg-base-100 shadow-sm border border-purple-200 bg-gradient-to-br from-purple-50 to-blue-50 p-5 mb-4">
+        <h2 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+          <Sparkles size={18} className="text-purple-500" /> צור טקסט עם AI
+        </h2>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            className="input input-bordered flex-1 text-right"
+            placeholder='לדוגמה: "ילד שלמד לתכנת ב-6 חודשים"'
+            value={direction}
+            onChange={e => setDirection(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && generateText()}
+          />
+          <button onClick={generateText} disabled={generatingText || !direction.trim()}
+            className="btn btn-sm bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 gap-1">
+            {generatingText ? <span className="loading loading-spinner loading-xs" /> : <Sparkles size={14} />}
+            {generatingText ? 'כותב…' : 'צור'}
+          </button>
+        </div>
+      </div>
+
+      {/* Post textarea */}
+      <div className="card bg-base-100 shadow-sm border border-base-200 p-5 mb-4">
+        <h2 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+          <Send size={18} className="text-[#1877f2]" /> טקסט הפוסט
+        </h2>
+        <textarea
+          className="textarea textarea-bordered w-full text-right"
+          rows={10}
+          placeholder="כתוב פוסט או צור עם AI למעלה..."
+          value={postText}
+          onChange={e => setPostText(e.target.value)}
+        />
+        <p className="text-xs text-gray-400 mt-1 text-left">{postText.length} / 63,206</p>
+      </div>
+
+      {/* AI Image Generator */}
+      <div className="card bg-base-100 shadow-sm border border-green-200 bg-green-50 p-5 mb-4">
+        <h2 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+          <Image size={18} className="text-green-600" /> צור תמונה עם Gemini AI
+        </h2>
+        <div className="flex gap-2 mb-3">
+          <input
+            type="text"
+            className="input input-bordered flex-1 text-right"
+            placeholder='לדוגמה: "ילדים מתכנתים Minecraft"'
+            value={imagePrompt}
+            onChange={e => setImagePrompt(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && generateImage()}
+          />
+          <button onClick={generateImage} disabled={generatingImage || !imagePrompt.trim()}
+            className="btn btn-sm bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 gap-1">
+            {generatingImage ? <span className="loading loading-spinner loading-xs" /> : <Image size={14} />}
+            {generatingImage ? 'יוצר…' : 'צור תמונה'}
+          </button>
+        </div>
+        {imageBase64 && (
+          <div className="relative">
+            <img src={`data:${imageMime};base64,${imageBase64}`} alt="generated" className="rounded-lg max-w-full max-h-80 mx-auto block border" />
+            <div className="flex gap-2 mt-2 justify-center">
+              <a
+                href={`data:${imageMime};base64,${imageBase64}`}
+                download="facebook-post.png"
+                className="btn btn-xs btn-outline"
+              >⬇️ הורד</a>
+              <button onClick={() => setImageBase64('')} className="btn btn-xs btn-ghost text-red-500">🗑️ הסר</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Publish */}
+      <div className="flex items-center justify-between p-4 bg-base-100 rounded-xl border border-base-200 shadow-sm">
+        <div>
+          {result?.success && <span className="text-green-600 font-medium flex items-center gap-1"><CheckCircle size={16} /> פורסם בהצלחה! 🎉</span>}
+          {result?.error && <span className="text-red-500 text-sm">{result.error}</span>}
+          {!result && imageBase64 && <span className="text-sm text-gray-500 flex items-center gap-1">📷 תמונה מצורפת</span>}
+        </div>
+        <button
+          onClick={publish}
+          disabled={publishing || !postText.trim() || !status?.connected}
+          className="btn bg-[#1877f2] text-white hover:bg-[#1565d8] disabled:opacity-50 gap-2"
+        >
+          {publishing ? <span className="loading loading-spinner loading-sm" /> : <Send size={16} />}
+          פרסם בפייסבוק
+        </button>
+      </div>
+
+      {!status?.connected && (
+        <p className="text-center text-gray-400 text-sm mt-4">⚠️ FB_PAGE_ACCESS_TOKEN לא מוגדר — פנה לאדמין</p>
+      )}
+    </div>
+  );
+}

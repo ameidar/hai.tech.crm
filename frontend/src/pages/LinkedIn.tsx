@@ -238,7 +238,7 @@ export default function LinkedIn() {
             </h2>
             <textarea
               className="textarea textarea-bordered w-full text-right"
-              rows={6}
+              rows={12}
               placeholder="מה אתה רוצה לשתף עם הרשת שלך? 📝"
               value={postText}
               onChange={(e) => {

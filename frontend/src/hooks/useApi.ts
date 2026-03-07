@@ -237,10 +237,14 @@ export const useUpdateBranch = () => {
 };
 
 // ==================== Instructors ====================
-export const useInstructors = () => {
+export const useInstructors = (params?: { isActive?: boolean | ''; search?: string }) => {
+  const queryString = new URLSearchParams();
+  queryString.set('limit', '300');
+  if (params?.isActive !== undefined && params.isActive !== '') queryString.set('isActive', String(params.isActive));
+  if (params?.search) queryString.set('search', params.search);
   return useQuery({
-    queryKey: ['instructors'],
-    queryFn: () => fetchData<Instructor[]>('/instructors?limit=100'),
+    queryKey: ['instructors', params],
+    queryFn: () => fetchData<Instructor[]>(`/instructors?${queryString.toString()}`),
   });
 };
 

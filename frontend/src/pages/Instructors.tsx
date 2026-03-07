@@ -24,22 +24,34 @@ export default function Instructors() {
   const [showBulkEditModal, setShowBulkEditModal] = useState(false);
   const [bulkEmploymentType, setBulkEmploymentType] = useState<'freelancer' | 'employee'>('freelancer');
 
-  // Read search from URL
-  const searchFilter = searchParams.get('search') || '';
-  const setSearchFilter = (value: string) => {
-    const newParams = new URLSearchParams(searchParams);
-    if (value) {
-      newParams.set('search', value);
-    } else {
-      newParams.delete('search');
+  // Set defaults on first load (no params in URL)
+  useEffect(() => {
+    if (searchParams.size === 0) {
+      setSearchParams({ status: 'active' }, { replace: true });
     }
+  }, []);
+
+  // Read filters from URL
+  const statusFilter = searchParams.get('status') ?? 'active'; // 'active' | 'inactive' | 'all'
+  const searchFilter = searchParams.get('search') || '';
+
+  const updateFilter = (key: string, value: string) => {
+    const newParams = new URLSearchParams(searchParams);
+    if (value) newParams.set(key, value);
+    else newParams.delete(key);
     setSearchParams(newParams, { replace: true });
   };
+  const setSearchFilter = (value: string) => updateFilter('search', value);
 
-  const { data: instructors, isLoading } = useInstructors();
+  // Map to API param
+  const isActiveParam: boolean | '' =
+    statusFilter === 'active' ? true :
+    statusFilter === 'inactive' ? false : '';
+
+  const { data: instructors, isLoading } = useInstructors({ isActive: isActiveParam });
   const bulkUpdate = useBulkUpdateInstructors();
 
-  // Filter instructors
+  // Client-side search
   const filteredInstructors = instructors?.filter((instructor) => {
     if (!searchFilter) return true;
     const searchLower = searchFilter.toLowerCase();
@@ -144,7 +156,7 @@ export default function Instructors() {
     <>
       <PageHeader
         title="מדריכים"
-        subtitle={`${instructors?.length || 0} מדריכים${selectedIds.size > 0 ? ` (${selectedIds.size} נבחרו)` : ''}`}
+        subtitle={`${filteredInstructors?.length || 0} מדריכים${selectedIds.size > 0 ? ` (${selectedIds.size} נבחרו)` : ''}`}
         actions={
           <div className="flex gap-2">
             {selectedIds.size > 0 && (
@@ -165,25 +177,48 @@ export default function Instructors() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
-        {/* Search & Views */}
-        <div className="mb-4 flex gap-4 items-center">
+        {/* Search & Filters */}
+        <div className="mb-4 flex flex-wrap gap-3 items-center">
           <button
             onClick={toggleSelectAll}
-            className={`btn btn-sm ${selectedIds.size === filteredInstructors?.length ? 'btn-primary' : 'btn-secondary'}`}
+            className={`btn btn-sm ${selectedIds.size === filteredInstructors?.length && (filteredInstructors?.length ?? 0) > 0 ? 'btn-primary' : 'btn-secondary'}`}
             title={selectedIds.size === filteredInstructors?.length ? 'בטל בחירה' : 'בחר הכל'}
           >
             <CheckSquare size={18} />
           </button>
-          <div className="relative flex-1 max-w-md">
+
+          {/* Status filter */}
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+            {[
+              { value: 'active', label: 'פעילים' },
+              { value: 'inactive', label: 'לא פעילים' },
+              { value: 'all', label: 'הכל' },
+            ].map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => updateFilter('status', opt.value)}
+                className={`px-3 py-1.5 transition-colors ${statusFilter === opt.value ? 'bg-blue-600 text-white font-medium' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="relative flex-1 max-w-sm">
             <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
               value={searchFilter}
               onChange={(e) => setSearchFilter(e.target.value)}
-              placeholder="חיפוש מדריך..."
+              placeholder="חיפוש לפי שם / טלפון / מייל..."
               className="form-input pr-10 w-full"
             />
           </div>
+
+          <span className="text-sm text-gray-500 mr-auto">
+            {filteredInstructors?.length ?? 0} מדריכים
+          </span>
+
           <ViewSelector entity="instructors" onApplyView={() => {}} />
         </div>
 

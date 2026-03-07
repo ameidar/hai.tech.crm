@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound, Trash2, AlertTriangle, Edit, CheckSquare, Paperclip } from 'lucide-react';
+import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound, Trash2, AlertTriangle, Edit, CheckSquare, Paperclip, LayoutGrid, List } from 'lucide-react';
 import { useInstructors, useCreateInstructor, useUpdateInstructor, useDeleteInstructor, useSendInstructorInvite, useResetInstructorPassword, useBulkUpdateInstructors } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import FileAttachments from '../components/FileAttachments';
@@ -23,6 +23,13 @@ export default function Instructors() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showBulkEditModal, setShowBulkEditModal] = useState(false);
   const [bulkEmploymentType, setBulkEmploymentType] = useState<'freelancer' | 'employee'>('freelancer');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() =>
+    (localStorage.getItem('instructors-view') as 'grid' | 'list') || 'grid'
+  );
+  const toggleViewMode = (mode: 'grid' | 'list') => {
+    setViewMode(mode);
+    localStorage.setItem('instructors-view', mode);
+  };
 
   // Set defaults on first load (no params in URL)
   useEffect(() => {
@@ -219,30 +226,128 @@ export default function Instructors() {
             {filteredInstructors?.length ?? 0} מדריכים
           </span>
 
+          {/* View mode toggle */}
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+            <button
+              onClick={() => toggleViewMode('grid')}
+              className={`p-2 transition-colors ${viewMode === 'grid' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+              title="תצוגת כרטיסיות"
+            >
+              <LayoutGrid size={16} />
+            </button>
+            <button
+              onClick={() => toggleViewMode('list')}
+              className={`p-2 transition-colors ${viewMode === 'list' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+              title="תצוגת שורות"
+            >
+              <List size={16} />
+            </button>
+          </div>
+
           <ViewSelector entity="instructors" onApplyView={() => {}} />
         </div>
 
         {isLoading ? (
           <SkeletonCardGrid count={6} />
         ) : filteredInstructors && filteredInstructors.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredInstructors.map((instructor) => (
-              <InstructorCard
-                key={instructor.id}
-                instructor={instructor}
-                onEdit={() => { setEditingInstructorInitialTab('details'); setEditingInstructor(instructor); }}
-                onEditFiles={() => { setEditingInstructorInitialTab('files'); setEditingInstructor(instructor); }}
-                onDelete={() => setDeleteConfirmModal(instructor)}
-                onSendInvite={() => handleSendInvite(instructor)}
-                onSendMessage={() => setMessageInstructor(instructor)}
-                onResetPassword={() => handleResetPassword(instructor)}
-                isInviteLoading={sendInvite.isPending}
-                isResetLoading={resetPassword.isPending}
-                isSelected={selectedIds.has(instructor.id)}
-                onToggleSelect={() => toggleSelectInstructor(instructor.id)}
-              />
-            ))}
-          </div>
+          viewMode === 'grid' ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredInstructors.map((instructor) => (
+                <InstructorCard
+                  key={instructor.id}
+                  instructor={instructor}
+                  onEdit={() => { setEditingInstructorInitialTab('details'); setEditingInstructor(instructor); }}
+                  onEditFiles={() => { setEditingInstructorInitialTab('files'); setEditingInstructor(instructor); }}
+                  onDelete={() => setDeleteConfirmModal(instructor)}
+                  onSendInvite={() => handleSendInvite(instructor)}
+                  onSendMessage={() => setMessageInstructor(instructor)}
+                  onResetPassword={() => handleResetPassword(instructor)}
+                  isInviteLoading={sendInvite.isPending}
+                  isResetLoading={resetPassword.isPending}
+                  isSelected={selectedIds.has(instructor.id)}
+                  onToggleSelect={() => toggleSelectInstructor(instructor.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            /* List / Table view */
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="w-8 p-3 text-right">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.size === filteredInstructors.length && filteredInstructors.length > 0}
+                        onChange={toggleSelectAll}
+                        className="rounded border-gray-300 text-blue-600"
+                      />
+                    </th>
+                    <th className="p-3 text-right font-medium text-gray-600">שם</th>
+                    <th className="p-3 text-right font-medium text-gray-600">טלפון</th>
+                    <th className="p-3 text-right font-medium text-gray-600">מייל</th>
+                    <th className="p-3 text-center font-medium text-gray-600">פרונטלי</th>
+                    <th className="p-3 text-center font-medium text-gray-600">אונליין</th>
+                    <th className="p-3 text-center font-medium text-gray-600">מחזורים</th>
+                    <th className="p-3 text-center font-medium text-gray-600">סטטוס</th>
+                    <th className="p-3 text-right font-medium text-gray-600">פעולות</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {filteredInstructors.map((instructor) => (
+                    <tr key={instructor.id} className={`hover:bg-gray-50 transition-colors ${selectedIds.has(instructor.id) ? 'bg-blue-50' : ''}`}>
+                      <td className="p-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(instructor.id)}
+                          onChange={() => toggleSelectInstructor(instructor.id)}
+                          className="rounded border-gray-300 text-blue-600"
+                        />
+                      </td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xs shrink-0">
+                            {instructor.name.charAt(0)}
+                          </div>
+                          <span className="font-medium text-gray-900">{instructor.name}</span>
+                          {instructor.userId && (
+                            <span className="badge badge-info text-xs px-1" title="יש חשבון"><UserCheck size={10} /></span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-3 text-gray-600 dir-ltr" dir="ltr">{instructor.phone}</td>
+                      <td className="p-3 text-gray-600 max-w-[180px] truncate" dir="ltr">{instructor.email}</td>
+                      <td className="p-3 text-center text-gray-700">{instructor.rateFrontal != null ? `₪${instructor.rateFrontal}` : '-'}</td>
+                      <td className="p-3 text-center text-gray-700">{instructor.rateOnline != null ? `₪${instructor.rateOnline}` : '-'}</td>
+                      <td className="p-3 text-center">
+                        <Link
+                          to={`/cycles?instructorId=${instructor.id}`}
+                          className="text-blue-600 hover:underline font-medium"
+                        >
+                          {instructor._count?.cycles || 0}
+                        </Link>
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className={`badge ${instructor.isActive ? 'badge-success' : 'badge-gray'}`}>
+                          {instructor.isActive ? 'פעיל' : 'לא פעיל'}
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => { setEditingInstructorInitialTab('details'); setEditingInstructor(instructor); }} className="text-blue-600 hover:text-blue-800 transition-colors" title="עריכה"><Edit size={14} /></button>
+                          <button onClick={() => setMessageInstructor(instructor)} className="text-green-600 hover:text-green-800 transition-colors" title="הודעה"><MessageCircle size={14} /></button>
+                          {!instructor.userId && (
+                            <button onClick={() => handleSendInvite(instructor)} className="text-purple-600 hover:text-purple-800 transition-colors" title="הזמנה"><Send size={14} /></button>
+                          )}
+                          <button onClick={() => setDeleteConfirmModal(instructor)} className="text-red-500 hover:text-red-700 transition-colors" title="מחק"><Trash2 size={14} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         ) : (
           <EmptyState
             icon={<UserCheck size={40} />}

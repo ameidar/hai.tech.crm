@@ -1,6 +1,7 @@
 import { config } from '../config.js';
 import { prisma } from '../utils/prisma.js';
 import { sendWhatsAppMessage } from './notifications.js';
+import { findOrCreateCustomer } from '../utils/lead-customer.js';
 
 const VAPI_API_BASE = 'https://api.vapi.ai';
 
@@ -227,12 +228,17 @@ export async function handleEndOfCallReport(payload: any): Promise<void> {
       let normalizedPhone = callerNumber.replace(/\D/g, '');
       if (normalizedPhone.startsWith('972')) normalizedPhone = '0' + normalizedPhone.substring(3);
       const last9 = normalizedPhone.slice(-9);
-      const existingCustomer = last9 ? await prisma.customer.findFirst({
-        where: { phone: { contains: last9 } },
-      }) : null;
+      const { customerId: inboundCustomerId } = await findOrCreateCustomer({
+        name: undefined, // inbound — we don't know the name yet
+        phone: normalizedPhone || callerNumber,
+        source: 'inbound',
+        notes: 'שיחה נכנסת',
+      });
+      // Still try to get a display name
+      const existingCustomer = inboundCustomerId ? await prisma.customer.findUnique({ where: { id: inboundCustomerId } }) : null;
       leadAppointment = await prisma.leadAppointment.create({
         data: {
-          customerId: existingCustomer?.id || null,
+          customerId: inboundCustomerId || null,
           customerName: existingCustomer?.name || callerNumber,
           customerPhone: normalizedPhone || callerNumber,
           source: 'inbound',

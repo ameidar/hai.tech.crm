@@ -1,6 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { authenticate, managerOrAdmin } from '../middleware/auth';
 import { prisma } from '../utils/prisma.js';
+import OpenAI from 'openai';
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const router = Router();
 
@@ -196,6 +199,47 @@ router.delete('/disconnect', authenticate, managerOrAdmin, async (_req: Request,
     await prisma.$executeRaw`DELETE FROM bot_config WHERE key IN ('linkedin_token', 'linkedin_posts')`;
     res.json({ success: true });
   } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/linkedin/generate — AI-powered LinkedIn post generator
+router.post('/generate', authenticate, managerOrAdmin, async (req: Request, res: Response) => {
+  const { direction, tone = 'professional' } = req.body;
+  if (!direction?.trim()) return res.status(400).json({ error: 'direction required' });
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: `אתה מומחה לכתיבת תוכן LinkedIn עבור דרך ההייטק — עסק לחוגי תכנות לילדים בישראל.
+כתוב פוסטים שמניעים מעורבות גבוהה ב-LinkedIn.
+
+עקרונות לפוסט LinkedIn מוצלח:
+- שורה ראשונה חזקה שגורמת לאנשים ללחוץ "see more" (hook)
+- סיפור אישי / תובנה / נתון מפתיע
+- פסקאות קצרות (1-2 שורות) עם רווחים
+- 3-5 hashtags רלוונטיים בסוף
+- Call to action בסוף (שאלה לקהל / הזמנה לפעולה)
+- אורך אידיאלי: 150-300 מילים
+- שפה: עברית (אלא אם המשתמש ביקש אחרת)
+- טון: ${tone}`
+        },
+        {
+          role: 'user',
+          content: `כתוב לי פוסט LinkedIn על הנושא הבא:\n${direction}`
+        }
+      ],
+      temperature: 0.8,
+      max_tokens: 800,
+    });
+
+    const post = completion.choices[0]?.message?.content?.trim() || '';
+    res.json({ post });
+  } catch (err: any) {
+    console.error('LinkedIn generate error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

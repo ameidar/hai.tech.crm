@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Linkedin, CheckCircle, XCircle, Send, RefreshCw, ExternalLink, Trash2, AlertCircle } from 'lucide-react';
+import { Linkedin, CheckCircle, XCircle, Send, RefreshCw, ExternalLink, Trash2, AlertCircle, Sparkles } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
@@ -15,6 +15,9 @@ export default function LinkedIn() {
   const [postResult, setPostResult] = useState<{ success?: boolean; error?: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [charCount, setCharCount] = useState(0);
+  const [aiDirection, setAiDirection] = useState('');
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiError, setAiError] = useState('');
 
   const MAX_CHARS = 3000;
 
@@ -61,6 +64,34 @@ export default function LinkedIn() {
     });
     setStatus({ connected: false });
     setPosts([]);
+  };
+
+  const handleGenerate = async () => {
+    if (!aiDirection.trim()) return;
+    setAiGenerating(true);
+    setAiError('');
+    try {
+      const res = await fetch(`${API_BASE}/linkedin/generate`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ direction: aiDirection }),
+      });
+      const data = await res.json();
+      if (data.post) {
+        setPostText(data.post);
+        setCharCount(data.post.length);
+        setAiDirection('');
+      } else {
+        setAiError(data.error || 'שגיאה ביצירת הפוסט');
+      }
+    } catch (e: any) {
+      setAiError(e.message);
+    } finally {
+      setAiGenerating(false);
+    }
   };
 
   const handlePost = async () => {
@@ -169,6 +200,37 @@ export default function LinkedIn() {
 
       {status?.connected && (
         <>
+          {/* AI Post Generator */}
+          <div className="card bg-base-100 shadow-sm border border-purple-200 p-5 mb-4 bg-gradient-to-br from-purple-50 to-blue-50">
+            <h2 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+              <Sparkles size={18} className="text-purple-500" /> צור פוסט עם AI
+            </h2>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                className="input input-bordered flex-1 text-right"
+                placeholder='לדוגמה: "על חשיבות תכנות בגיל צעיר" או "סיפור הצלחה של תלמיד"'
+                value={aiDirection}
+                onChange={(e) => { setAiDirection(e.target.value); setAiError(''); }}
+                onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
+              />
+              <button
+                onClick={handleGenerate}
+                disabled={aiGenerating || !aiDirection.trim()}
+                className="btn btn-sm bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 gap-1"
+              >
+                {aiGenerating
+                  ? <span className="loading loading-spinner loading-xs" />
+                  : <Sparkles size={14} />}
+                {aiGenerating ? 'כותב…' : 'צור פוסט'}
+              </button>
+            </div>
+            {aiError && <p className="text-red-500 text-sm mt-2">{aiError}</p>}
+            {!aiGenerating && !aiError && (
+              <p className="text-xs text-gray-400 mt-2">הכנס כיוון ו-AI יכתוב עבורך פוסט LinkedIn מותאם לאלגוריתם</p>
+            )}
+          </div>
+
           {/* Post composer */}
           <div className="card bg-base-100 shadow-sm border border-base-200 p-5 mb-6">
             <h2 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">

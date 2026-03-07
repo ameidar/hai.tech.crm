@@ -6,54 +6,6 @@ import { sendWelcomeNotifications, notifyAdminNewLead } from '../services/notifi
 import { handleStatusReply } from '../services/whatsapp-reminder.service.js';
 import { logAudit } from '../utils/audit.js';
 import { initiateVapiCall } from '../services/vapi.js';
-import OpenAI from 'openai';
-
-// ── Marketing Group Bot ──────────────────────────────────────────────────────
-const MARKETING_GROUP_ID = '120363407239963213@g.us';
-const GREEN_API_INSTANCE = process.env.GREEN_API_INSTANCE_ID || '7103104732';
-const GREEN_API_TOKEN = process.env.GREEN_API_TOKEN || '';
-const openaiClient = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
-
-async function sendGroupMessage(chatId: string, message: string) {
-  const url = `https://api.green-api.com/waInstance${GREEN_API_INSTANCE}/sendMessage/${GREEN_API_TOKEN}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chatId, message }),
-  });
-  return res.json();
-}
-
-async function handleMarketingGroupMessage(text: string) {
-  if (!openaiClient) return;
-  const prompt = text.replace(/^סוכן\s*/i, '').trim();
-  if (!prompt) {
-    await sendGroupMessage(MARKETING_GROUP_ID, '🤖 אני כאן! ספר לי מה לכתוב — לאיזה פלטפורמה ועם איזה מסר?');
-    return;
-  }
-
-  console.log(`[MarketingBot] Generating content for prompt: "${prompt}"`);
-
-  const completion = await openaiClient.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      {
-        role: 'system',
-        content: `אתה סוכן שיווקי מקצועי עבור חברת אוטומציות AI בשם Farward (פרוורד).
-החברה עוזרת לעסקים לאוטומט תהליכים, לנהל לקוחות ולשלוח תקשורת חכמה דרך WhatsApp ו-AI.
-כתוב תוכן שיווקי קצר, ממוקד ומשכנע בעברית.
-אם לא צוין פלטפורמה — כתוב לוואטסאפ.
-סיים תמיד עם קריאה לפעולה ואימוג'י מתאים.`,
-      },
-      { role: 'user', content: prompt },
-    ],
-    max_tokens: 600,
-  });
-
-  const reply = completion.choices[0]?.message?.content?.trim() || 'לא הצלחתי לייצר תוכן, נסה שוב.';
-  await sendGroupMessage(MARKETING_GROUP_ID, `🐾 *Farward AI:*\n\n${reply}`);
-}
-// ────────────────────────────────────────────────────────────────────────────
 
 export const webhookRouter = Router();
 
@@ -813,21 +765,7 @@ webhookRouter.post('/whatsapp-incoming', async (req: Request, res: Response) => 
     const chatId: string = body?.senderData?.chatId || '';
     const senderPhone: string = body?.senderData?.sender?.replace('@c.us', '') || '';
 
-    // Handle marketing group messages
-    if (chatId === MARKETING_GROUP_ID) {
-      const msgType2 = body?.messageData?.typeMessage;
-      if (msgType2 === 'textMessage') {
-        const text2: string = body?.messageData?.textMessageData?.textMessage || '';
-        if (/^סוכן/i.test(text2.trim())) {
-          handleMarketingGroupMessage(text2.trim()).catch(err =>
-            console.error('[MarketingBot] Error:', err.message)
-          );
-        }
-      }
-      return;
-    }
-
-    // Ignore all other group messages
+    // Ignore all group messages
     if (chatId.includes('@g.us')) return;
 
     // Extract phone number (remove @c.us)

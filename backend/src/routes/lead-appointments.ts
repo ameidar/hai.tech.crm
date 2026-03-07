@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
+import { findOrCreateCustomer } from '../utils/lead-customer.js';
 
 export const leadAppointmentsRouter = Router();
 leadAppointmentsRouter.use(authenticate);
@@ -41,6 +42,60 @@ leadAppointmentsRouter.get('/', async (req: Request, res: Response, next: NextFu
       data: items,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/lead-appointments — create manually from CRM
+leadAppointmentsRouter.post('/', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const {
+      customerName,
+      customerPhone,
+      customerEmail,
+      childName,
+      interest,
+      source = 'manual',
+      appointmentStatus = 'new',
+      appointmentDate,
+      appointmentTime,
+      appointmentNotes,
+      notes,
+    } = req.body;
+
+    if (!customerName && !customerPhone && !customerEmail) {
+      throw new AppError(400, 'name, phone, or email required');
+    }
+
+    // Find or create customer
+    const { customerId } = await findOrCreateCustomer({
+      name: customerName,
+      phone: customerPhone,
+      email: customerEmail,
+      source,
+      notes: notes || interest || 'יצירה ידנית מ-CRM',
+      childName,
+    });
+
+    const item = await prisma.leadAppointment.create({
+      data: {
+        customerId: customerId || null,
+        customerName: customerName || customerPhone || 'לא ידוע',
+        customerPhone: customerPhone || '',
+        customerEmail: customerEmail || null,
+        childName: childName || null,
+        interest: interest || null,
+        source,
+        appointmentStatus,
+        appointmentDate: appointmentDate ? new Date(appointmentDate) : null,
+        appointmentTime: appointmentTime || null,
+        appointmentNotes: appointmentNotes || null,
+      },
+      include: { customer: { select: { id: true, name: true } } },
+    });
+
+    res.status(201).json({ success: true, data: item });
   } catch (error) {
     next(error);
   }

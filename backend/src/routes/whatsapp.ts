@@ -6,6 +6,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { authenticate } from '../middleware/auth.js';
+import { findOrCreateCustomer } from '../utils/lead-customer.js';
 import { config } from '../config.js';
 import jwt from 'jsonwebtoken';
 import OpenAI from 'openai';
@@ -538,30 +539,29 @@ router.post('/webhook', async (req: Request, res: Response) => {
           // Auto-create lead if new conversation from unknown customer
           if (isNewConversation) {
             try {
-              // Normalize phone: 972XXXXXXXXX → 0XXXXXXXXX (9 digits after 972)
-              const digitsOnly = (p: string) => p.replace(/\D/g, '');
-              const last9 = (p: string) => digitsOnly(p).slice(-9);
-              const phoneLast9 = last9(phone);
-
-              // Check if customer with this phone exists
-              const allCustomers = await prisma.$queryRaw<{ phone: string }[]>`
-                SELECT phone FROM customers WHERE deleted_at IS NULL
-              `;
-              const knownCustomer = allCustomers.find(c => last9(c.phone) === phoneLast9);
-
               const waLink = `https://crm.orma-ai.com/whatsapp?conv=${conv.id}`;
+
+              // Find or create customer + add to communication history
+              const { customerId: waCustomerId, isNew } = await findOrCreateCustomer({
+                name: contactName || undefined,
+                phone,
+                source: 'whatsapp',
+                notes: `שיחת וואטסאפ. קישור: ${waLink}`,
+              });
+
               await prisma.leadAppointment.create({
                 data: {
+                  customerId: waCustomerId || null,
                   customerName: contactName || phone,
                   customerPhone: phone,
                   source: 'whatsapp',
-                  appointmentNotes: knownCustomer
-                    ? `לקוח קיים פנה שוב בוואטסאפ. לשיחה: ${waLink}`
-                    : `ליד חדש מוואטסאפ. לשיחה: ${waLink}`,
+                  appointmentNotes: isNew
+                    ? `ליד חדש מוואטסאפ. לשיחה: ${waLink}`
+                    : `לקוח קיים פנה שוב בוואטסאפ. לשיחה: ${waLink}`,
                   appointmentStatus: 'pending',
                 }
               });
-              console.log(`[WA] Lead created for ${knownCustomer ? 'existing' : 'new'} customer ${phone}`);
+              console.log(`[WA] Lead created for ${isNew ? 'new' : 'existing'} customer ${phone}`);
             } catch (e) {
               console.error('[WA] Lead creation error:', e);
             }

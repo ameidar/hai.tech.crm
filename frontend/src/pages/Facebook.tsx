@@ -96,20 +96,21 @@ export default function FacebookPage() {
         <h2 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
           <Sparkles size={18} className="text-purple-500" /> צור טקסט עם AI
         </h2>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            className="input input-bordered flex-1 text-right"
-            placeholder='לדוגמה: "ילד שלמד לתכנת ב-6 חודשים"'
+        <div className="flex flex-col gap-2">
+          <textarea
+            className="textarea textarea-bordered w-full text-right"
+            rows={3}
+            placeholder='לדוגמה: "ילד שלמד לתכנת ב-6 חודשים — לכתוב פוסט מעורר השראה להורים"'
             value={direction}
             onChange={e => setDirection(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && generateText()}
           />
-          <button onClick={generateText} disabled={generatingText || !direction.trim()}
-            className="btn btn-sm bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 gap-1">
-            {generatingText ? <span className="loading loading-spinner loading-xs" /> : <Sparkles size={14} />}
-            {generatingText ? 'כותב…' : 'צור'}
-          </button>
+          <div className="flex justify-start">
+            <button onClick={generateText} disabled={generatingText || !direction.trim()}
+              className="btn btn-sm bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 gap-1">
+              {generatingText ? <span className="loading loading-spinner loading-xs" /> : <Sparkles size={14} />}
+              {generatingText ? 'כותב…' : 'צור פוסט'}
+            </button>
+          </div>
         </div>
       </div>
 

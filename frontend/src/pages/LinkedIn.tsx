@@ -205,25 +205,26 @@ export default function LinkedIn() {
             <h2 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
               <Sparkles size={18} className="text-purple-500" /> צור פוסט עם AI
             </h2>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                className="input input-bordered flex-1 text-right"
-                placeholder='לדוגמה: "על חשיבות תכנות בגיל צעיר" או "סיפור הצלחה של תלמיד"'
+            <div className="flex flex-col gap-2">
+              <textarea
+                className="textarea textarea-bordered w-full text-right"
+                rows={3}
+                placeholder='לדוגמה: "על חשיבות תכנות בגיל צעיר" או "סיפור הצלחה של תלמיד — פוסט מקצועי עם תובנה"'
                 value={aiDirection}
                 onChange={(e) => { setAiDirection(e.target.value); setAiError(''); }}
-                onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
               />
-              <button
-                onClick={handleGenerate}
-                disabled={aiGenerating || !aiDirection.trim()}
-                className="btn btn-sm bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 gap-1"
-              >
-                {aiGenerating
-                  ? <span className="loading loading-spinner loading-xs" />
-                  : <Sparkles size={14} />}
-                {aiGenerating ? 'כותב…' : 'צור פוסט'}
-              </button>
+              <div className="flex justify-start">
+                <button
+                  onClick={handleGenerate}
+                  disabled={aiGenerating || !aiDirection.trim()}
+                  className="btn btn-sm bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 gap-1"
+                >
+                  {aiGenerating
+                    ? <span className="loading loading-spinner loading-xs" />
+                    : <Sparkles size={14} />}
+                  {aiGenerating ? 'כותב…' : 'צור פוסט'}
+                </button>
+              </div>
             </div>
             {aiError && <p className="text-red-500 text-sm mt-2">{aiError}</p>}
             {!aiGenerating && !aiError && (

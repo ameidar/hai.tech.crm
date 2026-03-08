@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Receipt } from 'lucide-react';
+import { Receipt, Video, ExternalLink, Loader2 } from 'lucide-react';
 import Modal from './ui/Modal';
 import MeetingExpenses from './MeetingExpenses';
 import { meetingStatusHebrew, activityTypeHebrew } from '../types';
 import { useInstructors } from '../hooks/useApi';
+import api from '../api/client';
 import type { Meeting, MeetingStatus, ActivityType } from '../types';
 
 interface MeetingEditModalProps {
@@ -32,6 +33,9 @@ export default function MeetingEditModal({
     startTime: '',
     endTime: '',
   });
+  const [zoomJoinUrl, setZoomJoinUrl] = useState<string | null>(null);
+  const [isCreatingZoom, setIsCreatingZoom] = useState(false);
+  const [zoomError, setZoomError] = useState<string | null>(null);
 
   useEffect(() => {
     if (meeting) {
@@ -45,8 +49,24 @@ export default function MeetingEditModal({
         startTime: formatTime(meeting.startTime),
         endTime: formatTime(meeting.endTime),
       });
+      setZoomJoinUrl(meeting.zoomJoinUrl || null);
+      setZoomError(null);
     }
   }, [meeting]);
+
+  const handleCreateZoom = async () => {
+    if (!meeting) return;
+    setIsCreatingZoom(true);
+    setZoomError(null);
+    try {
+      const res = await api.post(`/meetings/${meeting.id}/add-zoom`);
+      setZoomJoinUrl(res.data.zoomJoinUrl);
+    } catch (err: any) {
+      setZoomError(err?.response?.data?.message || 'שגיאה ביצירת לינק זום');
+    } finally {
+      setIsCreatingZoom(false);
+    }
+  };
 
   const formatTime = (time: string | Date | null | undefined): string => {
     if (!time) return '';
@@ -122,6 +142,43 @@ export default function MeetingEditModal({
             ))}
           </select>
         </div>
+
+        {/* Zoom — show when online */}
+        {formData.activityType === 'online' && (
+          <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 space-y-2">
+            <div className="flex items-center gap-2">
+              <Video size={16} className="text-blue-600" />
+              <span className="text-sm font-medium text-blue-800">זום</span>
+            </div>
+            {zoomJoinUrl ? (
+              <a
+                href={zoomJoinUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-sm text-blue-600 hover:underline break-all"
+              >
+                <ExternalLink size={13} />
+                {zoomJoinUrl}
+              </a>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={handleCreateZoom}
+                  disabled={isCreatingZoom}
+                  className="flex items-center gap-2 btn btn-primary btn-sm text-sm"
+                >
+                  {isCreatingZoom ? (
+                    <><Loader2 size={14} className="animate-spin" /> יוצר לינק זום...</>
+                  ) : (
+                    <><Video size={14} /> צור לינק זום</>
+                  )}
+                </button>
+                {zoomError && <p className="text-xs text-red-600">{zoomError}</p>}
+              </>
+            )}
+          </div>
+        )}
 
         {/* Instructor */}
         <div>

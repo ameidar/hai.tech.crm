@@ -186,7 +186,7 @@ export default function Analytics() {
                     <p className="text-4xl font-bold text-green-600">
                       {realtimeLoading ? <span className="text-2xl text-gray-400">...</span> : realtime.activeUsers}
                     </p>
-                    <p className="text-xs text-gray-400 mt-0.5">משתמשים פעילים ב-30 דקות האחרונות • מתעדכן כל 30 שניות</p>
+                    <p className="text-xs text-gray-400 mt-0.5">משתמשים פעילים ב-60 דקות האחרונות • מתעדכן כל 30 שניות</p>
                   </div>
                 </div>
                 {realtime.byPage?.length > 0 && (

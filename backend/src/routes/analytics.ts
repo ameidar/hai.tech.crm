@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { BetaAnalyticsDataClient } from '@google-analytics/data';
 import { authenticate } from '../middleware/auth';
+import { prisma } from '../utils/prisma.js';
 
 const router = Router();
 
@@ -180,17 +181,15 @@ router.get('/devices', authenticate, async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/analytics/realtime — active users in last 30 minutes
+// GET /api/analytics/realtime — active users in last 60 minutes
+// Combines GA4 realtime (max 30 min window) + CRM lastActive DB (60 min)
 router.get('/realtime', authenticate, async (req: Request, res: Response) => {
   try {
-    const client = getGAClient();
-
-    // Single call with page dimension — gives both total + breakdown
-    // Fall back gracefully when there are 0 active users (API may return INVALID_ARGUMENT)
-    let totalActive = 0;
+    // 1. GA realtime (website visitors, last 30 min)
+    let gaActive = 0;
     let byPage: { path: string; users: number }[] = [];
-
     try {
+      const client = getGAClient();
       const [pageReport] = await client.runRealtimeReport({
         property: `properties/${PROPERTY_ID}`,
         metrics: [{ name: 'activeUsers' }],
@@ -203,13 +202,22 @@ router.get('/realtime', authenticate, async (req: Request, res: Response) => {
           users: parseInt(r.metricValues![0].value || '0'),
         }))
         .filter(r => r.users > 0);
-      totalActive = byPage.reduce((sum, r) => sum + r.users, 0);
+      gaActive = byPage.reduce((sum, r) => sum + r.users, 0);
     } catch (innerErr: any) {
-      // INVALID_ARGUMENT or no data — treat as 0 active users
+      // GA returns INVALID_ARGUMENT when 0 active users — treat as 0
       console.log('GA realtime (no active users or dimension error):', innerErr.message);
     }
 
-    res.json({ activeUsers: totalActive, byPage });
+    // 2. CRM users active in last 60 minutes (from lastActive DB field)
+    const sixtyMinutesAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const crmActive = await prisma.user.count({
+      where: { lastActive: { gte: sixtyMinutesAgo } },
+    });
+
+    // Return the higher of the two sources
+    const totalActive = Math.max(gaActive, crmActive);
+
+    res.json({ activeUsers: totalActive, byPage, gaActive, crmActive });
   } catch (err: any) {
     console.error('GA realtime error:', err.message);
     res.status(500).json({ error: err.message });

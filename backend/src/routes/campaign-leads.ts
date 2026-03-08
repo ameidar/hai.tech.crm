@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma.js';
+import { findOrCreateCustomer } from '../utils/lead-customer.js';
 
 export const campaignLeadsRouter = Router();
 
@@ -23,17 +24,14 @@ campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunc
       return;
     }
 
-    // Find customer by phone to link the record (optional)
-    let customerId: string | undefined;
-    if (phone) {
-      const customer = await prisma.customer.findFirst({
-        where: {
-          phone: { contains: phone.replace(/\D/g, '').slice(-9) },
-          deletedAt: null,
-        },
-      });
-      customerId = customer?.id;
-    }
+    // Find or create customer + add to communication history
+    const { customerId, isNew } = await findOrCreateCustomer({
+      name,
+      phone,
+      email,
+      source: campaignId ? `campaign:${campaignId}` : 'campaign',
+      notes: interest ? `תחום עניין: ${interest}` : 'ליד מקמפיין',
+    });
 
     // Create LeadAppointment
     const lead = await prisma.leadAppointment.create({
@@ -46,6 +44,8 @@ campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunc
         ...(customerId && { customerId }),
       },
     });
+
+    console.log(`[Campaign] Lead ${lead.id} — ${isNew ? 'new' : 'existing'} customer ${customerId}`);
 
     // Also update campaign_recipients if recipient found by phone
     if (campaignId && phone) {

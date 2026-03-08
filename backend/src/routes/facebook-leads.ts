@@ -2,6 +2,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { findOrCreateCustomer } from '../utils/lead-customer.js';
+import { initiateVapiCall } from '../services/vapi.js';
 
 export const facebookLeadsRouter = Router();
 
@@ -212,7 +214,7 @@ async function saveLead(lead: any, formId?: string) {
   const childAge = fields['child_age'] || fields['גיל הילד'] || fields['גיל'] || null;
   const interest = fields['interest'] || fields['תחום עניין'] || fields['קורס'] || null;
 
-  await prisma.facebookLead.upsert({
+  const saved = await prisma.facebookLead.upsert({
     where: { fbLeadId: lead.id },
     update: {},
     create: {
@@ -234,4 +236,52 @@ async function saveLead(lead: any, formId?: string) {
       fbCreatedTime: lead.created_time ? new Date(lead.created_time) : null,
     },
   });
+
+  // Link to CRM customer (find or create) + trigger VAPI outbound call
+  if (saved && !saved.crmCustomerId) {
+    try {
+      const noteDetails = [
+        interest && `תחום עניין: ${interest}`,
+        childName && `ילד: ${childName}`,
+        childAge && `גיל: ${childAge}`,
+        city && `עיר: ${city}`,
+        lead.ad_name && `מודעה: ${lead.ad_name}`,
+        lead.campaign_name && `קמפיין: ${lead.campaign_name}`,
+      ].filter(Boolean).join(' | ');
+
+      const { customerId, isNew } = await findOrCreateCustomer({
+        name: fullName || undefined,
+        phone: phone || undefined,
+        email: email || undefined,
+        source: 'facebook',
+        notes: noteDetails || 'ליד מפייסבוק',
+        childName: childName || undefined,
+        childAge: childAge || undefined,
+      });
+
+      if (customerId) {
+        await prisma.facebookLead.update({
+          where: { id: saved.id },
+          data: { crmCustomerId: customerId },
+        });
+        console.log(`[FB] Lead ${lead.id} linked to ${isNew ? 'new' : 'existing'} customer ${customerId}`);
+      }
+
+      // Trigger VAPI outbound call if we have enough info
+      if (phone && fullName) {
+        await initiateVapiCall({
+          customerId: customerId || undefined,
+          customerName: fullName,
+          customerPhone: phone,
+          customerEmail: email || undefined,
+          childName: childName || undefined,
+          interest: interest || undefined,
+          source: 'facebook',
+        });
+        console.log(`[FB] VAPI call initiated for lead ${lead.id}`);
+      }
+    } catch (err) {
+      console.error('[FB] Customer linkage / VAPI error:', err);
+    }
+  }
 }

@@ -239,6 +239,30 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
       }
     }
 
+    // Create MeetingChangeRequest record so the dashboard shows it
+    if (isPendingRequest) {
+      try {
+        const requestType = status === 'pending_cancellation' ? 'cancel' : 'postpone';
+        // Avoid duplicate pending requests
+        const existingRequest = await prisma.meetingChangeRequest.findFirst({
+          where: { meetingId, type: requestType, status: 'pending' },
+        });
+        if (!existingRequest) {
+          await prisma.meetingChangeRequest.create({
+            data: {
+              meetingId,
+              instructorId: verification.instructorId,
+              type: requestType,
+              reason: requestReason || null,
+              status: 'pending',
+            },
+          });
+        }
+      } catch (reqErr) {
+        console.error('Failed to create MeetingChangeRequest:', reqErr);
+      }
+    }
+
     // Send WhatsApp notification to admin for pending requests
     if (isPendingRequest) {
       try {

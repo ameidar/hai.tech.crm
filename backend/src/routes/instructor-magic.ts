@@ -16,7 +16,8 @@ import {
 import { authenticate, adminOnly } from '../middleware/auth.js';
 import { sendWhatsAppMessage } from '../services/notifications.js';
 
-const ADMIN_PHONE = '0528746137';
+// WhatsApp group for pending meeting requests (postponements, cancellations)
+const ADMIN_PHONE = '120363353459332838@g.us';
 
 const router = Router();
 

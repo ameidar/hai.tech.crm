@@ -14,7 +14,11 @@ const emailTransporter = nodemailer.createTransport({
 const greenApiBaseUrl = `https://api.green-api.com/waInstance${config.greenApiInstanceId}`;
 
 // Format phone number for WhatsApp
+// Accepts phone number OR pre-formatted chatId (e.g. "120363353459332838@g.us")
 function formatPhoneForWhatsApp(phone: string): string {
+  // Already a formatted chat ID (group or individual)
+  if (phone.includes('@')) return phone;
+
   // Remove all non-digits
   let cleaned = phone.replace(/\D/g, '');
   

@@ -6,6 +6,46 @@ import { sendWelcomeNotifications, notifyAdminNewLead } from '../services/notifi
 import { handleStatusReply } from '../services/whatsapp-reminder.service.js';
 import { logAudit } from '../utils/audit.js';
 import { initiateVapiCall } from '../services/vapi.js';
+import rateLimit from 'express-rate-limit';
+
+// Rate limiter for public lead submission endpoint
+// Max 5 submissions per IP per 10 minutes
+const leadsRateLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'יותר מדי בקשות. נסה שוב מאוחר יותר.' },
+  keyGenerator: (req) => {
+    // Use X-Forwarded-For if behind nginx proxy
+    const forwarded = req.headers['x-forwarded-for'];
+    return (Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0]) || req.ip || 'unknown';
+  },
+});
+
+// Validate input to prevent XSS / injection via lead forms
+function validateLeadInput(name: string, phone?: string): string | null {
+  // Reject HTML/script tags or template injection patterns
+  const dangerousPattern = /<[^>]*>|\{\{|\}\}|<script|javascript:|on\w+=/i;
+  if (dangerousPattern.test(name)) {
+    return 'שם לא תקין';
+  }
+  if (name.trim().length < 2) {
+    return 'שם חייב להכיל לפחות 2 תווים';
+  }
+  if (phone) {
+    // Israeli phone: starts with 05 or +9725, 10 digits
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (cleanPhone.length > 0 && !(
+      (cleanPhone.startsWith('05') && cleanPhone.length === 10) ||
+      (cleanPhone.startsWith('9725') && cleanPhone.length === 12) ||
+      (cleanPhone.startsWith('9722') && cleanPhone.length === 11)
+    )) {
+      return 'מספר טלפון לא תקין';
+    }
+  }
+  return null;
+}
 
 export const webhookRouter = Router();
 
@@ -320,7 +360,7 @@ webhookRouter.get('/cycles/:id/meetings', async (req, res, next) => {
 
 // Create a lead/customer from external website
 // POST /api/webhook/leads
-webhookRouter.post('/leads', async (req, res, next) => {
+webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
   try {
     const {
       name,
@@ -344,6 +384,17 @@ webhookRouter.post('/leads', async (req, res, next) => {
     if (!phone && !email) {
       throw new AppError(400, 'Either phone or email is required');
     }
+
+    // Security: validate input against XSS/injection
+    const validationError = validateLeadInput(name, phone);
+    if (validationError) {
+      console.warn(`[WEBHOOK/leads] Rejected suspicious input from ${req.ip}: name="${name}", phone="${phone}"`);
+      throw new AppError(400, validationError);
+    }
+
+    // Log the incoming IP for audit
+    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip;
+    console.log(`[WEBHOOK/leads] New lead from IP ${clientIp}: ${name} / ${phone}`);
 
     // Validate phone format if provided
     if (phone) {
@@ -501,13 +552,14 @@ webhookRouter.post('/leads', async (req, res, next) => {
       }).catch(err => console.error('[WEBHOOK] Failed to initiate Vapi call:', err));
     }
 
-    // Create audit log
+    // Create audit log (includes IP + user-agent via req)
     logAudit({
       userId: 'system',
       userName: 'Website Lead',
       action: 'CREATE',
       entity: 'customer',
       entityId: customer.id,
+      req,
       newValue: {
         source,
         name: customer.name,
@@ -515,6 +567,7 @@ webhookRouter.post('/leads', async (req, res, next) => {
         email: customer.email,
         childName,
         interest,
+        clientIp,
       },
     }).catch(err => console.error('[WEBHOOK] Failed to create audit log:', err));
 

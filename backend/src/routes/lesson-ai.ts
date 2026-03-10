@@ -42,7 +42,7 @@ lessonAiRouter.post('/generate', async (req, res, next) => {
     const result = await generateLessonPlan({
       ...body,
       materialsFolderId,
-      userId: user.id,
+      userId: user.userId,
       userName: user.name,
     });
 

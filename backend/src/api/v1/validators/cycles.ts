@@ -15,7 +15,7 @@ export const cycleTypeEnum = z.enum(['private', 'institutional_per_child', 'inst
 /**
  * Cycle status enum
  */
-export const cycleStatusEnum = z.enum(['active', 'completed', 'cancelled']);
+export const cycleStatusEnum = z.enum(['active', 'completed', 'cancelled', 'frozen']);
 
 /**
  * Day of week enum

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Calendar, Clock, Users, CheckCircle, XCircle, AlertCircle, Video, ChevronLeft, BookOpen } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useMeetings, useUpdateMeeting } from '../hooks/useApi';
@@ -119,6 +119,12 @@ export default function InstructorDashboard() {
       <PageHeader
         title={`שלום, ${user?.name || 'מדריך'}`}
         subtitle="הפגישות שלך"
+        actions={
+          <Link to="/instructor/library" className="btn btn-secondary flex items-center gap-2 text-sm">
+            <BookOpen size={16} />
+            ספריית קורסים
+          </Link>
+        }
       />
 
       <div className="flex-1 p-6 overflow-auto bg-gray-50">

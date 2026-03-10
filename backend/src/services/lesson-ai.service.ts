@@ -4,7 +4,7 @@
  */
 
 import OpenAI from 'openai';
-import { listDriveFolder } from './google-drive.js';
+import { listDriveFolder, uploadLessonPlan } from './google-drive.js';
 import { prisma } from '../utils/prisma.js';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -26,6 +26,8 @@ export interface LessonPlanResult {
   usedDrive: boolean;
   driveFiles: string[];       // file names used as context
   logId: string;
+  driveFileId?: string;       // ID of uploaded file in Drive
+  driveFileUrl?: string;      // URL to open the uploaded file
 }
 
 /**
@@ -109,7 +111,43 @@ export async function generateLessonPlan(req: LessonPlanRequest): Promise<Lesson
 
   const content = completion.choices[0]?.message?.content || 'לא ניתן לייצר מערך שיעור כרגע.';
 
-  // 4. Save to DB
+  // 4. Build full content with instructor attribution header
+  const dateStr = new Date().toLocaleDateString('he-IL', {
+    timeZone: 'Asia/Jerusalem',
+    day: '2-digit', month: '2-digit', year: 'numeric',
+  });
+  const attribution = [
+    `נוצר על ידי: ${req.userName || req.userId}`,
+    `תאריך: ${dateStr}`,
+    `קורס: ${req.courseName}`,
+    `גיל הלומדים: ${req.ageGroup}`,
+    req.cycleName ? `מחזור: ${req.cycleName}` : null,
+    req.topic ? `נושא: ${req.topic}` : null,
+    '---',
+    '',
+  ].filter(Boolean).join('\n');
+
+  const fullContent = attribution + content;
+
+  // 5. Upload to Google Drive (best effort — don't fail if Drive upload fails)
+  let driveFileId: string | undefined;
+  let driveFileUrl: string | undefined;
+  try {
+    const safeCourseName = req.courseName.replace(/[^א-תa-zA-Z0-9 ]/g, '').trim();
+    const title = `מערך שיעור — ${safeCourseName} — ${req.userName || 'מדריך'} — ${dateStr}`;
+    const uploaded = await uploadLessonPlan({
+      title,
+      content: fullContent,
+      courseFolderId: req.materialsFolderId,
+    });
+    driveFileId = uploaded.fileId;
+    driveFileUrl = uploaded.webViewLink;
+    console.log(`[LessonAI] Uploaded to Drive: ${driveFileId}`);
+  } catch (err) {
+    console.error('[LessonAI] Drive upload failed (non-fatal):', err);
+  }
+
+  // 6. Save to DB
   const log = await prisma.aiLessonLog.create({
     data: {
       userId: req.userId,
@@ -121,9 +159,9 @@ export async function generateLessonPlan(req: LessonPlanRequest): Promise<Lesson
       topic: req.topic,
       usedDrive,
       driveFiles: usedDrive ? JSON.stringify(driveFiles.slice(0, 20)) : null,
-      response: content,
+      response: fullContent,
     },
   });
 
-  return { content, usedDrive, driveFiles, logId: log.id };
+  return { content: fullContent, usedDrive, driveFiles, logId: log.id, driveFileId, driveFileUrl };
 }

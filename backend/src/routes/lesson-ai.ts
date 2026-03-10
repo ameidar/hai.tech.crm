@@ -51,6 +51,8 @@ lessonAiRouter.post('/generate', async (req, res, next) => {
       usedDrive: result.usedDrive,
       driveFiles: result.driveFiles,
       logId: result.logId,
+      driveFileId: result.driveFileId,
+      driveFileUrl: result.driveFileUrl,
     });
   } catch (error) {
     next(error);

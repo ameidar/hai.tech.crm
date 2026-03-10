@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Sparkles, BookOpen, ChevronDown, Loader2, Copy, Check, AlertCircle } from 'lucide-react';
+import { Sparkles, BookOpen, ChevronDown, Loader2, Copy, Check, AlertCircle, ExternalLink } from 'lucide-react';
 import api from '../../api/client';
 import type { Course } from '../../types';
 
@@ -25,6 +25,8 @@ interface GenerateResponse {
   usedDrive: boolean;
   driveFiles: string[];
   logId: string;
+  driveFileId?: string;
+  driveFileUrl?: string;
 }
 
 const AGE_GROUPS = [
@@ -240,23 +242,36 @@ export default function MobileAiAssistant() {
         {result && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             {/* Result header */}
-            <div className="bg-gradient-to-l from-purple-50 to-blue-50 px-4 py-3 flex items-center justify-between border-b">
-              <div>
+            <div className="bg-gradient-to-l from-purple-50 to-blue-50 px-4 py-3 border-b">
+              <div className="flex items-center justify-between mb-1">
                 <p className="font-medium text-gray-800 text-sm">✅ מערך שיעור מוכן</p>
-                {result.usedDrive && (
-                  <p className="text-xs text-green-600 mt-0.5">📁 נוצר בהתבסס על {result.driveFiles.length} חומרים מ-Drive</p>
-                )}
-                {!result.usedDrive && (
-                  <p className="text-xs text-purple-600 mt-0.5">✨ נוצר מידע AI (אין חומרים ב-Drive לקורס זה)</p>
-                )}
+                <button
+                  onClick={handleCopy}
+                  className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 transition-colors px-2 py-1 rounded-lg hover:bg-blue-50"
+                >
+                  {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                  {copied ? 'הועתק!' : 'העתק'}
+                </button>
               </div>
-              <button
-                onClick={handleCopy}
-                className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 transition-colors px-2 py-1 rounded-lg hover:bg-blue-50"
-              >
-                {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-                {copied ? 'הועתק!' : 'העתק'}
-              </button>
+              {result.usedDrive && (
+                <p className="text-xs text-green-600">📁 נוצר בהתבסס על {result.driveFiles.length} חומרים מ-Drive</p>
+              )}
+              {!result.usedDrive && (
+                <p className="text-xs text-purple-600">✨ נוצר מידע AI</p>
+              )}
+              {result.driveFileUrl ? (
+                <a
+                  href={result.driveFileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1.5 flex items-center gap-1.5 text-xs text-blue-600 hover:underline"
+                >
+                  <ExternalLink size={12} />
+                  נשמר ב-Drive — לחץ לפתיחה
+                </a>
+              ) : (
+                <p className="text-xs text-gray-400 mt-1">⏳ שמירה ל-Drive בתהליך...</p>
+              )}
             </div>
 
             {/* Content */}

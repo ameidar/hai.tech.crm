@@ -10,6 +10,7 @@ import { authRouter } from './routes/auth.js';
 import { customersRouter } from './routes/customers.js';
 import { studentsRouter } from './routes/students.js';
 import { coursesRouter } from './routes/courses.js';
+import { lessonAiRouter } from './routes/lesson-ai.js';
 import { branchesRouter } from './routes/branches.js';
 import { instructorsRouter } from './routes/instructors.js';
 import { inviteRouter } from './routes/invite.js';
@@ -184,6 +185,7 @@ app.use('/api/meeting-status', publicMeetingRouter); // Public meeting status up
 app.use('/api/customers', customersRouter);
 app.use('/api/students', studentsRouter);
 app.use('/api/courses', coursesRouter);
+app.use('/api/lesson-ai', lessonAiRouter);
 app.use('/api/branches', branchesRouter);
 app.use('/api/instructors', instructorsRouter);
 app.use('/api/messaging', messagingRouter);

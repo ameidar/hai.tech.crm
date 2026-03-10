@@ -49,6 +49,7 @@ import MobileMeetingDetail from './pages/instructor/MobileMeetingDetail';
 import MobileAttendanceOverview from './pages/instructor/MobileAttendanceOverview';
 import MobileProfile from './pages/instructor/MobileProfile';
 import MobileCourseLibrary from './pages/instructor/MobileCourseLibrary';
+import MobileAiAssistant from './pages/instructor/MobileAiAssistant';
 import InstructorMagicMeeting from './pages/InstructorMagicMeeting';
 
 const queryClient = new QueryClient({
@@ -135,6 +136,7 @@ function AppRoutes() {
           <Route path="meeting/:id" element={<MobileMeetingDetail />} />
           <Route path="attendance" element={<MobileAttendanceOverview />} />
           <Route path="library" element={<MobileCourseLibrary />} />
+          <Route path="ai" element={<MobileAiAssistant />} />
           <Route path="profile" element={<MobileProfile />} />
         </Route>
       ) : null}
@@ -191,6 +193,8 @@ function AppRoutes() {
         <Route path="instructor/meeting/:id" element={<MobileMeetingDetail />} />
         {/* Course library — accessible for all instructors */}
         <Route path="instructor/library" element={<MobileCourseLibrary />} />
+        {/* AI Assistant — accessible for all instructors */}
+        <Route path="instructor/ai" element={<MobileAiAssistant />} />
       </Route>
     </Routes>
   );

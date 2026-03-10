@@ -997,3 +997,20 @@ model Payment {
 
   @@map("payments")
 }
+
+model AiLessonLog {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  userName    String?  @map("user_name")
+  courseId    String?  @map("course_id")
+  courseName  String?  @map("course_name")
+  cycleName   String?  @map("cycle_name")
+  ageGroup    String?  @map("age_group")
+  topic       String?
+  usedDrive   Boolean  @default(false) @map("used_drive")
+  driveFiles  String?  @map("drive_files")   // JSON: array of file names referenced
+  response    String   @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("ai_lesson_logs")
+}

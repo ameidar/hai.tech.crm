@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Calendar, Clock, Users, CheckCircle, XCircle, AlertCircle, Video, ChevronLeft, BookOpen } from 'lucide-react';
+import { Calendar, Clock, Users, CheckCircle, XCircle, AlertCircle, Video, ChevronLeft, BookOpen, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useMeetings, useUpdateMeeting } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
@@ -120,10 +120,16 @@ export default function InstructorDashboard() {
         title={`שלום, ${user?.name || 'מדריך'}`}
         subtitle="הפגישות שלך"
         actions={
-          <Link to="/instructor/library" className="btn btn-secondary flex items-center gap-2 text-sm">
-            <BookOpen size={16} />
-            ספריית קורסים
-          </Link>
+          <div className="flex gap-2">
+            <Link to="/instructor/ai" className="btn btn-primary flex items-center gap-2 text-sm bg-gradient-to-l from-purple-600 to-blue-600 border-0">
+              <Sparkles size={16} />
+              סוכן AI
+            </Link>
+            <Link to="/instructor/library" className="btn btn-secondary flex items-center gap-2 text-sm">
+              <BookOpen size={16} />
+              ספריה
+            </Link>
+          </div>
         }
       />
 

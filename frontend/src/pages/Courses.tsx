@@ -237,6 +237,9 @@ export default function Courses() {
                       </td>
                       <td className="p-3">
                         <div className="flex items-center gap-1">
+                          {course.materialsFolderId && (
+                            <button onClick={() => setViewMaterialsCourse(course)} className="p-1.5 hover:bg-yellow-100 rounded transition-colors text-yellow-600" title="חומרי לימוד"><FolderOpen size={14} /></button>
+                          )}
                           <button onClick={() => setEditingCourse(course)} className="p-1.5 hover:bg-blue-100 rounded transition-colors text-blue-600" title="עריכה"><Edit size={14} /></button>
                           <button onClick={() => setDeleteConfirm(course)} className="p-1.5 hover:bg-red-100 rounded transition-colors text-red-500" title="מחיקה"><Trash2 size={14} /></button>
                         </div>

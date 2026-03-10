@@ -4,6 +4,7 @@ import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createCourseSchema, updateCourseSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
+import { listDriveFolder, getDriveViewUrl } from '../services/google-drive.js';
 
 export const coursesRouter = Router();
 
@@ -115,6 +116,32 @@ coursesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     }
 
     res.json(course);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/courses/:id/materials — list Drive files for a course
+coursesRouter.get('/:id/materials', async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+    const subfolder = req.query.folder as string | undefined;
+
+    const course = await prisma.course.findUnique({ where: { id } });
+    if (!course) throw new AppError(404, 'Course not found');
+    if (!course.materialsFolderId) {
+      return res.json({ files: [], folderId: null, folderUrl: null });
+    }
+
+    const targetFolder = subfolder || course.materialsFolderId;
+    const files = await listDriveFolder(targetFolder);
+
+    res.json({
+      files,
+      folderId: targetFolder,
+      folderUrl: getDriveViewUrl(targetFolder),
+      courseName: course.name,
+    });
   } catch (error) {
     next(error);
   }

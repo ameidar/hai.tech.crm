@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Plus, BookOpen, RefreshCcw, Search, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown, Edit, Trash2, CheckSquare, Square, X, Download } from 'lucide-react';
+import { Plus, BookOpen, RefreshCcw, Search, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown, Edit, Trash2, CheckSquare, Square, X, Download, FolderOpen } from 'lucide-react';
+import { CourseMaterials } from '../components/CourseMaterials';
 import { useCourses, useCreateCourse, useUpdateCourse, useDeleteCourse } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -37,6 +38,7 @@ export default function Courses() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Course | null>(null);
+  const [viewMaterialsCourse, setViewMaterialsCourse] = useState<Course | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchFilter, setSearchFilter] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() =>
@@ -181,6 +183,7 @@ export default function Courses() {
                   onDelete={() => setDeleteConfirm(course)}
                   isSelected={selectedIds.has(course.id)}
                   onToggleSelect={() => toggleSelect(course.id)}
+                  onViewMaterials={() => setViewMaterialsCourse(course)}
                 />
               ))}
             </div>
@@ -269,17 +272,29 @@ export default function Courses() {
         warningText={(deleteConfirm?._count?.cycles || 0) > 0 ? `לקורס זה יש ${deleteConfirm?._count?.cycles} מחזורים. לא ניתן למחוק קורס עם מחזורים פעילים.` : undefined}
         isLoading={deleteCourse.isPending}
       />
+      <Modal
+        isOpen={!!viewMaterialsCourse}
+        onClose={() => setViewMaterialsCourse(null)}
+        title={`📚 חומרי לימוד — ${viewMaterialsCourse?.name}`}
+      >
+        {viewMaterialsCourse && (
+          <div className="p-4">
+            <CourseMaterials courseId={viewMaterialsCourse.id} courseName={viewMaterialsCourse.name} />
+          </div>
+        )}
+      </Modal>
     </>
   );
 }
 
 // Course Card
-function CourseCard({ course, onEdit, onDelete, isSelected, onToggleSelect }: {
+function CourseCard({ course, onEdit, onDelete, isSelected, onToggleSelect, onViewMaterials }: {
   course: Course;
   onEdit: () => void;
   onDelete: () => void;
   isSelected: boolean;
   onToggleSelect: () => void;
+  onViewMaterials: () => void;
 }) {
   return (
     <div className={`card hover:shadow-md transition-shadow relative ${isSelected ? 'ring-2 ring-blue-400' : ''}`}>
@@ -306,6 +321,11 @@ function CourseCard({ course, onEdit, onDelete, isSelected, onToggleSelect }: {
             <span className="group-hover:underline">{course._count?.cycles || 0} מחזורים</span>
           </Link>
           <div className="flex items-center gap-1">
+            {course.materialsFolderId && (
+              <button onClick={onViewMaterials} className="p-1.5 hover:bg-yellow-100 rounded transition-colors text-yellow-600" title="חומרי לימוד">
+                <FolderOpen size={14} />
+              </button>
+            )}
             <button onClick={onEdit} className="p-1.5 hover:bg-blue-100 rounded transition-colors text-blue-600" title="עריכה"><Edit size={14} /></button>
             <button onClick={onDelete} className="p-1.5 hover:bg-red-100 rounded transition-colors text-red-500" title="מחיקה"><Trash2 size={14} /></button>
           </div>
@@ -330,6 +350,7 @@ function CourseForm({ course, onSubmit, onCancel, isLoading }: CourseFormProps) 
     targetAudience: course?.targetAudience || '',
     category: course?.category || 'programming',
     isActive: course?.isActive ?? true,
+    materialsFolderId: course?.materialsFolderId || '',
   });
 
   const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); onSubmit(formData); };
@@ -362,6 +383,18 @@ function CourseForm({ course, onSubmit, onCancel, isLoading }: CourseFormProps) 
       <div className="flex items-center gap-2">
         <input type="checkbox" id="isActive" checked={formData.isActive} onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
         <label htmlFor="isActive" className="text-sm text-gray-700">קורס פעיל</label>
+      </div>
+      <div>
+        <label className="form-label">📚 תיקיית חומרי לימוד (Google Drive ID)</label>
+        <input
+          type="text"
+          value={formData.materialsFolderId}
+          onChange={(e) => setFormData({ ...formData, materialsFolderId: e.target.value })}
+          className="form-input font-mono text-sm"
+          placeholder="לדוגמה: 1t6aCUeoLtMLnZa3bkQwlg1OeSHJ-Myge"
+          dir="ltr"
+        />
+        <p className="text-xs text-gray-400 mt-1">מזהה תיקיית Drive (מה-URL אחרי /folders/)</p>
       </div>
       <div className="flex justify-end gap-3 pt-4 border-t">
         <button type="button" onClick={onCancel} className="btn btn-secondary">ביטול</button>

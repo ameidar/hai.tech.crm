@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Clock, Users, CheckCircle, XCircle, AlertCircle, Video, ChevronLeft } from 'lucide-react';
+import { Calendar, Clock, Users, CheckCircle, XCircle, AlertCircle, Video, ChevronLeft, BookOpen } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useMeetings, useUpdateMeeting } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import Modal from '../components/ui/Modal';
+import { CourseMaterials } from '../components/CourseMaterials';
 import { meetingStatusHebrew, dayOfWeekHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
@@ -13,6 +14,7 @@ export default function InstructorDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
+  const [materialsCourse, setMaterialsCourse] = useState<{ id: string; name: string } | null>(null);
   const [viewMode, setViewMode] = useState<'today' | 'week' | 'all'>('today');
   const [cycleFilter, setCycleFilter] = useState<string>('all');
 
@@ -227,6 +229,16 @@ export default function InstructorDashboard() {
                     }`}>
                       {meetingStatusHebrew[meeting.status]}
                     </span>
+                    {meeting.cycle?.course?.materialsFolderId && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setMaterialsCourse({ id: meeting.cycle!.course!.id, name: meeting.cycle!.course!.name }); }}
+                        className="btn btn-secondary text-sm flex items-center gap-1"
+                        title="חומרי לימוד"
+                      >
+                        <BookOpen size={14} />
+                        חומרים
+                      </button>
+                    )}
                     {meeting.cycle?.activityType === 'online' && meeting.zoomJoinUrl && meeting.status === 'scheduled' && (
                       <a
                         href={meeting.zoomJoinUrl}
@@ -277,6 +289,19 @@ export default function InstructorDashboard() {
             onCancel={() => setSelectedMeeting(null)}
             isLoading={updateMeeting.isPending}
           />
+        )}
+      </Modal>
+
+      {/* Course Materials Modal */}
+      <Modal
+        isOpen={!!materialsCourse}
+        onClose={() => setMaterialsCourse(null)}
+        title={`📚 חומרי לימוד — ${materialsCourse?.name}`}
+      >
+        {materialsCourse && (
+          <div className="p-4">
+            <CourseMaterials courseId={materialsCourse.id} courseName={materialsCourse.name} />
+          </div>
         )}
       </Modal>
     </div>

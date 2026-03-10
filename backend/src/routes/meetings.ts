@@ -869,6 +869,54 @@ meetingsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
   }
 });
 
+// Add Zoom meeting to an existing meeting
+meetingsRouter.post('/:id/add-zoom', managerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+
+    const meeting = await prisma.meeting.findUnique({
+      where: { id },
+      include: { cycle: true },
+    });
+    if (!meeting) throw new AppError(404, 'Meeting not found');
+
+    const duration = meeting.cycle?.durationMinutes || 60;
+    const scheduledDate = meeting.scheduledDate;
+    const startTime = meeting.startTime;
+
+    // Build Israel-time start datetime
+    const dateStr = scheduledDate.toISOString().split('T')[0];
+    const sHour = startTime.getUTCHours();
+    const sMin = startTime.getUTCMinutes();
+    const israelDateStr = `${dateStr}T${String(sHour).padStart(2,'0')}:${String(sMin).padStart(2,'0')}:00+02:00`;
+    const meetingDate = new Date(israelDateStr);
+
+    const availableUser = await zoomService.findAvailableUser(meetingDate, duration + 10);
+    if (!availableUser) throw new AppError(503, 'No available Zoom host found');
+
+    const zoomMeeting = await zoomService.createMeeting(availableUser.id, {
+      topic: meeting.cycle?.name || 'שיעור',
+      startTime: meetingDate,
+      duration: duration + 10,
+    });
+
+    const updated = await prisma.meeting.update({
+      where: { id },
+      data: {
+        zoomMeetingId: zoomMeeting.id?.toString(),
+        zoomJoinUrl: zoomMeeting.join_url,
+        zoomStartUrl: zoomMeeting.start_url,
+        zoomPassword: zoomMeeting.password,
+        zoomHostKey: zoomMeeting.host_key,
+        zoomHostEmail: availableUser.email,
+      },
+      include: { cycle: true, instructor: true },
+    });
+
+    res.json({ success: true, zoomJoinUrl: zoomMeeting.join_url, zoomPassword: zoomMeeting.password, meeting: updated });
+  } catch (err) { next(err); }
+});
+
 // Recalculate meeting costs
 meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) => {
   try {

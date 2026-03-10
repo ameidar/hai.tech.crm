@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '../lib/api';
+import api from '../api/client';
 import { FolderOpen, FileText, Video, Music, ExternalLink, ChevronRight, ChevronLeft, Loader2, AlertCircle } from 'lucide-react';
 
 interface DriveFile {
@@ -60,9 +60,10 @@ export function CourseMaterials({ courseId, courseName, compact = false }: Cours
 
   const { data, isLoading, error } = useQuery<MaterialsResponse>({
     queryKey: ['course-materials', courseId, currentFolder],
-    queryFn: () => {
+    queryFn: async (): Promise<MaterialsResponse> => {
       const url = `/courses/${courseId}/materials${currentFolder ? `?folder=${currentFolder}` : ''}`;
-      return apiClient.get(url).then(r => r.data);
+      const res = await api.get<MaterialsResponse>(url);
+      return res.data;
     },
     staleTime: 5 * 60 * 1000, // 5 min cache
   });

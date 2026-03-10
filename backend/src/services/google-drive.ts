@@ -5,10 +5,10 @@
 
 import { google } from 'googleapis';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const SA_PATH = path.join(__dirname, '../../credentials/google-drive-sa.json');
+// In Docker container, process.cwd() = /app (the working directory)
+// credentials/ is at /app/credentials/google-drive-sa.json
+const SA_PATH = path.join(process.cwd(), 'credentials/google-drive-sa.json');
 
 export interface DriveFile {
   id: string;

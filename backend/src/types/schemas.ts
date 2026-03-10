@@ -143,7 +143,7 @@ export const createCycleSchema = z.object({
 });
 
 export const updateCycleSchema = createCycleSchema.partial().extend({
-  status: z.enum(['active', 'completed', 'cancelled']).optional(),
+  status: z.enum(['active', 'completed', 'cancelled', 'frozen']).optional(),
   completedMeetings: z.number().int().nonnegative().optional(),
   remainingMeetings: z.number().int().nonnegative().optional(),
 });
@@ -232,7 +232,7 @@ export const bulkAttendanceSchema = z.object({
 export const bulkUpdateCyclesSchema = z.object({
   ids: z.array(z.string().min(1)).min(1, 'At least one cycle ID is required'),
   data: z.object({
-    status: z.enum(['active', 'completed', 'cancelled']).optional(),
+    status: z.enum(['active', 'completed', 'cancelled', 'frozen']).optional(),
     instructorId: z.string().min(1).optional(),
     courseId: z.string().min(1).optional(),
     branchId: z.string().min(1).optional(),

@@ -28,7 +28,8 @@ function getDriveClient() {
   try {
     const auth = new google.auth.GoogleAuth({
       keyFile: SA_PATH,
-      scopes: ['https://www.googleapis.com/auth/drive.readonly'],
+      // Full drive access needed for creating/uploading files
+      scopes: ['https://www.googleapis.com/auth/drive'],
     });
     driveClient = google.drive({ version: 'v3', auth });
     return driveClient;
@@ -70,6 +71,78 @@ export async function listDriveFolder(folderId: string): Promise<DriveFile[]> {
  */
 export function getDriveViewUrl(fileId: string): string {
   return `https://drive.google.com/open?id=${fileId}`;
+}
+
+const AI_FOLDER_NAME = '📚 מערכי שיעור AI';
+const SHARED_DRIVE_ID = '0AOtxV5IPmcnqUk9PVA';
+
+/**
+ * Find or create a subfolder by name inside a parent folder
+ */
+async function findOrCreateFolder(parentId: string, name: string): Promise<string> {
+  const drive = getDriveClient();
+
+  // Try to find existing folder
+  const existing = await drive.files.list({
+    q: `'${parentId}' in parents and name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    fields: 'files(id)',
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+  });
+
+  if (existing.data.files && existing.data.files.length > 0) {
+    return existing.data.files[0].id!;
+  }
+
+  // Create new folder
+  const created = await drive.files.create({
+    requestBody: {
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentId],
+    },
+    supportsAllDrives: true,
+    fields: 'id',
+  });
+
+  return created.data.id!;
+}
+
+/**
+ * Upload a lesson plan as a Google Doc to Drive
+ * Places it in: [courseFolderId]/📚 מערכי שיעור AI/[filename]
+ * or in root Shared Drive AI folder if no course folder
+ */
+export async function uploadLessonPlan(params: {
+  title: string;
+  content: string;
+  courseFolderId?: string | null;
+}): Promise<{ fileId: string; webViewLink: string }> {
+  const drive = getDriveClient();
+
+  // Determine parent folder
+  const parentId = params.courseFolderId || SHARED_DRIVE_ID;
+  const aiFolderId = await findOrCreateFolder(parentId, AI_FOLDER_NAME);
+
+  // Create Google Doc from plain text
+  const file = await drive.files.create({
+    requestBody: {
+      name: params.title,
+      mimeType: 'application/vnd.google-apps.document',
+      parents: [aiFolderId],
+    },
+    media: {
+      mimeType: 'text/plain',
+      body: params.content,
+    },
+    supportsAllDrives: true,
+    fields: 'id, webViewLink',
+  });
+
+  return {
+    fileId: file.data.id!,
+    webViewLink: file.data.webViewLink || `https://drive.google.com/open?id=${file.data.id}`,
+  };
 }
 
 /**

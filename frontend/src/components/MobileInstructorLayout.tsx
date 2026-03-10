@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Calendar, ClipboardCheck, User, LogOut } from 'lucide-react';
+import { Calendar, ClipboardCheck, User, LogOut, BookOpen, Sparkles } from 'lucide-react';
 
 /**
  * Mobile-optimized layout for instructors
@@ -72,6 +72,38 @@ export default function MobileInstructorLayout() {
             )}
           </NavLink>
           
+          <NavLink
+            to="/instructor/library"
+            className={({ isActive }) =>
+              `flex flex-col items-center justify-center flex-1 h-full transition-colors ${
+                isActive ? 'text-blue-600' : 'text-gray-500'
+              }`
+            }
+          >
+            {({ isActive }) => (
+              <>
+                <BookOpen size={24} strokeWidth={isActive ? 2.5 : 2} />
+                <span className="text-xs mt-1 font-medium">ספריה</span>
+              </>
+            )}
+          </NavLink>
+
+          <NavLink
+            to="/instructor/ai"
+            className={({ isActive }) =>
+              `flex flex-col items-center justify-center flex-1 h-full transition-colors ${
+                isActive ? 'text-purple-600' : 'text-gray-500'
+              }`
+            }
+          >
+            {({ isActive }) => (
+              <>
+                <Sparkles size={24} strokeWidth={isActive ? 2.5 : 2} />
+                <span className="text-xs mt-1 font-medium">AI</span>
+              </>
+            )}
+          </NavLink>
+
           <NavLink
             to="/instructor/profile"
             className={({ isActive }) =>

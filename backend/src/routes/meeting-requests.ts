@@ -5,7 +5,7 @@ import { authenticate } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { sendEmail } from '../services/email/sender.js';
 import { config } from '../config.js';
-import { addReplacementMeeting } from '../services/replacement-meeting.js';
+import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
 
 export const meetingRequestsRouter = Router();
 
@@ -200,7 +200,7 @@ meetingRequestsRouter.put('/:id/approve', async (req, res, next) => {
 
     const request = await prisma.meetingChangeRequest.findUnique({
       where: { id: req.params.id },
-      include: { meeting: true },
+      include: { meeting: { include: { cycle: true } } },
     });
 
     if (!request) {
@@ -230,10 +230,15 @@ meetingRequestsRouter.put('/:id/approve', async (req, res, next) => {
           statusUpdatedById: req.user!.userId,
         },
       });
-      // Add replacement meeting at end of cycle (fire & forget — Zoom setup may take time)
-      addReplacementMeeting(request.meetingId, req.user!.userId).catch(err => {
-        console.error('[ReplacementMeeting] Failed to add replacement meeting:', err);
-      });
+      // Add replacement meeting at end of cycle (with retry + admin notification on failure)
+      const replacementId = await addReplacementMeetingWithRetry(
+        request.meetingId,
+        req.user!.userId,
+        request.meeting?.cycle?.name ?? 'לא ידוע'
+      );
+      if (!replacementId) {
+        console.error('[ReplacementMeeting] All retries failed for meeting-request approval:', request.meetingId);
+      }
     }
     // 'replacement' type — just mark as approved, admin handles manually
 

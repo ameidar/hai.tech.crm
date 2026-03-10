@@ -3,7 +3,7 @@ import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { updateMeetingSchema, postponeMeetingSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
-import { addReplacementMeeting } from '../services/replacement-meeting.js';
+import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { zoomService } from '../services/zoom.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
@@ -677,11 +677,14 @@ meetingsRouter.put('/:id', async (req, res, next) => {
       topic: meeting.topic,
       notes: meeting.notes,
     };
-    // Trigger replacement meeting when admin sets status to 'postponed' (fire & forget)
+    // Trigger replacement meeting when admin sets status to 'postponed'
     if (data.status === 'postponed' && existingMeeting.status !== 'postponed') {
-      addReplacementMeeting(id, req.user!.userId).catch(err => {
-        console.error('[ReplacementMeeting] Failed after PUT status=postponed:', err);
-      });
+      const replacementId = await addReplacementMeetingWithRetry(id, req.user!.userId, existingMeeting.cycle?.name ?? 'לא ידוע');
+      if (!replacementId) {
+        console.error('[ReplacementMeeting] All retries failed for meeting', id, '— admin was notified via WhatsApp');
+      } else {
+        console.log('[ReplacementMeeting] Created replacement', replacementId, 'for postponed meeting', id);
+      }
     }
 
     await logUpdateAudit({
@@ -1339,9 +1342,10 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
 
         // Trigger replacement meeting when admin bulk-sets status to 'postponed'
         if (status === 'postponed' && existingMeeting.status !== 'postponed') {
-          addReplacementMeeting(id, req.user!.userId).catch(err => {
-            console.error('[ReplacementMeeting] Failed after bulk status=postponed:', err);
-          });
+          const replacementId = await addReplacementMeetingWithRetry(id, req.user!.userId);
+          if (!replacementId) {
+            errors.push(`Meeting ${id}: replacement meeting creation failed — admin notified`);
+          }
         }
 
         updated++;

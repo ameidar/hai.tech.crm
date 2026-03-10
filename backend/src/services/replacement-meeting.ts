@@ -12,13 +12,27 @@
 import { prisma } from '../utils/prisma.js';
 import { zoomService } from './zoom.js';
 import { isHoliday, isShabbat } from '../utils/holidays.js';
+import { sendWhatsAppMessage } from './notifications.js';
+
+const ADMIN_PHONE = process.env.ADMIN_PHONE || '0528746137';
+
+/** Send a WhatsApp alert to admin when replacement meeting creation fails */
+async function notifyReplacementFailed(postponedMeetingId: string, cycleName: string, error: unknown): Promise<void> {
+  const msg = `⚠️ כשל ביצירת פגישה חלופית!\nמחזור: ${cycleName}\nפגישה שנדחתה: ${postponedMeetingId}\nשגיאה: ${String(error).slice(0, 200)}\nבדוק במערכת CRM!`;
+  await sendWhatsAppMessage(ADMIN_PHONE, msg).catch(() => {}); // best effort
+}
 
 /**
  * Add a replacement meeting to the end of the cycle when a meeting is postponed.
  * @param postponedMeetingId - the meeting that was just set to 'postponed'
  * @param actorUserId - the user approving / triggering the postpone
  */
-export async function addReplacementMeeting(postponedMeetingId: string, actorUserId: string): Promise<void> {
+/**
+ * Add a replacement meeting to the end of the cycle when a meeting is postponed.
+ * Returns the new replacement meeting ID on success.
+ * Throws on failure (callers should await and handle errors — do NOT use fire & forget).
+ */
+export async function addReplacementMeeting(postponedMeetingId: string, actorUserId: string): Promise<string> {
   // Load the postponed meeting with cycle details
   const postponed = await prisma.meeting.findUnique({
     where: { id: postponedMeetingId },
@@ -28,8 +42,7 @@ export async function addReplacementMeeting(postponedMeetingId: string, actorUse
   });
 
   if (!postponed) {
-    console.error('[ReplacementMeeting] postponed meeting not found:', postponedMeetingId);
-    return;
+    throw new Error(`[ReplacementMeeting] postponed meeting not found: ${postponedMeetingId}`);
   }
 
   const cycle = postponed.cycle;
@@ -117,6 +130,13 @@ export async function addReplacementMeeting(postponedMeetingId: string, actorUse
   });
 
   console.log(`[ReplacementMeeting] Created replacement meeting ${replacement.id} on ${newDate.toISOString().split('T')[0]} for cycle ${cycle.id}`);
+
+  // Link the postponed meeting → replacement meeting via rescheduledToId
+  await prisma.meeting.update({
+    where: { id: postponedMeetingId },
+    data: { rescheduledToId: replacement.id },
+  });
+
   // Note: totalMeetings and remainingMeetings are NOT modified here.
   // When a meeting is postponed, remainingMeetings is not decremented in the existing code,
   // so we balance by also not incrementing when adding the replacement.
@@ -167,4 +187,29 @@ export async function addReplacementMeeting(postponedMeetingId: string, actorUse
       // Don't fail — replacement meeting exists without Zoom
     }
   }
+
+  return replacement.id;
+}
+
+/**
+ * addReplacementMeetingWithRetry — wraps addReplacementMeeting with 1 retry + admin notification on failure.
+ * Use this in routes instead of raw addReplacementMeeting to avoid silent failures.
+ */
+export async function addReplacementMeetingWithRetry(postponedMeetingId: string, actorUserId: string, cycleName = 'לא ידוע'): Promise<string | null> {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const id = await addReplacementMeeting(postponedMeetingId, actorUserId);
+      return id;
+    } catch (err) {
+      console.error(`[ReplacementMeeting] Attempt ${attempt}/2 failed for meeting ${postponedMeetingId}:`, err);
+      if (attempt === 2) {
+        // Both attempts failed — notify admin
+        await notifyReplacementFailed(postponedMeetingId, cycleName, err);
+        return null;
+      }
+      // Wait 3 seconds before retry
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+  return null;
 }

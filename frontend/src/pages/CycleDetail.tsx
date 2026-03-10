@@ -1266,6 +1266,11 @@ export default function CycleDetail() {
                                   ⚠️ {(meeting as any).changeRequests[0].type === 'cancel' ? 'בקשת ביטול' : (meeting as any).changeRequests[0].type === 'postpone' ? 'בקשת דחייה' : 'בקשת החלפה'}
                                 </span>
                                 )}
+                                {meeting.status === 'postponed' && !meeting.rescheduledToId && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-800 text-xs font-medium" title="הפגישה נדחתה אך לא נוצרה פגישה חלופית">
+                                    🚨 אין חילופית
+                                  </span>
+                                )}
                               </div>
                             </td>
                             <td className="text-gray-500 truncate max-w-[200px]">

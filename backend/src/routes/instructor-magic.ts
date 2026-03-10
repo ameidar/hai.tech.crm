@@ -240,6 +240,101 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
       }
     }
 
+    // Calculate financials when instructor marks meeting as completed
+    if (status === 'completed') {
+      try {
+        const cycleData = await prisma.cycle.findUnique({
+          where: { id: meeting.cycleId },
+          include: {
+            registrations: {
+              where: { status: { in: ['registered', 'active'] } },
+            },
+            instructor: true,
+          },
+        });
+
+        if (cycleData) {
+          // Calculate revenue based on cycle type
+          let revenue = 0;
+          const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
+
+          if (cycleData.type === 'private') {
+            const totalRegistrationAmount = cycleData.registrations.reduce(
+              (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
+              0
+            );
+            revenue = Math.round(totalRegistrationAmount / cycleData.totalMeetings);
+          } else if (cycleData.type === 'institutional_per_child') {
+            const pricePerStudent = Number(cycleData.pricePerStudent || 0);
+            const studentCount = cycleData.studentCount || activeRegistrations.length;
+            revenue = Math.round(pricePerStudent * studentCount);
+          } else if (cycleData.type === 'institutional_fixed') {
+            revenue = Number(cycleData.meetingRevenue || 0);
+          }
+
+          // Calculate instructor payment
+          const instructor = await prisma.instructor.findUnique({ where: { id: meeting.instructorId! } });
+          let instructorPayment = 0;
+          if (instructor) {
+            const activityType = meeting.activityType || cycleData.activityType ||
+              (cycleData.isOnline ? 'online' : (cycleData.type === 'private' ? 'private_lesson' : 'frontal'));
+
+            let hourlyRate = 0;
+            switch (activityType) {
+              case 'online':
+                hourlyRate = Number(instructor.rateOnline || instructor.rateFrontal || 0);
+                break;
+              case 'private_lesson':
+                hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
+                break;
+              case 'frontal':
+              default:
+                hourlyRate = Number(instructor.rateFrontal || 0);
+                break;
+            }
+
+            let durationMinutes = cycleData.durationMinutes;
+            if (meeting.startTime && meeting.endTime) {
+              durationMinutes = (meeting.endTime.getTime() - meeting.startTime.getTime()) / (1000 * 60);
+            }
+
+            instructorPayment = Math.round(hourlyRate * (durationMinutes / 60));
+            if (instructor.employmentType === 'employee') {
+              instructorPayment = Math.round(instructorPayment * 1.3);
+            }
+          }
+
+          // Get approved expenses
+          const approvedExpenses = await prisma.meetingExpense.aggregate({
+            where: { meetingId, status: 'approved' },
+            _sum: { amount: true },
+          });
+          const expensesTotal = Number(approvedExpenses._sum.amount || 0);
+
+          const profit = revenue - instructorPayment - expensesTotal;
+
+          await prisma.meeting.update({
+            where: { id: meetingId },
+            data: { revenue, instructorPayment, profit },
+          });
+
+          // Update cycle counters
+          const updatedCompleted = cycleData.completedMeetings + 1;
+          const newRemainingMeetings = cycleData.totalMeetings - updatedCompleted;
+          await prisma.cycle.update({
+            where: { id: meeting.cycleId },
+            data: {
+              completedMeetings: updatedCompleted,
+              remainingMeetings: newRemainingMeetings,
+            },
+          });
+        }
+      } catch (finErr) {
+        console.error('Failed to calculate financials after instructor update:', finErr);
+        // Don't fail the request — financials can be recalculated manually
+      }
+    }
+
     // Create MeetingChangeRequest record so the dashboard shows it
     if (isPendingRequest) {
       try {

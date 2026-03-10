@@ -55,6 +55,7 @@ export const createCourseSchema = z.object({
   targetAudience: z.string().optional().nullable(),
   category: z.enum(['programming', 'ai', 'robotics', 'printing_3d']),
   isActive: z.boolean().default(true),
+  materialsFolderId: z.string().optional().nullable(),
 });
 
 export const updateCourseSchema = createCourseSchema.partial();

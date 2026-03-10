@@ -206,14 +206,15 @@ model Student {
 }
 
 model Course {
-  id             String         @id @default(uuid())
-  name           String
-  description    String?
-  targetAudience String?        @map("target_audience")
-  category       CourseCategory
-  isActive       Boolean        @default(true) @map("is_active")
-  createdAt      DateTime       @default(now()) @map("created_at")
-  updatedAt      DateTime       @updatedAt @map("updated_at")
+  id                String         @id @default(uuid())
+  name              String
+  description       String?
+  targetAudience    String?        @map("target_audience")
+  category          CourseCategory
+  isActive          Boolean        @default(true) @map("is_active")
+  materialsFolderId String?        @map("materials_folder_id")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
 
   // Relations
   cycles     Cycle[]

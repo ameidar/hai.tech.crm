@@ -62,6 +62,7 @@ export interface Course {
   targetAudience?: string;
   category: CourseCategory;
   isActive: boolean;
+  materialsFolderId?: string | null;
   createdAt: string;
   _count?: {
     cycles: number;

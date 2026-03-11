@@ -7,6 +7,7 @@ import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { zoomService } from '../services/zoom.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
+import { syncCycleProgress } from '../utils/cycle-sync.js';
 
 // Send WhatsApp alert for negative profit
 async function sendNegativeProfitAlert(meetingData: {
@@ -466,6 +467,10 @@ meetingsRouter.put('/:id', async (req, res, next) => {
     if (data.endTime) {
       updateData.endTime = new Date(`1970-01-01T${data.endTime}:00Z`);
     }
+
+    // Flags for post-update cycle sync
+    let statusChangedToCompleted = false;
+    let statusChangedFromCompleted = false;
     
     // Track status change
     if (data.status && data.status !== existingMeeting.status) {
@@ -573,23 +578,8 @@ meetingsRouter.put('/:id', async (req, res, next) => {
           updateData.instructorPayment = instructorPayment;
           updateData.profit = profit;
 
-          // Update cycle counters - recalculate from totalMeetings
-          const updatedCompleted = cycleData.completedMeetings + 1;
-          const newRemainingMeetings = cycleData.totalMeetings - updatedCompleted;
-          await prisma.cycle.update({
-            where: { id: existingMeeting.cycleId },
-            data: {
-              completedMeetings: updatedCompleted,
-              remainingMeetings: newRemainingMeetings,
-            },
-          });
-
-          // Trigger cycle completion if no remaining meetings
-          if (newRemainingMeetings <= 0) {
-            handleCycleCompletion(existingMeeting.cycleId).catch(err =>
-              console.error('Cycle completion error:', err)
-            );
-          }
+          // Mark for post-update sync (cycle counters updated after meeting is saved)
+          statusChangedToCompleted = true;
 
           // Send WhatsApp alert if profit is negative
           if (profit < 0) {
@@ -618,23 +608,11 @@ meetingsRouter.put('/:id', async (req, res, next) => {
         }
       }
       
-      // Handle status change FROM completed to something else (decrement counters)
+      // Handle status change FROM completed to something else
       if (existingMeeting.status === 'completed' && data.status !== 'completed') {
-        const cycleData = await prisma.cycle.findUnique({
-          where: { id: existingMeeting.cycleId },
-        });
-        
-        if (cycleData && cycleData.completedMeetings > 0) {
-          const updatedCompleted = cycleData.completedMeetings - 1;
-          await prisma.cycle.update({
-            where: { id: existingMeeting.cycleId },
-            data: {
-              completedMeetings: updatedCompleted,
-              remainingMeetings: cycleData.totalMeetings - updatedCompleted,
-            },
-          });
-        }
-        
+        // Mark for post-update sync (cycle counters updated after meeting is saved)
+        statusChangedFromCompleted = true;
+
         // Reset financial fields
         updateData.revenue = 0;
         updateData.instructorPayment = 0;
@@ -655,6 +633,19 @@ meetingsRouter.put('/:id', async (req, res, next) => {
         instructor: { select: { id: true, name: true } },
       },
     });
+
+    // Sync cycle progress AFTER meeting is updated (accurate DB count)
+    if (statusChangedToCompleted || statusChangedFromCompleted) {
+      const { remainingMeetings } = await syncCycleProgress(existingMeeting.cycleId);
+      console.log(`[CycleSync] cycleId=${existingMeeting.cycleId} remaining=${remainingMeetings}`);
+
+      // Trigger cycle completion if all meetings done
+      if (statusChangedToCompleted && remainingMeetings <= 0) {
+        handleCycleCompletion(existingMeeting.cycleId).catch(err =>
+          console.error('Cycle completion error:', err)
+        );
+      }
+    }
 
     // Audit log for meeting updates - capture all changed fields
     const auditOldRecord = {

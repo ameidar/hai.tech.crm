@@ -601,6 +601,7 @@ export const useUpdateMeeting = () => {
     onSuccess: (data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['meetings'] });
       queryClient.invalidateQueries({ queryKey: ['meeting', id] });
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
       if (data.cycleId) {
         queryClient.invalidateQueries({ queryKey: ['cycle-meetings', data.cycleId] });
         queryClient.invalidateQueries({ queryKey: ['cycle', data.cycleId] });

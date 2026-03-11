@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { syncCycleProgress } from '../utils/cycle-sync.js';
 import crypto from 'crypto';
 
 const MEETING_TOKEN_SECRET = process.env.MEETING_TOKEN_SECRET || 'haitech-meeting-status-2026';
@@ -155,23 +156,21 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
       updateData.revenue = revenue;
       updateData.instructorPayment = instructorPayment;
       updateData.profit = revenue - instructorPayment;
-
-      // Update cycle counters
-      if (existingMeeting.status !== 'completed') {
-        await prisma.cycle.update({
-          where: { id: existingMeeting.cycleId },
-          data: {
-            completedMeetings: { increment: 1 },
-            remainingMeetings: { decrement: 1 },
-          },
-        });
-      }
     }
+
+    const willStatusChange =
+      (status === 'completed' && existingMeeting.status !== 'completed') ||
+      (existingMeeting.status === 'completed' && status !== 'completed');
 
     const meeting = await prisma.meeting.update({
       where: { id: meetingId },
       data: updateData,
     });
+
+    // Sync cycle progress from actual DB counts after meeting update
+    if (willStatusChange) {
+      await syncCycleProgress(existingMeeting.cycleId);
+    }
 
     // Update attendance if provided
     if (attendance && Array.isArray(attendance)) {

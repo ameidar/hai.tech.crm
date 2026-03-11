@@ -17,6 +17,7 @@ import {
   triggerMorningWhatsApp,
   triggerPreMeetingWhatsApp,
   triggerEveningStatusCheck,
+  triggerCyclesNearCompletion,
 } from '../services/email/scheduler.js';
 
 const router = Router();
@@ -223,10 +224,13 @@ router.post('/trigger/:job', async (req, res) => {
       case 'whatsapp-evening-status':
         await triggerEveningStatusCheck();
         break;
+      case 'cycles-near-completion':
+        await triggerCyclesNearCompletion();
+        break;
       default:
         return res.status(400).json({ 
           error: 'Invalid job name',
-          validJobs: ['instructor-reminders', 'parent-reminders', 'management-summary', 'whatsapp-morning', 'whatsapp-pre-meeting', 'whatsapp-evening-status'],
+          validJobs: ['instructor-reminders', 'parent-reminders', 'management-summary', 'whatsapp-morning', 'whatsapp-pre-meeting', 'whatsapp-evening-status', 'cycles-near-completion'],
         });
     }
 

@@ -17,17 +17,21 @@ import { buildInstructorMonthlyReport, getPreviousMonth } from '../instructorRep
 import { generateInstructorReportExcel } from '../../utils/excelReportGenerator.js';
 import { sendInstructorMonthlyReportEmail } from './instructorReportEmail.js';
 import { updateVapiAssistantDate } from '../vapi.js';
+import { sendWhatsApp } from '../messaging.js';
 
 // Management email list (configure via env or database)
 const MANAGEMENT_EMAILS = (process.env.MANAGEMENT_EMAILS || 'ami@hai.tech').split(',');
 
-// Format date for Hebrew display
+const TZ = 'Asia/Jerusalem';
+
+// Format date for Hebrew display (always in Israel timezone)
 const formatDateHebrew = (date: Date): string => {
   return date.toLocaleDateString('he-IL', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
+    timeZone: TZ,
   });
 };
 
@@ -35,7 +39,26 @@ const formatTimeHebrew = (date: Date): string => {
   return date.toLocaleTimeString('he-IL', {
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: TZ,
   });
+};
+
+// Get start-of-day and end-of-day in Israel timezone (returns UTC Date objects for DB queries)
+const getIsraelDayBounds = (offsetDays = 0): { start: Date; end: Date } => {
+  const now = new Date();
+  // Get Israel date string "YYYY-MM-DD"
+  const israelDateStr = new Intl.DateTimeFormat('sv', { timeZone: TZ }).format(now);
+  // UTC midnight of that Israel date
+  const utcMidnight = new Date(`${israelDateStr}T00:00:00Z`);
+  // Get Israel hour at UTC midnight (= Israel offset in hours, e.g. 2 for UTC+2, 3 for UTC+3)
+  const israelHourAtUTCMidnight = parseInt(
+    new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hour12: false }).format(utcMidnight)
+  );
+  // Israel midnight in UTC = UTC midnight minus Israel offset
+  const israelMidnightUTC = new Date(utcMidnight.getTime() - israelHourAtUTCMidnight * 3_600_000);
+  const start = new Date(israelMidnightUTC.getTime() + offsetDays * 86_400_000);
+  const end   = new Date(start.getTime() + 86_400_000);
+  return { start, end };
 };
 
 // Send instructor reminders (08:00 - for today's classes)
@@ -43,10 +66,7 @@ const sendInstructorReminders = async () => {
   console.log('📧 Running instructor reminder job...');
 
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const { start: today, end: tomorrow } = getIsraelDayBounds();
 
     // Get today's meetings with instructors
     const meetings = await prisma.meeting.findMany({
@@ -108,11 +128,7 @@ const sendParentReminders = async () => {
   console.log('📧 Running parent reminder job...');
 
   try {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(0, 0, 0, 0);
-    const dayAfter = new Date(tomorrow);
-    dayAfter.setDate(dayAfter.getDate() + 1);
+    const { start: tomorrow, end: dayAfter } = getIsraelDayBounds(1);
 
     // Get tomorrow's meetings with students
     const meetings = await prisma.meeting.findMany({
@@ -192,10 +208,7 @@ const sendManagementSummary = async () => {
   console.log('📧 Running management summary job...');
 
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const { start: today, end: tomorrow } = getIsraelDayBounds();
 
     // Get today's stats
     const [todayMeetings, completedMeetings, cancelledMeetings, attendanceRecords] = await Promise.all([
@@ -367,12 +380,113 @@ const sendMonthlyInstructorReport = async () => {
   }
 };
 
+// ─── Daily cycle-near-completion check ────────────────────────────────────────
+// Finds active cycles with exactly 1 remaining meeting, notifies instructor via
+// WhatsApp and sends a summary email to info@hai.tech.
+async function checkCyclesNearCompletion(): Promise<void> {
+  console.log('[CycleCheck] Checking cycles with 1 remaining meeting...');
+  try {
+    const cycles = await prisma.cycle.findMany({
+      where: {
+        status: 'active',
+        remainingMeetings: 1,
+      },
+      include: {
+        course: { select: { name: true } },
+        branch: { select: { name: true } },
+        instructor: { select: { name: true, phone: true } },
+        meetings: {
+          where: { status: 'scheduled' },
+          orderBy: { scheduledDate: 'asc' },
+          take: 1,
+        },
+      },
+    });
+
+    if (cycles.length === 0) {
+      console.log('[CycleCheck] No cycles near completion.');
+      return;
+    }
+
+    console.log(`[CycleCheck] ${cycles.length} cycle(s) with 1 meeting remaining`);
+
+    // Build email table rows
+    const cycleRows = cycles
+      .map(c => {
+        const nextDate = c.meetings[0]
+          ? formatDateHebrew(c.meetings[0].scheduledDate)
+          : 'לא נמצא תאריך';
+        return `<tr>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${c.name}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${c.course.name}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${c.branch?.name || 'אונליין'}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${c.instructor.name}</td>
+          <td style="padding:8px;border:1px solid #e5e7eb;">${nextDate}</td>
+        </tr>`;
+      })
+      .join('');
+
+    // Send email to management
+    await queueEmail({
+      to: 'info@hai.tech',
+      subject: `🔔 ${cycles.length} מחזורים עם שיעור אחרון לסיום`,
+      html: `
+        <div dir="rtl" style="font-family:Arial,sans-serif;padding:20px;max-width:700px;">
+          <h2 style="color:#2563eb;">🔔 מחזורים עם שיעור אחרון בלבד</h2>
+          <p>נמצאו <strong>${cycles.length}</strong> מחזורים פעילים עם שיעור אחד בלבד שנותר לסיום.</p>
+          <table style="border-collapse:collapse;width:100%;margin-top:12px;">
+            <thead>
+              <tr style="background:#f3f4f6;">
+                <th style="padding:8px;border:1px solid #e5e7eb;text-align:right;">מחזור</th>
+                <th style="padding:8px;border:1px solid #e5e7eb;text-align:right;">קורס</th>
+                <th style="padding:8px;border:1px solid #e5e7eb;text-align:right;">סניף</th>
+                <th style="padding:8px;border:1px solid #e5e7eb;text-align:right;">מדריך</th>
+                <th style="padding:8px;border:1px solid #e5e7eb;text-align:right;">שיעור אחרון</th>
+              </tr>
+            </thead>
+            <tbody>${cycleRows}</tbody>
+          </table>
+          <p style="color:#6b7280;font-size:12px;margin-top:20px;">
+            נשלח אוטומטית מ-HaiTech CRM |
+            ${new Date().toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' })}
+          </p>
+        </div>`,
+      priority: EmailPriority.NORMAL,
+    });
+    console.log('[CycleCheck] Summary email sent to info@hai.tech');
+
+    // Send WhatsApp to each instructor
+    for (const cycle of cycles) {
+      if (!cycle.instructor.phone) {
+        console.warn(`[CycleCheck] No phone for instructor of cycle "${cycle.name}"`);
+        continue;
+      }
+      const nextDateStr = cycle.meetings[0]
+        ? ` — ${formatDateHebrew(cycle.meetings[0].scheduledDate)}`
+        : '';
+      const message =
+        `שלום ${cycle.instructor.name} 👋\n\n` +
+        `נותר שיעור אחד בלבד לסיום המחזור "${cycle.name}"${nextDateStr}.\n` +
+        `אנא וודא שכל פרטי הכיתה מעודכנים לקראת השיעור האחרון 🙏`;
+      try {
+        await sendWhatsApp({ phone: cycle.instructor.phone, message });
+        console.log(`[CycleCheck] WhatsApp sent to ${cycle.instructor.name}`);
+      } catch (err) {
+        console.error(`[CycleCheck] WhatsApp failed for ${cycle.instructor.name}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error('[CycleCheck] Error:', err);
+  }
+}
+
 // Cron job schedule definitions
 const schedules = {
   instructorReminders:      '0 8 * * *',    // 08:00 daily
   parentReminders:          '0 18 * * *',   // 18:00 daily
   managementSummary:        '0 23 * * *',   // 23:00 daily
   monthlyInstructorReport:  '0 8 1 * *',    // 08:00 on 1st of every month
+  cyclesNearCompletion:     '0 9 * * *',    // 09:00 daily — cycles with 1 meeting left
 };
 
 // Scheduled tasks
@@ -440,6 +554,15 @@ export const initEmailScheduler = () => {
   scheduledTasks.push(vapiDateTask);
   console.log('   ✓ VAPI assistant date update: 00:01 daily');
 
+  // Daily cycle near-completion check (09:00) — 1 meeting remaining
+  const cyclesNearCompletionTask = cron.schedule(schedules.cyclesNearCompletion, () => {
+    checkCyclesNearCompletion().catch((err: any) =>
+      console.error('[CycleCheck] Cron failed:', err)
+    );
+  }, { timezone: 'Asia/Jerusalem' });
+  scheduledTasks.push(cyclesNearCompletionTask);
+  console.log('   ✓ Cycles near completion check: 09:00 daily → WhatsApp instructor + email info@hai.tech');
+
   console.log('📅 Email scheduler initialized');
 };
 
@@ -459,3 +582,4 @@ export const triggerMorningUnresolvedAlert = () => sendMorningUnresolvedAlert();
 export const triggerPreMeetingWhatsApp = () => sendPreMeetingReminders();
 export const triggerEveningStatusCheck = () => sendEveningStatusCheck();
 export const triggerMonthlyInstructorReport = () => sendMonthlyInstructorReport();
+export const triggerCyclesNearCompletion = () => checkCyclesNearCompletion();

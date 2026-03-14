@@ -141,13 +141,6 @@ export default function GoogleAdsCampaigns() {
     enabled: statusData?.configured,
   });
 
-  // Daily breakdown
-  const { data: dailyData = [] } = useQuery({
-    queryKey: ['google-ads-daily', days],
-    queryFn: async () => (await api.get(`/google-ads/daily?days=${days}`)).data as DailyPoint[],
-    enabled: statusData?.configured,
-  });
-
   // Campaign detail
   const { data: campaignDetail, isLoading: detailLoading } = useQuery({
     queryKey: ['google-ads-campaign-detail', selectedCampaignId, days],
@@ -274,49 +267,22 @@ export default function GoogleAdsCampaigns() {
               />
               <YAxis tick={{ fontSize: 11 }} allowDecimals={false} width={30} />
               <Tooltip
-                formatter={(val: number, name: string) => {
-                  if (name === 'conversions') return [val, 'המרות'];
-                  if (name === 'clicks') return [val, 'קליקים'];
-                  if (name === 'cost') return [`₪${val}`, 'עלות'];
-                  return [val, name];
+                formatter={(val, name) => {
+                  const v = Number(val ?? 0);
+                  if (name === 'conversions') return [v, 'המרות'];
+                  if (name === 'clicks') return [v, 'קליקים'];
+                  if (name === 'cost') return [`₪${v}`, 'עלות'];
+                  return [v, String(name)];
                 }}
-                labelFormatter={(label: string) => {
-                  const [y, m, d] = label.split('-');
+                labelFormatter={(label) => {
+                  const s = String(label ?? '');
+                  const [y, m, d] = s.split('-');
                   return `${d}/${m}/${y}`;
                 }}
               />
               <Legend formatter={(val) => val === 'conversions' ? 'המרות' : val === 'clicks' ? 'קליקים' : val} />
               <Bar dataKey="conversions" fill="#8b5cf6" radius={[3, 3, 0, 0]} name="conversions" />
               <Bar dataKey="clicks" fill="#10b981" radius={[3, 3, 0, 0]} name="clicks" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {/* Daily conversions chart */}
-      {dailyData.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-          <h2 className="font-semibold text-gray-800 mb-4">המרות יומיות</h2>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={dailyData} margin={{ top: 0, right: 8, left: -10, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 11 }}
-                tickFormatter={(v: string) => v.slice(5)} // MM-DD
-                interval="preserveStartEnd"
-              />
-              <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-              <Tooltip
-                formatter={(value: number, name: string) => [
-                  name === 'המרות' ? value.toFixed(2) : value,
-                  name,
-                ]}
-                labelFormatter={(label: string) => `תאריך: ${label}`}
-              />
-              <Legend />
-              <Bar dataKey="conversions" name="המרות" fill="#8b5cf6" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="clicks" name="קליקים" fill="#10b981" radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

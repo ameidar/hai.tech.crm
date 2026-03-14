@@ -168,6 +168,8 @@ export default function GoogleAdsCampaigns() {
             <option value={30}>30 ימים</option>
             <option value={60}>60 ימים</option>
             <option value={90}>90 ימים</option>
+            <option value={180}>6 חודשים</option>
+            <option value={365}>שנה</option>
           </select>
           <button
             onClick={() => refetch()}

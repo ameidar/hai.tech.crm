@@ -13,7 +13,18 @@ import { GoogleAdsApi } from 'google-ads-api';
 export const googleAdsRouter = Router();
 googleAdsRouter.use(authenticate);
 
-// ─── Helper ───────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Returns { startDate, endDate } strings in YYYY-MM-DD for Google Ads GAQL */
+function getDateRange(days: number): { startDate: string; endDate: string } {
+  const now = new Date();
+  const end = new Date(now);
+  end.setDate(end.getDate() - 1); // yesterday (Google Ads data lags 1 day)
+  const start = new Date(now);
+  start.setDate(start.getDate() - days);
+  const fmt = (d: Date) => d.toISOString().split('T')[0];
+  return { startDate: fmt(start), endDate: fmt(end) };
+}
 
 function getCustomer() {
   const {
@@ -58,8 +69,8 @@ googleAdsRouter.get('/status', (_req, res) => {
 // GET /api/google-ads/campaigns?days=30
 googleAdsRouter.get('/campaigns', async (req, res, next) => {
   try {
-    const days = Math.min(parseInt(req.query.days as string) || 30, 90);
-    const period = `LAST_${days}_DAYS`;
+    const days = Math.min(parseInt(req.query.days as string) || 30, 365);
+    const { startDate, endDate } = getDateRange(days);
 
     const customer = getCustomer();
     const results = await customer.query(`
@@ -75,7 +86,7 @@ googleAdsRouter.get('/campaigns', async (req, res, next) => {
         metrics.ctr,
         metrics.average_cpc
       FROM campaign
-      WHERE segments.date DURING ${period}
+      WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
         AND campaign.status != 'REMOVED'
       ORDER BY metrics.cost_micros DESC
       LIMIT 50
@@ -116,8 +127,8 @@ googleAdsRouter.get('/campaigns', async (req, res, next) => {
 // GET /api/google-ads/summary?days=30
 googleAdsRouter.get('/summary', async (req, res, next) => {
   try {
-    const days = Math.min(parseInt(req.query.days as string) || 30, 90);
-    const period = `LAST_${days}_DAYS`;
+    const days = Math.min(parseInt(req.query.days as string) || 30, 365);
+    const { startDate, endDate } = getDateRange(days);
 
     const customer = getCustomer();
     const results = await customer.query(`
@@ -127,7 +138,7 @@ googleAdsRouter.get('/summary', async (req, res, next) => {
         metrics.cost_micros,
         metrics.conversions
       FROM campaign
-      WHERE segments.date DURING ${period}
+      WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
         AND campaign.status != 'REMOVED'
     `);
 
@@ -165,8 +176,8 @@ googleAdsRouter.get('/summary', async (req, res, next) => {
 googleAdsRouter.get('/campaigns/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const days = Math.min(parseInt(req.query.days as string) || 30, 90);
-    const period = `LAST_${days}_DAYS`;
+    const days = Math.min(parseInt(req.query.days as string) || 30, 365);
+    const { startDate, endDate } = getDateRange(days);
 
     const customer = getCustomer();
 
@@ -204,7 +215,7 @@ googleAdsRouter.get('/campaigns/:id', async (req, res, next) => {
         metrics.conversions
       FROM ad_group
       WHERE campaign.id = ${id}
-        AND segments.date DURING ${period}
+        AND segments.date BETWEEN '${startDate}' AND '${endDate}'
       ORDER BY metrics.cost_micros DESC
       LIMIT 20
     `);
@@ -219,7 +230,7 @@ googleAdsRouter.get('/campaigns/:id', async (req, res, next) => {
         metrics.conversions
       FROM campaign
       WHERE campaign.id = ${id}
-        AND segments.date DURING ${period}
+        AND segments.date BETWEEN '${startDate}' AND '${endDate}'
       ORDER BY segments.date ASC
     `);
 

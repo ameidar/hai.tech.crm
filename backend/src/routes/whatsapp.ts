@@ -192,8 +192,16 @@ ${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}
 // Lead extraction (runs after idle)
 // ============================================================
 async function extractLeadData(conversationId: string) {
+  // Only look at messages from the last 24 hours (current session)
+  // This prevents acting on old promises from previous days
+  const SESSION_WINDOW_HOURS = 24;
+  const sessionCutoff = new Date(Date.now() - SESSION_WINDOW_HOURS * 60 * 60 * 1000);
+
   const messages = await prisma.waMessage.findMany({
-    where: { conversationId },
+    where: {
+      conversationId,
+      createdAt: { gte: sessionCutoff },
+    },
     orderBy: { createdAt: 'asc' },
     take: 30
   });

@@ -194,6 +194,61 @@ googleAdsRouter.get('/summary', async (req, res, next) => {
   }
 });
 
+// GET /api/google-ads/daily?days=30 — daily conversions + clicks + cost for all campaigns
+googleAdsRouter.get('/daily', async (req, res, next) => {
+  try {
+    const days = Math.min(parseInt(req.query.days as string) || 30, 365);
+    const { startDate, endDate } = getDateRange(days);
+
+    const customer = getCustomer();
+    const results = await customer.query(`
+      SELECT
+        segments.date,
+        metrics.impressions,
+        metrics.clicks,
+        metrics.cost_micros,
+        metrics.conversions
+      FROM campaign
+      WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
+        AND campaign.status != 'REMOVED'
+      ORDER BY segments.date ASC
+    `);
+
+    // Aggregate by date across all campaigns
+    const byDate = new Map<string, { impressions: number; clicks: number; cost: number; conversions: number }>();
+    for (const r of results) {
+      const rec = r as Record<string, unknown>;
+      const s = rec['segments'] as Record<string, unknown>;
+      const m = rec['metrics'] as Record<string, unknown>;
+      const date = String(s?.['date'] ?? '');
+      if (!date) continue;
+      const existing = byDate.get(date) ?? { impressions: 0, clicks: 0, cost: 0, conversions: 0 };
+      byDate.set(date, {
+        impressions: existing.impressions + Number(m?.['impressions'] ?? 0),
+        clicks: existing.clicks + Number(m?.['clicks'] ?? 0),
+        cost: existing.cost + Number(m?.['costMicros'] ?? m?.['cost_micros'] ?? 0) / 1_000_000,
+        conversions: existing.conversions + Number(m?.['conversions'] ?? 0),
+      });
+    }
+
+    const data = Array.from(byDate.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, metrics]) => ({
+        date,
+        impressions: metrics.impressions,
+        clicks: metrics.clicks,
+        cost: Number(metrics.cost.toFixed(2)),
+        conversions: Number(metrics.conversions.toFixed(2)),
+      }));
+
+    res.json(data);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[Google Ads] daily error:', msg);
+    next(err);
+  }
+});
+
 // GET /api/google-ads/campaigns/:id?days=30 — campaign detail
 googleAdsRouter.get('/campaigns/:id', async (req, res, next) => {
   try {

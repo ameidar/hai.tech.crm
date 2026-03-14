@@ -12,6 +12,16 @@ import {
   AlertCircle,
   X,
 } from 'lucide-react';
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  Legend,
+} from 'recharts';
 import { api } from '../api/client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -51,6 +61,14 @@ interface AdGroup {
 }
 
 interface DailyMetric {
+  date: string;
+  impressions: number;
+  clicks: number;
+  cost: number;
+  conversions: number;
+}
+
+interface DailyPoint {
   date: string;
   impressions: number;
   clicks: number;
@@ -113,6 +131,13 @@ export default function GoogleAdsCampaigns() {
   const { data: campaigns = [], isLoading: campaignsLoading, refetch } = useQuery({
     queryKey: ['google-ads-campaigns', days],
     queryFn: async () => (await api.get(`/google-ads/campaigns?days=${days}`)).data as GoogleAdsCampaign[],
+    enabled: statusData?.configured,
+  });
+
+  // Daily breakdown (all campaigns combined)
+  const { data: dailyData = [] } = useQuery({
+    queryKey: ['google-ads-daily', days],
+    queryFn: async () => (await api.get(`/google-ads/daily?days=${days}`)).data as DailyPoint[],
     enabled: statusData?.configured,
   });
 
@@ -221,6 +246,43 @@ export default function GoogleAdsCampaigns() {
             sub={summary.costPerConversion ? `₪${summary.costPerConversion} לליד` : undefined}
             bg="bg-purple-50"
           />
+        </div>
+      )}
+
+      {/* Daily conversions chart */}
+      {dailyData.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h2 className="font-semibold text-gray-800 mb-4">המרות יומיות</h2>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={dailyData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 11 }}
+                tickFormatter={(d: string) => {
+                  const [, m, day] = d.split('-');
+                  return `${day}/${m}`;
+                }}
+                interval="preserveStartEnd"
+              />
+              <YAxis tick={{ fontSize: 11 }} allowDecimals={false} width={30} />
+              <Tooltip
+                formatter={(val: number, name: string) => {
+                  if (name === 'conversions') return [val, 'המרות'];
+                  if (name === 'clicks') return [val, 'קליקים'];
+                  if (name === 'cost') return [`₪${val}`, 'עלות'];
+                  return [val, name];
+                }}
+                labelFormatter={(label: string) => {
+                  const [y, m, d] = label.split('-');
+                  return `${d}/${m}/${y}`;
+                }}
+              />
+              <Legend formatter={(val) => val === 'conversions' ? 'המרות' : val === 'clicks' ? 'קליקים' : val} />
+              <Bar dataKey="conversions" fill="#8b5cf6" radius={[3, 3, 0, 0]} name="conversions" />
+              <Bar dataKey="clicks" fill="#10b981" radius={[3, 3, 0, 0]} name="clicks" />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       )}
 

@@ -73,12 +73,24 @@ googleAdsRouter.get('/campaigns', async (req, res, next) => {
     const { startDate, endDate } = getDateRange(days);
 
     const customer = getCustomer();
-    const results = await customer.query(`
+
+    // Query 1: all campaigns (including paused with no recent activity)
+    const campaignList = await customer.query(`
       SELECT
         campaign.id,
         campaign.name,
         campaign.status,
-        campaign.advertising_channel_type,
+        campaign.advertising_channel_type
+      FROM campaign
+      WHERE campaign.status != 'REMOVED'
+      ORDER BY campaign.name ASC
+      LIMIT 50
+    `);
+
+    // Query 2: metrics for the date range (only campaigns with activity)
+    const metricsResults = await customer.query(`
+      SELECT
+        campaign.id,
         metrics.impressions,
         metrics.clicks,
         metrics.cost_micros,
@@ -92,25 +104,35 @@ googleAdsRouter.get('/campaigns', async (req, res, next) => {
       LIMIT 50
     `);
 
-    const data = results.map((r: Record<string, unknown>) => {
+    // Build metrics map by campaign id
+    const metricsMap = new Map<string, Record<string, unknown>>();
+    for (const r of metricsResults) {
+      const rec = r as Record<string, unknown>;
+      const c = rec['campaign'] as Record<string, unknown>;
+      const id = String(c?.['id'] ?? '');
+      if (id) metricsMap.set(id, rec['metrics'] as Record<string, unknown>);
+    }
+
+    const data = campaignList.map((r: Record<string, unknown>) => {
       const c = r['campaign'] as Record<string, unknown>;
-      const m = r['metrics'] as Record<string, unknown>;
-      const costMicros = Number(m?.['costMicros'] ?? m?.['cost_micros'] ?? 0);
+      const id = String(c?.['id'] ?? '');
+      const m = metricsMap.get(id) ?? {};
+      const costMicros = Number((m as Record<string, unknown>)?.['costMicros'] ?? (m as Record<string, unknown>)?.['cost_micros'] ?? 0);
       const cost = Number((costMicros / 1_000_000).toFixed(2));
-      const conversions = Number(m?.['conversions'] ?? 0);
-      const avgCpcMicros = Number(m?.['averageCpc'] ?? m?.['average_cpc'] ?? 0);
+      const conversions = Number((m as Record<string, unknown>)?.['conversions'] ?? 0);
+      const avgCpcMicros = Number((m as Record<string, unknown>)?.['averageCpc'] ?? (m as Record<string, unknown>)?.['average_cpc'] ?? 0);
       const statusVal = String(c?.['status'] ?? '');
 
       return {
-        id: String(c?.['id'] ?? ''),
+        id,
         name: String(c?.['name'] ?? ''),
         status: (statusVal === 'ENABLED' || statusVal === '2') ? 'active' : 'paused',
         channelType: String(c?.['advertisingChannelType'] ?? c?.['advertising_channel_type'] ?? ''),
-        impressions: Number(m?.['impressions'] ?? 0),
-        clicks: Number(m?.['clicks'] ?? 0),
+        impressions: Number((m as Record<string, unknown>)?.['impressions'] ?? 0),
+        clicks: Number((m as Record<string, unknown>)?.['clicks'] ?? 0),
         cost,
         conversions,
-        ctr: Number(((Number(m?.['ctr'] ?? 0)) * 100).toFixed(2)),
+        ctr: Number(((Number((m as Record<string, unknown>)?.['ctr'] ?? 0)) * 100).toFixed(2)),
         avgCpc: Number((avgCpcMicros / 1_000_000).toFixed(2)),
         costPerConversion: conversions > 0 ? Number((cost / conversions).toFixed(2)) : null,
       };

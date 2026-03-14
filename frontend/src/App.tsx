@@ -35,6 +35,7 @@ import InstagramInbox from './pages/InstagramInbox';
 import Campaigns from './pages/Campaigns';
 import FacebookLeads from './pages/FacebookLeads';
 import Analytics from './pages/Analytics';
+import GoogleAdsCampaigns from './pages/GoogleAdsCampaigns';
 import LinkedIn from './pages/LinkedIn';
 import FacebookPage from './pages/Facebook';
 import InstagramPage from './pages/Instagram';
@@ -180,6 +181,7 @@ function AppRoutes() {
             <Route path="campaigns" element={<NonSalesRoute><Campaigns /></NonSalesRoute>} />
             <Route path="facebook-leads" element={<NonSalesRoute><FacebookLeads /></NonSalesRoute>} />
             <Route path="analytics" element={<NonSalesRoute><Analytics /></NonSalesRoute>} />
+            <Route path="google-ads" element={<NonSalesRoute><GoogleAdsCampaigns /></NonSalesRoute>} />
             <Route path="linkedin" element={<NonSalesRoute><LinkedIn /></NonSalesRoute>} />
             <Route path="facebook" element={<NonSalesRoute><FacebookPage /></NonSalesRoute>} />
             <Route path="instagram-post" element={<NonSalesRoute><InstagramPage /></NonSalesRoute>} />

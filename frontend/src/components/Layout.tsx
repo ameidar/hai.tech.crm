@@ -28,6 +28,7 @@ import {
   Facebook,
   LineChart,
   Linkedin,
+  TrendingUp,
   Youtube,
   Video,
   Share2,
@@ -62,6 +63,7 @@ const adminNavGroups = [
       { path: '/campaigns', icon: Megaphone, label: 'קמפיינים', testId: 'nav-campaigns' },
       { path: '/facebook-leads', icon: Facebook, label: 'לידים פייסבוק', testId: 'nav-facebook-leads' },
       { path: '/analytics', icon: LineChart, label: 'Google Analytics', testId: 'nav-analytics' },
+      { path: '/google-ads', icon: TrendingUp, label: 'Google Ads', testId: 'nav-google-ads' },
     ],
   },
   {

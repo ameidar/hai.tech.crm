@@ -10,6 +10,7 @@ import {
   Pause,
   ExternalLink,
   AlertCircle,
+  X,
 } from 'lucide-react';
 import { api } from '../api/client';
 
@@ -39,11 +40,46 @@ interface GoogleAdsSummary {
   days: number;
 }
 
+interface AdGroup {
+  id: string;
+  name: string;
+  status: string;
+  impressions: number;
+  clicks: number;
+  cost: number;
+  conversions: number;
+}
+
+interface DailyMetric {
+  date: string;
+  impressions: number;
+  clicks: number;
+  cost: number;
+  conversions: number;
+}
+
+interface CampaignDetail {
+  id: string;
+  name: string;
+  status: 'active' | 'paused';
+  channelType: string;
+  budget: number;
+  impressions: number;
+  clicks: number;
+  cost: number;
+  conversions: number;
+  ctr: number;
+  avgCpc: number;
+  costPerConversion: number | null;
+  adGroups: AdGroup[];
+  dailyMetrics: DailyMetric[];
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const formatNum = (n: number) =>
   n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
 
-const formatCost = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const formatCost = (n: number) => `₪${n.toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const CHANNEL_LABEL: Record<string, string> = {
   SEARCH: 'חיפוש',
@@ -58,6 +94,7 @@ const CHANNEL_LABEL: Record<string, string> = {
 export default function GoogleAdsCampaigns() {
   const qc = useQueryClient();
   const [days, setDays] = useState(30);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
 
   // Status check
   const { data: statusData } = useQuery({
@@ -77,6 +114,14 @@ export default function GoogleAdsCampaigns() {
     queryKey: ['google-ads-campaigns', days],
     queryFn: async () => (await api.get(`/google-ads/campaigns?days=${days}`)).data as GoogleAdsCampaign[],
     enabled: statusData?.configured,
+  });
+
+  // Campaign detail
+  const { data: campaignDetail, isLoading: detailLoading } = useQuery({
+    queryKey: ['google-ads-campaign-detail', selectedCampaignId, days],
+    queryFn: async () =>
+      (await api.get(`/google-ads/campaigns/${selectedCampaignId}?days=${days}`)).data as CampaignDetail,
+    enabled: selectedCampaignId !== null,
   });
 
   // Toggle campaign status
@@ -164,14 +209,14 @@ export default function GoogleAdsCampaigns() {
             icon={<DollarSign size={20} className="text-orange-600" />}
             label="הוצאה"
             value={formatCost(summary.cost)}
-            sub={`CPC ממוצע $${summary.avgCpc}`}
+            sub={`CPC ממוצע ₪${summary.avgCpc}`}
             bg="bg-orange-50"
           />
           <KpiCard
             icon={<Target size={20} className="text-purple-600" />}
             label="המרות"
             value={String(summary.conversions)}
-            sub={summary.costPerConversion ? `$${summary.costPerConversion} לליד` : undefined}
+            sub={summary.costPerConversion ? `₪${summary.costPerConversion} לליד` : undefined}
             bg="bg-purple-50"
           />
         </div>
@@ -181,6 +226,7 @@ export default function GoogleAdsCampaigns() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100">
           <h2 className="font-semibold text-gray-800">קמפיינים ({campaigns.length})</h2>
+          <p className="text-xs text-gray-500 mt-0.5">לחץ על שורה לפרטי קמפיין</p>
         </div>
 
         {campaignsLoading ? (
@@ -207,7 +253,11 @@ export default function GoogleAdsCampaigns() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {campaigns.map(campaign => (
-                  <tr key={campaign.id} className="hover:bg-gray-50 transition-colors">
+                  <tr
+                    key={campaign.id}
+                    className="hover:bg-gray-50 transition-colors cursor-pointer"
+                    onClick={() => setSelectedCampaignId(campaign.id)}
+                  >
                     <td className="px-4 py-3 font-medium text-gray-900 max-w-[200px] truncate">
                       {campaign.name}
                     </td>
@@ -234,19 +284,20 @@ export default function GoogleAdsCampaigns() {
                     <td className="px-4 py-3 text-left text-gray-700">{formatNum(campaign.clicks)}</td>
                     <td className="px-4 py-3 text-left text-gray-700">{campaign.ctr}%</td>
                     <td className="px-4 py-3 text-left font-medium text-gray-900">{formatCost(campaign.cost)}</td>
-                    <td className="px-4 py-3 text-left text-gray-700">${campaign.avgCpc}</td>
+                    <td className="px-4 py-3 text-left text-gray-700">₪{campaign.avgCpc}</td>
                     <td className="px-4 py-3 text-left text-gray-700">{campaign.conversions}</td>
                     <td className="px-4 py-3 text-left text-gray-700">
                       {campaign.costPerConversion ? formatCost(campaign.costPerConversion) : '—'}
                     </td>
                     <td className="px-4 py-3">
                       <button
-                        onClick={() =>
+                        onClick={e => {
+                          e.stopPropagation();
                           toggleStatus.mutate({
                             id: campaign.id,
                             status: campaign.status === 'active' ? 'paused' : 'active',
-                          })
-                        }
+                          });
+                        }}
                         disabled={toggleStatus.isPending}
                         className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                           campaign.status === 'active'
@@ -269,6 +320,165 @@ export default function GoogleAdsCampaigns() {
           </div>
         )}
       </div>
+
+      {/* Campaign Detail Modal */}
+      {selectedCampaignId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setSelectedCampaignId(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto mx-4"
+            onClick={e => e.stopPropagation()}
+            dir="rtl"
+          >
+            {detailLoading || !campaignDetail ? (
+              <div className="p-16 text-center text-gray-400">טוען פרטי קמפיין...</div>
+            ) : (
+              <>
+                {/* Modal Header */}
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-xl font-bold text-gray-900">{campaignDetail.name}</h2>
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        campaignDetail.status === 'active'
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          campaignDetail.status === 'active' ? 'bg-green-500' : 'bg-gray-400'
+                        }`}
+                      />
+                      {campaignDetail.status === 'active' ? 'פעיל' : 'מושהה'}
+                    </span>
+                    {campaignDetail.budget > 0 && (
+                      <span className="text-sm text-gray-500">תקציב יומי: {formatCost(campaignDetail.budget)}</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setSelectedCampaignId(null)}
+                    className="text-gray-400 hover:text-gray-700 transition-colors p-1 rounded-lg hover:bg-gray-100"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="p-6 space-y-6">
+                  {/* KPI Cards */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <KpiCard
+                      icon={<TrendingUp size={18} className="text-blue-600" />}
+                      label="חשיפות"
+                      value={formatNum(campaignDetail.impressions)}
+                      bg="bg-blue-50"
+                    />
+                    <KpiCard
+                      icon={<MousePointerClick size={18} className="text-green-600" />}
+                      label="קליקים"
+                      value={formatNum(campaignDetail.clicks)}
+                      sub={`CTR ${campaignDetail.ctr}%`}
+                      bg="bg-green-50"
+                    />
+                    <KpiCard
+                      icon={<DollarSign size={18} className="text-orange-600" />}
+                      label="הוצאה"
+                      value={formatCost(campaignDetail.cost)}
+                      sub={`CPC ממוצע ₪${campaignDetail.avgCpc}`}
+                      bg="bg-orange-50"
+                    />
+                    <KpiCard
+                      icon={<Target size={18} className="text-purple-600" />}
+                      label="המרות"
+                      value={String(campaignDetail.conversions)}
+                      sub={campaignDetail.costPerConversion ? `₪${campaignDetail.costPerConversion} לליד` : undefined}
+                      bg="bg-purple-50"
+                    />
+                  </div>
+
+                  {/* Ad Groups Table */}
+                  {campaignDetail.adGroups.length > 0 && (
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-800 mb-3">
+                        קבוצות מודעות ({campaignDetail.adGroups.length})
+                      </h3>
+                      <div className="border border-gray-200 rounded-xl overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-gray-50 text-gray-600 text-right">
+                              <th className="px-4 py-2.5">שם</th>
+                              <th className="px-4 py-2.5">סטטוס</th>
+                              <th className="px-4 py-2.5 text-left">קליקים</th>
+                              <th className="px-4 py-2.5 text-left">הוצאה</th>
+                              <th className="px-4 py-2.5 text-left">המרות</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {campaignDetail.adGroups.map(ag => (
+                              <tr key={ag.id} className="hover:bg-gray-50">
+                                <td className="px-4 py-2.5 font-medium text-gray-900 max-w-[220px] truncate">{ag.name}</td>
+                                <td className="px-4 py-2.5">
+                                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                    ag.status === 'ENABLED' || ag.status === '2'
+                                      ? 'bg-green-100 text-green-700'
+                                      : 'bg-gray-100 text-gray-600'
+                                  }`}>
+                                    {ag.status === 'ENABLED' || ag.status === '2' ? 'פעיל' : 'מושהה'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2.5 text-left text-gray-700">{formatNum(ag.clicks)}</td>
+                                <td className="px-4 py-2.5 text-left text-gray-700">{formatCost(ag.cost)}</td>
+                                <td className="px-4 py-2.5 text-left text-gray-700">{ag.conversions}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Daily Metrics Table */}
+                  {campaignDetail.dailyMetrics.length > 0 && (
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-800 mb-3">
+                        נתונים יומיים (אחרון {days} ימים)
+                      </h3>
+                      <div className="border border-gray-200 rounded-xl overflow-hidden">
+                        <div className="overflow-x-auto max-h-64">
+                          <table className="w-full text-sm">
+                            <thead className="sticky top-0 z-10">
+                              <tr className="bg-gray-50 text-gray-600 text-right">
+                                <th className="px-4 py-2.5">תאריך</th>
+                                <th className="px-4 py-2.5 text-left">חשיפות</th>
+                                <th className="px-4 py-2.5 text-left">קליקים</th>
+                                <th className="px-4 py-2.5 text-left">הוצאה</th>
+                                <th className="px-4 py-2.5 text-left">המרות</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {campaignDetail.dailyMetrics.map(d => (
+                                <tr key={d.date} className="hover:bg-gray-50">
+                                  <td className="px-4 py-2 text-gray-700 font-mono text-xs">{d.date}</td>
+                                  <td className="px-4 py-2 text-left text-gray-700">{formatNum(d.impressions)}</td>
+                                  <td className="px-4 py-2 text-left text-gray-700">{formatNum(d.clicks)}</td>
+                                  <td className="px-4 py-2 text-left text-gray-700">{formatCost(d.cost)}</td>
+                                  <td className="px-4 py-2 text-left text-gray-700">{d.conversions}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

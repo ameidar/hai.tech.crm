@@ -161,6 +161,134 @@ googleAdsRouter.get('/summary', async (req, res, next) => {
   }
 });
 
+// GET /api/google-ads/campaigns/:id?days=30 — campaign detail
+googleAdsRouter.get('/campaigns/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const days = Math.min(parseInt(req.query.days as string) || 30, 90);
+    const period = `LAST_${days}_DAYS`;
+
+    const customer = getCustomer();
+
+    // 1. Basic campaign info
+    const campaignResults = await customer.query(`
+      SELECT
+        campaign.id,
+        campaign.name,
+        campaign.status,
+        campaign.advertising_channel_type,
+        campaign_budget.amount_micros
+      FROM campaign
+      WHERE campaign.id = ${id}
+      LIMIT 1
+    `);
+
+    if (!campaignResults.length) {
+      return res.status(404).json({ error: 'Campaign not found' });
+    }
+
+    const cr = campaignResults[0] as Record<string, unknown>;
+    const c = cr['campaign'] as Record<string, unknown>;
+    const cb = cr['campaign_budget'] as Record<string, unknown>;
+    const statusVal = String(c?.['status'] ?? '');
+
+    // 2. Ad groups
+    const adGroupResults = await customer.query(`
+      SELECT
+        ad_group.id,
+        ad_group.name,
+        ad_group.status,
+        metrics.impressions,
+        metrics.clicks,
+        metrics.cost_micros,
+        metrics.conversions
+      FROM ad_group
+      WHERE campaign.id = ${id}
+        AND segments.date DURING ${period}
+      ORDER BY metrics.cost_micros DESC
+      LIMIT 20
+    `);
+
+    // 3. Daily metrics
+    const dailyResults = await customer.query(`
+      SELECT
+        segments.date,
+        metrics.impressions,
+        metrics.clicks,
+        metrics.cost_micros,
+        metrics.conversions
+      FROM campaign
+      WHERE campaign.id = ${id}
+        AND segments.date DURING ${period}
+      ORDER BY segments.date ASC
+    `);
+
+    // Aggregate overall metrics from daily rows
+    let totalImpressions = 0, totalClicks = 0, totalCostMicros = 0, totalConversions = 0;
+    const dailyMetrics = dailyResults.map((r: Record<string, unknown>) => {
+      const m = r['metrics'] as Record<string, unknown>;
+      const s = r['segments'] as Record<string, unknown>;
+      const imp = Number(m?.['impressions'] ?? 0);
+      const clk = Number(m?.['clicks'] ?? 0);
+      const cst = Number(m?.['costMicros'] ?? m?.['cost_micros'] ?? 0);
+      const conv = Number(m?.['conversions'] ?? 0);
+      totalImpressions += imp;
+      totalClicks += clk;
+      totalCostMicros += cst;
+      totalConversions += conv;
+      return {
+        date: String(s?.['date'] ?? ''),
+        impressions: imp,
+        clicks: clk,
+        cost: Number((cst / 1_000_000).toFixed(2)),
+        conversions: conv,
+      };
+    });
+
+    const cost = Number((totalCostMicros / 1_000_000).toFixed(2));
+    const ctr = totalImpressions > 0 ? Number(((totalClicks / totalImpressions) * 100).toFixed(2)) : 0;
+    const avgCpc = totalClicks > 0 ? Number((cost / totalClicks).toFixed(2)) : 0;
+
+    const adGroups = adGroupResults.map((r: Record<string, unknown>) => {
+      const ag = r['ad_group'] as Record<string, unknown>;
+      const m = r['metrics'] as Record<string, unknown>;
+      const agCostMicros = Number(m?.['costMicros'] ?? m?.['cost_micros'] ?? 0);
+      return {
+        id: String(ag?.['id'] ?? ''),
+        name: String(ag?.['name'] ?? ''),
+        status: String(ag?.['status'] ?? ''),
+        impressions: Number(m?.['impressions'] ?? 0),
+        clicks: Number(m?.['clicks'] ?? 0),
+        cost: Number((agCostMicros / 1_000_000).toFixed(2)),
+        conversions: Number(m?.['conversions'] ?? 0),
+      };
+    });
+
+    const budgetMicros = Number(cb?.['amountMicros'] ?? cb?.['amount_micros'] ?? 0);
+
+    res.json({
+      id: String(c?.['id'] ?? ''),
+      name: String(c?.['name'] ?? ''),
+      status: (statusVal === 'ENABLED' || statusVal === '2') ? 'active' : 'paused',
+      channelType: String(c?.['advertisingChannelType'] ?? c?.['advertising_channel_type'] ?? ''),
+      budget: Number((budgetMicros / 1_000_000).toFixed(2)),
+      impressions: totalImpressions,
+      clicks: totalClicks,
+      cost,
+      conversions: totalConversions,
+      ctr,
+      avgCpc,
+      costPerConversion: totalConversions > 0 ? Number((cost / totalConversions).toFixed(2)) : null,
+      adGroups,
+      dailyMetrics,
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[Google Ads] campaign detail error:', msg);
+    next(err);
+  }
+});
+
 // PATCH /api/google-ads/campaigns/:id/status — enable/pause
 googleAdsRouter.patch('/campaigns/:id/status', managerOrAdmin, async (req, res, next) => {
   try {

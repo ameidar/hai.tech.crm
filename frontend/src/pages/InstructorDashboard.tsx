@@ -15,7 +15,7 @@ export default function InstructorDashboard() {
   const navigate = useNavigate();
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [materialsCourse, setMaterialsCourse] = useState<{ id: string; name: string } | null>(null);
-  const [viewMode, setViewMode] = useState<'today' | 'week' | 'all'>('today');
+  const [viewMode, setViewMode] = useState<'today' | 'week' | 'past' | 'all'>('today');
   const [cycleFilter, setCycleFilter] = useState<string>('all');
 
   // Get date range based on view mode
@@ -29,6 +29,12 @@ export default function InstructorDashboard() {
       const nextWeek = new Date(today);
       nextWeek.setDate(nextWeek.getDate() + 7);
       return { from: todayStr, to: nextWeek.toISOString().split('T')[0] };
+    } else if (viewMode === 'past') {
+      const past30 = new Date(today);
+      past30.setDate(past30.getDate() - 30);
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      return { from: past30.toISOString().split('T')[0], to: yesterday.toISOString().split('T')[0] };
     }
     return {};
   }, [viewMode]);
@@ -153,6 +159,14 @@ export default function InstructorDashboard() {
             השבוע הקרוב
           </button>
           <button
+            onClick={() => setViewMode('past')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              viewMode === 'past' ? 'bg-gray-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            עבר (30 יום)
+          </button>
+          <button
             onClick={() => setViewMode('all')}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${
               viewMode === 'all' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'
@@ -251,7 +265,7 @@ export default function InstructorDashboard() {
                         חומרים
                       </button>
                     )}
-                    {meeting.cycle?.activityType === 'online' && meeting.zoomJoinUrl && meeting.status === 'scheduled' && (
+                    {viewMode !== 'past' && meeting.cycle?.activityType === 'online' && meeting.zoomJoinUrl && meeting.status === 'scheduled' && (
                       <a
                         href={meeting.zoomJoinUrl}
                         target="_blank"
@@ -283,7 +297,11 @@ export default function InstructorDashboard() {
         ) : (
           <div className="bg-white rounded-lg p-8 text-center">
             <Calendar size={48} className="mx-auto mb-4 text-gray-300" />
-            <p className="text-gray-500">אין פגישות {viewMode === 'today' ? 'להיום' : 'בטווח הנבחר'}</p>
+            <p className="text-gray-500">
+              {viewMode === 'today' ? 'אין פגישות להיום' :
+               viewMode === 'past' ? 'אין פגישות ב-30 הימים האחרונים' :
+               'אין פגישות בטווח הנבחר'}
+            </p>
           </div>
         )}
       </div>

@@ -24,7 +24,7 @@ import type { Meeting, MeetingStatus } from '../../types';
  */
 export default function MobileMeetings() {
   const navigate = useNavigate();
-  const [viewMode, setViewMode] = useState<'today' | 'week' | 'cycle'>('today');
+  const [viewMode, setViewMode] = useState<'today' | 'week' | 'past' | 'cycle'>('today');
   const [selectedCycleId, setSelectedCycleId] = useState<string>('');
 
   // Fetch instructor's cycles for the filter
@@ -40,6 +40,13 @@ export default function MobileMeetings() {
       return { from: '2020-01-01', to: '2030-12-31' };
     } else if (viewMode === 'today') {
       return { date: todayStr };
+    } else if (viewMode === 'past') {
+      // Last 30 days (up to yesterday)
+      const past30 = new Date(today);
+      past30.setDate(past30.getDate() - 30);
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      return { from: past30.toISOString().split('T')[0], to: yesterday.toISOString().split('T')[0] };
     } else {
       const nextWeek = new Date(today);
       nextWeek.setDate(nextWeek.getDate() + 7);
@@ -129,7 +136,7 @@ export default function MobileMeetings() {
       <div className="flex gap-2 mb-4">
         <button
           onClick={() => { setViewMode('today'); setSelectedCycleId(''); }}
-          className={`flex-1 py-3 rounded-xl font-medium text-sm transition-all ${
+          className={`flex-1 py-2.5 rounded-xl font-medium text-sm transition-all ${
             viewMode === 'today' 
               ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
               : 'bg-white text-gray-600 border border-gray-200'
@@ -139,7 +146,7 @@ export default function MobileMeetings() {
         </button>
         <button
           onClick={() => { setViewMode('week'); setSelectedCycleId(''); }}
-          className={`flex-1 py-3 rounded-xl font-medium text-sm transition-all ${
+          className={`flex-1 py-2.5 rounded-xl font-medium text-sm transition-all ${
             viewMode === 'week' 
               ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
               : 'bg-white text-gray-600 border border-gray-200'
@@ -148,8 +155,18 @@ export default function MobileMeetings() {
           השבוע
         </button>
         <button
+          onClick={() => { setViewMode('past'); setSelectedCycleId(''); }}
+          className={`flex-1 py-2.5 rounded-xl font-medium text-sm transition-all ${
+            viewMode === 'past' 
+              ? 'bg-gray-700 text-white shadow-lg shadow-gray-200' 
+              : 'bg-white text-gray-600 border border-gray-200'
+          }`}
+        >
+          עבר
+        </button>
+        <button
           onClick={() => setViewMode('cycle')}
-          className={`flex-1 py-3 rounded-xl font-medium text-sm transition-all flex items-center justify-center gap-1 ${
+          className={`flex-1 py-2.5 rounded-xl font-medium text-sm transition-all flex items-center justify-center gap-1 ${
             viewMode === 'cycle' 
               ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
               : 'bg-white text-gray-600 border border-gray-200'
@@ -201,7 +218,7 @@ export default function MobileMeetings() {
           {Object.entries(groupedMeetings).map(([date, dateMeetings]) => (
             <div key={date}>
               {/* Date Header */}
-              {(viewMode === 'week' || viewMode === 'cycle') && (
+              {(viewMode === 'week' || viewMode === 'cycle' || viewMode === 'past') && (
                 <div className="flex items-center gap-2 mb-3">
                   <div className={`w-2 h-2 rounded-full ${isToday(date) ? 'bg-blue-500' : 'bg-gray-300'}`} />
                   <span className={`text-sm font-medium ${isToday(date) ? 'text-blue-600' : 'text-gray-500'}`}>
@@ -280,8 +297,8 @@ export default function MobileMeetings() {
                         </div>
                       )}
 
-                      {/* Join Zoom Button */}
-                      {isOnline && meeting.zoomJoinUrl && meeting.status === 'scheduled' && (
+                      {/* Join Zoom Button — only for upcoming/today meetings */}
+                      {viewMode !== 'past' && isOnline && meeting.zoomJoinUrl && meeting.status === 'scheduled' && (
                         <a
                           href={meeting.zoomJoinUrl}
                           target="_blank"
@@ -294,13 +311,21 @@ export default function MobileMeetings() {
                         </a>
                       )}
 
-                      {/* Action Hint */}
-                      {isToday(meeting.scheduledDate) && meeting.status === 'scheduled' && !(isOnline && meeting.zoomJoinUrl) && (
+                      {/* Action Hint — only for today's upcoming meetings */}
+                      {viewMode !== 'past' && isToday(meeting.scheduledDate) && meeting.status === 'scheduled' && !(isOnline && meeting.zoomJoinUrl) && (
                         <div className="mt-3 flex items-center justify-between">
                           <span className="text-xs text-blue-600 font-medium">
                             לחץ לעדכון נוכחות וסטטוס
                           </span>
                           <ChevronLeft size={16} className="text-blue-400" />
+                        </div>
+                      )}
+
+                      {/* Past meetings — read-only indicator */}
+                      {viewMode === 'past' && (
+                        <div className="mt-2 flex items-center gap-1 text-xs text-gray-400">
+                          <CheckCircle2 size={12} />
+                          <span>צפייה בלבד</span>
                         </div>
                       )}
                     </button>
@@ -318,10 +343,12 @@ export default function MobileMeetings() {
               ? 'בחר מחזור לצפייה בפגישות'
               : viewMode === 'cycle'
                 ? 'אין פגישות במחזור זה'
-                : `אין פגישות ${viewMode === 'today' ? 'להיום' : 'השבוע'}`
+                : viewMode === 'past'
+                  ? 'אין פגישות ב-30 הימים האחרונים'
+                  : `אין פגישות ${viewMode === 'today' ? 'להיום' : 'השבוע'}`
             }
           </p>
-          {viewMode !== 'cycle' && (
+          {viewMode !== 'cycle' && viewMode !== 'past' && (
             <p className="text-gray-400 text-sm mt-1">
               תהנה מהמנוחה! 🎉
             </p>

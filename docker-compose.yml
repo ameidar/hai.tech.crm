@@ -92,6 +92,7 @@ services:
       GOOGLE_ADS_REFRESH_TOKEN: ${GOOGLE_ADS_REFRESH_TOKEN}
     volumes:
       - ./backend/uploads:/app/uploads
+      - ./backend/credentials:/app/credentials:ro
     ports:
       - "3001:3001"
     extra_hosts:

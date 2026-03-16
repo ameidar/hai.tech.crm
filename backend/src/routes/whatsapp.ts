@@ -308,7 +308,7 @@ async function extractLeadData(conversationId: string) {
                 <p style="color:#374151;margin:4px 0;">💰 מחיר: <strong>${course.price ? course.price + '₪' : ''}</strong> — גישה לנצח</p>
               </div>
               <div style="text-align:center;margin:24px 0;">
-                <a href="https://haitechdigitalcourses.hai.tech" style="background:#1a56db;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-size:16px;display:inline-block;">
+                <a href="https://www.hai.tech" style="background:#1a56db;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-size:16px;display:inline-block;">
                   🛒 לרכישת הקורס
                 </a>
               </div>`;
@@ -316,42 +316,59 @@ async function extractLeadData(conversationId: string) {
         }
 
         if (!courseHtml) {
-          courseHtml = `
-            <div style="text-align:center;margin:24px 0;">
-              <a href="https://haitechdigitalcourses.hai.tech" style="background:#1a56db;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-size:16px;display:inline-block;">
-                🛒 לכל הקורסים שלנו
-              </a>
-            </div>`;
-        }
-
-        const html = `
-          <!DOCTYPE html>
-          <html dir="rtl" lang="he">
-          <body style="font-family:Arial,sans-serif;direction:rtl;background:#f9fafb;padding:32px;">
-            <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-              <div style="text-align:center;margin-bottom:24px;">
-                <img src="https://www.hai.tech/wp-content/uploads/2023/02/hai-tech-logo.png" alt="דרך ההייטק" style="height:50px;" onerror="this.style.display='none'"/>
+          // No specific course info — do NOT send generic email to lead.
+          // Instead, send internal alert to team so they can follow up manually.
+          const convPhone = conv.phone || 'לא ידוע';
+          const convSummary = data.summary || 'אין סיכום';
+          await sendEmail({
+            to: 'info@hai.tech',
+            subject: `⚠️ ליד ממתין לתשובה — אין מידע מדויק | ${leadName}`,
+            html: `
+              <div dir="rtl" style="font-family:Arial,sans-serif;font-size:15px;line-height:1.8;color:#222;">
+                <h2 style="color:#b45309;">⚠️ ליד ממתין לתשובה ידנית</h2>
+                <p>הבוט הבטיח לשלוח מייל ללקוח, אך <strong>אין לו מידע מדויק</strong> לגבי הנושא שנשאל.</p>
+                <table style="border-collapse:collapse;margin:12px 0;">
+                  <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">שם:</td><td style="font-weight:bold;">${leadName}</td></tr>
+                  <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">מייל:</td><td><a href="mailto:${data.lead_email}">${data.lead_email}</a></td></tr>
+                  <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">טלפון:</td><td>${convPhone}</td></tr>
+                  <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">נושא:</td><td>${courseTitle || 'לא זוהה'}</td></tr>
+                  <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">סיכום שיחה:</td><td>${convSummary}</td></tr>
+                </table>
+                <p style="color:#dc2626;font-weight:bold;">יש לחזור ללקוח ולשלוח מייל ידני עם המידע הרלוונטי.</p>
+              </div>`
+          });
+          console.log(`[WA] No course match — internal alert sent to info@hai.tech for conv ${conversationId}`);
+        } else {
+          // Course found — send details email to lead
+          const html = `
+            <!DOCTYPE html>
+            <html dir="rtl" lang="he">
+            <body style="font-family:Arial,sans-serif;direction:rtl;background:#f9fafb;padding:32px;">
+              <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+                <div style="text-align:center;margin-bottom:24px;">
+                  <img src="https://www.hai.tech/wp-content/uploads/2023/02/hai-tech-logo.png" alt="דרך ההייטק" style="height:50px;" onerror="this.style.display='none'"/>
+                </div>
+                <h1 style="color:#111827;font-size:22px;">היי ${leadName}! 👋</h1>
+                <p style="color:#374151;font-size:16px;line-height:1.6;">
+                  תודה שדיברת איתנו! כאמור, הכנסנו לך את הפרטים על הקורס שדיברנו עליו:
+                </p>
+                ${courseHtml}
+                <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;"/>
+                <p style="color:#6b7280;font-size:14px;">
+                  יש שאלות? ניתן לחזור לשיחת הוואטסאפ או ליצור קשר: <a href="mailto:info@hai.tech">info@hai.tech</a>
+                </p>
+                <p style="color:#6b7280;font-size:12px;">דרך ההייטק — ללמד ילדים טכנולוגיה בדרך מהנה 🚀</p>
               </div>
-              <h1 style="color:#111827;font-size:22px;">היי ${leadName}! 👋</h1>
-              <p style="color:#374151;font-size:16px;line-height:1.6;">
-                תודה שדיברת איתנו! כאמור, הכנסנו לך את הפרטים על הקורס שדיברנו עליו:
-              </p>
-              ${courseHtml}
-              <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;"/>
-              <p style="color:#6b7280;font-size:14px;">
-                יש שאלות? ניתן לחזור לשיחת הוואטסאפ או ליצור קשר: <a href="mailto:info@hai.tech">info@hai.tech</a>
-              </p>
-              <p style="color:#6b7280;font-size:12px;">דרך ההייטק — ללמד ילדים טכנולוגיה בדרך מהנה 🚀</p>
-            </div>
-          </body>
-          </html>`;
+            </body>
+            </html>`;
 
-        await sendEmail({
-          to: data.lead_email,
-          subject: courseTitle ? `פרטים על ${courseTitle} - דרך ההייטק` : 'פרטים על קורסי דרך ההייטק',
-          html
-        });
-        console.log(`[WA] Course email sent to ${data.lead_email} for conv ${conversationId}`);
+          await sendEmail({
+            to: data.lead_email,
+            subject: `פרטים על ${courseTitle} - דרך ההייטק`,
+            html
+          });
+          console.log(`[WA] Course email sent to ${data.lead_email} for conv ${conversationId}`);
+        }
       } catch (e) {
         console.error('[WA] Email send failed:', e);
       }

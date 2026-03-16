@@ -847,10 +847,11 @@ export default function CycleDetail() {
               </div>
               <div className="card-body">
                 {(() => {
-                  // Use cycle fields (totalMeetings - completedMeetings = remainingMeetings)
-                  const completedCount = cycle.completedMeetings || 0;
-                  const totalCount = cycle.totalMeetings;
-                  const remainingCount = cycle.remainingMeetings || (totalCount - completedCount);
+                  // Live calculation: completed = meetings with status='completed'
+                  // Total = cycle settings (totalMeetings), NOT actual meetings in table
+                  const completedCount = meetings?.filter(m => m.status === 'completed').length ?? 0;
+                  const totalCount = cycle.totalMeetings || 0;
+                  const remainingCount = Math.max(0, totalCount - completedCount);
                   
                   return (
                     <>

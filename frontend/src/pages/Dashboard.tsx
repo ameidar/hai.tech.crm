@@ -10,6 +10,7 @@ import {
   Wallet,
   Activity,
   ChevronLeft,
+  CreditCard,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -20,7 +21,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { useMeetings, useCyclesWithTotal, useCustomers, useInstructors, useRecalculateMeeting } from '../hooks/useApi';
+import { useMeetings, useCyclesWithTotal, useCustomers, useInstructors, useRecalculateMeeting, usePaymentsToday } from '../hooks/useApi';
 import { useAuth } from '../context/AuthContext';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -36,6 +37,7 @@ export default function Dashboard() {
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
 
   const { data: todayMeetings, isLoading: loadingMeetings } = useMeetings({ date: today });
+  const { data: paymentsToday } = usePaymentsToday();
   const { data: cyclesData, isLoading: loadingCycles } = useCyclesWithTotal({ status: 'active' });
   const cycles = cyclesData?.data;
   const cyclesTotal = cyclesData?.pagination?.total;
@@ -192,30 +194,41 @@ export default function Dashboard() {
             </div>
 
             {/* Today's Financial Summary */}
-            {stats && stats.total > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-6">
-                <FinancialCard
-                  title="הכנסות היום"
-                  value={stats.totalRevenue}
-                  icon={<DollarSign size={24} />}
-                  gradient="from-emerald-400 to-emerald-600"
-                  positive={true}
-                />
-                <FinancialCard
-                  title="עלויות מדריכים"
-                  value={stats.totalCosts}
-                  icon={<Wallet size={24} />}
-                  gradient="from-rose-400 to-rose-600"
-                  positive={false}
-                />
-                <FinancialCard
-                  title="רווח נקי"
-                  value={stats.profit}
-                  icon={stats.profit >= 0 ? <TrendingUp size={24} /> : <TrendingDown size={24} />}
-                  gradient={stats.profit >= 0 ? 'from-blue-400 to-indigo-600' : 'from-rose-400 to-rose-600'}
-                  positive={stats.profit >= 0}
-                  showSign={true}
-                />
+            {(stats && stats.total > 0 || (paymentsToday && paymentsToday.count > 0)) && (
+              <div className={`grid grid-cols-1 gap-3 md:gap-6 ${paymentsToday && paymentsToday.count > 0 ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
+                {stats && stats.total > 0 && <>
+                  <FinancialCard
+                    title="הכנסות פגישות"
+                    value={stats.totalRevenue}
+                    icon={<DollarSign size={24} />}
+                    gradient="from-emerald-400 to-emerald-600"
+                    positive={true}
+                  />
+                  <FinancialCard
+                    title="עלויות מדריכים"
+                    value={stats.totalCosts}
+                    icon={<Wallet size={24} />}
+                    gradient="from-rose-400 to-rose-600"
+                    positive={false}
+                  />
+                  <FinancialCard
+                    title="רווח נקי"
+                    value={stats.profit}
+                    icon={stats.profit >= 0 ? <TrendingUp size={24} /> : <TrendingDown size={24} />}
+                    gradient={stats.profit >= 0 ? 'from-blue-400 to-indigo-600' : 'from-rose-400 to-rose-600'}
+                    positive={stats.profit >= 0}
+                    showSign={true}
+                  />
+                </>}
+                {paymentsToday && paymentsToday.count > 0 && (
+                  <FinancialCard
+                    title={`תשלומים שנכנסו (${paymentsToday.count})`}
+                    value={paymentsToday.total}
+                    icon={<CreditCard size={24} />}
+                    gradient="from-purple-400 to-violet-600"
+                    positive={true}
+                  />
+                )}
               </div>
             )}
 

@@ -1316,5 +1316,17 @@ export const useDeleteQuote = () => {
   });
 };
 
+// ==================== Payments ====================
+export const usePaymentsToday = () => {
+  return useQuery({
+    queryKey: ['payments-today'],
+    queryFn: async () => {
+      const res = await api.get('/payments/today');
+      return res.data as { date: string; total: number; count: number; payments: any[] };
+    },
+    refetchInterval: 60000, // refresh every minute
+  });
+};
+
 // Re-export api for direct use in components
 export { api };

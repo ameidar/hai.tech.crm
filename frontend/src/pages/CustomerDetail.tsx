@@ -1482,6 +1482,35 @@ function PaymentHistory({ customerId }: { customerId: string }) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
 
+  // Manual payment modal
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addForm, setAddForm] = useState({ amount: '', description: '', paidAt: new Date().toISOString().slice(0, 10), paymentMethod: '' });
+  const [addSaving, setAddSaving] = useState(false);
+
+  const addManualPayment = async () => {
+    if (!addForm.amount || isNaN(Number(addForm.amount)) || Number(addForm.amount) <= 0) {
+      alert('נא להזין סכום תקין'); return;
+    }
+    if (!addForm.description.trim()) { alert('נא להזין תיאור'); return; }
+    setAddSaving(true);
+    try {
+      await api.post('/payments/manual', {
+        customerId,
+        amount: Number(addForm.amount),
+        description: addForm.description.trim(),
+        paidAt: addForm.paidAt ? new Date(addForm.paidAt).toISOString() : undefined,
+        paymentMethod: addForm.paymentMethod || undefined,
+      });
+      setShowAddModal(false);
+      setAddForm({ amount: '', description: '', paidAt: new Date().toISOString().slice(0, 10), paymentMethod: '' });
+      refetch();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'שגיאה בשמירה');
+    } finally {
+      setAddSaving(false);
+    }
+  };
+
   const deletePayment = async (paymentId: string, description: string) => {
     if (!window.confirm(`למחוק את ההצעה "${description}"?\n\nלא ניתן לבטל פעולה זו.`)) return;
     setDeleting(paymentId);
@@ -1522,7 +1551,7 @@ function PaymentHistory({ customerId }: { customerId: string }) {
     }
   };
 
-  if (!isLoading && payments.length === 0) return null;
+  // Always render (even if empty) so the "Add manual payment" button is visible
 
   return (
     <div className="lg:col-span-3 card">
@@ -1531,7 +1560,16 @@ function PaymentHistory({ customerId }: { customerId: string }) {
           <CreditCard size={18} className="text-purple-600" />
           <h2 className="font-semibold">היסטוריית תשלומים ({payments.length})</h2>
         </div>
-        <button onClick={() => refetch()} className="text-xs text-gray-400 hover:text-gray-600">רענן</button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="text-xs bg-purple-600 text-white px-3 py-1.5 rounded-lg hover:bg-purple-700 flex items-center gap-1.5 font-medium"
+          >
+            <Plus size={13} />
+            הוסף תשלום ידני
+          </button>
+          <button onClick={() => refetch()} className="text-xs text-gray-400 hover:text-gray-600">רענן</button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -1626,6 +1664,83 @@ function PaymentHistory({ customerId }: { customerId: string }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Manual Payment Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowAddModal(false)}>
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <CreditCard size={18} className="text-purple-600" />
+              הוספת תשלום ידני
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">סכום (₪) *</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={addForm.amount}
+                  onChange={e => setAddForm(f => ({ ...f, amount: e.target.value }))}
+                  placeholder="0"
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  dir="ltr"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">תיאור *</label>
+                <input
+                  type="text"
+                  value={addForm.description}
+                  onChange={e => setAddForm(f => ({ ...f, description: e.target.value }))}
+                  placeholder="למשל: קורס דיגיטלי — Roblox"
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">תאריך תשלום</label>
+                <input
+                  type="date"
+                  value={addForm.paidAt}
+                  onChange={e => setAddForm(f => ({ ...f, paidAt: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  dir="ltr"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">אמצעי תשלום</label>
+                <select
+                  value={addForm.paymentMethod}
+                  onChange={e => setAddForm(f => ({ ...f, paymentMethod: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                >
+                  <option value="">— לא צוין —</option>
+                  <option value="creditcard">כרטיס אשראי</option>
+                  <option value="bit">ביט</option>
+                  <option value="bank_transfer">העברה בנקאית</option>
+                  <option value="cash">מזומן</option>
+                  <option value="other">אחר</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={addManualPayment}
+                disabled={addSaving}
+                className="flex-1 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50 font-medium text-sm"
+              >
+                {addSaving ? 'שומר...' : 'שמור תשלום'}
+              </button>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border rounded-lg hover:bg-gray-50"
+              >
+                ביטול
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

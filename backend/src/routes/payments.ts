@@ -512,6 +512,95 @@ router.post('/sync-woo', async (req: any, res) => {
 });
 
 /**
+ * POST /api/payments/manual
+ * Admin/manager — manually record a received payment (no WooCommerce order).
+ * Body: { customerId?, customerName?, customerEmail?, customerPhone?,
+ *         amount, description, paidAt?, paymentMethod? }
+ */
+router.post('/manual', authenticate, async (req: any, res) => {
+  if (!req.user || !['admin', 'manager'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'אין הרשאה' });
+  }
+
+  const { customerId, customerName, customerEmail, customerPhone, amount, description, paidAt, paymentMethod } = req.body;
+
+  if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+    return res.status(400).json({ error: 'סכום לא תקין' });
+  }
+  if (!description?.trim()) {
+    return res.status(400).json({ error: 'נדרש תיאור' });
+  }
+
+  // Resolve customer name if only ID was provided
+  let resolvedName = customerName || 'לקוח';
+  let resolvedEmail = customerEmail || undefined;
+  let resolvedPhone = customerPhone || undefined;
+
+  if (customerId && !customerName) {
+    try {
+      const cust = await prisma.customer.findUnique({
+        where: { id: customerId },
+        select: { name: true, email: true, phone: true },
+      });
+      if (cust) {
+        resolvedName = cust.name || resolvedName;
+        resolvedEmail = resolvedEmail || cust.email || undefined;
+        resolvedPhone = resolvedPhone || cust.phone || undefined;
+      }
+    } catch { /* ignore */ }
+  }
+
+  const payment = await prisma.payment.create({
+    data: {
+      customerId: customerId || null,
+      customerName: resolvedName,
+      customerEmail: resolvedEmail || null,
+      customerPhone: resolvedPhone || null,
+      description: description.trim(),
+      amount: Number(amount),
+      currency: 'ILS',
+      status: 'paid',
+      paidAt: paidAt ? new Date(paidAt) : new Date(),
+      paymentMethod: paymentMethod || null,
+      // wooOrderId intentionally left null — manual entry
+    },
+  });
+
+  return res.status(201).json(payment);
+});
+
+/**
+ * GET /api/payments/today
+ * Returns all payments with paidAt = today (Israel time) + total sum.
+ */
+router.get('/today', authenticate, async (req: any, res) => {
+  if (!req.user || !['admin', 'manager'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'אין הרשאה' });
+  }
+
+  // Israel time — UTC+2 (or UTC+3 DST, but safe to use fixed +2 for day boundaries)
+  const now = new Date();
+  const israelOffset = 2 * 60 * 60 * 1000; // UTC+2
+  const israelNow = new Date(now.getTime() + israelOffset);
+  const todayStr = israelNow.toISOString().slice(0, 10); // YYYY-MM-DD
+
+  const dayStart = new Date(`${todayStr}T00:00:00.000+02:00`);
+  const dayEnd = new Date(`${todayStr}T23:59:59.999+02:00`);
+
+  const payments = await prisma.payment.findMany({
+    where: {
+      status: 'paid',
+      paidAt: { gte: dayStart, lte: dayEnd },
+    },
+    orderBy: { paidAt: 'desc' },
+  });
+
+  const total = payments.reduce((sum, p) => sum + Number(p.amount), 0);
+
+  return res.json({ date: todayStr, total, count: payments.length, payments });
+});
+
+/**
  * PATCH /api/payments/:id
  * Update payment fields (invoiceUrl, invoiceNumber, status). Admin/manager only.
  */

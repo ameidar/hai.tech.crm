@@ -36,6 +36,7 @@ export interface Customer {
   lmsUsername?: string;
   lmsPassword?: string;
   source?: string;
+  leadStatus?: string;
   createdAt: string;
   students?: Student[];
   payments?: { id: string }[];

@@ -134,6 +134,14 @@ export default function CustomerDetail() {
     }
   };
 
+  const handleLeadStatusChange = async (status: string) => {
+    try {
+      await updateCustomer.mutateAsync({ id: id!, data: { leadStatus: status } });
+    } catch (error) {
+      console.error('Failed to update lead status:', error);
+    }
+  };
+
   if (isLoading) {
     return <Loading size="lg" text="טוען פרטי לקוח..." />;
   }
@@ -257,6 +265,30 @@ export default function CustomerDetail() {
                   <p className="text-gray-700">{customer.notes}</p>
                 </div>
               )}
+
+              {/* Lead Status — inline quick updater */}
+              <div className="pt-2">
+                <p className="text-sm text-gray-500 mb-1">סטטוס ליד</p>
+                <select
+                  value={customer.leadStatus || 'new'}
+                  onChange={(e) => handleLeadStatusChange(e.target.value)}
+                  className={`text-xs px-2 py-1 rounded-full font-medium border-0 cursor-pointer focus:ring-1 focus:ring-offset-1 ${
+                    {
+                      new: 'bg-blue-50 text-blue-700 focus:ring-blue-400',
+                      contacted: 'bg-yellow-50 text-yellow-700 focus:ring-yellow-400',
+                      in_progress: 'bg-orange-50 text-orange-700 focus:ring-orange-400',
+                      converted: 'bg-green-50 text-green-700 focus:ring-green-400',
+                      closed: 'bg-gray-100 text-gray-500 focus:ring-gray-400',
+                    }[customer.leadStatus || 'new'] ?? 'bg-blue-50 text-blue-700 focus:ring-blue-400'
+                  }`}
+                >
+                  <option value="new">🆕 חדש</option>
+                  <option value="contacted">📞 נוצר קשר</option>
+                  <option value="in_progress">⏳ בטיפול</option>
+                  <option value="converted">✅ הומר</option>
+                  <option value="closed">❌ נסגר</option>
+                </select>
+              </div>
 
               {customer.source && (
                 <div className="pt-2">
@@ -815,6 +847,7 @@ function CustomerEditForm({ customer, onSubmit, onCancel, isLoading, error }: Cu
     lmsUsername: customer.lmsUsername || '',
     lmsPassword: customer.lmsPassword || '',
     source: customer.source || '',
+    leadStatus: customer.leadStatus || 'new',
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -895,7 +928,7 @@ function CustomerEditForm({ customer, onSubmit, onCancel, isLoading, error }: Cu
         </div>
 
         {/* Source */}
-        <div className="col-span-2">
+        <div>
           <label className="form-label">מקור הגעה</label>
           <select
             value={formData.source}
@@ -912,6 +945,22 @@ function CustomerEditForm({ customer, onSubmit, onCancel, isLoading, error }: Cu
             <option value="manual">✏️ ידני</option>
             <option value="fireberry">🔥 Fireberry</option>
             <option value="woocommerce">🛒 WooCommerce</option>
+          </select>
+        </div>
+
+        {/* Lead Status */}
+        <div>
+          <label className="form-label">סטטוס ליד</label>
+          <select
+            value={formData.leadStatus}
+            onChange={(e) => setFormData({ ...formData, leadStatus: e.target.value })}
+            className="form-input"
+          >
+            <option value="new">🆕 חדש</option>
+            <option value="contacted">📞 נוצר קשר</option>
+            <option value="in_progress">⏳ בטיפול</option>
+            <option value="converted">✅ הומר</option>
+            <option value="closed">❌ נסגר</option>
           </select>
         </div>
 

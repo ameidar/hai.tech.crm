@@ -24,6 +24,20 @@ function SortableTh({ label, sortKey, sortConfig, onSort, align = 'right' }: {
   );
 }
 
+const LEAD_STATUS_MAP: Record<string, { label: string; cls: string }> = {
+  new:         { label: '🆕 חדש',       cls: 'bg-blue-50 text-blue-700' },
+  contacted:   { label: '📞 נוצר קשר', cls: 'bg-yellow-50 text-yellow-700' },
+  in_progress: { label: '⏳ בטיפול',   cls: 'bg-orange-50 text-orange-700' },
+  converted:   { label: '✅ הומר',      cls: 'bg-green-50 text-green-700' },
+  closed:      { label: '❌ נסגר',      cls: 'bg-gray-100 text-gray-500' },
+};
+
+function LeadStatusBadge({ status }: { status?: string | null }) {
+  const s = status || 'new';
+  const { label, cls } = LEAD_STATUS_MAP[s] ?? LEAD_STATUS_MAP.new;
+  return <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${cls}`}>{label}</span>;
+}
+
 export default function Customers() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [showAddModal, setShowAddModal] = useState(false);
@@ -218,6 +232,7 @@ export default function Customers() {
                     <SortableTh label="עיר" sortKey="city" sortConfig={sortConfig} onSort={handleSort} />
                     <SortableTh label="תלמידים" sortKey="students" sortConfig={sortConfig} onSort={handleSort} align="center" />
                     <th className="p-3 text-center font-medium text-gray-600">תשלומים</th>
+                    <th className="p-3 text-right font-medium text-gray-600">סטטוס</th>
                     <th className="p-3 text-right font-medium text-gray-600">פעולות</th>
                   </tr>
                 </thead>
@@ -249,6 +264,9 @@ export default function Customers() {
                         {customer.payments && customer.payments.length > 0
                           ? <span className="text-indigo-600">🎓 {customer.payments.length}</span>
                           : '-'}
+                      </td>
+                      <td className="p-3">
+                        <LeadStatusBadge status={customer.leadStatus} />
                       </td>
                       <td className="p-3">
                         <div className="flex items-center gap-1">
@@ -331,11 +349,14 @@ function CustomerCard({ customer, onEdit, onDelete, isSelected, onToggleSelect }
             </div>
             <div>
               <h3 className="font-semibold text-gray-900 text-lg group-hover:text-blue-600 transition-colors">{customer.name}</h3>
-              {customer.city && (
-                <p className="text-sm text-gray-500 flex items-center gap-1 mt-0.5">
-                  <MapPin size={13} className="text-gray-400" />{customer.city}
-                </p>
-              )}
+              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                {customer.city && (
+                  <p className="text-sm text-gray-500 flex items-center gap-1">
+                    <MapPin size={13} className="text-gray-400" />{customer.city}
+                  </p>
+                )}
+                <LeadStatusBadge status={customer.leadStatus} />
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
@@ -389,6 +410,7 @@ function CustomerForm({ onSubmit, onCancel, isLoading, initialData }: CustomerFo
     address: initialData?.address || '',
     city: initialData?.city || '',
     notes: initialData?.notes || '',
+    leadStatus: initialData?.leadStatus || 'new',
   });
 
   const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); onSubmit(formData); };
@@ -419,6 +441,16 @@ function CustomerForm({ onSubmit, onCancel, isLoading, initialData }: CustomerFo
         <div className="col-span-2">
           <label className="form-label">הערות</label>
           <textarea value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} className="form-input" rows={3} />
+        </div>
+        <div className="col-span-2">
+          <label className="form-label">סטטוס ליד</label>
+          <select value={formData.leadStatus} onChange={(e) => setFormData({ ...formData, leadStatus: e.target.value })} className="form-input">
+            <option value="new">🆕 חדש</option>
+            <option value="contacted">📞 נוצר קשר</option>
+            <option value="in_progress">⏳ בטיפול</option>
+            <option value="converted">✅ הומר</option>
+            <option value="closed">❌ נסגר</option>
+          </select>
         </div>
       </div>
       <div className="flex justify-end gap-3 pt-4 border-t">

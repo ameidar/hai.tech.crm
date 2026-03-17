@@ -168,6 +168,7 @@ model Customer {
   lmsUsername  String?   @map("lms_username")
   lmsPassword  String?   @map("lms_password")
   source       String?   @map("source")
+  leadStatus   String?   @default("new") @map("lead_status") // new | contacted | in_progress | converted | closed
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
   deletedAt    DateTime? @map("deleted_at")

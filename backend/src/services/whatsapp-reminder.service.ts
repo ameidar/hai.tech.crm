@@ -20,25 +20,29 @@ const preMeetingRemindersSent = new Set<string>();
 const ADMIN_PHONE = process.env.ADMIN_PHONE || '972528746137';
 
 /**
- * Get start-of-day and end-of-day in Israel timezone, DST-aware.
- * Returns UTC Date objects suitable for Prisma range queries.
+ * Get the target Israel calendar date as a UTC midnight Date, for use with @db.Date fields.
  * offsetDays=0 → today, offsetDays=-1 → yesterday, etc.
+ *
+ * ⚠️  scheduledDate is @db.Date (pure DATE column in PostgreSQL).
+ *     Use exact-date equality for Prisma queries — NOT timestamp ranges.
+ *     Timestamp ranges cause off-by-one: PostgreSQL casts timestamps to DATE
+ *     using UTC, so a meeting stored as 2026-03-18 (DATE) fails the check
+ *     `lt: 2026-03-18T22:00:00Z` because DATE '2026-03-18' < DATE '2026-03-18' = false.
+ */
+function getIsraelDateOnly(offsetDays = 0): Date {
+  const now = new Date();
+  const israelDateStr = new Intl.DateTimeFormat('sv', { timeZone: TZ }).format(now);
+  const [y, m, d] = israelDateStr.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + offsetDays));
+}
+
+/**
+ * @deprecated — kept for pre-meeting time-window checks (startTime @db.Time fields).
+ * Do NOT use for scheduledDate (@db.Date) queries.
  */
 function getIsraelDayBounds(offsetDays = 0): { start: Date; end: Date } {
-  const now = new Date();
-  // Get current Israel date string e.g. "2026-03-17"
-  const israelDateStr = new Intl.DateTimeFormat('sv', { timeZone: TZ }).format(now);
-  // UTC midnight of that calendar date
-  const utcMidnight = new Date(`${israelDateStr}T00:00:00Z`);
-  // How many hours ahead is Israel at UTC midnight? (2 in winter, 3 in summer)
-  const israelHourAtUTCMidnight = parseInt(
-    new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hour12: false }).format(utcMidnight)
-  );
-  // Israel midnight in UTC = UTC midnight minus Israel offset
-  const israelMidnightUTC = new Date(utcMidnight.getTime() - israelHourAtUTCMidnight * 3_600_000);
-  const start = new Date(israelMidnightUTC.getTime() + offsetDays * 86_400_000);
-  const end   = new Date(start.getTime() + 86_400_000);
-  return { start, end };
+  const target = getIsraelDateOnly(offsetDays);
+  return { start: target, end: new Date(target.getTime() + 86_400_000) };
 }
 
 /**
@@ -109,12 +113,12 @@ function buildMorningMessage(instructorName: string, meetings: any[], meetingLin
  */
 export async function sendMorningWhatsAppReminders(): Promise<void> {
   console.log('[WhatsApp] Running morning reminder job...');
-  const { start, end } = getIsraelDayBounds();
+  const todayDate = getIsraelDateOnly(); // @db.Date exact match
 
   try {
     const meetings = await prisma.meeting.findMany({
       where: {
-        scheduledDate: { gte: start, lt: end },
+        scheduledDate: todayDate,
         status: 'scheduled',
       },
       include: {
@@ -160,12 +164,12 @@ export async function sendMorningWhatsAppReminders(): Promise<void> {
 export async function sendMorningUnresolvedAlert(): Promise<void> {
   console.log('[WhatsApp] Running morning unresolved alert job...');
 
-  // Get yesterday in Israel time (DST-aware range)
-  const { start, end } = getIsraelDayBounds(-1);
+  // Get yesterday's date in Israel time — @db.Date exact match
+  const yesterdayDate = getIsraelDateOnly(-1);
 
   try {
     const unresolved = await prisma.meeting.findMany({
-      where: { scheduledDate: { gte: start, lt: end }, status: 'scheduled' },
+      where: { scheduledDate: yesterdayDate, status: 'scheduled' },
       include: {
         cycle: { include: { branch: true, course: true } },
         instructor: true,
@@ -178,9 +182,8 @@ export async function sendMorningUnresolvedAlert(): Promise<void> {
       return;
     }
 
-    // Build message
-    // Use midday of the day (start + 12h) for Hebrew display to avoid edge cases
-    const yesterdayMidday = new Date(start.getTime() + 12 * 3_600_000);
+    // Build message — use midday of yesterdayDate for Hebrew display
+    const yesterdayMidday = new Date(yesterdayDate.getTime() + 12 * 3_600_000);
     const dateStr = yesterdayMidday.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: TZ });
     const lines = [`⚠️ פגישות ללא דיווח סטטוס מ-${dateStr}:`];
     for (const m of unresolved) {
@@ -218,14 +221,14 @@ export async function sendMorningUnresolvedAlert(): Promise<void> {
  * B) Pre-meeting reminder — 1 hour before meeting (run every 15 min)
  */
 export async function sendPreMeetingReminders(): Promise<void> {
-  const { start, end } = getIsraelDayBounds();
+  const todayDate = getIsraelDateOnly(); // @db.Date exact match
   const nowMin = getCurrentTimeIsraelMinutes();
   const windowMin = nowMin + 55;
   const windowMax = nowMin + 70;
 
   try {
     const meetings = await prisma.meeting.findMany({
-      where: { scheduledDate: { gte: start, lt: end }, status: 'scheduled' },
+      where: { scheduledDate: todayDate, status: 'scheduled' },
       include: {
         cycle: { include: { branch: true, course: true } },
         instructor: true,
@@ -257,11 +260,11 @@ export async function sendPreMeetingReminders(): Promise<void> {
  */
 export async function sendEveningStatusCheck(): Promise<void> {
   console.log('[WhatsApp] Running evening status check job...');
-  const { start, end } = getIsraelDayBounds();
+  const todayDate = getIsraelDateOnly(); // @db.Date exact match
 
   try {
     const meetings = await prisma.meeting.findMany({
-      where: { scheduledDate: { gte: start, lt: end }, status: 'scheduled' },
+      where: { scheduledDate: todayDate, status: 'scheduled' },
       include: {
         cycle: { include: { branch: true, course: true } },
         instructor: true,

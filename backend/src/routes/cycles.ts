@@ -13,6 +13,36 @@ export const cyclesRouter = Router();
 
 cyclesRouter.use(authenticate);
 
+// Helper: compute expected revenue per meeting for any cycle type
+function computeRevenuePerMeeting(cycle: any): number {
+  const totalMeetings = Number(cycle.totalMeetings) || 1;
+  if (cycle.type === 'institutional_fixed') {
+    return Number(cycle.meetingRevenue || 0);
+  }
+  if (cycle.type === 'institutional_per_child') {
+    const count = cycle.studentCount || (cycle.registrations?.length ?? cycle._count?.registrations ?? 0);
+    return Math.round(Number(cycle.pricePerStudent || 0) * count);
+  }
+  if (cycle.type === 'private') {
+    // Priority: explicit meetingRevenue > pricePerStudent × students > registration amounts / meetings
+    if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) return Number(cycle.meetingRevenue);
+    if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
+      const count = cycle.registrations?.length ?? cycle._count?.registrations ?? 0;
+      return Math.round(Number(cycle.pricePerStudent) * count);
+    }
+    // Sum registration amounts (available in detail endpoint)
+    if (Array.isArray(cycle.registrations) && cycle.registrations.length > 0) {
+      const totalRegAmount = cycle.registrations.reduce((s: number, r: any) => s + (r.amount ? Number(r.amount) : 0), 0);
+      return totalMeetings > 0 ? Math.round(totalRegAmount / totalMeetings) : 0;
+    }
+    // Fallback: aggregated sum if available (list endpoint)
+    if (cycle._sum?.registrations?.amount) {
+      return totalMeetings > 0 ? Math.round(Number(cycle._sum.registrations.amount) / totalMeetings) : 0;
+    }
+  }
+  return 0;
+}
+
 // Helper to generate meetings for a cycle (skips Israeli holidays)
 async function generateMeetingsForCycle(cycleId: string) {
   const cycle = await prisma.cycle.findUnique({
@@ -106,6 +136,7 @@ cyclesRouter.get('/', async (req, res, next) => {
           instructor: { select: { id: true, name: true } },
           institutionalOrder: { select: { id: true, orderNumber: true } },
           _count: { select: { registrations: true, meetings: true } },
+          registrations: { select: { amount: true } },
         },
         orderBy: { startDate: 'desc' },
         skip: (page - 1) * limit,
@@ -116,7 +147,7 @@ cyclesRouter.get('/', async (req, res, next) => {
 
     const totalPages = Math.ceil(total / limit);
     res.json({
-      data: cycles,
+      data: cycles.map(c => ({ ...c, revenuePerMeeting: computeRevenuePerMeeting(c) })),
       pagination: {
         page,
         limit,
@@ -188,7 +219,7 @@ cyclesRouter.get('/:id', async (req, res, next) => {
       throw new AppError(404, 'Cycle not found');
     }
 
-    res.json(cycle);
+    res.json({ ...cycle, revenuePerMeeting: computeRevenuePerMeeting(cycle) });
   } catch (error) {
     next(error);
   }
@@ -383,6 +414,9 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
       newRecord,
       req,
     });
+
+    // Attach revenuePerMeeting to the response (may be partial for private if no regs loaded)
+    (cycle as any).revenuePerMeeting = computeRevenuePerMeeting(cycle);
 
     // If regenerateMeetings flag is set, delete all non-completed meetings and regenerate
     if (regenerateMeetings) {

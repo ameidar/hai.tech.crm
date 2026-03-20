@@ -146,6 +146,7 @@ export interface Cycle {
   totalMeetings: number;
   pricePerStudent?: number;
   meetingRevenue?: number;
+  revenuePerMeeting?: number;
   revenueIncludesVat?: boolean | null;
   studentCount?: number;
   maxStudents?: number;

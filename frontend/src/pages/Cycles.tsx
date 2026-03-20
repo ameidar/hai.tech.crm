@@ -33,7 +33,7 @@ export default function Cycles() {
     dayOfWeek: 'יום ושעה',
     type: 'סוג',
     pricePerStudent: 'מחיר לתלמיד',
-    meetingRevenue: 'הכנסה למפגש',
+    meetingRevenue: 'מחיר לפגישה',
     progress: 'התקדמות',
     status: 'סטטוס',
     zoom: 'זום',
@@ -175,8 +175,8 @@ export default function Cycles() {
           bVal = Number(b.pricePerStudent) || 0;
           break;
         case 'meetingRevenue':
-          aVal = Number(a.meetingRevenue) || 0;
-          bVal = Number(b.meetingRevenue) || 0;
+          aVal = Number(a.revenuePerMeeting ?? a.meetingRevenue) || 0;
+          bVal = Number(b.revenuePerMeeting ?? b.meetingRevenue) || 0;
           break;
         case 'progress':
           aVal = a.totalMeetings > 0 ? a.completedMeetings / a.totalMeetings : 0;
@@ -630,7 +630,9 @@ export default function Cycles() {
                       )}
                       {isColVisible('meetingRevenue') && (
                         <td className="text-gray-600">
-                          {cycle.meetingRevenue ? `₪${Number(cycle.meetingRevenue).toLocaleString()}` : '-'}
+                          {(cycle.revenuePerMeeting || cycle.meetingRevenue)
+                            ? `₪${Number(cycle.revenuePerMeeting ?? cycle.meetingRevenue).toLocaleString()}`
+                            : '-'}
                         </td>
                       )}
                       {isColVisible('progress') && (

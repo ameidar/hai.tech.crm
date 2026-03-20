@@ -54,6 +54,7 @@ import {
   useGenerateMeetings,
   useSyncCycleProgress,
   useCreateMeeting,
+  useInstitutionalOrders,
   api,
 } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
@@ -2613,11 +2614,15 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     return d.toISOString().split('T')[0];
   };
 
+  const { data: instOrdersData } = useInstitutionalOrders({ limit: 500 });
+  const institutionalOrders: any[] = (instOrdersData as any)?.data || [];
+
   const [formData, setFormData] = useState({
     name: cycle.name,
     courseId: cycle.courseId || cycle.course?.id || '',
     branchId: cycle.branchId || cycle.branch?.id || '',
     instructorId: cycle.instructorId || cycle.instructor?.id || '',
+    institutionalOrderId: cycle.institutionalOrderId || '',
     type: cycle.type,
     status: cycle.status,
     startDate: formatDateForInput(cycle.startDate),
@@ -2706,6 +2711,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
       studentCount: formData.type === 'institutional_per_child' ? Number(formData.studentCount) : undefined,
       maxStudents: Number(formData.maxStudents),
       activityType: formData.activityType as ActivityType,
+      institutionalOrderId: formData.institutionalOrderId || null,
       regenerateMeetings: shouldRegenerate,
     } as any);
   };
@@ -2762,6 +2768,23 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
             <option value="">בחר מדריך</option>
             {instructors.filter(i => i.isActive).map((instructor) => (
               <option key={instructor.id} value={instructor.id}>{instructor.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="col-span-2">
+          <label className="form-label">הזמנה מוסדית (אופציונלי)</label>
+          <select
+            value={formData.institutionalOrderId}
+            onChange={(e) => setFormData({ ...formData, institutionalOrderId: e.target.value })}
+            className="form-input"
+          >
+            <option value="">ללא הזמנה מוסדית</option>
+            {institutionalOrders.map((order: any) => (
+              <option key={order.id} value={order.id}>
+                {order.orderName || order.orderNumber || order.id}
+                {order.branch?.name ? ` — ${order.branch.name}` : ''}
+              </option>
             ))}
           </select>
         </div>

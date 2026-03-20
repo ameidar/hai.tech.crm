@@ -77,16 +77,24 @@ function formatCurrency(amount?: number | null) {
 
 const EMPTY_FORM: Partial<InstitutionalOrderData> = {
   branchId: '',
+  orderName: '',
   orderNumber: '',
   startDate: '',
   endDate: '',
-  pricePerMeeting: 0,
+  pricePerMeeting: undefined,
   estimatedMeetings: undefined,
   contactName: '',
   contactPhone: '',
   contactEmail: '',
   status: 'draft',
+  fireberryStatus: '',
   notes: '',
+  totalAmount: undefined,
+  payingBody: '',
+  followUpDate: '',
+  salesperson: '',
+  orderType: '',
+  createdBy: '',
 };
 
 export default function InstitutionalOrders() {
@@ -161,16 +169,24 @@ export default function InstitutionalOrders() {
   const openEdit = (o: InstitutionalOrderRow) => {
     setForm({
       branchId: o.branch?.id || '',
+      orderName: o.orderName || '',
       orderNumber: o.orderNumber || '',
       startDate: o.startDate?.slice(0, 10) || '',
       endDate: o.endDate?.slice(0, 10) || '',
       pricePerMeeting: o.pricePerMeeting,
       estimatedMeetings: o.estimatedMeetings,
-      contactName: o.contactName,
-      contactPhone: o.contactPhone,
+      contactName: o.contactName || '',
+      contactPhone: o.contactPhone || '',
       contactEmail: o.contactEmail || '',
       status: o.status,
+      fireberryStatus: o.fireberryStatus || '',
       notes: o.notes || '',
+      totalAmount: o.totalAmount,
+      payingBody: o.payingBody || '',
+      followUpDate: o.followUpDate?.slice(0, 10) || '',
+      salesperson: o.salesperson || '',
+      orderType: o.orderType || '',
+      createdBy: o.createdBy || '',
     });
     setEditItem(o);
   };
@@ -206,50 +222,48 @@ export default function InstitutionalOrders() {
     setSelectedIds(new Set());
   };
 
+  const lbl = (text: string) => <label className="block text-sm font-medium text-gray-700 mb-1">{text}</label>;
+
   const OrderForm = () => (
-    <div className="p-6 space-y-4">
+    <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+
+      {/* Section: פרטי הזמנה */}
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-1">פרטי הזמנה</div>
       <div className="grid grid-cols-2 gap-4">
+        <div className="col-span-2">
+          {lbl('שם ההזמנה')}
+          <input className="form-input w-full" value={form.orderName || ''} onChange={e => setForm(f => ({ ...f, orderName: e.target.value }))} placeholder="שם ההזמנה" />
+        </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">סניף *</label>
-          <select className="form-input w-full" value={form.branchId} onChange={e => setForm(f => ({ ...f, branchId: e.target.value }))}>
-            <option value="">בחר סניף</option>
+          {lbl('סניף')}
+          <select className="form-input w-full" value={form.branchId || ''} onChange={e => setForm(f => ({ ...f, branchId: e.target.value }))}>
+            <option value="">ללא סניף</option>
             {branches.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">מספר הזמנה</label>
-          <input className="form-input w-full" value={form.orderNumber || ''} onChange={e => setForm(f => ({ ...f, orderNumber: e.target.value }))} placeholder="INV-001" />
+          {lbl('גוף משלם')}
+          <input className="form-input w-full" value={form.payingBody || ''} onChange={e => setForm(f => ({ ...f, payingBody: e.target.value }))} />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">תאריך התחלה *</label>
-          <input type="date" className="form-input w-full" value={form.startDate || ''} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} />
+          {lbl('סוג ההזמנה')}
+          <select className="form-input w-full" value={form.orderType || ''} onChange={e => setForm(f => ({ ...f, orderType: e.target.value }))}>
+            <option value="">—</option>
+            <option value="חדשה">חדשה</option>
+            <option value="אפסייל">אפסייל</option>
+          </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">תאריך סיום *</label>
-          <input type="date" className="form-input w-full" value={form.endDate || ''} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
+          {lbl('מבצע')}
+          <input className="form-input w-full" value={form.salesperson || ''} onChange={e => setForm(f => ({ ...f, salesperson: e.target.value }))} placeholder="שם המבצע" />
         </div>
+      </div>
+
+      {/* Section: סטטוס */}
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-2">סטטוס</div>
+      <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">מחיר לפגישה (₪) *</label>
-          <input type="number" className="form-input w-full" value={form.pricePerMeeting || ''} onChange={e => setForm(f => ({ ...f, pricePerMeeting: Number(e.target.value) }))} />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">מספר פגישות משוער</label>
-          <input type="number" className="form-input w-full" value={form.estimatedMeetings || ''} onChange={e => setForm(f => ({ ...f, estimatedMeetings: Number(e.target.value) || undefined }))} />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">איש קשר *</label>
-          <input className="form-input w-full" value={form.contactName || ''} onChange={e => setForm(f => ({ ...f, contactName: e.target.value }))} />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">טלפון *</label>
-          <input className="form-input w-full" dir="ltr" value={form.contactPhone || ''} onChange={e => setForm(f => ({ ...f, contactPhone: e.target.value }))} />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">מייל</label>
-          <input type="email" className="form-input w-full" dir="ltr" value={form.contactEmail || ''} onChange={e => setForm(f => ({ ...f, contactEmail: e.target.value }))} />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">סטטוס</label>
+          {lbl('סטטוס פנימי')}
           <select className="form-input w-full" value={form.status || 'draft'} onChange={e => setForm(f => ({ ...f, status: e.target.value as InstitutionalOrderData['status'] }))}>
             <option value="draft">טיוטה</option>
             <option value="active">פעיל</option>
@@ -257,11 +271,70 @@ export default function InstitutionalOrders() {
             <option value="cancelled">בוטל</option>
           </select>
         </div>
+        <div>
+          {lbl('סטטוס Fireberry')}
+          <input className="form-input w-full" value={form.fireberryStatus || ''} onChange={e => setForm(f => ({ ...f, fireberryStatus: e.target.value }))} placeholder="סיכום וסגירה / הסתיים..." />
+        </div>
+        <div>
+          {lbl('תאריך פולואפ')}
+          <input type="date" className="form-input w-full" value={form.followUpDate || ''} onChange={e => setForm(f => ({ ...f, followUpDate: e.target.value }))} />
+        </div>
+        <div>
+          {lbl('נוצר על ידי')}
+          <input className="form-input w-full" value={form.createdBy || ''} onChange={e => setForm(f => ({ ...f, createdBy: e.target.value }))} />
+        </div>
       </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">הערות</label>
-        <textarea className="form-input w-full" rows={3} value={form.notes || ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+
+      {/* Section: איש קשר */}
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-2">איש קשר</div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          {lbl('שם איש קשר')}
+          <input className="form-input w-full" value={form.contactName || ''} onChange={e => setForm(f => ({ ...f, contactName: e.target.value }))} />
+        </div>
+        <div>
+          {lbl('טלפון')}
+          <input className="form-input w-full" dir="ltr" value={form.contactPhone || ''} onChange={e => setForm(f => ({ ...f, contactPhone: e.target.value }))} />
+        </div>
+        <div className="col-span-2">
+          {lbl('מייל')}
+          <input type="email" className="form-input w-full" dir="ltr" value={form.contactEmail || ''} onChange={e => setForm(f => ({ ...f, contactEmail: e.target.value }))} />
+        </div>
       </div>
+
+      {/* Section: כספים */}
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-2">כספים</div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          {lbl('תשלום כולל (₪)')}
+          <input type="number" className="form-input w-full" value={form.totalAmount ?? ''} onChange={e => setForm(f => ({ ...f, totalAmount: e.target.value ? Number(e.target.value) : null }))} />
+        </div>
+        <div>
+          {lbl('מחיר לפגישה (₪)')}
+          <input type="number" className="form-input w-full" value={form.pricePerMeeting ?? ''} onChange={e => setForm(f => ({ ...f, pricePerMeeting: e.target.value ? Number(e.target.value) : null }))} />
+        </div>
+        <div>
+          {lbl('פגישות משוערות')}
+          <input type="number" className="form-input w-full" value={form.estimatedMeetings ?? ''} onChange={e => setForm(f => ({ ...f, estimatedMeetings: e.target.value ? Number(e.target.value) : undefined }))} />
+        </div>
+        <div>
+          {lbl('מספר הזמנה')}
+          <input className="form-input w-full" value={form.orderNumber || ''} onChange={e => setForm(f => ({ ...f, orderNumber: e.target.value }))} placeholder="INV-001" />
+        </div>
+        <div>
+          {lbl('תאריך התחלה')}
+          <input type="date" className="form-input w-full" value={form.startDate || ''} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} />
+        </div>
+        <div>
+          {lbl('תאריך סיום')}
+          <input type="date" className="form-input w-full" value={form.endDate || ''} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
+        </div>
+      </div>
+
+      {/* Section: הערות */}
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-2">הערות / תיאור</div>
+      <textarea className="form-input w-full" rows={4} value={form.notes || ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+
       <div className="flex justify-end gap-3 pt-2 border-t">
         <button type="button" className="btn btn-secondary" onClick={() => { setShowAddModal(false); setEditItem(null); }}>ביטול</button>
         <button type="button" className="btn btn-primary" onClick={handleSubmit} disabled={createOrder.isPending || updateOrder.isPending}>

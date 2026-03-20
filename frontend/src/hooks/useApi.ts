@@ -1243,23 +1243,31 @@ export const useUpdateFileLabel = (entityType: string, entityId: string) => {
 
 // ==================== Institutional Orders ====================
 export interface InstitutionalOrderData {
-  branchId: string;
-  orderNumber?: string;
+  branchId?: string | null;
+  orderName?: string | null;
+  orderNumber?: string | null;
   orderDate?: string | null;
-  startDate: string;
-  endDate: string;
-  pricePerMeeting: number;
+  startDate?: string | null;
+  endDate?: string | null;
+  pricePerMeeting?: number | null;
   estimatedMeetings?: number | null;
   estimatedTotal?: number | null;
-  contactName: string;
-  contactPhone: string;
+  contactName?: string | null;
+  contactPhone?: string | null;
   contactEmail?: string | null;
   status?: 'draft' | 'active' | 'completed' | 'cancelled';
+  fireberryStatus?: string | null;
   notes?: string | null;
   totalAmount?: number | null;
   invoiceNumber?: string | null;
+  invoiceLink?: string | null;
   paymentStatus?: 'unpaid' | 'partial' | 'paid' | null;
   paidAmount?: number | null;
+  payingBody?: string | null;
+  followUpDate?: string | null;
+  salesperson?: string | null;
+  orderType?: string | null;
+  createdBy?: string | null;
 }
 
 export const useInstitutionalOrders = (params?: { status?: string; page?: number; limit?: number }) => {

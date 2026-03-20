@@ -732,7 +732,7 @@ export default function CycleDetail() {
                     <div>
                       <p className="text-sm text-gray-500">הזמנה מוסדית</p>
                       <a
-                        href={`/institutional-orders/${cycle.institutionalOrderId}`}
+                        href={`/institutional-orders?open=${cycle.institutionalOrderId}`}
                         className="font-medium text-purple-700 hover:text-purple-900 underline"
                       >
                         {cycle.institutionalOrder?.orderName || cycle.institutionalOrder?.orderNumber || cycle.institutionalOrderId}

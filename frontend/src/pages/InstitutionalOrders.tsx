@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { FileText, Building2, Search, Filter, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, List, MapPin, Phone, RefreshCcw, Plus, Pencil, Trash2, CheckSquare, Square, X } from 'lucide-react';
-import { useInstitutionalOrders, useCreateInstitutionalOrder, useUpdateInstitutionalOrder, useDeleteInstitutionalOrder, useBranches } from '../hooks/useApi';
+import { useInstitutionalOrders, useInstitutionalOrderById, useCreateInstitutionalOrder, useUpdateInstitutionalOrder, useDeleteInstitutionalOrder, useBranches } from '../hooks/useApi';
 import type { InstitutionalOrderData } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -165,6 +166,10 @@ export default function InstitutionalOrders() {
     });
   };
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const openQueryId = searchParams.get('open');
+  const { data: openQueryOrder } = useInstitutionalOrderById(openQueryId);
+
   const openAdd = () => { setForm(EMPTY_FORM); setShowAddModal(true); };
   const openEdit = (o: InstitutionalOrderRow) => {
     setForm({
@@ -190,6 +195,14 @@ export default function InstitutionalOrders() {
     });
     setEditItem(o);
   };
+
+  // Auto-open edit modal when ?open=<id> is in URL (e.g. navigating from CycleDetail)
+  useEffect(() => {
+    if (!openQueryOrder) return;
+    openEdit(openQueryOrder as any);
+    setSearchParams({}, { replace: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openQueryOrder]);
 
   const handleSubmit = async () => {
     // At minimum an order name or branch is needed

@@ -1281,6 +1281,13 @@ export const useInstitutionalOrders = (params?: { status?: string; page?: number
   });
 };
 
+export const useInstitutionalOrderById = (id: string | null) =>
+  useQuery({
+    queryKey: ['institutional-order', id],
+    queryFn: () => fetchData<any>(`/institutional-orders/${id}`),
+    enabled: !!id,
+  });
+
 export const useCreateInstitutionalOrder = () => {
   const queryClient = useQueryClient();
   return useMutation({

@@ -94,8 +94,15 @@ export async function addReplacementMeeting(postponedMeetingId: string, actorUse
   } else if (cycle.type === 'institutional_per_child' && cycle.pricePerStudent) {
     const count = cycle.studentCount ?? cycleWithReg?.registrations.length ?? 0;
     revenue = Number(cycle.pricePerStudent) * count;
-  } else if (cycle.type === 'private' && cycle.pricePerStudent) {
-    revenue = Number(cycle.pricePerStudent) * (cycleWithReg?.registrations.length ?? 0);
+  } else if (cycle.type === 'private') {
+    if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
+      revenue = Number(cycle.meetingRevenue);
+    } else if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
+      revenue = Number(cycle.pricePerStudent) * (cycleWithReg?.registrations.length ?? 0);
+    } else {
+      const totalAmt = (cycleWithReg?.registrations ?? []).reduce((s: number, r: any) => s + (r.amount ? Number(r.amount) : 0), 0);
+      revenue = cycle.totalMeetings > 0 ? Math.round(totalAmt / cycle.totalMeetings) : 0;
+    }
   }
 
   let instructorPayment = 0;

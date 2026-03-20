@@ -817,14 +817,24 @@ export default function CycleDetail() {
                   </div>
                 )}
 
-                {cycle.type === 'private' && cycle.pricePerStudent && (
-                  <div className="pt-3 mt-3 border-t">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-500">מחיר לתלמיד:</span>
-                      <span className="font-semibold text-green-600">
-                        ₪{Number(cycle.pricePerStudent).toLocaleString()}
-                      </span>
-                    </div>
+                {cycle.type === 'private' && (cycle.pricePerStudent || cycle.meetingRevenue) && (
+                  <div className="pt-3 mt-3 border-t space-y-1">
+                    {!!cycle.pricePerStudent && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-500">מחיר לתלמיד:</span>
+                        <span className="font-semibold text-green-600">
+                          ₪{Number(cycle.pricePerStudent).toLocaleString()}
+                        </span>
+                      </div>
+                    )}
+                    {!!cycle.meetingRevenue && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-500">מחיר לפגישה:</span>
+                        <span className="font-semibold text-green-600">
+                          ₪{Number(cycle.meetingRevenue).toLocaleString()}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -2661,7 +2671,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
       durationMinutes: durationMinutes > 0 ? durationMinutes : 60,
       totalMeetings: Number(formData.totalMeetings),
       pricePerStudent: (formData.type === 'private' || formData.type === 'institutional_per_child') ? Number(formData.pricePerStudent) : undefined,
-      meetingRevenue: formData.type === 'institutional_fixed' ? meetingRevenueValue : undefined,
+      meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'private') ? meetingRevenueValue : undefined,
       revenueIncludesVat: formData.type === 'institutional_fixed' ? formData.includesVat : undefined,
       studentCount: formData.type === 'institutional_per_child' ? Number(formData.studentCount) : undefined,
       maxStudents: Number(formData.maxStudents),
@@ -2849,6 +2859,20 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
               onChange={(e) => setFormData({ ...formData, pricePerStudent: Number(e.target.value) })}
               className="form-input"
               min="0"
+            />
+          </div>
+        )}
+
+        {formData.type === 'private' && (
+          <div>
+            <label className="form-label">מחיר לפגישה (₪)</label>
+            <input
+              type="number"
+              value={formData.meetingRevenue}
+              onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
+              className="form-input"
+              min="0"
+              placeholder="0"
             />
           </div>
         )}

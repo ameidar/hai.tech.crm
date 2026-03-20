@@ -89,20 +89,28 @@ export interface Branch {
 
 export interface InstitutionalOrder {
   id: string;
-  branchId: string;
+  branchId?: string;
+  orderName?: string;
   orderNumber?: string;
-  orderDate: string;
-  startDate: string;
-  endDate: string;
-  pricePerMeeting: number;
-  estimatedMeetings: number;
-  estimatedTotal: number;
-  contactName: string;
-  contactPhone: string;
+  orderDate?: string;
+  startDate?: string;
+  endDate?: string;
+  pricePerMeeting?: number;
+  estimatedMeetings?: number;
+  estimatedTotal?: number;
+  contactName?: string;
+  contactPhone?: string;
   contactEmail?: string;
   contractFile?: string;
   status: OrderStatus;
+  fireberryStatus?: string;
   notes?: string;
+  totalAmount?: number;
+  payingBody?: string;
+  followUpDate?: string;
+  salesperson?: string;
+  orderType?: string;
+  createdBy?: string;
   createdAt: string;
   branch?: Branch;
 }
@@ -168,6 +176,7 @@ export interface Cycle {
   course?: Course;
   branch?: Branch;
   instructor?: Instructor;
+  institutionalOrder?: InstitutionalOrder;
   meetings?: Meeting[];
   registrations?: Registration[];
   _count?: {

@@ -11,22 +11,29 @@ import type { OrderStatus } from '../types';
 
 interface InstitutionalOrderRow {
   id: string;
+  orderName?: string;
   orderNumber?: string;
   orderDate?: string;
-  startDate: string;
-  endDate: string;
-  pricePerMeeting: number;
+  startDate?: string;
+  endDate?: string;
+  pricePerMeeting?: number;
   estimatedMeetings?: number;
   estimatedTotal?: number;
   totalAmount?: number;
   paidAmount?: number;
-  contactName: string;
-  contactPhone: string;
+  contactName?: string;
+  contactPhone?: string;
   contactEmail?: string;
   status: OrderStatus;
+  fireberryStatus?: string;
   paymentStatus?: string;
   invoiceNumber?: string;
   notes?: string;
+  payingBody?: string;
+  followUpDate?: string;
+  salesperson?: string;
+  orderType?: string;
+  createdBy?: string;
   createdAt: string;
   branch?: { id: string; name: string; city?: string; type: string };
   _count?: { cycles: number };
@@ -120,13 +127,13 @@ export default function InstitutionalOrders() {
     let list = orders.filter((o) => {
       if (!searchFilter) return true;
       const s = searchFilter.toLowerCase();
-      return o.orderNumber?.toLowerCase().includes(s) || o.branch?.name.toLowerCase().includes(s) || o.contactName.toLowerCase().includes(s) || o.contactPhone.includes(s);
+      return o.orderName?.toLowerCase().includes(s) || o.orderNumber?.toLowerCase().includes(s) || o.branch?.name?.toLowerCase().includes(s) || o.contactName?.toLowerCase().includes(s) || o.contactPhone?.includes(s) || o.fireberryStatus?.includes(s) || o.salesperson?.includes(s);
     });
     if (sortConfig) {
       list = [...list].sort((a, b) => {
         const dir = sortConfig.direction === 'asc' ? 1 : -1;
         switch (sortConfig.key) {
-          case 'branch': return dir * String(a.branch?.name ?? '').localeCompare(String(b.branch?.name ?? ''), 'he');
+          case 'branch': return dir * String(a.orderName ?? a.branch?.name ?? '').localeCompare(String(b.orderName ?? b.branch?.name ?? ''), 'he');
           case 'status': return dir * String(a.status ?? '').localeCompare(String(b.status ?? ''), 'he');
           case 'startDate': return dir * String(a.startDate ?? '').localeCompare(String(b.startDate ?? ''));
           case 'total': return dir * ((Number(a.estimatedTotal || a.totalAmount) || 0) - (Number(b.estimatedTotal || b.totalAmount) || 0));
@@ -169,7 +176,8 @@ export default function InstitutionalOrders() {
   };
 
   const handleSubmit = async () => {
-    if (!form.branchId || !form.startDate || !form.endDate || !form.contactName || !form.contactPhone || !form.pricePerMeeting) return;
+    // At minimum an order name or branch is needed
+    if (!form.branchId && !form.orderNumber && !form.contactName) return;
     try {
       if (editItem) {
         await updateOrder.mutateAsync({ id: editItem.id, data: form as InstitutionalOrderData });
@@ -331,24 +339,29 @@ export default function InstitutionalOrders() {
                         <FileText size={16} className="text-white" />
                       </div>
                       <div>
-                        <div className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">{order.branch?.name || '-'}</div>
+                        <div className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">{order.orderName || order.branch?.name || '-'}</div>
+                        {order.branch?.name && order.orderName && <div className="text-xs text-gray-500">{order.branch.name}</div>}
                         {order.orderNumber && <div className="text-xs text-gray-500">#{order.orderNumber}</div>}
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusColors[order.status]}`}>{statusLabels[order.status]}</span>
+                      {order.fireberryStatus
+                        ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 border border-purple-200">{order.fireberryStatus}</span>
+                        : <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusColors[order.status]}`}>{statusLabels[order.status]}</span>
+                      }
                       <button onClick={() => openEdit(order)} className="p-1 text-gray-400 hover:text-blue-600 transition-colors opacity-0 group-hover:opacity-100"><Pencil size={14} /></button>
                       <button onClick={() => setDeleteItem(order)} className="p-1 text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 size={14} /></button>
                     </div>
                   </div>
                   <div className="space-y-1.5 text-sm mb-3">
-                    {order.branch?.city && <p className="flex items-center gap-2 text-gray-600"><MapPin size={13} className="text-gray-400" />{order.branch.city}</p>}
-                    <p className="flex items-center gap-2 text-gray-600"><Phone size={13} className="text-gray-400" /><span dir="ltr">{order.contactPhone}</span></p>
-                    {order._count?.cycles != null && <p className="flex items-center gap-2 text-gray-600"><RefreshCcw size={13} className="text-gray-400" />{order._count.cycles} מחזורים</p>}
+                    {order.branch?.name && <p className="flex items-center gap-2 text-gray-600"><Building2 size={13} className="text-gray-400" />{order.branch.name}</p>}
+                    {order.contactName && <p className="flex items-center gap-2 text-gray-600"><Phone size={13} className="text-gray-400" />{order.contactName}{order.contactPhone ? ` · ${order.contactPhone}` : ''}</p>}
+                    {order.salesperson && <p className="text-xs text-gray-500">מבצע: {order.salesperson}</p>}
+                    {order._count?.cycles != null && order._count.cycles > 0 && <p className="flex items-center gap-2 text-gray-600"><RefreshCcw size={13} className="text-gray-400" />{order._count.cycles} מחזורים</p>}
                   </div>
                   <div className="flex items-center justify-between pt-3 border-t border-gray-50 text-sm">
-                    <span className="font-semibold text-green-600">{formatCurrency(order.estimatedTotal || order.totalAmount)}</span>
-                    <span className="text-xs text-gray-400">{formatDate(order.startDate)} — {formatDate(order.endDate)}</span>
+                    <span className="font-semibold text-green-600">{formatCurrency(order.estimatedTotal ?? order.totalAmount)}</span>
+                    <span className="text-xs text-gray-400">{order.startDate ? formatDate(order.startDate) : order.createdAt ? formatDate(order.createdAt) : ''}</span>
                   </div>
                 </div>
               ))}
@@ -365,9 +378,10 @@ export default function InstitutionalOrders() {
                           {allSelected ? <CheckSquare size={16} className="text-blue-600" /> : <Square size={16} className="text-gray-400" />}
                         </button>
                       </th>
-                      <th className="text-right px-4 py-3 font-medium text-gray-600">מס׳ הזמנה</th>
+                      <th className="text-right px-4 py-3 font-medium text-gray-600">שם הזמנה</th>
                       <th className="text-right px-4 py-3 font-medium text-gray-600 cursor-pointer hover:bg-gray-100 select-none" onClick={() => handleSort('branch')}>סניף<SortIcon k="branch" /></th>
                       <th className="text-right px-4 py-3 font-medium text-gray-600 cursor-pointer hover:bg-gray-100 select-none" onClick={() => handleSort('status')}>סטטוס<SortIcon k="status" /></th>
+                      <th className="text-right px-4 py-3 font-medium text-gray-600">מבצע</th>
                       <th className="text-right px-4 py-3 font-medium text-gray-600">איש קשר</th>
                       <th className="text-right px-4 py-3 font-medium text-gray-600">טלפון</th>
                       <th className="text-right px-4 py-3 font-medium text-gray-600 cursor-pointer hover:bg-gray-100 select-none" onClick={() => handleSort('startDate')}>תאריך התחלה<SortIcon k="startDate" /></th>
@@ -385,19 +399,23 @@ export default function InstitutionalOrders() {
                         <td className="px-4 py-3">
                           <input type="checkbox" checked={selectedIds.has(order.id)} onChange={() => toggleSelect(order.id)} className="rounded" />
                         </td>
-                        <td className="px-4 py-3 font-medium text-gray-900">{order.orderNumber || '-'}</td>
+                        <td className="px-4 py-3 font-medium text-gray-900 max-w-xs">
+                          <div>{order.orderName || order.orderNumber || '-'}</div>
+                          {order.orderNumber && order.orderName && <div className="text-xs text-gray-400">#{order.orderNumber}</div>}
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
                             <Building2 size={14} className="text-gray-400" />
                             <span className="text-gray-800">{order.branch?.name || '-'}</span>
                           </div>
-                          {order.branch?.city && <span className="text-xs text-gray-500">{order.branch.city}</span>}
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusColors[order.status]}`}>
-                            {statusLabels[order.status]}
-                          </span>
+                          {order.fireberryStatus
+                            ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 border border-purple-200">{order.fireberryStatus}</span>
+                            : <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusColors[order.status]}`}>{statusLabels[order.status]}</span>
+                          }
                         </td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{order.salesperson || '-'}</td>
                         <td className="px-4 py-3 text-gray-700">{order.contactName}</td>
                         <td className="px-4 py-3 text-gray-700" dir="ltr">{order.contactPhone}</td>
                         <td className="px-4 py-3 text-gray-700">{formatDate(order.startDate)}</td>

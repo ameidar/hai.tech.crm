@@ -29,6 +29,7 @@ import {
   Lock,
   Receipt,
   CalendarX,
+  FileText,
 } from 'lucide-react';
 import MeetingExpenses from '../components/MeetingExpenses';
 import {
@@ -721,6 +722,23 @@ export default function CycleDetail() {
                     <p className="font-medium">{cycle.branch?.name || '-'}</p>
                   </div>
                 </div>
+
+                {cycle.institutionalOrderId && (
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-purple-50 rounded-lg">
+                      <FileText size={18} className="text-purple-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">הזמנה מוסדית</p>
+                      <a
+                        href={`/institutional-orders/${cycle.institutionalOrderId}`}
+                        className="font-medium text-purple-700 hover:text-purple-900 underline"
+                      >
+                        {cycle.institutionalOrder?.orderName || cycle.institutionalOrder?.orderNumber || cycle.institutionalOrderId}
+                      </a>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">

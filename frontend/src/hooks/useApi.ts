@@ -1269,7 +1269,7 @@ export const useInstitutionalOrders = (params?: { status?: string; page?: number
   queryString.set('limit', String(params?.limit || 50));
   return useQuery({
     queryKey: ['institutional-orders', params],
-    queryFn: () => fetchData<{ data: any[]; pagination: any }>(`/institutional-orders?${queryString}`),
+    queryFn: () => fetchDataWithPagination<any[]>(`/institutional-orders?${queryString}`),
   });
 };
 

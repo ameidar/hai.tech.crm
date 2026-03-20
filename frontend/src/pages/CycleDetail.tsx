@@ -817,21 +817,19 @@ export default function CycleDetail() {
                   </div>
                 )}
 
-                {cycle.type === 'private' && (cycle.pricePerStudent || cycle.meetingRevenue) && (
+                {cycle.type === 'private' && (
                   <div className="pt-3 mt-3 border-t space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-500">מחיר לפגישה:</span>
+                      <span className="font-semibold text-green-600">
+                        ₪{Number(cycle.revenuePerMeeting ?? cycle.meetingRevenue ?? 0).toLocaleString()}
+                      </span>
+                    </div>
                     {!!cycle.pricePerStudent && (
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-gray-500">מחיר לתלמיד:</span>
-                        <span className="font-semibold text-green-600">
+                        <span className="font-semibold text-gray-500 text-xs">
                           ₪{Number(cycle.pricePerStudent).toLocaleString()}
-                        </span>
-                      </div>
-                    )}
-                    {!!cycle.meetingRevenue && (
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-500">מחיר לפגישה:</span>
-                        <span className="font-semibold text-green-600">
-                          ₪{Number(cycle.meetingRevenue).toLocaleString()}
                         </span>
                       </div>
                     )}

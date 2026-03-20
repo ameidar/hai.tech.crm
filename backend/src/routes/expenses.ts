@@ -181,6 +181,60 @@ router.post('/cycle', authenticate, managerOrAdmin, async (req: Request, res: Re
   }
 });
 
+// Update cycle expense
+router.put('/cycle/:id', authenticate, managerOrAdmin, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { type, description, amount, instructorId, isPercentage, percentage, hours, rateType } = req.body;
+
+    const existing = await prisma.cycleExpense.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ error: 'Expense not found' });
+
+    let calculatedAmount = amount ? Number(amount) : null;
+
+    if ((type === 'materials' || type === 'wraparound_hours') && hours && instructorId && rateType) {
+      const instructor = await prisma.instructor.findUnique({
+        where: { id: instructorId },
+        select: { ratePreparation: true, rateOnline: true, rateFrontal: true, employmentType: true },
+      });
+      if (!instructor) return res.status(404).json({ error: 'Instructor not found' });
+      let rate = 0;
+      switch (rateType) {
+        case 'preparation': rate = Number(instructor.ratePreparation || 0); break;
+        case 'online': rate = Number(instructor.rateOnline || 0); break;
+        case 'frontal': rate = Number(instructor.rateFrontal || 0); break;
+      }
+      calculatedAmount = Number(hours) * rate;
+      if (instructor.employmentType === 'employee') calculatedAmount *= 1.3;
+    } else if (isPercentage) {
+      calculatedAmount = null;
+    }
+
+    const updated = await prisma.cycleExpense.update({
+      where: { id },
+      data: {
+        type,
+        description: description || null,
+        amount: isPercentage ? null : calculatedAmount,
+        isPercentage: isPercentage || false,
+        percentage: isPercentage ? Number(percentage) : null,
+        hours: hours ? Number(hours) : null,
+        rateType: rateType || null,
+        ...(instructorId ? { instructor: { connect: { id: instructorId } } } : { instructor: { disconnect: true } }),
+      },
+      include: {
+        instructor: { select: { id: true, name: true, ratePreparation: true, rateOnline: true, rateFrontal: true, employmentType: true } },
+      },
+    });
+
+    await logAudit({ action: 'UPDATE', entity: 'CycleExpense', entityId: id, newValue: { type, amount: updated.amount }, req });
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating cycle expense:', error);
+    res.status(500).json({ error: 'Failed to update expense' });
+  }
+});
+
 // Delete cycle expense (admin only)
 router.delete('/cycle/:id', authenticate, managerOrAdmin, async (req: Request, res: Response) => {
   try {

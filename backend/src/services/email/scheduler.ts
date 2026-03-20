@@ -44,6 +44,7 @@ const formatTimeHebrew = (date: Date): string => {
 };
 
 // Get start-of-day and end-of-day in Israel timezone (returns UTC Date objects for DB queries)
+// ⚠️ Use only for DateTime/timestamptz columns (e.g. createdAt, updatedAt)
 const getIsraelDayBounds = (offsetDays = 0): { start: Date; end: Date } => {
   const now = new Date();
   // Get Israel date string "YYYY-MM-DD"
@@ -61,12 +62,28 @@ const getIsraelDayBounds = (offsetDays = 0): { start: Date; end: Date } => {
   return { start, end };
 };
 
+// Get bounds for Prisma @db.Date columns (scheduledDate etc.)
+// Prisma converts JS Date → UTC date string for DATE columns.
+// So we must pass midnight-UTC of the Israel date string.
+// e.g. Israel date "2026-03-19" → new Date("2026-03-19T00:00:00Z") → Prisma sends '2026-03-19' ✓
+const getIsraelDateBoundsForDB = (offsetDays = 0): { start: Date; end: Date } => {
+  const base = new Date(Date.now() + offsetDays * 86_400_000);
+  const dateStr = new Intl.DateTimeFormat('sv', { timeZone: TZ }).format(base);
+  // Compute next day by formatting noon UTC + 1 day (safe from DST edge cases)
+  const noon = new Date(`${dateStr}T12:00:00.000Z`);
+  const nextStr = new Intl.DateTimeFormat('sv', { timeZone: TZ }).format(new Date(noon.getTime() + 86_400_000));
+  return {
+    start: new Date(`${dateStr}T00:00:00.000Z`),   // → Prisma DATE = 'YYYY-MM-DD'
+    end:   new Date(`${nextStr}T00:00:00.000Z`),    // → Prisma DATE = 'YYYY-MM-DD' of next day
+  };
+};
+
 // Send instructor reminders (08:00 - for today's classes)
 const sendInstructorReminders = async () => {
   console.log('📧 Running instructor reminder job...');
 
   try {
-    const { start: today, end: tomorrow } = getIsraelDayBounds();
+    const { start: today, end: tomorrow } = getIsraelDateBoundsForDB();
 
     // Get today's meetings with instructors
     const meetings = await prisma.meeting.findMany({
@@ -128,7 +145,7 @@ const sendParentReminders = async () => {
   console.log('📧 Running parent reminder job...');
 
   try {
-    const { start: tomorrow, end: dayAfter } = getIsraelDayBounds(1);
+    const { start: tomorrow, end: dayAfter } = getIsraelDateBoundsForDB(1);
 
     // Get tomorrow's meetings with students
     const meetings = await prisma.meeting.findMany({
@@ -208,7 +225,8 @@ const sendManagementSummary = async () => {
   console.log('📧 Running management summary job...');
 
   try {
-    const { start: today, end: tomorrow } = getIsraelDayBounds();
+    // Use getIsraelDateBoundsForDB() for @db.Date columns (scheduledDate)
+    const { start: today, end: tomorrow } = getIsraelDateBoundsForDB();
 
     // Get today's stats
     const [todayMeetings, completedMeetings, cancelledMeetings, attendanceRecords] = await Promise.all([
@@ -240,12 +258,12 @@ const sendManagementSummary = async () => {
     ]);
 
     // Get upcoming classes (next 3 days)
-    const threeDaysLater = new Date(today);
-    threeDaysLater.setDate(threeDaysLater.getDate() + 3);
+    const { start: day2 } = getIsraelDateBoundsForDB(1);
+    const { start: day4 } = getIsraelDateBoundsForDB(3);
 
     const upcomingMeetings = await prisma.meeting.findMany({
       where: {
-        scheduledDate: { gte: tomorrow, lt: threeDaysLater },
+        scheduledDate: { gte: day2, lt: day4 },
         status: 'scheduled',
       },
       include: {

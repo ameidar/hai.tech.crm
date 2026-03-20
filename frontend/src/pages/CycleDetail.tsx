@@ -2070,14 +2070,27 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
 
         <div>
           <label className="form-label">קישור לחשבונית</label>
-          <input
-            type="url"
-            value={formData.invoiceLink}
-            onChange={(e) => setFormData({ ...formData, invoiceLink: e.target.value })}
-            className="form-input"
-            dir="ltr"
-            placeholder="https://..."
-          />
+          <div className="flex gap-2 items-center">
+            <input
+              type="url"
+              value={formData.invoiceLink}
+              onChange={(e) => setFormData({ ...formData, invoiceLink: e.target.value })}
+              className="form-input flex-1"
+              dir="ltr"
+              placeholder="https://..."
+            />
+            {formData.invoiceLink && (
+              <a
+                href={formData.invoiceLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-shrink-0 px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-sm font-medium transition-colors border border-blue-200"
+                title="פתח חשבונית"
+              >
+                🔗 פתח
+              </a>
+            )}
+          </div>
         </div>
 
         <div className="col-span-2">

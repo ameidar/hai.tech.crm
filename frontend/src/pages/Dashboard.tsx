@@ -164,7 +164,7 @@ export default function Dashboard() {
               />
               <KPICard
                 title="לקוחות"
-                value={customers?.length || 0}
+                value={customersResult?.pagination?.total ?? customers?.length ?? 0}
                 icon={<Users size={24} />}
                 gradient="from-emerald-500 to-teal-600"
                 lightGradient="from-emerald-50 to-teal-100"

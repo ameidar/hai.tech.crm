@@ -98,6 +98,7 @@ enum PaymentMethod {
   credit
   transfer
   cash
+  standing_order
 }
 
 enum MeetingStatus {

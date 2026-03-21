@@ -316,6 +316,7 @@ export default function CycleDetail() {
   const [attendanceMeeting, setAttendanceMeeting] = useState<Meeting | null>(null);
   const [showEditCycleModal, setShowEditCycleModal] = useState(false);
   const [showCreateMeetingModal, setShowCreateMeetingModal] = useState(false);
+  const [sendCancellationReg, setSendCancellationReg] = useState<Registration | null>(null);
 
   const { data: cycle, isLoading } = useCycle(id!);
   const { data: meetings } = useCycleMeetings(id!);
@@ -1136,16 +1137,7 @@ export default function CycleDetail() {
                         </div>
                         {['active', 'registered'].includes(reg.status) && isAdmin && (
                           <button
-                            onClick={async () => {
-                              if (confirm('לשלוח טופס ביטול ללקוח?')) {
-                                try {
-                                  await api.post(`/registrations/${reg.id}/send-cancellation-form`);
-                                  alert('טופס ביטול נשלח ללקוח בהצלחה');
-                                } catch (error: any) {
-                                  alert(error?.response?.data?.message || 'שגיאה בשליחת טופס ביטול');
-                                }
-                              }
-                            }}
+                            onClick={() => setSendCancellationReg(reg)}
                             className="p-1.5 text-orange-500 hover:bg-orange-50 rounded-lg transition-colors"
                             title="שלח טופס ביטול"
                           >
@@ -2014,7 +2006,71 @@ export default function CycleDetail() {
           </div>
         </div>
       </Modal>
+
+      {/* Send Cancellation Form Modal */}
+      {sendCancellationReg && (
+        <SendCancellationModal
+          registration={sendCancellationReg}
+          onClose={() => setSendCancellationReg(null)}
+        />
+      )}
     </>
+  );
+}
+
+// Send Cancellation Modal
+function SendCancellationModal({ registration, onClose }: { registration: Registration; onClose: () => void }) {
+  const customer = (registration.student as any)?.customer;
+  const [email, setEmail] = useState(customer?.email || '');
+  const [phone, setPhone] = useState(customer?.phone || '');
+  const [sendEmailChk, setSendEmailChk] = useState(!!customer?.email);
+  const [sendWaChk, setSendWaChk] = useState(!!customer?.phone);
+  const [loading, setLoading] = useState(false);
+
+  const handleSend = async () => {
+    if (!sendEmailChk && !sendWaChk) { alert('בחר לפחות ערוץ שליחה אחד'); return; }
+    setLoading(true);
+    try {
+      await api.post(`/registrations/${registration.id}/send-cancellation-form`, {
+        overrideEmail: sendEmailChk ? email || undefined : undefined,
+        overridePhone: sendWaChk ? phone || undefined : undefined,
+        sendEmail: sendEmailChk,
+        sendWhatsApp: sendWaChk,
+      });
+      alert('טופס ביטול נשלח בהצלחה ✅');
+      onClose();
+    } catch (err: any) {
+      alert(err?.response?.data?.message || 'שגיאה בשליחת טופס ביטול');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal isOpen={true} onClose={onClose} title={`שלח טופס ביטול — ${registration.student?.name}`}>
+      <div className="p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <input type="checkbox" id="chk-email" checked={sendEmailChk} onChange={e => setSendEmailChk(e.target.checked)} className="w-4 h-4" />
+          <label htmlFor="chk-email" className="font-medium text-sm">שלח למייל</label>
+          {sendEmailChk && (
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="כתובת מייל" className="form-input flex-1 text-sm" dir="ltr" />
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <input type="checkbox" id="chk-wa" checked={sendWaChk} onChange={e => setSendWaChk(e.target.checked)} className="w-4 h-4" />
+          <label htmlFor="chk-wa" className="font-medium text-sm">שלח ל-WhatsApp</label>
+          {sendWaChk && (
+            <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="מספר טלפון" className="form-input flex-1 text-sm" dir="ltr" />
+          )}
+        </div>
+        <div className="flex justify-end gap-3 pt-4 border-t">
+          <button onClick={onClose} className="btn btn-secondary">ביטול</button>
+          <button onClick={handleSend} disabled={loading} className="btn btn-primary">
+            {loading ? 'שולח...' : '📤 שלח טופס'}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

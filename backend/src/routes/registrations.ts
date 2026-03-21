@@ -346,8 +346,19 @@ registrationsRouter.post('/:id/send-cancellation-form', managerOrAdmin, async (r
 
     const formUrl = `https://crm.orma-ai.com/public/cancel/${token}`;
 
+    // Optional overrides from request body
+    const {
+      overrideEmail,
+      overridePhone,
+      sendEmail: doSendEmail = true,
+      sendWhatsApp: doSendWhatsApp = true,
+    } = req.body as { overrideEmail?: string; overridePhone?: string; sendEmail?: boolean; sendWhatsApp?: boolean };
+
+    const targetEmail = overrideEmail || customer.email;
+    const targetPhone = overridePhone || customer.phone;
+
     // Send email
-    if (customer.email) {
+    if (doSendEmail && targetEmail) {
       const emailHtml = `
 <!DOCTYPE html>
 <html dir="rtl" lang="he">
@@ -390,11 +401,11 @@ registrationsRouter.post('/:id/send-cancellation-form', managerOrAdmin, async (r
   </table>
 </body>
 </html>`;
-      await sendEmail(customer.email, `טופס ביטול - ${courseName} - Hai.Tech`, emailHtml);
+      await sendEmail(targetEmail, `טופס ביטול - ${courseName} - Hai.Tech`, emailHtml);
     }
 
     // Send WhatsApp
-    if (customer.phone) {
+    if (doSendWhatsApp && targetPhone) {
       const whatsappMessage = `שלום ${customer.name},
 
 קיבלנו את פנייתך בנוגע לביטול הקורס ${courseName} עבור ${registration.student.name}.
@@ -403,7 +414,7 @@ registrationsRouter.post('/:id/send-cancellation-form', managerOrAdmin, async (r
 ${formUrl}
 
 צוות Hai.Tech 💙`;
-      await sendWhatsAppMessage(customer.phone, whatsappMessage);
+      await sendWhatsAppMessage(targetPhone, whatsappMessage);
     }
 
     res.json({ success: true, token, link: formUrl, message: 'טופס ביטול נשלח ללקוח' });

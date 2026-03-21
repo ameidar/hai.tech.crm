@@ -155,16 +155,17 @@ publicCancelRouter.post('/:token', async (req, res, next) => {
 </body>
 </html>`;
 
-    await sendEmail('info@hai.tech', `בקשת ביטול - ${reg.student.name} - ${courseName}`, adminEmailHtml);
+    // Send notifications — non-blocking (don't fail the request if these fail)
+    sendEmail('info@hai.tech', `בקשת ביטול - ${reg.student.name} - ${courseName}`, adminEmailHtml)
+      .catch((err: unknown) => console.error('[PublicCancel] Failed to send admin email:', err));
 
-    // Send WhatsApp to instructor
     const instructor = reg.cycle.instructor;
     if (instructor?.phone) {
       const cycleName = reg.cycle.name || courseName;
-      await sendWhatsAppMessage(
+      sendWhatsAppMessage(
         instructor.phone,
         `שים לב: בקשת ביטול התקבלה עבור ${reg.student.name} במחזור ${cycleName}`
-      );
+      ).catch((err: unknown) => console.error('[PublicCancel] Failed to send instructor WhatsApp:', err));
     }
 
     res.json({ success: true, message: 'בקשת הביטול נשלחה בהצלחה' });

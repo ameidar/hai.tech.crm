@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { sendEmail, sendWhatsAppMessage } from '../services/notifications.js';
 import { deleteMeeting as deleteZoomMeeting } from '../services/zoom.js';
+import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
 
 export const publicCancelRouter = Router();
 
@@ -132,6 +133,11 @@ publicCancelRouter.post('/:token', async (req, res, next) => {
 
     const reg = cancellationRequest.registration;
     const courseName = reg.cycle.course?.name || reg.cycle.name;
+    // Recalculate future meeting revenues based on new student count
+    recalcMeetingRevenue(cycleId).catch((err: unknown) =>
+      console.error('[PublicCancel] Failed to recalc meeting revenue:', err)
+    );
+
     const crmLink = `${process.env.FRONTEND_URL || 'https://crm.orma-ai.com'}/cycles/${reg.cycleId}`;
 
     // Send email to admin

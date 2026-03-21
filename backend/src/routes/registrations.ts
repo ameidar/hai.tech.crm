@@ -3,6 +3,7 @@ import { randomUUID, randomBytes } from 'crypto';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
 import { updateRegistrationSchema, uuidSchema } from '../types/schemas.js';
 import { z } from 'zod';
 import { parsePaginationParams, paginatedResponse } from '../utils/pagination.js';
@@ -224,6 +225,10 @@ registrationsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     if (data.status === 'cancelled' || data.status === 'pending_cancellation') {
       handleCycleCascadeOnCancellation(registration.cycle.id).catch(err =>
         console.error('[CANCEL CASCADE] Error:', err)
+      );
+      // Recalculate future meeting revenues based on new student count
+      recalcMeetingRevenue(registration.cycle.id).catch(err =>
+        console.error('[RECALC REVENUE] Error:', err)
       );
     }
 

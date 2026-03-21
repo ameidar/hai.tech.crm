@@ -877,14 +877,34 @@ cyclesRouter.post('/:id/registrations', managerOrAdmin, async (req, res, next) =
 
     // Check if already registered
     const existing = await prisma.registration.findUnique({
-      where: {
-        studentId_cycleId: {
-          studentId: data.studentId,
-          cycleId,
-        },
-      },
+      where: { studentId_cycleId: { studentId: data.studentId, cycleId } },
     });
-    if (existing) throw new AppError(409, 'Student already registered for this cycle');
+
+    // If cancelled registration exists — reactivate it instead of creating new
+    if (existing) {
+      if (existing.status !== 'cancelled') {
+        throw new AppError(409, 'Student already registered for this cycle');
+      }
+      const reactivated = await prisma.registration.update({
+        where: { id: existing.id },
+        data: {
+          status: data.status ?? 'registered',
+          registrationDate: data.registrationDate ? new Date(data.registrationDate) : new Date(),
+          amount: data.amount,
+          paymentStatus: data.paymentStatus,
+          paymentMethod: data.paymentMethod,
+          cancellationDate: null,
+          cancellationReason: null,
+          refundAmount: null,
+          refundDate: null,
+        },
+        include: {
+          student: { include: { customer: { select: { id: true, name: true, phone: true } } } },
+          cycle: { select: { id: true, name: true } },
+        },
+      });
+      return res.status(200).json(reactivated);
+    }
 
     const registration = await prisma.registration.create({
       data: {

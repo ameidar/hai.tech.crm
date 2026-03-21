@@ -51,19 +51,42 @@ campaignsRouter.get('/', async (_req: Request, res: Response, next: NextFunction
       },
     });
 
-    // Add total click count per campaign
     const campaignIds = campaigns.map(c => c.id);
+
+    // Click counts
     const clickCounts = await prisma.campaignRecipient.groupBy({
       by: ['campaignId'],
       where: { campaignId: { in: campaignIds }, clickCount: { gt: 0 } },
       _sum: { clickCount: true },
     });
     const clickMap: Record<string, number> = {};
-    for (const cc of clickCounts) {
-      clickMap[cc.campaignId] = cc._sum.clickCount ?? 0;
-    }
+    for (const cc of clickCounts) clickMap[cc.campaignId] = cc._sum.clickCount ?? 0;
 
-    res.json(campaigns.map(c => ({ ...c, totalClicks: clickMap[c.id] ?? 0 })));
+    // Pending counts per campaign
+    const pendingCounts = await prisma.campaignRecipient.groupBy({
+      by: ['campaignId'],
+      where: { campaignId: { in: campaignIds }, status: 'pending' },
+      _count: { _all: true },
+    });
+    const pendingMap: Record<string, number> = {};
+    for (const p of pendingCounts) pendingMap[p.campaignId] = p._count._all;
+
+    // Sent today counts
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const sentToday = await prisma.campaignRecipient.groupBy({
+      by: ['campaignId'],
+      where: { campaignId: { in: campaignIds }, status: 'sent', sentAt: { gte: todayStart } },
+      _count: { _all: true },
+    });
+    const sentTodayMap: Record<string, number> = {};
+    for (const s of sentToday) sentTodayMap[s.campaignId] = s._count._all;
+
+    res.json(campaigns.map(c => ({
+      ...c,
+      totalClicks: clickMap[c.id] ?? 0,
+      pendingCount: pendingMap[c.id] ?? 0,
+      sentTodayCount: sentTodayMap[c.id] ?? 0,
+    })));
   } catch (err) {
     next(err);
   }
@@ -296,49 +319,58 @@ campaignsRouter.post('/:id/test-send', async (req: Request, res: Response, next:
 campaignsRouter.post('/:id/send', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const campaignId = req.params.id;
-    const { scheduledAt } = req.body;
+    const { scheduledAt, dailyLimit } = req.body as { scheduledAt?: string; dailyLimit?: number };
 
     const campaign = await prisma.campaign.findUniqueOrThrow({
       where: { id: campaignId },
+      include: { _count: { select: { recipients: { where: { status: 'pending' } } } } },
     });
 
-    if (campaign.status !== 'draft' && campaign.status !== 'scheduled') {
-      res.status(400).json({ error: 'Campaign already sent or in progress' });
+    const pendingCount = (campaign as any)._count?.recipients ?? 0;
+
+    // Allow re-sending if there are still pending recipients (daily batch mode)
+    const isResend = pendingCount > 0 && campaign.status !== 'draft' && campaign.status !== 'scheduled';
+    if (!isResend && campaign.status !== 'draft' && campaign.status !== 'scheduled') {
+      res.status(400).json({ error: 'No pending recipients to send' });
       return;
     }
 
-    const filters = campaign.audienceFilters as AudienceFilters;
-    const audience = await resolveAudience(filters);
+    if (!isResend) {
+      // First send: build audience → create recipients
+      const filters = campaign.audienceFilters as AudienceFilters;
+      const audience = await resolveAudience(filters);
 
-    // Build recipients
-    await prisma.campaignRecipient.createMany({
-      data: audience.recipients.map(r => ({
-        campaignId,
-        customerId: r.customerId,
-        phone: r.phone,
-        email: r.email,
-        status: 'pending',
-      })),
-      skipDuplicates: true,
-    });
+      await prisma.campaignRecipient.createMany({
+        data: audience.recipients.map(r => ({
+          campaignId,
+          customerId: r.customerId,
+          phone: r.phone,
+          email: r.email,
+          status: 'pending',
+        })),
+        skipDuplicates: true,
+      });
 
-    await prisma.campaign.update({
-      where: { id: campaignId },
-      data: { recipientCount: audience.count },
-    });
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { recipientCount: audience.count },
+      });
+    }
+
+    const batchSize = dailyLimit ?? undefined;
 
     if (scheduledAt) {
       await prisma.campaign.update({
         where: { id: campaignId },
         data: { status: 'scheduled', scheduledAt: new Date(scheduledAt) },
       });
-      res.json({ status: 'scheduled', scheduledAt, recipientCount: audience.count });
+      res.json({ status: 'scheduled', scheduledAt });
     } else {
-      // Fire-and-forget sending
-      sendCampaign(campaignId).catch(err => {
+      // Fire-and-forget sending with optional daily limit
+      sendCampaign(campaignId, batchSize).catch(err => {
         console.error(`Campaign ${campaignId} send error:`, err);
       });
-      res.json({ status: 'sending', recipientCount: audience.count });
+      res.json({ status: 'sending', dailyLimit: batchSize ?? null, pendingBefore: pendingCount });
     }
   } catch (err) {
     next(err);

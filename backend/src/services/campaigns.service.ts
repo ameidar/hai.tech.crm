@@ -131,12 +131,14 @@ export async function resolveAudience(filters: AudienceFilters): Promise<Audienc
   };
 }
 
-export async function sendCampaign(campaignId: string): Promise<void> {
+export async function sendCampaign(campaignId: string, dailyLimit?: number): Promise<void> {
   const campaign = await prisma.campaign.findUniqueOrThrow({
     where: { id: campaignId },
     include: {
       recipients: {
+        where: { status: 'pending' },
         include: { customer: { select: { name: true } } },
+        ...(dailyLimit ? { take: dailyLimit } : {}),
       },
     },
   });

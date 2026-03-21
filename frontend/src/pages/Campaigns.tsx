@@ -33,6 +33,8 @@ interface Campaign {
   completedAt?: string;
   createdAt: string;
   createdBy: { name: string };
+  pendingCount: number;
+  sentTodayCount: number;
   landingUrl?: string;
   totalClicks?: number;
 }
@@ -128,6 +130,7 @@ export default function Campaigns() {
     contentHtml: '',
     contentWa: '',
   });
+  const [dailyLimit, setDailyLimit] = useState<number>(1000);
   const [schedule, setSchedule] = useState({
     type: 'now' as 'now' | 'scheduled',
     scheduledAt: '',
@@ -301,14 +304,15 @@ export default function Campaigns() {
     if (!workingId) return;
     // Save content first
     await api.put(`/campaigns/${workingId}`, { ...content });
-    const body: Record<string, string> = {};
+    const body: Record<string, string | number> = {};
     if (schedule.type === 'scheduled' && schedule.scheduledAt) {
       body.scheduledAt = schedule.scheduledAt;
     }
+    if (dailyLimit && dailyLimit > 0) body.dailyLimit = dailyLimit;
     await api.post(`/campaigns/${workingId}/send`, body);
     qc.invalidateQueries({ queryKey: ['campaigns'] });
     setBuilderOpen(false);
-    alert(schedule.type === 'now' ? '✅ הקמפיין הופעל ונשלח!' : '📅 הקמפיין תוזמן לשליחה!');
+    alert(schedule.type === 'now' ? `✅ הקמפיין הופעל! נשלחים עד ${dailyLimit} הודעות` : '📅 הקמפיין תוזמן לשליחה!');
   };
 
   // ─── Render list ───────────────────────────────────────────────────────────
@@ -376,13 +380,22 @@ export default function Campaigns() {
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-1 text-gray-600">
-                      <Users size={14} />
-                      {c.recipientCount}
-                      {c.status === 'completed' && (
-                        <span className="text-xs text-gray-400">
-                          ({c.deliveredCount}✓ {c.failedCount}✗)
-                        </span>
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex items-center gap-1 text-gray-600">
+                        <Users size={14} />
+                        {c.recipientCount}
+                        {c.deliveredCount > 0 && (
+                          <span className="text-xs text-green-600">({c.deliveredCount}✓)</span>
+                        )}
+                        {c.failedCount > 0 && (
+                          <span className="text-xs text-red-500">({c.failedCount}✗)</span>
+                        )}
+                      </div>
+                      {c.pendingCount > 0 && (
+                        <span className="text-xs text-orange-600 font-medium">⏳ {c.pendingCount} ממתינים</span>
+                      )}
+                      {c.sentTodayCount > 0 && (
+                        <span className="text-xs text-blue-600">📤 {c.sentTodayCount} נשלחו היום</span>
                       )}
                     </div>
                   </td>
@@ -406,6 +419,20 @@ export default function Campaigns() {
                           className="text-indigo-600 hover:text-indigo-800 text-xs"
                         >
                           ערוך
+                        </button>
+                      )}
+                      {c.pendingCount > 0 && c.status !== 'sending' && (
+                        <button
+                          onClick={async () => {
+                            const limit = window.prompt(`שלח אצווה הבאה מ-"${c.name}"\nכמה הודעות לשלוח? (ממתינים: ${c.pendingCount})`, '1000');
+                            if (!limit) return;
+                            await api.post(`/campaigns/${c.id}/send`, { dailyLimit: Number(limit) });
+                            qc.invalidateQueries({ queryKey: ['campaigns'] });
+                            alert(`✅ שליחת אצווה הופעלה — עד ${limit} הודעות`);
+                          }}
+                          className="text-orange-600 hover:text-orange-800 text-xs font-medium"
+                        >
+                          📤 אצווה הבאה
                         </button>
                       )}
                       <button
@@ -850,6 +877,23 @@ export default function Campaigns() {
                       />
                     </div>
                   )}
+
+                  {/* Daily limit */}
+                  <div className="border border-blue-200 bg-blue-50 rounded-xl p-4">
+                    <h4 className="font-medium text-blue-800 mb-2 text-sm">📊 מגבלה יומית (Gmail: מקס׳ ~1000/יום)</h4>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="number"
+                        min={1}
+                        max={2000}
+                        value={dailyLimit}
+                        onChange={e => setDailyLimit(Number(e.target.value))}
+                        className="w-32 border border-blue-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                      <span className="text-sm text-blue-700">הודעות לשליחה בלחיצה זו</span>
+                    </div>
+                    <p className="text-xs text-blue-600 mt-1">מחר תוכל לשלוח את האצווה הבאה מאותו קמפיין</p>
+                  </div>
 
                   {/* Test Send */}
                   <div className="border border-yellow-300 bg-yellow-50 rounded-xl p-4">

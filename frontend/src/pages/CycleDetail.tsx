@@ -114,14 +114,29 @@ function AddStudentModal({
     if (!newStudentName.trim() || !newCustomerName.trim()) return;
     setCreating(true);
     try {
-      // Create customer
-      const customer = await api.post('/customers', {
-        name: newCustomerName,
-        phone: newCustomerPhone || undefined,
-        email: newCustomerEmail || undefined,
-      });
+      // Create customer — if phone/email already exists, reuse the existing one
+      let customerId: string;
+      try {
+        const customer = await api.post('/customers', {
+          name: newCustomerName,
+          phone: newCustomerPhone || undefined,
+          email: newCustomerEmail || undefined,
+        });
+        customerId = customer.data.id;
+      } catch (err: any) {
+        const existing = err?.response?.data?.existingCustomer;
+        if (err?.response?.status === 409 && existing) {
+          const useExisting = window.confirm(
+            `לקוח "${existing.name}" (${existing.phone || existing.email}) כבר קיים במערכת.\nהאם להוסיף את התלמיד תחת הלקוח הקיים?`
+          );
+          if (!useExisting) { setCreating(false); return; }
+          customerId = existing.id;
+        } else {
+          throw err;
+        }
+      }
       // Create student under customer
-      const student = await api.post(`/customers/${customer.data.id}/students`, {
+      const student = await api.post(`/customers/${customerId}/students`, {
         name: newStudentName,
         grade: newStudentGrade || undefined,
       });

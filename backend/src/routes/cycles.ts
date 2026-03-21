@@ -44,7 +44,7 @@ function computeRevenuePerMeeting(cycle: any): number {
 }
 
 // Helper to generate meetings for a cycle (skips Israeli holidays)
-async function generateMeetingsForCycle(cycleId: string) {
+async function generateMeetingsForCycle(cycleId: string, fromDate?: Date, targetCount?: number) {
   const cycle = await prisma.cycle.findUnique({
     where: { id: cycleId },
   });
@@ -53,24 +53,27 @@ async function generateMeetingsForCycle(cycleId: string) {
 
   const meetings = [];
   const targetDay = dayNameToNumber(cycle.dayOfWeek);
-  let currentDate = new Date(cycle.startDate);
+  let currentDate = fromDate ? new Date(fromDate) : new Date(cycle.startDate);
   
+  // How many meetings to generate
+  const meetingsToGenerate = targetCount ?? cycle.totalMeetings;
+
   // Fetch holidays for relevant years
   const startYear = currentDate.getFullYear();
   const holidaysThisYear = await fetchHolidays(startYear);
   const holidaysNextYear = await fetchHolidays(startYear + 1);
   const allHolidays = new Set([...holidaysThisYear, ...holidaysNextYear]);
   
-  // Find first occurrence of the target day
+  // Find first occurrence of the target day on or after fromDate
   while (currentDate.getDay() !== targetDay) {
     currentDate.setDate(currentDate.getDate() + 1);
   }
 
   // Generate meetings, skipping holidays
   let attempts = 0;
-  const maxAttempts = cycle.totalMeetings * 3; // Safety limit
+  const maxAttempts = meetingsToGenerate * 3; // Safety limit
   
-  while (meetings.length < cycle.totalMeetings && attempts < maxAttempts) {
+  while (meetings.length < meetingsToGenerate && attempts < maxAttempts) {
     attempts++;
     const dateStr = currentDate.toISOString().split('T')[0];
     
@@ -428,21 +431,36 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
         },
       });
 
-      // Reset cycle counters
+      // Count already-completed meetings
       const completedCount = await prisma.meeting.count({
         where: { cycleId: id, status: 'completed' },
       });
+
+      // Find the last completed meeting date to start generating after it
+      const lastCompleted = await prisma.meeting.findFirst({
+        where: { cycleId: id, status: 'completed' },
+        orderBy: { scheduledDate: 'desc' },
+      });
+
+      // Start from the week after the last completed meeting, or from today if none
+      const generateFrom = lastCompleted
+        ? new Date(new Date(lastCompleted.scheduledDate).getTime() + 7 * 24 * 60 * 60 * 1000)
+        : new Date();
+
+      const remainingCount = cycle.totalMeetings - completedCount;
       
       await prisma.cycle.update({
         where: { id },
         data: {
           completedMeetings: completedCount,
-          remainingMeetings: cycle.totalMeetings - completedCount,
+          remainingMeetings: remainingCount,
         },
       });
 
-      // Regenerate meetings from new start date
-      await generateMeetingsForCycle(id);
+      // Regenerate only the remaining meetings, starting from the future
+      if (remainingCount > 0) {
+        await generateMeetingsForCycle(id, generateFrom, remainingCount);
+      }
     }
 
     res.json(cycle);

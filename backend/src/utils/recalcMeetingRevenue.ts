@@ -3,23 +3,44 @@ import { prisma } from './prisma.js';
 /**
  * After a registration change (e.g. cancellation), recalculate revenue + profit
  * for all future scheduled meetings in the cycle.
- * Only applies to cycles with pricePerStudent (private / institutional_per_child).
  */
 export async function recalcMeetingRevenue(cycleId: string): Promise<void> {
   const cycle = await prisma.cycle.findUnique({
     where: { id: cycleId },
     select: {
-      pricePerStudent: true,
       type: true,
-      _count: { select: { registrations: { where: { status: { notIn: ['cancelled', 'pending_cancellation'] } } } } },
+      pricePerStudent: true,
+      meetingRevenue: true,
+      totalMeetings: true,
+      registrations: {
+        where: { status: { notIn: ['cancelled', 'pending_cancellation'] } },
+        select: { amount: true },
+      },
     },
   });
 
-  if (!cycle?.pricePerStudent || Number(cycle.pricePerStudent) <= 0) return;
-  if (!['private', 'institutional_per_child'].includes(cycle.type)) return;
+  if (!cycle) return;
+  if (cycle.type === 'institutional_fixed') return; // fixed revenue, unchanged
 
-  const activeCount = cycle._count.registrations;
-  const newRevenue = Math.round(Number(cycle.pricePerStudent) * activeCount);
+  let newRevenue = 0;
+
+  if (cycle.type === 'institutional_per_child') {
+    // pricePerStudent × active students
+    const activeCount = cycle.registrations.length;
+    newRevenue = Math.round(Number(cycle.pricePerStudent || 0) * activeCount);
+  } else if (cycle.type === 'private') {
+    if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) return; // manually fixed, skip
+    if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
+      newRevenue = Math.round(Number(cycle.pricePerStudent) * cycle.registrations.length);
+    } else {
+      // sum of active registration amounts / totalMeetings
+      const totalAmount = cycle.registrations.reduce((s, r) => s + Number(r.amount ?? 0), 0);
+      const totalMeetings = Number(cycle.totalMeetings) || 1;
+      newRevenue = Math.round(totalAmount / totalMeetings);
+    }
+  }
+
+  if (newRevenue <= 0) return;
 
   // Get future scheduled meetings
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -42,5 +63,5 @@ export async function recalcMeetingRevenue(cycleId: string): Promise<void> {
     });
   }
 
-  console.log(`[recalcMeetingRevenue] cycle ${cycleId}: ${futureMeetings.length} meetings updated → revenue=${newRevenue} (${activeCount} students)`);
+  console.log(`[recalcMeetingRevenue] cycle ${cycleId}: ${futureMeetings.length} meetings updated → revenue=${newRevenue}`);
 }

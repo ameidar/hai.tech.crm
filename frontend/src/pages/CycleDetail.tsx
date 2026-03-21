@@ -1097,6 +1097,15 @@ export default function CycleDetail() {
                         <p className="text-sm text-gray-500">
                           {reg.student?.customer?.name}
                         </p>
+                        {reg.status === 'cancelled' && (reg.cancellationDate || reg.refundAmount || reg.creditInvoiceLink) && (
+                          <div className="text-xs text-gray-500 mt-1 space-y-0.5">
+                            {reg.cancellationDate && <div>📅 בוטל: {new Date(reg.cancellationDate).toLocaleDateString('he-IL')}</div>}
+                            {reg.cancellationReason && <div>💬 סיבה: {reg.cancellationReason}</div>}
+                            {reg.refundAmount && <div>💰 זוכה: ₪{reg.refundAmount}</div>}
+                            {reg.refundDate && <div>📅 תאריך זיכוי: {new Date(reg.refundDate).toLocaleDateString('he-IL')}</div>}
+                            {reg.creditInvoiceLink && <div>🧾 <a href={reg.creditInvoiceLink} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">חשבונית זיכוי</a></div>}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="text-left">
@@ -2010,6 +2019,11 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
     paymentMethod: string;
     invoiceLink: string;
     notes: string;
+    cancellationDate: string;
+    cancellationReason: string;
+    refundAmount: string;
+    refundDate: string;
+    creditInvoiceLink: string;
   }>({
     status: registration.status || 'active' as RegistrationStatus,
     amount: registration.amount || 0,
@@ -2017,18 +2031,31 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
     paymentMethod: registration.paymentMethod || '',
     invoiceLink: registration.invoiceLink || '',
     notes: registration.notes || '',
+    cancellationDate: registration.cancellationDate ? registration.cancellationDate.split('T')[0] : '',
+    cancellationReason: registration.cancellationReason || '',
+    refundAmount: registration.refundAmount ? String(registration.refundAmount) : '',
+    refundDate: registration.refundDate ? registration.refundDate.split('T')[0] : '',
+    creditInvoiceLink: registration.creditInvoiceLink || '',
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({
+    const payload: Partial<Registration> = {
       status: formData.status as RegistrationStatus,
       amount: formData.amount ? Number(formData.amount) : undefined,
       paymentStatus: formData.paymentStatus as PaymentStatus,
       paymentMethod: formData.paymentMethod as PaymentMethod || undefined,
       invoiceLink: formData.invoiceLink || undefined,
       notes: formData.notes || undefined,
-    });
+    };
+    if (formData.status === 'cancelled') {
+      payload.cancellationDate = formData.cancellationDate || undefined;
+      payload.cancellationReason = formData.cancellationReason || undefined;
+      payload.refundAmount = formData.refundAmount ? Number(formData.refundAmount) : undefined;
+      payload.refundDate = formData.refundDate || undefined;
+      payload.creditInvoiceLink = formData.creditInvoiceLink || undefined;
+    }
+    onSubmit(payload);
   };
 
   return (
@@ -2125,6 +2152,34 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
           />
         </div>
       </div>
+
+      {formData.status === 'cancelled' && (
+        <div className="border-t pt-4 space-y-3">
+          <h4 className="text-sm font-semibold text-red-600">פרטי ביטול</h4>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">תאריך ביטול</label>
+              <input type="date" className="form-input" value={formData.cancellationDate} onChange={(e) => setFormData({...formData, cancellationDate: e.target.value})} />
+            </div>
+            <div>
+              <label className="form-label">סכום זיכוי (₪)</label>
+              <input type="number" className="form-input" value={formData.refundAmount} onChange={(e) => setFormData({...formData, refundAmount: e.target.value})} min="0" />
+            </div>
+            <div className="col-span-2">
+              <label className="form-label">סיבת ביטול</label>
+              <textarea className="form-input" value={formData.cancellationReason} onChange={(e) => setFormData({...formData, cancellationReason: e.target.value})} rows={2} />
+            </div>
+            <div>
+              <label className="form-label">תאריך זיכוי</label>
+              <input type="date" className="form-input" value={formData.refundDate} onChange={(e) => setFormData({...formData, refundDate: e.target.value})} />
+            </div>
+            <div>
+              <label className="form-label">לינק חשבונית זיכוי</label>
+              <input type="url" className="form-input" placeholder="https://..." value={formData.creditInvoiceLink} onChange={(e) => setFormData({...formData, creditInvoiceLink: e.target.value})} dir="ltr" />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex justify-end gap-3 pt-4 border-t">
         <button type="button" onClick={onCancel} className="btn btn-secondary">

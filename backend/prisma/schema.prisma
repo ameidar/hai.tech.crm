@@ -382,6 +382,9 @@ model Registration {
   invoiceLink        String?             @map("invoice_link")
   cancellationDate   DateTime?           @map("cancellation_date") @db.Date
   cancellationReason String?             @map("cancellation_reason")
+  refundAmount       Decimal?            @map("refund_amount") @db.Decimal(10, 2)
+  refundDate         DateTime?           @map("refund_date") @db.Date
+  creditInvoiceLink  String?             @map("credit_invoice_link")
   notes              String?
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")

@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square, ArrowUpDown, ArrowUp, ArrowDown, Filter, Columns } from 'lucide-react';
-import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useBulkGenerateMeetings, useViewData } from '../hooks/useApi';
+import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useBulkGenerateMeetings, useViewData, useSyncAllCycles } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading, { SkeletonTable } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
@@ -33,7 +33,7 @@ export default function Cycles() {
     dayOfWeek: 'יום ושעה',
     type: 'סוג',
     pricePerStudent: 'מחיר לתלמיד',
-    meetingRevenue: 'הכנסה למפגש',
+    meetingRevenue: 'מחיר לפגישה',
     progress: 'התקדמות',
     status: 'סטטוס',
     zoom: 'זום',
@@ -124,6 +124,7 @@ export default function Cycles() {
   const deleteCycle = useDeleteCycle();
   const bulkUpdateCycles = useBulkUpdateCycles();
   const bulkGenerateMeetings = useBulkGenerateMeetings();
+  const syncAllCycles = useSyncAllCycles();
   const { data: viewData, isLoading: viewLoading } = useViewData(activeViewId, []);
 
   // Determine which data to display based on view mode
@@ -175,8 +176,8 @@ export default function Cycles() {
           bVal = Number(b.pricePerStudent) || 0;
           break;
         case 'meetingRevenue':
-          aVal = Number(a.meetingRevenue) || 0;
-          bVal = Number(b.meetingRevenue) || 0;
+          aVal = Number(a.revenuePerMeeting ?? a.meetingRevenue) || 0;
+          bVal = Number(b.revenuePerMeeting ?? b.meetingRevenue) || 0;
           break;
         case 'progress':
           aVal = a.totalMeetings > 0 ? a.completedMeetings / a.totalMeetings : 0;
@@ -305,10 +306,20 @@ export default function Cycles() {
         title="מחזורים"
         subtitle={`${displayCycles?.length || 0} מחזורים`}
         actions={
-          <button onClick={() => setShowAddModal(true)} className="btn btn-primary" data-testid="add-cycle-btn">
-            <Plus size={18} />
-            מחזור חדש
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => syncAllCycles.mutateAsync(undefined).then(r => alert(`✅ סונכרנו ${(r as any).synced} מחזורים`))}
+              disabled={syncAllCycles.isPending}
+              className="btn btn-secondary flex items-center gap-1"
+              title="סנכרן התקדמות כל המחזורים"
+            >
+              {syncAllCycles.isPending ? '⏳' : '🔄'} סנכרן הכל
+            </button>
+            <button onClick={() => setShowAddModal(true)} className="btn btn-primary" data-testid="add-cycle-btn">
+              <Plus size={18} />
+              מחזור חדש
+            </button>
+          </div>
         }
       />
 
@@ -421,6 +432,7 @@ export default function Cycles() {
                 <option value="completed">הושלם</option>
                 <option value="cancelled">בוטל</option>
                 <option value="frozen">❄️ מוקפא</option>
+                <option value="retainer">💼 ריטיינר</option>
               </select>
             </div>
             <div className="hidden md:block w-28">
@@ -499,7 +511,7 @@ export default function Cycles() {
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-semibold text-blue-600 text-sm">{cycle.name}</span>
-                    <span className={`badge text-xs ${cycle.status === 'active' ? 'badge-success' : cycle.status === 'completed' ? 'badge-info' : cycle.status === 'frozen' ? 'badge-secondary' : 'badge-danger'}`}>
+                    <span className={`badge text-xs ${cycle.status === 'active' ? 'badge-success' : cycle.status === 'completed' ? 'badge-info' : cycle.status === 'frozen' ? 'badge-secondary' : cycle.status === 'retainer' ? 'badge-warning' : 'badge-danger'}`}>
                       {cycleStatusHebrew[cycle.status]}
                     </span>
                   </div>
@@ -630,7 +642,9 @@ export default function Cycles() {
                       )}
                       {isColVisible('meetingRevenue') && (
                         <td className="text-gray-600">
-                          {cycle.meetingRevenue ? `₪${Number(cycle.meetingRevenue).toLocaleString()}` : '-'}
+                          {(cycle.revenuePerMeeting || cycle.meetingRevenue)
+                            ? `₪${Number(cycle.revenuePerMeeting ?? cycle.meetingRevenue).toLocaleString()}`
+                            : '-'}
                         </td>
                       )}
                       {isColVisible('progress') && (
@@ -652,7 +666,7 @@ export default function Cycles() {
                         <td>
                           <span className={`badge ${
                             cycle.status === 'active' ? 'badge-success' :
-                            cycle.status === 'completed' ? 'badge-info' : cycle.status === 'frozen' ? 'badge-secondary' : 'badge-danger'
+                            cycle.status === 'completed' ? 'badge-info' : cycle.status === 'frozen' ? 'badge-secondary' : cycle.status === 'retainer' ? 'badge-warning' : 'badge-danger'
                           }`}>
                             {cycleStatusHebrew[cycle.status]}
                           </span>
@@ -1321,6 +1335,8 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
             <option value="active">פעיל</option>
             <option value="completed">הושלם</option>
             <option value="cancelled">בוטל</option>
+            <option value="frozen">❄️ מוקפא</option>
+            <option value="retainer">💼 ריטיינר</option>
           </select>
         </div>
       </div>

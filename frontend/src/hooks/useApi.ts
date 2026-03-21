@@ -471,6 +471,16 @@ export const useBulkGenerateMeetings = () => {
   });
 };
 
+export const useSyncAllCycles = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => mutateData<{ success: boolean; synced: number }, undefined>('/cycles/sync-all', 'post', undefined),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
+    },
+  });
+};
+
 export const useBulkUpdateCycles = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -1243,23 +1253,31 @@ export const useUpdateFileLabel = (entityType: string, entityId: string) => {
 
 // ==================== Institutional Orders ====================
 export interface InstitutionalOrderData {
-  branchId: string;
-  orderNumber?: string;
+  branchId?: string | null;
+  orderName?: string | null;
+  orderNumber?: string | null;
   orderDate?: string | null;
-  startDate: string;
-  endDate: string;
-  pricePerMeeting: number;
+  startDate?: string | null;
+  endDate?: string | null;
+  pricePerMeeting?: number | null;
   estimatedMeetings?: number | null;
   estimatedTotal?: number | null;
-  contactName: string;
-  contactPhone: string;
+  contactName?: string | null;
+  contactPhone?: string | null;
   contactEmail?: string | null;
   status?: 'draft' | 'active' | 'completed' | 'cancelled';
+  fireberryStatus?: string | null;
   notes?: string | null;
   totalAmount?: number | null;
   invoiceNumber?: string | null;
+  invoiceLink?: string | null;
   paymentStatus?: 'unpaid' | 'partial' | 'paid' | null;
   paidAmount?: number | null;
+  payingBody?: string | null;
+  followUpDate?: string | null;
+  salesperson?: string | null;
+  orderType?: string | null;
+  createdBy?: string | null;
 }
 
 export const useInstitutionalOrders = (params?: { status?: string; page?: number; limit?: number }) => {
@@ -1269,9 +1287,16 @@ export const useInstitutionalOrders = (params?: { status?: string; page?: number
   queryString.set('limit', String(params?.limit || 50));
   return useQuery({
     queryKey: ['institutional-orders', params],
-    queryFn: () => fetchData<{ data: any[]; pagination: any }>(`/institutional-orders?${queryString}`),
+    queryFn: () => fetchDataWithPagination<any[]>(`/institutional-orders?${queryString}`),
   });
 };
+
+export const useInstitutionalOrderById = (id: string | null) =>
+  useQuery({
+    queryKey: ['institutional-order', id],
+    queryFn: () => fetchData<any>(`/institutional-orders/${id}`),
+    enabled: !!id,
+  });
 
 export const useCreateInstitutionalOrder = () => {
   const queryClient = useQueryClient();

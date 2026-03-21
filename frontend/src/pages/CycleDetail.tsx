@@ -29,6 +29,7 @@ import {
   Lock,
   Receipt,
   CalendarX,
+  FileText,
 } from 'lucide-react';
 import MeetingExpenses from '../components/MeetingExpenses';
 import {
@@ -53,6 +54,7 @@ import {
   useGenerateMeetings,
   useSyncCycleProgress,
   useCreateMeeting,
+  useInstitutionalOrders,
   api,
 } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
@@ -722,6 +724,23 @@ export default function CycleDetail() {
                   </div>
                 </div>
 
+                {cycle.institutionalOrderId && (
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-purple-50 rounded-lg">
+                      <FileText size={18} className="text-purple-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">הזמנה מוסדית</p>
+                      <a
+                        href={`/institutional-orders?open=${cycle.institutionalOrderId}`}
+                        className="font-medium text-purple-700 hover:text-purple-900 underline"
+                      >
+                        {cycle.institutionalOrder?.orderName || cycle.institutionalOrder?.orderNumber || cycle.institutionalOrderId}
+                      </a>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-blue-50 rounded-lg">
@@ -763,7 +782,8 @@ export default function CycleDetail() {
                     <span className={`badge ${
                       cycle.status === 'active' ? 'badge-success' :
                       cycle.status === 'completed' ? 'badge-info' :
-                      cycle.status === 'frozen' ? 'badge-secondary' : 'badge-danger'
+                      cycle.status === 'frozen' ? 'badge-secondary' :
+                      cycle.status === 'retainer' ? 'badge-warning' : 'badge-danger'
                     }`}>
                       {cycleStatusHebrew[cycle.status]}
                     </span>
@@ -817,14 +837,22 @@ export default function CycleDetail() {
                   </div>
                 )}
 
-                {cycle.type === 'private' && cycle.pricePerStudent && (
-                  <div className="pt-3 mt-3 border-t">
+                {cycle.type === 'private' && (
+                  <div className="pt-3 mt-3 border-t space-y-1">
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-500">מחיר לתלמיד:</span>
+                      <span className="text-gray-500">מחיר לפגישה:</span>
                       <span className="font-semibold text-green-600">
-                        ₪{Number(cycle.pricePerStudent).toLocaleString()}
+                        ₪{Number(cycle.revenuePerMeeting ?? cycle.meetingRevenue ?? 0).toLocaleString()}
                       </span>
                     </div>
+                    {!!cycle.pricePerStudent && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-500">מחיר לתלמיד:</span>
+                        <span className="font-semibold text-gray-500 text-xs">
+                          ₪{Number(cycle.pricePerStudent).toLocaleString()}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -2057,19 +2085,33 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
             <option value="credit">אשראי</option>
             <option value="transfer">העברה בנקאית</option>
             <option value="cash">מזומן</option>
+            <option value="standing_order">הוראת קבע</option>
           </select>
         </div>
 
         <div>
           <label className="form-label">קישור לחשבונית</label>
-          <input
-            type="url"
-            value={formData.invoiceLink}
-            onChange={(e) => setFormData({ ...formData, invoiceLink: e.target.value })}
-            className="form-input"
-            dir="ltr"
-            placeholder="https://..."
-          />
+          <div className="flex gap-2 items-center">
+            <input
+              type="url"
+              value={formData.invoiceLink}
+              onChange={(e) => setFormData({ ...formData, invoiceLink: e.target.value })}
+              className="form-input flex-1"
+              dir="ltr"
+              placeholder="https://..."
+            />
+            {formData.invoiceLink && (
+              <a
+                href={formData.invoiceLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-shrink-0 px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-sm font-medium transition-colors border border-blue-200"
+                title="פתח חשבונית"
+              >
+                🔗 פתח
+              </a>
+            )}
+          </div>
         </div>
 
         <div className="col-span-2">
@@ -2573,11 +2615,15 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     return d.toISOString().split('T')[0];
   };
 
+  const { data: instOrdersData } = useInstitutionalOrders({ limit: 500 });
+  const institutionalOrders: any[] = (instOrdersData as any)?.data || [];
+
   const [formData, setFormData] = useState({
     name: cycle.name,
     courseId: cycle.courseId || cycle.course?.id || '',
     branchId: cycle.branchId || cycle.branch?.id || '',
     instructorId: cycle.instructorId || cycle.instructor?.id || '',
+    institutionalOrderId: cycle.institutionalOrderId || '',
     type: cycle.type,
     status: cycle.status,
     startDate: formatDateForInput(cycle.startDate),
@@ -2661,11 +2707,12 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
       durationMinutes: durationMinutes > 0 ? durationMinutes : 60,
       totalMeetings: Number(formData.totalMeetings),
       pricePerStudent: (formData.type === 'private' || formData.type === 'institutional_per_child') ? Number(formData.pricePerStudent) : undefined,
-      meetingRevenue: formData.type === 'institutional_fixed' ? meetingRevenueValue : undefined,
+      meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'private') ? meetingRevenueValue : undefined,
       revenueIncludesVat: formData.type === 'institutional_fixed' ? formData.includesVat : undefined,
       studentCount: formData.type === 'institutional_per_child' ? Number(formData.studentCount) : undefined,
       maxStudents: Number(formData.maxStudents),
       activityType: formData.activityType as ActivityType,
+      institutionalOrderId: formData.institutionalOrderId || null,
       regenerateMeetings: shouldRegenerate,
     } as any);
   };
@@ -2722,6 +2769,23 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
             <option value="">בחר מדריך</option>
             {instructors.filter(i => i.isActive).map((instructor) => (
               <option key={instructor.id} value={instructor.id}>{instructor.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="col-span-2">
+          <label className="form-label">הזמנה מוסדית (אופציונלי)</label>
+          <select
+            value={formData.institutionalOrderId}
+            onChange={(e) => setFormData({ ...formData, institutionalOrderId: e.target.value })}
+            className="form-input"
+          >
+            <option value="">ללא הזמנה מוסדית</option>
+            {institutionalOrders.map((order: any) => (
+              <option key={order.id} value={order.id}>
+                {order.orderName || order.orderNumber || order.id}
+                {order.branch?.name ? ` — ${order.branch.name}` : ''}
+              </option>
             ))}
           </select>
         </div>
@@ -2849,6 +2913,20 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
               onChange={(e) => setFormData({ ...formData, pricePerStudent: Number(e.target.value) })}
               className="form-input"
               min="0"
+            />
+          </div>
+        )}
+
+        {formData.type === 'private' && (
+          <div>
+            <label className="form-label">מחיר לפגישה (₪)</label>
+            <input
+              type="number"
+              value={formData.meetingRevenue}
+              onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
+              className="form-input"
+              min="0"
+              placeholder="0"
             />
           </div>
         )}

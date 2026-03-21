@@ -13,8 +13,38 @@ export const cyclesRouter = Router();
 
 cyclesRouter.use(authenticate);
 
+// Helper: compute expected revenue per meeting for any cycle type
+function computeRevenuePerMeeting(cycle: any): number {
+  const totalMeetings = Number(cycle.totalMeetings) || 1;
+  if (cycle.type === 'institutional_fixed') {
+    return Number(cycle.meetingRevenue || 0);
+  }
+  if (cycle.type === 'institutional_per_child') {
+    const count = cycle.studentCount || (cycle.registrations?.length ?? cycle._count?.registrations ?? 0);
+    return Math.round(Number(cycle.pricePerStudent || 0) * count);
+  }
+  if (cycle.type === 'private') {
+    // Priority: explicit meetingRevenue > pricePerStudent × students > registration amounts / meetings
+    if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) return Number(cycle.meetingRevenue);
+    if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
+      const count = cycle.registrations?.length ?? cycle._count?.registrations ?? 0;
+      return Math.round(Number(cycle.pricePerStudent) * count);
+    }
+    // Sum registration amounts (available in detail endpoint)
+    if (Array.isArray(cycle.registrations) && cycle.registrations.length > 0) {
+      const totalRegAmount = cycle.registrations.reduce((s: number, r: any) => s + (r.amount ? Number(r.amount) : 0), 0);
+      return totalMeetings > 0 ? Math.round(totalRegAmount / totalMeetings) : 0;
+    }
+    // Fallback: aggregated sum if available (list endpoint)
+    if (cycle._sum?.registrations?.amount) {
+      return totalMeetings > 0 ? Math.round(Number(cycle._sum.registrations.amount) / totalMeetings) : 0;
+    }
+  }
+  return 0;
+}
+
 // Helper to generate meetings for a cycle (skips Israeli holidays)
-async function generateMeetingsForCycle(cycleId: string) {
+async function generateMeetingsForCycle(cycleId: string, fromDate?: Date, targetCount?: number) {
   const cycle = await prisma.cycle.findUnique({
     where: { id: cycleId },
   });
@@ -23,24 +53,27 @@ async function generateMeetingsForCycle(cycleId: string) {
 
   const meetings = [];
   const targetDay = dayNameToNumber(cycle.dayOfWeek);
-  let currentDate = new Date(cycle.startDate);
+  let currentDate = fromDate ? new Date(fromDate) : new Date(cycle.startDate);
   
+  // How many meetings to generate
+  const meetingsToGenerate = targetCount ?? cycle.totalMeetings;
+
   // Fetch holidays for relevant years
   const startYear = currentDate.getFullYear();
   const holidaysThisYear = await fetchHolidays(startYear);
   const holidaysNextYear = await fetchHolidays(startYear + 1);
   const allHolidays = new Set([...holidaysThisYear, ...holidaysNextYear]);
   
-  // Find first occurrence of the target day
+  // Find first occurrence of the target day on or after fromDate
   while (currentDate.getDay() !== targetDay) {
     currentDate.setDate(currentDate.getDate() + 1);
   }
 
   // Generate meetings, skipping holidays
   let attempts = 0;
-  const maxAttempts = cycle.totalMeetings * 3; // Safety limit
+  const maxAttempts = meetingsToGenerate * 3; // Safety limit
   
-  while (meetings.length < cycle.totalMeetings && attempts < maxAttempts) {
+  while (meetings.length < meetingsToGenerate && attempts < maxAttempts) {
     attempts++;
     const dateStr = currentDate.toISOString().split('T')[0];
     
@@ -106,6 +139,7 @@ cyclesRouter.get('/', async (req, res, next) => {
           instructor: { select: { id: true, name: true } },
           institutionalOrder: { select: { id: true, orderNumber: true } },
           _count: { select: { registrations: true, meetings: true } },
+          registrations: { select: { amount: true } },
         },
         orderBy: { startDate: 'desc' },
         skip: (page - 1) * limit,
@@ -116,7 +150,7 @@ cyclesRouter.get('/', async (req, res, next) => {
 
     const totalPages = Math.ceil(total / limit);
     res.json({
-      data: cycles,
+      data: cycles.map(c => ({ ...c, revenuePerMeeting: computeRevenuePerMeeting(c) })),
       pagination: {
         page,
         limit,
@@ -188,7 +222,7 @@ cyclesRouter.get('/:id', async (req, res, next) => {
       throw new AppError(404, 'Cycle not found');
     }
 
-    res.json(cycle);
+    res.json({ ...cycle, revenuePerMeeting: computeRevenuePerMeeting(cycle) });
   } catch (error) {
     next(error);
   }
@@ -384,6 +418,9 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
       req,
     });
 
+    // Attach revenuePerMeeting to the response (may be partial for private if no regs loaded)
+    (cycle as any).revenuePerMeeting = computeRevenuePerMeeting(cycle);
+
     // If regenerateMeetings flag is set, delete all non-completed meetings and regenerate
     if (regenerateMeetings) {
       // Delete only scheduled/postponed meetings (not completed or cancelled)
@@ -394,21 +431,36 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
         },
       });
 
-      // Reset cycle counters
+      // Count already-completed meetings
       const completedCount = await prisma.meeting.count({
         where: { cycleId: id, status: 'completed' },
       });
+
+      // Find the last completed meeting date to start generating after it
+      const lastCompleted = await prisma.meeting.findFirst({
+        where: { cycleId: id, status: 'completed' },
+        orderBy: { scheduledDate: 'desc' },
+      });
+
+      // Start from the week after the last completed meeting, or from today if none
+      const generateFrom = lastCompleted
+        ? new Date(new Date(lastCompleted.scheduledDate).getTime() + 7 * 24 * 60 * 60 * 1000)
+        : new Date();
+
+      const remainingCount = cycle.totalMeetings - completedCount;
       
       await prisma.cycle.update({
         where: { id },
         data: {
           completedMeetings: completedCount,
-          remainingMeetings: cycle.totalMeetings - completedCount,
+          remainingMeetings: remainingCount,
         },
       });
 
-      // Regenerate meetings from new start date
-      await generateMeetingsForCycle(id);
+      // Regenerate only the remaining meetings, starting from the future
+      if (remainingCount > 0) {
+        await generateMeetingsForCycle(id, generateFrom, remainingCount);
+      }
     }
 
     res.json(cycle);
@@ -856,6 +908,33 @@ cyclesRouter.post('/:id/registrations', managerOrAdmin, async (req, res, next) =
     });
 
     res.status(201).json(registration);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Sync ALL active cycles progress from meetings table (bulk)
+cyclesRouter.post('/sync-all', managerOrAdmin, async (req, res, next) => {
+  try {
+    const cycles = await prisma.cycle.findMany({
+      where: { status: 'active', deletedAt: null },
+      select: { id: true, totalMeetings: true },
+    });
+
+    let updated = 0;
+    for (const cycle of cycles) {
+      const completedMeetings = await prisma.meeting.count({
+        where: { cycleId: cycle.id, status: 'completed' },
+      });
+      const remainingMeetings = cycle.totalMeetings - completedMeetings;
+      await prisma.cycle.update({
+        where: { id: cycle.id },
+        data: { completedMeetings, remainingMeetings },
+      });
+      updated++;
+    }
+
+    res.json({ success: true, synced: updated });
   } catch (error) {
     next(error);
   }

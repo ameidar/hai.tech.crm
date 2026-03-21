@@ -53,6 +53,7 @@ enum CycleStatus {
   completed
   cancelled
   frozen
+  retainer
 }
 
 enum DayOfWeek {
@@ -98,6 +99,7 @@ enum PaymentMethod {
   credit
   transfer
   cash
+  standing_order
 }
 
 enum MeetingStatus {
@@ -276,30 +278,37 @@ model Instructor {
 
 model InstitutionalOrder {
   id                String      @id @default(uuid())
-  branchId          String      @map("branch_id")
+  branchId          String?     @map("branch_id")
+  orderName         String?     @map("order_name")
   orderNumber       String?     @map("order_number")
   orderDate         DateTime?   @map("order_date") @db.Date
-  startDate         DateTime    @map("start_date") @db.Date
-  endDate           DateTime    @map("end_date") @db.Date
-  pricePerMeeting   Decimal     @map("price_per_meeting") @db.Decimal(10, 2)
+  startDate         DateTime?   @map("start_date") @db.Date
+  endDate           DateTime?   @map("end_date") @db.Date
+  pricePerMeeting   Decimal?    @map("price_per_meeting") @db.Decimal(10, 2)
   estimatedMeetings Int?        @map("estimated_meetings")
   estimatedTotal    Decimal?    @map("estimated_total") @db.Decimal(10, 2)
-  contactName       String      @map("contact_name")
-  contactPhone      String      @map("contact_phone")
+  contactName       String?     @map("contact_name")
+  contactPhone      String?     @map("contact_phone")
   contactEmail      String?     @map("contact_email")
   contractFile      String?     @map("contract_file")
   status            OrderStatus @default(draft)
+  fireberryStatus   String?     @map("fireberry_status")
   notes             String?
   totalAmount       Decimal?    @map("total_amount") @db.Decimal(10, 2)
   invoiceNumber     String?     @map("invoice_number")
   invoiceLink       String?     @map("invoice_link")
   paymentStatus     PaymentStatus? @map("payment_status")
   paidAmount        Decimal?    @default(0) @map("paid_amount") @db.Decimal(10, 2)
+  payingBody        String?     @map("paying_body")
+  followUpDate      DateTime?   @map("follow_up_date") @db.Date
+  salesperson       String?
+  orderType         String?     @map("order_type")
+  createdBy         String?     @map("created_by")
   createdAt         DateTime    @default(now()) @map("created_at")
   updatedAt         DateTime    @updatedAt @map("updated_at")
 
   // Relations
-  branch Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
   cycles Cycle[]
   quote  Quote?
 

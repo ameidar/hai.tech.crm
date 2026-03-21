@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Plus, Trash2, Clock, Package, Users, MoreHorizontal, Percent } from 'lucide-react';
+import { Plus, Trash2, Clock, Package, Users, MoreHorizontal, Percent, Pencil, X } from 'lucide-react';
 import { 
   useCycleExpenses, 
   useCreateCycleExpense, 
+  useUpdateCycleExpense,
   useDeleteCycleExpense,
 } from '../hooks/useExpenses';
 import { useInstructors } from '../hooks/useApi';
@@ -45,7 +46,19 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
   const createExpense = useCreateCycleExpense();
   const deleteExpense = useDeleteCycleExpense();
 
+  const updateExpense = useUpdateCycleExpense();
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({
+    type: 'other' as CycleExpense['type'],
+    description: '',
+    amount: '',
+    isPercentage: false,
+    percentage: '',
+    hours: '',
+    rateType: 'preparation' as 'preparation' | 'online' | 'frontal',
+    instructorId: '',
+  });
   const [newExpense, setNewExpense] = useState({
     type: 'wraparound_hours' as CycleExpense['type'],
     description: '',
@@ -91,6 +104,40 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
       setShowAddForm(false);
     } catch (error) {
       console.error('Failed to add expense:', error);
+    }
+  };
+
+  const handleStartEdit = (expense: CycleExpense) => {
+    setEditingId(expense.id);
+    setEditForm({
+      type: expense.type,
+      description: expense.description || '',
+      amount: expense.amount ? String(expense.amount) : '',
+      isPercentage: expense.isPercentage || false,
+      percentage: expense.percentage ? String(expense.percentage) : '',
+      hours: expense.hours ? String(expense.hours) : '',
+      rateType: (expense.rateType as 'preparation' | 'online' | 'frontal') || 'preparation',
+      instructorId: expense.instructorId || '',
+    });
+  };
+
+  const handleUpdate = async (id: string) => {
+    try {
+      await updateExpense.mutateAsync({
+        id,
+        cycleId,
+        type: editForm.type,
+        description: editForm.description || undefined,
+        amount: editForm.amount ? Number(editForm.amount) : undefined,
+        isPercentage: editForm.isPercentage,
+        percentage: editForm.percentage ? Number(editForm.percentage) : undefined,
+        hours: editForm.hours ? Number(editForm.hours) : undefined,
+        rateType: editForm.hours ? editForm.rateType : undefined,
+        instructorId: editForm.instructorId || undefined,
+      });
+      setEditingId(null);
+    } catch (error) {
+      console.error('Failed to update expense:', error);
     }
   };
 
@@ -147,49 +194,93 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
         <div className="space-y-2">
           {expensesList.map((expense) => (
             <div key={expense.id} className="p-3 border rounded-lg">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="text-gray-400">{expenseTypeIcons[expense.type]}</span>
-                  <div>
+              {editingId === expense.id ? (
+                /* Inline edit form */
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">סוג</label>
+                      <select value={editForm.type} onChange={(e) => setEditForm({ ...editForm, type: e.target.value as CycleExpense['type'] })} className="input w-full text-sm">
+                        {Object.entries(expenseTypeLabels).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">תיאור</label>
+                      <input type="text" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} className="input w-full text-sm" placeholder="תיאור (אופציונלי)" />
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <label className="flex items-center gap-1 text-sm"><input type="radio" checked={!editForm.isPercentage && !editForm.hours} onChange={() => setEditForm({ ...editForm, isPercentage: false, hours: '' })} /> סכום קבוע</label>
+                    <label className="flex items-center gap-1 text-sm"><input type="radio" checked={!!editForm.hours} onChange={() => setEditForm({ ...editForm, isPercentage: false, hours: '1' })} /> לפי שעות</label>
+                    <label className="flex items-center gap-1 text-sm"><input type="radio" checked={editForm.isPercentage} onChange={() => setEditForm({ ...editForm, isPercentage: true, hours: '' })} /> אחוז</label>
+                  </div>
+                  {!editForm.isPercentage && !editForm.hours && (
+                    <input type="number" value={editForm.amount} onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })} className="input w-full text-sm" placeholder="סכום ₪" />
+                  )}
+                  {!!editForm.hours && (
+                    <div className="grid grid-cols-3 gap-2">
+                      <input type="number" step="0.5" value={editForm.hours} onChange={(e) => setEditForm({ ...editForm, hours: e.target.value })} className="input text-sm" placeholder="שעות" />
+                      <select value={editForm.instructorId} onChange={(e) => setEditForm({ ...editForm, instructorId: e.target.value })} className="input text-sm">
+                        <option value="">מדריך</option>
+                        {instructors?.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                      </select>
+                      <select value={editForm.rateType} onChange={(e) => setEditForm({ ...editForm, rateType: e.target.value as 'preparation' | 'online' | 'frontal' })} className="input text-sm">
+                        {Object.entries(rateTypeLabels).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  {editForm.isPercentage && (
                     <div className="flex items-center gap-2">
-                      <span className="font-medium">{expenseTypeLabels[expense.type]}</span>
-                      {expense.instructor && (
-                        <span className="text-sm text-blue-600">({expense.instructor.name})</span>
+                      <input type="number" value={editForm.percentage} onChange={(e) => setEditForm({ ...editForm, percentage: e.target.value })} className="input w-20 text-sm" placeholder="%" />
+                      <span className="text-sm text-gray-500">% מהכנסת המחזור</span>
+                    </div>
+                  )}
+                  <div className="flex gap-2 justify-end">
+                    <button onClick={() => setEditingId(null)} className="btn btn-secondary btn-sm flex items-center gap-1"><X size={14} /> ביטול</button>
+                    <button onClick={() => handleUpdate(expense.id)} disabled={updateExpense.isPending} className="btn btn-primary btn-sm">שמור</button>
+                  </div>
+                </div>
+              ) : (
+                /* Normal view */
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-gray-400">{expenseTypeIcons[expense.type]}</span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{expenseTypeLabels[expense.type]}</span>
+                        {expense.instructor && <span className="text-sm text-blue-600">({expense.instructor.name})</span>}
+                      </div>
+                      {expense.description && <p className="text-sm text-gray-500">{expense.description}</p>}
+                      {expense.hours && expense.rateType && (
+                        <p className="text-xs text-gray-400">
+                          {expense.hours} שעות × תעריף {rateTypeLabels[expense.rateType]}
+                          {expense.instructor?.employmentType === 'employee' && ' × 1.3 (עלות מעסיק)'}
+                        </p>
                       )}
                     </div>
-                    {expense.description && (
-                      <p className="text-sm text-gray-500">{expense.description}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {expense.isPercentage ? (
+                      <span className="font-bold flex items-center gap-1">
+                        <Percent size={14} />{expense.percentage}%
+                        <span className="text-sm text-gray-500">({formatCurrency(calculateExpenseAmount(expense))})</span>
+                      </span>
+                    ) : (
+                      <span className="font-bold">{formatCurrency(Number(expense.amount || 0))}</span>
                     )}
-                    {expense.hours && expense.rateType && (
-                      <p className="text-xs text-gray-400">
-                        {expense.hours} שעות × תעריף {rateTypeLabels[expense.rateType]}
-                        {expense.instructor?.employmentType === 'employee' && ' × 1.3 (עלות מעסיק)'}
-                      </p>
+                    {isAdmin && (
+                      <>
+                        <button onClick={() => handleStartEdit(expense)} className="text-gray-400 hover:text-blue-600 p-1" title="ערוך">
+                          <Pencil size={15} />
+                        </button>
+                        <button onClick={() => handleDelete(expense.id)} className="text-gray-400 hover:text-red-600 p-1" title="מחק">
+                          <Trash2 size={15} />
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  {expense.isPercentage ? (
-                    <span className="font-bold flex items-center gap-1">
-                      <Percent size={14} />
-                      {expense.percentage}%
-                      <span className="text-sm text-gray-500">({formatCurrency(calculateExpenseAmount(expense))})</span>
-                    </span>
-                  ) : (
-                    <span className="font-bold">{formatCurrency(Number(expense.amount || 0))}</span>
-                  )}
-                  
-                  {isAdmin && (
-                    <button
-                      onClick={() => handleDelete(expense.id)}
-                      className="text-gray-400 hover:text-red-600 p-1"
-                      title="מחק"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  )}
-                </div>
-              </div>
+              )}
             </div>
           ))}
         </div>

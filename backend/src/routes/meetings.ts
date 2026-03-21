@@ -279,8 +279,15 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
     } else if (cycle.type === 'institutional_per_child' && cycle.pricePerStudent) {
       const studentCount = cycle.studentCount || cycle.registrations.length;
       revenue = Number(cycle.pricePerStudent) * studentCount;
-    } else if (cycle.type === 'private' && cycle.pricePerStudent) {
-      revenue = Number(cycle.pricePerStudent) * cycle.registrations.length;
+    } else if (cycle.type === 'private') {
+      if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
+        revenue = Number(cycle.meetingRevenue);
+      } else if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
+        revenue = Number(cycle.pricePerStudent) * cycle.registrations.length;
+      } else {
+        const totalRegAmount = cycle.registrations.reduce((s: number, r: any) => s + (r.amount ? Number(r.amount) : 0), 0);
+        revenue = cycle.totalMeetings > 0 ? Math.round(totalRegAmount / cycle.totalMeetings) : 0;
+      }
     }
 
     // Calculate instructor payment based on activity type
@@ -496,12 +503,16 @@ meetingsRouter.put('/:id', async (req, res, next) => {
           const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
           
           if (cycleData.type === 'private') {
-            // Sum all registration amounts and divide by total meetings
-            const totalRegistrationAmount = cycleData.registrations.reduce(
-              (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
-              0
-            );
-            revenue = Math.round(totalRegistrationAmount / cycleData.totalMeetings);
+            if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
+              revenue = Number(cycleData.meetingRevenue);
+            } else {
+              // Sum all registration amounts and divide by total meetings
+              const totalRegistrationAmount = cycleData.registrations.reduce(
+                (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
+                0
+              );
+              revenue = cycleData.totalMeetings > 0 ? Math.round(totalRegistrationAmount / cycleData.totalMeetings) : 0;
+            }
           } else if (cycleData.type === 'institutional_per_child') {
             // Price per student × number of students (use studentCount if set, otherwise count registrations)
             const pricePerStudent = Number(cycleData.pricePerStudent || 0);
@@ -953,11 +964,15 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
     const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
 
     if (cycleData.type === 'private') {
-      const totalRegistrationAmount = cycleData.registrations.reduce(
-        (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
-        0
-      );
-      revenue = Math.round(totalRegistrationAmount / cycleData.totalMeetings);
+      if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
+        revenue = Number(cycleData.meetingRevenue);
+      } else {
+        const totalRegistrationAmount = cycleData.registrations.reduce(
+          (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
+          0
+        );
+        revenue = cycleData.totalMeetings > 0 ? Math.round(totalRegistrationAmount / cycleData.totalMeetings) : 0;
+      }
     } else if (cycleData.type === 'institutional_per_child') {
       const pricePerStudent = Number(cycleData.pricePerStudent || 0);
       const studentCount = cycleData.studentCount || activeRegistrations.length;
@@ -1091,11 +1106,15 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
       const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
 
       if (cycleData.type === 'private') {
-        const totalRegistrationAmount = cycleData.registrations.reduce(
-          (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
-          0
-        );
-        revenue = Math.round(totalRegistrationAmount / cycleData.totalMeetings);
+        if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
+          revenue = Number(cycleData.meetingRevenue);
+        } else {
+          const totalRegistrationAmount = cycleData.registrations.reduce(
+            (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
+            0
+          );
+          revenue = cycleData.totalMeetings > 0 ? Math.round(totalRegistrationAmount / cycleData.totalMeetings) : 0;
+        }
       } else if (cycleData.type === 'institutional_per_child') {
         const pricePerStudent = Number(cycleData.pricePerStudent || 0);
         const studentCount = cycleData.studentCount || activeRegistrations.length;
@@ -1214,11 +1233,15 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
             const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
             
             if (cycleData.type === 'private') {
-              const totalRegistrationAmount = cycleData.registrations.reduce(
-                (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
-                0
-              );
-              revenue = Math.round(totalRegistrationAmount / cycleData.totalMeetings);
+              if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
+                revenue = Number(cycleData.meetingRevenue);
+              } else {
+                const totalRegistrationAmount = cycleData.registrations.reduce(
+                  (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
+                  0
+                );
+                revenue = cycleData.totalMeetings > 0 ? Math.round(totalRegistrationAmount / cycleData.totalMeetings) : 0;
+              }
             } else if (cycleData.type === 'institutional_per_child') {
               const pricePerStudent = Number(cycleData.pricePerStudent || 0);
               const studentCount = cycleData.studentCount || activeRegistrations.length;
@@ -1437,8 +1460,12 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
             const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
 
             if (cycleData.type === 'private') {
-              const totalAmount = cycleData.registrations.reduce((sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0), 0);
-              revenue = Math.round(totalAmount / cycleData.totalMeetings);
+              if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
+                revenue = Number(cycleData.meetingRevenue);
+              } else {
+                const totalAmount = cycleData.registrations.reduce((sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0), 0);
+                revenue = cycleData.totalMeetings > 0 ? Math.round(totalAmount / cycleData.totalMeetings) : 0;
+              }
             } else if (cycleData.type === 'institutional_per_child') {
               revenue = Math.round(Number(cycleData.pricePerStudent || 0) * (cycleData.studentCount || activeRegistrations.length));
             } else if (cycleData.type === 'institutional_fixed') {

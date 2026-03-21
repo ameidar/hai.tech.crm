@@ -80,6 +80,17 @@ export function useCreateCycleExpense() {
   });
 }
 
+export function useUpdateCycleExpense() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, cycleId, ...data }: { id: string; cycleId: string; type: string; description?: string; amount?: number; instructorId?: string; isPercentage?: boolean; percentage?: number; hours?: number; rateType?: string; }) =>
+      mutateData<CycleExpense, Omit<typeof data, 'cycleId'>>(`/expenses/cycle/${id}`, 'put', data),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['cycle-expenses', variables.cycleId] });
+    },
+  });
+}
+
 export function useDeleteCycleExpense() {
   const queryClient = useQueryClient();
   return useMutation({

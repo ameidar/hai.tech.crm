@@ -795,6 +795,7 @@ function StudentForm({ cycles, onSubmit, onCancel, isLoading, onCycleCreated }: 
                     <option value="credit">אשראי</option>
                     <option value="transfer">העברה</option>
                     <option value="cash">מזומן</option>
+                    <option value="standing_order">הוראת קבע</option>
                   </select>
                 </div>
               </div>
@@ -1264,6 +1265,7 @@ function StudentEditForm({ student, cycles, onSubmit, onCancel, isLoading, onCyc
                     <option value="credit">אשראי</option>
                     <option value="transfer">העברה</option>
                     <option value="cash">מזומן</option>
+                    <option value="standing_order">הוראת קבע</option>
                   </select>
                 </div>
               </div>

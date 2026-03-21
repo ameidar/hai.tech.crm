@@ -3,12 +3,12 @@ export type CourseCategory = 'programming' | 'ai' | 'robotics' | 'printing_3d';
 export type BranchType = 'school' | 'community_center' | 'frontal' | 'online';
 export type OrderStatus = 'draft' | 'active' | 'completed' | 'cancelled';
 export type CycleType = 'private' | 'institutional_per_child' | 'institutional_fixed';
-export type CycleStatus = 'active' | 'completed' | 'cancelled' | 'frozen';
+export type CycleStatus = 'active' | 'completed' | 'cancelled' | 'frozen' | 'retainer';
 export type DayOfWeek = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday';
 export type MeetingStatus = 'scheduled' | 'completed' | 'cancelled' | 'postponed' | 'pending_cancellation' | 'pending_postponement';
 export type RegistrationStatus = 'registered' | 'active' | 'completed' | 'pending_cancellation' | 'cancelled';
 export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
-export type PaymentMethod = 'credit' | 'transfer' | 'cash';
+export type PaymentMethod = 'credit' | 'transfer' | 'cash' | 'standing_order';
 export type AttendanceStatus = 'present' | 'absent' | 'late';
 export type UserRole = 'admin' | 'manager' | 'instructor' | 'sales';
 export type ActivityType = 'online' | 'frontal' | 'private_lesson';
@@ -89,20 +89,28 @@ export interface Branch {
 
 export interface InstitutionalOrder {
   id: string;
-  branchId: string;
+  branchId?: string;
+  orderName?: string;
   orderNumber?: string;
-  orderDate: string;
-  startDate: string;
-  endDate: string;
-  pricePerMeeting: number;
-  estimatedMeetings: number;
-  estimatedTotal: number;
-  contactName: string;
-  contactPhone: string;
+  orderDate?: string;
+  startDate?: string;
+  endDate?: string;
+  pricePerMeeting?: number;
+  estimatedMeetings?: number;
+  estimatedTotal?: number;
+  contactName?: string;
+  contactPhone?: string;
   contactEmail?: string;
   contractFile?: string;
   status: OrderStatus;
+  fireberryStatus?: string;
   notes?: string;
+  totalAmount?: number;
+  payingBody?: string;
+  followUpDate?: string;
+  salesperson?: string;
+  orderType?: string;
+  createdBy?: string;
   createdAt: string;
   branch?: Branch;
 }
@@ -146,6 +154,7 @@ export interface Cycle {
   totalMeetings: number;
   pricePerStudent?: number;
   meetingRevenue?: number;
+  revenuePerMeeting?: number;
   revenueIncludesVat?: boolean | null;
   studentCount?: number;
   maxStudents?: number;
@@ -167,6 +176,7 @@ export interface Cycle {
   course?: Course;
   branch?: Branch;
   instructor?: Instructor;
+  institutionalOrder?: InstitutionalOrder;
   meetings?: Meeting[];
   registrations?: Registration[];
   _count?: {
@@ -293,6 +303,7 @@ export const cycleStatusHebrew: Record<CycleStatus, string> = {
   completed: 'הושלם',
   cancelled: 'בוטל',
   frozen: '❄️ מוקפא',
+  retainer: '💼 ריטיינר',
 };
 
 export const cycleTypeHebrew: Record<CycleType, string> = {

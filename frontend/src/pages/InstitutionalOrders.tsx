@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { FileText, Building2, Search, Filter, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, List, MapPin, Phone, RefreshCcw, Plus, Pencil, Trash2, CheckSquare, Square, X } from 'lucide-react';
-import { useInstitutionalOrders, useCreateInstitutionalOrder, useUpdateInstitutionalOrder, useDeleteInstitutionalOrder, useBranches } from '../hooks/useApi';
+import { useInstitutionalOrders, useInstitutionalOrderById, useCreateInstitutionalOrder, useUpdateInstitutionalOrder, useDeleteInstitutionalOrder, useBranches } from '../hooks/useApi';
 import type { InstitutionalOrderData } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -11,22 +12,29 @@ import type { OrderStatus } from '../types';
 
 interface InstitutionalOrderRow {
   id: string;
+  orderName?: string;
   orderNumber?: string;
   orderDate?: string;
-  startDate: string;
-  endDate: string;
-  pricePerMeeting: number;
+  startDate?: string;
+  endDate?: string;
+  pricePerMeeting?: number;
   estimatedMeetings?: number;
   estimatedTotal?: number;
   totalAmount?: number;
   paidAmount?: number;
-  contactName: string;
-  contactPhone: string;
+  contactName?: string;
+  contactPhone?: string;
   contactEmail?: string;
   status: OrderStatus;
+  fireberryStatus?: string;
   paymentStatus?: string;
   invoiceNumber?: string;
   notes?: string;
+  payingBody?: string;
+  followUpDate?: string;
+  salesperson?: string;
+  orderType?: string;
+  createdBy?: string;
   createdAt: string;
   branch?: { id: string; name: string; city?: string; type: string };
   _count?: { cycles: number };
@@ -70,16 +78,24 @@ function formatCurrency(amount?: number | null) {
 
 const EMPTY_FORM: Partial<InstitutionalOrderData> = {
   branchId: '',
+  orderName: '',
   orderNumber: '',
   startDate: '',
   endDate: '',
-  pricePerMeeting: 0,
+  pricePerMeeting: undefined,
   estimatedMeetings: undefined,
   contactName: '',
   contactPhone: '',
   contactEmail: '',
   status: 'draft',
+  fireberryStatus: '',
   notes: '',
+  totalAmount: undefined,
+  payingBody: '',
+  followUpDate: '',
+  salesperson: '',
+  orderType: '',
+  createdBy: '',
 };
 
 export default function InstitutionalOrders() {
@@ -120,13 +136,13 @@ export default function InstitutionalOrders() {
     let list = orders.filter((o) => {
       if (!searchFilter) return true;
       const s = searchFilter.toLowerCase();
-      return o.orderNumber?.toLowerCase().includes(s) || o.branch?.name.toLowerCase().includes(s) || o.contactName.toLowerCase().includes(s) || o.contactPhone.includes(s);
+      return o.orderName?.toLowerCase().includes(s) || o.orderNumber?.toLowerCase().includes(s) || o.branch?.name?.toLowerCase().includes(s) || o.contactName?.toLowerCase().includes(s) || o.contactPhone?.includes(s) || o.fireberryStatus?.includes(s) || o.salesperson?.includes(s);
     });
     if (sortConfig) {
       list = [...list].sort((a, b) => {
         const dir = sortConfig.direction === 'asc' ? 1 : -1;
         switch (sortConfig.key) {
-          case 'branch': return dir * String(a.branch?.name ?? '').localeCompare(String(b.branch?.name ?? ''), 'he');
+          case 'branch': return dir * String(a.orderName ?? a.branch?.name ?? '').localeCompare(String(b.orderName ?? b.branch?.name ?? ''), 'he');
           case 'status': return dir * String(a.status ?? '').localeCompare(String(b.status ?? ''), 'he');
           case 'startDate': return dir * String(a.startDate ?? '').localeCompare(String(b.startDate ?? ''));
           case 'total': return dir * ((Number(a.estimatedTotal || a.totalAmount) || 0) - (Number(b.estimatedTotal || b.totalAmount) || 0));
@@ -150,26 +166,47 @@ export default function InstitutionalOrders() {
     });
   };
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const openQueryId = searchParams.get('open');
+  const { data: openQueryOrder } = useInstitutionalOrderById(openQueryId);
+
   const openAdd = () => { setForm(EMPTY_FORM); setShowAddModal(true); };
   const openEdit = (o: InstitutionalOrderRow) => {
     setForm({
       branchId: o.branch?.id || '',
+      orderName: o.orderName || '',
       orderNumber: o.orderNumber || '',
       startDate: o.startDate?.slice(0, 10) || '',
       endDate: o.endDate?.slice(0, 10) || '',
       pricePerMeeting: o.pricePerMeeting,
       estimatedMeetings: o.estimatedMeetings,
-      contactName: o.contactName,
-      contactPhone: o.contactPhone,
+      contactName: o.contactName || '',
+      contactPhone: o.contactPhone || '',
       contactEmail: o.contactEmail || '',
       status: o.status,
+      fireberryStatus: o.fireberryStatus || '',
       notes: o.notes || '',
+      totalAmount: o.totalAmount,
+      payingBody: o.payingBody || '',
+      followUpDate: o.followUpDate?.slice(0, 10) || '',
+      salesperson: o.salesperson || '',
+      orderType: o.orderType || '',
+      createdBy: o.createdBy || '',
     });
     setEditItem(o);
   };
 
+  // Auto-open edit modal when ?open=<id> is in URL (e.g. navigating from CycleDetail)
+  useEffect(() => {
+    if (!openQueryOrder) return;
+    openEdit(openQueryOrder as any);
+    setSearchParams({}, { replace: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openQueryOrder]);
+
   const handleSubmit = async () => {
-    if (!form.branchId || !form.startDate || !form.endDate || !form.contactName || !form.contactPhone || !form.pricePerMeeting) return;
+    // At minimum an order name or branch is needed
+    if (!form.branchId && !form.orderNumber && !form.contactName) return;
     try {
       if (editItem) {
         await updateOrder.mutateAsync({ id: editItem.id, data: form as InstitutionalOrderData });
@@ -198,50 +235,48 @@ export default function InstitutionalOrders() {
     setSelectedIds(new Set());
   };
 
+  const lbl = (text: string) => <label className="block text-sm font-medium text-gray-700 mb-1">{text}</label>;
+
   const OrderForm = () => (
-    <div className="p-6 space-y-4">
+    <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+
+      {/* Section: פרטי הזמנה */}
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-1">פרטי הזמנה</div>
       <div className="grid grid-cols-2 gap-4">
+        <div className="col-span-2">
+          {lbl('שם ההזמנה')}
+          <input className="form-input w-full" value={form.orderName || ''} onChange={e => setForm(f => ({ ...f, orderName: e.target.value }))} placeholder="שם ההזמנה" />
+        </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">סניף *</label>
-          <select className="form-input w-full" value={form.branchId} onChange={e => setForm(f => ({ ...f, branchId: e.target.value }))}>
-            <option value="">בחר סניף</option>
+          {lbl('סניף')}
+          <select className="form-input w-full" value={form.branchId || ''} onChange={e => setForm(f => ({ ...f, branchId: e.target.value }))}>
+            <option value="">ללא סניף</option>
             {branches.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">מספר הזמנה</label>
-          <input className="form-input w-full" value={form.orderNumber || ''} onChange={e => setForm(f => ({ ...f, orderNumber: e.target.value }))} placeholder="INV-001" />
+          {lbl('גוף משלם')}
+          <input className="form-input w-full" value={form.payingBody || ''} onChange={e => setForm(f => ({ ...f, payingBody: e.target.value }))} />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">תאריך התחלה *</label>
-          <input type="date" className="form-input w-full" value={form.startDate || ''} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} />
+          {lbl('סוג ההזמנה')}
+          <select className="form-input w-full" value={form.orderType || ''} onChange={e => setForm(f => ({ ...f, orderType: e.target.value }))}>
+            <option value="">—</option>
+            <option value="חדשה">חדשה</option>
+            <option value="אפסייל">אפסייל</option>
+          </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">תאריך סיום *</label>
-          <input type="date" className="form-input w-full" value={form.endDate || ''} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
+          {lbl('מבצע')}
+          <input className="form-input w-full" value={form.salesperson || ''} onChange={e => setForm(f => ({ ...f, salesperson: e.target.value }))} placeholder="שם המבצע" />
         </div>
+      </div>
+
+      {/* Section: סטטוס */}
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-2">סטטוס</div>
+      <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">מחיר לפגישה (₪) *</label>
-          <input type="number" className="form-input w-full" value={form.pricePerMeeting || ''} onChange={e => setForm(f => ({ ...f, pricePerMeeting: Number(e.target.value) }))} />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">מספר פגישות משוער</label>
-          <input type="number" className="form-input w-full" value={form.estimatedMeetings || ''} onChange={e => setForm(f => ({ ...f, estimatedMeetings: Number(e.target.value) || undefined }))} />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">איש קשר *</label>
-          <input className="form-input w-full" value={form.contactName || ''} onChange={e => setForm(f => ({ ...f, contactName: e.target.value }))} />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">טלפון *</label>
-          <input className="form-input w-full" dir="ltr" value={form.contactPhone || ''} onChange={e => setForm(f => ({ ...f, contactPhone: e.target.value }))} />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">מייל</label>
-          <input type="email" className="form-input w-full" dir="ltr" value={form.contactEmail || ''} onChange={e => setForm(f => ({ ...f, contactEmail: e.target.value }))} />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">סטטוס</label>
+          {lbl('סטטוס פנימי')}
           <select className="form-input w-full" value={form.status || 'draft'} onChange={e => setForm(f => ({ ...f, status: e.target.value as InstitutionalOrderData['status'] }))}>
             <option value="draft">טיוטה</option>
             <option value="active">פעיל</option>
@@ -249,11 +284,70 @@ export default function InstitutionalOrders() {
             <option value="cancelled">בוטל</option>
           </select>
         </div>
+        <div>
+          {lbl('סטטוס Fireberry')}
+          <input className="form-input w-full" value={form.fireberryStatus || ''} onChange={e => setForm(f => ({ ...f, fireberryStatus: e.target.value }))} placeholder="סיכום וסגירה / הסתיים..." />
+        </div>
+        <div>
+          {lbl('תאריך פולואפ')}
+          <input type="date" className="form-input w-full" value={form.followUpDate || ''} onChange={e => setForm(f => ({ ...f, followUpDate: e.target.value }))} />
+        </div>
+        <div>
+          {lbl('נוצר על ידי')}
+          <input className="form-input w-full" value={form.createdBy || ''} onChange={e => setForm(f => ({ ...f, createdBy: e.target.value }))} />
+        </div>
       </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">הערות</label>
-        <textarea className="form-input w-full" rows={3} value={form.notes || ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+
+      {/* Section: איש קשר */}
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-2">איש קשר</div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          {lbl('שם איש קשר')}
+          <input className="form-input w-full" value={form.contactName || ''} onChange={e => setForm(f => ({ ...f, contactName: e.target.value }))} />
+        </div>
+        <div>
+          {lbl('טלפון')}
+          <input className="form-input w-full" dir="ltr" value={form.contactPhone || ''} onChange={e => setForm(f => ({ ...f, contactPhone: e.target.value }))} />
+        </div>
+        <div className="col-span-2">
+          {lbl('מייל')}
+          <input type="email" className="form-input w-full" dir="ltr" value={form.contactEmail || ''} onChange={e => setForm(f => ({ ...f, contactEmail: e.target.value }))} />
+        </div>
       </div>
+
+      {/* Section: כספים */}
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-2">כספים</div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          {lbl('תשלום כולל (₪)')}
+          <input type="number" className="form-input w-full" value={form.totalAmount ?? ''} onChange={e => setForm(f => ({ ...f, totalAmount: e.target.value ? Number(e.target.value) : null }))} />
+        </div>
+        <div>
+          {lbl('מחיר לפגישה (₪)')}
+          <input type="number" className="form-input w-full" value={form.pricePerMeeting ?? ''} onChange={e => setForm(f => ({ ...f, pricePerMeeting: e.target.value ? Number(e.target.value) : null }))} />
+        </div>
+        <div>
+          {lbl('פגישות משוערות')}
+          <input type="number" className="form-input w-full" value={form.estimatedMeetings ?? ''} onChange={e => setForm(f => ({ ...f, estimatedMeetings: e.target.value ? Number(e.target.value) : undefined }))} />
+        </div>
+        <div>
+          {lbl('מספר הזמנה')}
+          <input className="form-input w-full" value={form.orderNumber || ''} onChange={e => setForm(f => ({ ...f, orderNumber: e.target.value }))} placeholder="INV-001" />
+        </div>
+        <div>
+          {lbl('תאריך התחלה')}
+          <input type="date" className="form-input w-full" value={form.startDate || ''} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} />
+        </div>
+        <div>
+          {lbl('תאריך סיום')}
+          <input type="date" className="form-input w-full" value={form.endDate || ''} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
+        </div>
+      </div>
+
+      {/* Section: הערות */}
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-2">הערות / תיאור</div>
+      <textarea className="form-input w-full" rows={4} value={form.notes || ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+
       <div className="flex justify-end gap-3 pt-2 border-t">
         <button type="button" className="btn btn-secondary" onClick={() => { setShowAddModal(false); setEditItem(null); }}>ביטול</button>
         <button type="button" className="btn btn-primary" onClick={handleSubmit} disabled={createOrder.isPending || updateOrder.isPending}>
@@ -331,24 +425,29 @@ export default function InstitutionalOrders() {
                         <FileText size={16} className="text-white" />
                       </div>
                       <div>
-                        <div className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">{order.branch?.name || '-'}</div>
+                        <div className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">{order.orderName || order.branch?.name || '-'}</div>
+                        {order.branch?.name && order.orderName && <div className="text-xs text-gray-500">{order.branch.name}</div>}
                         {order.orderNumber && <div className="text-xs text-gray-500">#{order.orderNumber}</div>}
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusColors[order.status]}`}>{statusLabels[order.status]}</span>
+                      {order.fireberryStatus
+                        ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 border border-purple-200">{order.fireberryStatus}</span>
+                        : <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusColors[order.status]}`}>{statusLabels[order.status]}</span>
+                      }
                       <button onClick={() => openEdit(order)} className="p-1 text-gray-400 hover:text-blue-600 transition-colors opacity-0 group-hover:opacity-100"><Pencil size={14} /></button>
                       <button onClick={() => setDeleteItem(order)} className="p-1 text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 size={14} /></button>
                     </div>
                   </div>
                   <div className="space-y-1.5 text-sm mb-3">
-                    {order.branch?.city && <p className="flex items-center gap-2 text-gray-600"><MapPin size={13} className="text-gray-400" />{order.branch.city}</p>}
-                    <p className="flex items-center gap-2 text-gray-600"><Phone size={13} className="text-gray-400" /><span dir="ltr">{order.contactPhone}</span></p>
-                    {order._count?.cycles != null && <p className="flex items-center gap-2 text-gray-600"><RefreshCcw size={13} className="text-gray-400" />{order._count.cycles} מחזורים</p>}
+                    {order.branch?.name && <p className="flex items-center gap-2 text-gray-600"><Building2 size={13} className="text-gray-400" />{order.branch.name}</p>}
+                    {order.contactName && <p className="flex items-center gap-2 text-gray-600"><Phone size={13} className="text-gray-400" />{order.contactName}{order.contactPhone ? ` · ${order.contactPhone}` : ''}</p>}
+                    {order.salesperson && <p className="text-xs text-gray-500">מבצע: {order.salesperson}</p>}
+                    {order._count?.cycles != null && order._count.cycles > 0 && <p className="flex items-center gap-2 text-gray-600"><RefreshCcw size={13} className="text-gray-400" />{order._count.cycles} מחזורים</p>}
                   </div>
                   <div className="flex items-center justify-between pt-3 border-t border-gray-50 text-sm">
-                    <span className="font-semibold text-green-600">{formatCurrency(order.estimatedTotal || order.totalAmount)}</span>
-                    <span className="text-xs text-gray-400">{formatDate(order.startDate)} — {formatDate(order.endDate)}</span>
+                    <span className="font-semibold text-green-600">{formatCurrency(order.estimatedTotal ?? order.totalAmount)}</span>
+                    <span className="text-xs text-gray-400">{order.startDate ? formatDate(order.startDate) : order.createdAt ? formatDate(order.createdAt) : ''}</span>
                   </div>
                 </div>
               ))}
@@ -365,9 +464,10 @@ export default function InstitutionalOrders() {
                           {allSelected ? <CheckSquare size={16} className="text-blue-600" /> : <Square size={16} className="text-gray-400" />}
                         </button>
                       </th>
-                      <th className="text-right px-4 py-3 font-medium text-gray-600">מס׳ הזמנה</th>
+                      <th className="text-right px-4 py-3 font-medium text-gray-600">שם הזמנה</th>
                       <th className="text-right px-4 py-3 font-medium text-gray-600 cursor-pointer hover:bg-gray-100 select-none" onClick={() => handleSort('branch')}>סניף<SortIcon k="branch" /></th>
                       <th className="text-right px-4 py-3 font-medium text-gray-600 cursor-pointer hover:bg-gray-100 select-none" onClick={() => handleSort('status')}>סטטוס<SortIcon k="status" /></th>
+                      <th className="text-right px-4 py-3 font-medium text-gray-600">מבצע</th>
                       <th className="text-right px-4 py-3 font-medium text-gray-600">איש קשר</th>
                       <th className="text-right px-4 py-3 font-medium text-gray-600">טלפון</th>
                       <th className="text-right px-4 py-3 font-medium text-gray-600 cursor-pointer hover:bg-gray-100 select-none" onClick={() => handleSort('startDate')}>תאריך התחלה<SortIcon k="startDate" /></th>
@@ -385,19 +485,23 @@ export default function InstitutionalOrders() {
                         <td className="px-4 py-3">
                           <input type="checkbox" checked={selectedIds.has(order.id)} onChange={() => toggleSelect(order.id)} className="rounded" />
                         </td>
-                        <td className="px-4 py-3 font-medium text-gray-900">{order.orderNumber || '-'}</td>
+                        <td className="px-4 py-3 font-medium text-gray-900 max-w-xs">
+                          <div>{order.orderName || order.orderNumber || '-'}</div>
+                          {order.orderNumber && order.orderName && <div className="text-xs text-gray-400">#{order.orderNumber}</div>}
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
                             <Building2 size={14} className="text-gray-400" />
                             <span className="text-gray-800">{order.branch?.name || '-'}</span>
                           </div>
-                          {order.branch?.city && <span className="text-xs text-gray-500">{order.branch.city}</span>}
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusColors[order.status]}`}>
-                            {statusLabels[order.status]}
-                          </span>
+                          {order.fireberryStatus
+                            ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 border border-purple-200">{order.fireberryStatus}</span>
+                            : <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusColors[order.status]}`}>{statusLabels[order.status]}</span>
+                          }
                         </td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{order.salesperson || '-'}</td>
                         <td className="px-4 py-3 text-gray-700">{order.contactName}</td>
                         <td className="px-4 py-3 text-gray-700" dir="ltr">{order.contactPhone}</td>
                         <td className="px-4 py-3 text-gray-700">{formatDate(order.startDate)}</td>

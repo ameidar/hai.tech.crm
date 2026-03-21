@@ -162,7 +162,11 @@ export const createRegistrationSchema = z.object({
   notes: z.string().optional().nullable(),
 });
 
-export const updateRegistrationSchema = createRegistrationSchema.partial().omit({ studentId: true, cycleId: true });
+export const updateRegistrationSchema = createRegistrationSchema.partial().omit({ studentId: true, cycleId: true }).extend({
+  refundAmount: z.number().nonnegative().optional().nullable(),
+  refundDate: z.string().optional().nullable(),
+  creditInvoiceLink: z.string().url().optional().nullable(),
+});
 
 // Meeting schemas
 export const createMeetingSchema = z.object({

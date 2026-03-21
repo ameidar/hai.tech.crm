@@ -577,7 +577,7 @@ export default function WhatsAppInbox() {
           {/* Template list */}
           <div className="w-72 bg-white border-l border-gray-200 flex flex-col flex-shrink-0">
             <div className="p-3 border-b border-gray-100 flex items-center justify-between">
-              <span className="text-xs font-medium text-gray-500">{templates.length} תבניות מאושרות</span>
+              <span className="text-xs font-medium text-gray-500">{templates.length} תבניות ({templates.filter(t => t.status === 'APPROVED').length} מאושרות)</span>
               <button
                 onClick={() => setTmplMgrTab('create')}
                 className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 font-medium"
@@ -622,7 +622,14 @@ export default function WhatsAppInbox() {
                     onClick={() => { setSelectedTemplate(tmpl); setTmplMgrTab('list'); }}
                     className={`border-b border-gray-100 cursor-pointer px-3 py-3 hover:bg-gray-50 transition-colors ${selectedTemplate?.name === tmpl.name && tmplMgrTab === 'list' ? 'bg-blue-50 border-r-2 border-r-blue-400' : ''}`}
                   >
-                    <p className="text-sm font-medium text-gray-800 truncate">{tmpl.name.replace(/_/g, ' ')}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-gray-800 truncate flex-1">{tmpl.name.replace(/_/g, ' ')}</p>
+                      {tmpl.status !== 'APPROVED' && (
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${tmpl.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-600'}`}>
+                          {tmpl.status === 'PENDING' ? '⏳ ממתין' : '❌ נדחה'}
+                        </span>
+                      )}
+                    </div>
                     {varCount > 0 && <span className="text-xs text-orange-400">{varCount} משתנים</span>}
                     {body && <p className="text-xs text-gray-400 truncate mt-0.5">{body.slice(0, 60)}</p>}
                   </div>
@@ -1254,9 +1261,9 @@ export default function WhatsAppInbox() {
                         />
                       </div>
                       <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100">
-                        <p className="text-xs text-gray-400 font-medium">תבניות מאושרות ({templates.filter(t => !templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase())).length})</p>
+                        <p className="text-xs text-gray-400 font-medium">תבניות מאושרות ({templates.filter(t => t.status === 'APPROVED' && (!templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase()))).length})</p>
                       </div>
-                    {templates.filter(t => !templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase())).map(tmpl => {
+                    {templates.filter(t => t.status === 'APPROVED' && (!templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase()))).map(tmpl => {
                       const body = getBodyText(tmpl);
                       const varCount = countVars(body);
                       const isSelected = !showCreateTemplate && selectedTemplate?.name === tmpl.name;

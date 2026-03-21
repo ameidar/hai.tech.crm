@@ -939,6 +939,7 @@ model CampaignRecipient {
   status      String    @default("pending")
   error       String?
   sentAt      DateTime? @map("sent_at")
+  openedAt    DateTime? @map("opened_at")
   clickedAt   DateTime? @map("clicked_at")
   clickCount  Int       @default(0) @map("click_count")
   createdAt   DateTime  @default(now()) @map("created_at")

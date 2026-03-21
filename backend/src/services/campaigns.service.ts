@@ -181,13 +181,22 @@ export async function sendCampaign(campaignId: string, dailyLimit?: number): Pro
     const shouldSendEmail = (channel === 'email' || channel === 'both') && recipient.email;
     const shouldSendWa = (channel === 'whatsapp' || channel === 'both') && recipient.phone;
 
+    // Inject open-tracking pixel into email HTML
+    const openPixelUrl = `${BASE_URL}/api/campaigns/track/open/${encodeURIComponent(campaign.id)}/${encodeURIComponent(recipient.id)}`;
+    const openPixel = `<img src="${openPixelUrl}" width="1" height="1" style="display:none;border:0;outline:0;" alt="" />`;
+    const resolvedHtmlWithPixel = resolvedHtml
+      ? resolvedHtml.includes('</body>')
+        ? resolvedHtml.replace(/<\/body>/i, `${openPixel}</body>`)
+        : resolvedHtml + openPixel
+      : resolvedHtml;
+
     // Send email
-    if (shouldSendEmail && campaign.subject && resolvedHtml) {
+    if (shouldSendEmail && campaign.subject && resolvedHtmlWithPixel) {
       try {
         const result = await sendEmail({
           to: recipient.email!,
           subject: (campaign.subject || '').replace(/\{שם_הורה\}/g, recipientName).replace(/\{שם_ילד\}/g, recipientName),
-          html: resolvedHtml,
+          html: resolvedHtmlWithPixel,
         });
         if (result.success) {
           sent = true;

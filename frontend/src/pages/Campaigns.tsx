@@ -29,6 +29,7 @@ interface Campaign {
   recipientCount: number;
   deliveredCount: number;
   failedCount: number;
+  openedCount: number;
   scheduledAt?: string;
   completedAt?: string;
   createdAt: string;
@@ -357,6 +358,7 @@ export default function Campaigns() {
                 <th className="text-right px-4 py-3 font-medium text-gray-600">ערוץ</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">סטטוס</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">נמענים</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600">פתיחות 👁️</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">לחיצות 🔗</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">תזמון/השלמה</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">פעולות</th>
@@ -398,6 +400,20 @@ export default function Campaigns() {
                         <span className="text-xs text-blue-600">📤 {c.sentTodayCount} נשלחו היום</span>
                       )}
                     </div>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {(c.openedCount ?? 0) > 0 ? (
+                      <span className="font-semibold text-green-600">
+                        {c.openedCount}
+                        {c.deliveredCount > 0 && (
+                          <span className="text-xs text-gray-400 mr-1">
+                            ({Math.round((c.openedCount / c.deliveredCount) * 100)}%)
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-center">
                     {(c.totalClicks ?? 0) > 0

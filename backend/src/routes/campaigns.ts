@@ -35,6 +35,28 @@ campaignsRouter.get('/click', async (req: Request, res: Response) => {
   res.redirect(302, redirectTo);
 });
 
+/**
+ * GET /api/campaigns/track/open/:campaignId/:recipientId
+ * Email open tracking — records first open, returns a 1×1 transparent GIF
+ */
+campaignsRouter.get('/track/open/:campaignId/:recipientId', async (req: Request, res: Response) => {
+  const { campaignId, recipientId } = req.params;
+  // 1×1 transparent GIF
+  const pixel = Buffer.from(
+    'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+    'base64'
+  );
+  res.set('Content-Type', 'image/gif');
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.end(pixel);
+
+  // Fire-and-forget — don't block the response
+  prisma.campaignRecipient.updateMany({
+    where: { id: recipientId, campaignId, openedAt: null },
+    data: { openedAt: new Date() },
+  }).catch(err => console.error('Open tracking error:', err));
+});
+
 // ─── Protected Routes (auth required) ─────────────────────────────────────
 
 campaignsRouter.use(authenticate);
@@ -81,11 +103,21 @@ campaignsRouter.get('/', async (_req: Request, res: Response, next: NextFunction
     const sentTodayMap: Record<string, number> = {};
     for (const s of sentToday) sentTodayMap[s.campaignId] = s._count._all;
 
+    // Opened counts
+    const openedCounts = await prisma.campaignRecipient.groupBy({
+      by: ['campaignId'],
+      where: { campaignId: { in: campaignIds }, openedAt: { not: null } },
+      _count: { _all: true },
+    });
+    const openedMap: Record<string, number> = {};
+    for (const o of openedCounts) openedMap[o.campaignId] = o._count._all;
+
     res.json(campaigns.map(c => ({
       ...c,
       totalClicks: clickMap[c.id] ?? 0,
       pendingCount: pendingMap[c.id] ?? 0,
       sentTodayCount: sentTodayMap[c.id] ?? 0,
+      openedCount: openedMap[c.id] ?? 0,
     })));
   } catch (err) {
     next(err);

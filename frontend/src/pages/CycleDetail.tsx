@@ -2086,6 +2086,7 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
             <option value="transfer">העברה בנקאית</option>
             <option value="cash">מזומן</option>
             <option value="standing_order">הוראת קבע</option>
+            <option value="institutional">מוסד</option>
           </select>
         </div>
 

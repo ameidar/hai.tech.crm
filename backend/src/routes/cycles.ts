@@ -895,6 +895,33 @@ cyclesRouter.post('/:id/registrations', managerOrAdmin, async (req, res, next) =
   }
 });
 
+// Sync ALL active cycles progress from meetings table (bulk)
+cyclesRouter.post('/sync-all', managerOrAdmin, async (req, res, next) => {
+  try {
+    const cycles = await prisma.cycle.findMany({
+      where: { status: 'active', deletedAt: null },
+      select: { id: true, totalMeetings: true },
+    });
+
+    let updated = 0;
+    for (const cycle of cycles) {
+      const completedMeetings = await prisma.meeting.count({
+        where: { cycleId: cycle.id, status: 'completed' },
+      });
+      const remainingMeetings = cycle.totalMeetings - completedMeetings;
+      await prisma.cycle.update({
+        where: { id: cycle.id },
+        data: { completedMeetings, remainingMeetings },
+      });
+      updated++;
+    }
+
+    res.json({ success: true, synced: updated });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Sync cycle progress from meetings table
 cyclesRouter.post('/:id/sync-progress', managerOrAdmin, async (req, res, next) => {
   try {

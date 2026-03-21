@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square, ArrowUpDown, ArrowUp, ArrowDown, Filter, Columns } from 'lucide-react';
-import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useBulkGenerateMeetings, useViewData } from '../hooks/useApi';
+import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useBulkGenerateMeetings, useViewData, useSyncAllCycles } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading, { SkeletonTable } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
@@ -124,6 +124,7 @@ export default function Cycles() {
   const deleteCycle = useDeleteCycle();
   const bulkUpdateCycles = useBulkUpdateCycles();
   const bulkGenerateMeetings = useBulkGenerateMeetings();
+  const syncAllCycles = useSyncAllCycles();
   const { data: viewData, isLoading: viewLoading } = useViewData(activeViewId, []);
 
   // Determine which data to display based on view mode
@@ -305,10 +306,20 @@ export default function Cycles() {
         title="מחזורים"
         subtitle={`${displayCycles?.length || 0} מחזורים`}
         actions={
-          <button onClick={() => setShowAddModal(true)} className="btn btn-primary" data-testid="add-cycle-btn">
-            <Plus size={18} />
-            מחזור חדש
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => syncAllCycles.mutateAsync(undefined).then(r => alert(`✅ סונכרנו ${(r as any).synced} מחזורים`))}
+              disabled={syncAllCycles.isPending}
+              className="btn btn-secondary flex items-center gap-1"
+              title="סנכרן התקדמות כל המחזורים"
+            >
+              {syncAllCycles.isPending ? '⏳' : '🔄'} סנכרן הכל
+            </button>
+            <button onClick={() => setShowAddModal(true)} className="btn btn-primary" data-testid="add-cycle-btn">
+              <Plus size={18} />
+              מחזור חדש
+            </button>
+          </div>
         }
       />
 

@@ -471,6 +471,16 @@ export const useBulkGenerateMeetings = () => {
   });
 };
 
+export const useSyncAllCycles = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => mutateData<{ success: boolean; synced: number }, undefined>('/cycles/sync-all', 'post', undefined),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
+    },
+  });
+};
+
 export const useBulkUpdateCycles = () => {
   const queryClient = useQueryClient();
   return useMutation({

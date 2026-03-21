@@ -352,6 +352,14 @@ registrationsRouter.post('/:id/send-cancellation-form', managerOrAdmin, async (r
       });
     }
 
+    // Mark registration as pending_cancellation so UI shows the indicator
+    if (registration.status !== 'pending_cancellation' && registration.status !== 'cancelled') {
+      await prisma.registration.update({
+        where: { id },
+        data: { status: 'pending_cancellation' },
+      });
+    }
+
     const formUrl = `https://crm.orma-ai.com/public/cancel/${token}`;
 
     // Optional overrides from request body

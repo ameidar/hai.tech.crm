@@ -178,6 +178,7 @@ export default function WhatsAppInbox() {
   const [searchingCustomers, setSearchingCustomers] = useState(false);
   const [newConvTarget, setNewConvTarget] = useState<{ phone: string; name: string } | null>(null);
   const [templateSearch, setTemplateSearch] = useState('');
+  const [templatePhoneId, setTemplatePhoneId] = useState<string>('');
   const [showPayModal, setShowPayModal] = useState(false);
   const [activePhones, setActivePhones] = useState<{ phoneNumberId: string; businessPhone: string; label: string }[]>([]);
   const [selectedFromPhone, setSelectedFromPhone] = useState<string>('');
@@ -339,7 +340,7 @@ export default function WhatsAppInbox() {
   useEffect(() => {
     api('/phones').then(data => {
       setActivePhones(data);
-      if (data.length > 0) setSelectedFromPhone(data[0].phoneNumberId);
+      if (data.length > 0) { setSelectedFromPhone(data[0].phoneNumberId); setTemplatePhoneId(data[0].phoneNumberId); }
     }).catch(() => {});
   }, []);
 
@@ -416,7 +417,7 @@ export default function WhatsAppInbox() {
     if (templates.length > 0 && !forceReload) { setShowTemplateModal(true); return; }
     setLoadingTemplates(true);
     try {
-      const pid = phoneNumberId || selected?.phoneNumberId || selectedFromPhone || '';
+      const pid = phoneNumberId || templatePhoneId || selected?.phoneNumberId || selectedFromPhone || '';
       const qs = pid ? `?phoneNumberId=${pid}` : '';
       const data = await api(`/templates${qs}`);
       setTemplates(data);
@@ -584,6 +585,20 @@ export default function WhatsAppInbox() {
                 <Plus size={14} /> חדשה
               </button>
             </div>
+            {activePhones.length > 1 && (
+              <div className="px-3 py-2 border-b border-gray-100">
+                <select
+                  value={templatePhoneId}
+                  onChange={e => { setTemplatePhoneId(e.target.value); loadTemplates(true, e.target.value); }}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  dir="rtl"
+                >
+                  {activePhones.map(p => (
+                    <option key={p.phoneNumberId} value={p.phoneNumberId}>{p.label} ({p.businessPhone})</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="px-3 py-2 border-b border-gray-100">
               <input
                 type="text"

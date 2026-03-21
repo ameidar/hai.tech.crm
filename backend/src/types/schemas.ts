@@ -157,7 +157,7 @@ export const createRegistrationSchema = z.object({
   status: z.enum(['registered', 'active', 'completed', 'pending_cancellation', 'cancelled']).default('registered'),
   amount: z.number().positive().optional().nullable(),
   paymentStatus: z.enum(['unpaid', 'partial', 'paid']).optional().nullable(),
-  paymentMethod: z.enum(['credit', 'transfer', 'cash']).optional().nullable(),
+  paymentMethod: z.enum(['credit', 'transfer', 'cash', 'institutional']).optional().nullable(),
   invoiceLink: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
 });

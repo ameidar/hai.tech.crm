@@ -99,6 +99,7 @@ enum PaymentMethod {
   credit
   transfer
   cash
+  institutional
   standing_order
 }
 

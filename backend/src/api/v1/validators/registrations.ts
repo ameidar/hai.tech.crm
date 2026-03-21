@@ -18,7 +18,7 @@ export const paymentStatusEnum = z.enum(['unpaid', 'partial', 'paid']);
 /**
  * Payment method enum
  */
-export const paymentMethodEnum = z.enum(['credit', 'transfer', 'cash']);
+export const paymentMethodEnum = z.enum(['credit', 'transfer', 'cash', 'institutional']);
 
 /**
  * Registration query parameters

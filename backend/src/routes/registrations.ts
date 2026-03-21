@@ -397,7 +397,7 @@ registrationsRouter.post('/:id/payment', managerOrAdmin, async (req, res, next) 
     const id = uuidSchema.parse(req.params.id);
     const data = z.object({
       paymentStatus: z.enum(['unpaid', 'partial', 'paid']),
-      paymentMethod: z.enum(['credit', 'transfer', 'cash']).optional(),
+      paymentMethod: z.enum(['credit', 'transfer', 'cash', 'institutional']).optional(),
       amount: z.number().positive().optional(),
       invoiceLink: z.string().optional(),
     }).parse(req.body);

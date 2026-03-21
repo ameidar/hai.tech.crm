@@ -244,7 +244,7 @@ export default function WhatsAppInbox() {
           loadConversations();
           return prev;
         }
-        return prev.map(c => {
+        const updated = prev.map(c => {
           if (c.id !== conversationId) return c;
           return {
             ...c,
@@ -253,12 +253,25 @@ export default function WhatsAppInbox() {
             unreadCount: message.direction === 'inbound' ? c.unreadCount + 1 : c.unreadCount
           };
         });
+        // Re-sort: most recent lastMessageAt first (like WhatsApp)
+        return [...updated].sort((a, b) => {
+          const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+          const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+          return tb - ta;
+        });
       });
     });
 
     es.addEventListener('conversation_updated', (e: MessageEvent) => {
       const updated = JSON.parse(e.data);
-      setConversations(prev => prev.map(c => c.id === updated.id ? { ...c, ...updated } : c));
+      setConversations(prev => {
+        const mapped = prev.map(c => c.id === updated.id ? { ...c, ...updated } : c);
+        return [...mapped].sort((a, b) => {
+          const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+          const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+          return tb - ta;
+        });
+      });
       setSelected(prev => prev?.id === updated.id ? { ...prev, ...updated } : prev);
     });
 

@@ -26,6 +26,8 @@ export interface MeetingDetail {
   expenses: MeetingExpenseDetail[];
   totalExpenses: number;
   total: number;
+  revenue: number;   // meeting revenue (from students)
+  profit: number;    // revenue - instructorPayment - totalExpenses
 }
 
 export interface ActivityTypeSummary {
@@ -220,14 +222,17 @@ export async function buildInstructorMonthlyReport(
       // Fallback: if meeting has no activityType, use the cycle's activityType (same as UI behavior)
       const rawType = (mtg.activityType ?? (mtg.cycle as { activityType?: string | null }).activityType ?? null) as string | null;
 
+      const revenue = Number(mtg.revenue ?? 0);
+      const profit  = Number(mtg.profit ?? 0);
+
       meetingDetails.push({
         id:                mtg.id,
         date:              mtg.scheduledDate,
         startTime:         formatTime(mtg.startTime as unknown),
         endTime:           formatTime(mtg.endTime as unknown),
         durationHours:     calcDuration(mtg.startTime as unknown, mtg.endTime as unknown),
-        cycleName:         (mtg.cycle as { course: { name: string } }).course.name,
-        courseName:        (mtg.cycle as { course: { name: string } }).course.name,
+        cycleName:         (mtg.cycle as { name: string; course: { name: string } }).name,
+        courseName:        (mtg.cycle as { name: string; course: { name: string } }).course.name,
         activityType:      activityLabel(rawType),
         activityTypeRaw:   rawType,
         topic:             mtg.topic ?? null,
@@ -236,6 +241,8 @@ export async function buildInstructorMonthlyReport(
         expenses,
         totalExpenses,
         total:             instructorPayment + totalExpenses,
+        revenue,
+        profit,
       });
     }
 
@@ -301,7 +308,7 @@ export async function buildInstructorMonthlyReport(
     startTime:      formatTime(m.startTime as unknown),
     endTime:        formatTime(m.endTime as unknown),
     instructorName: (m.instructor as { name: string }).name,
-    cycleName:      (m.cycle as { course: { name: string } }).course.name,
+    cycleName:      (m.cycle as { name: string; course: { name: string } }).name,
     status:         m.status,
   }));
 

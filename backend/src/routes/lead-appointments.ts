@@ -3,6 +3,7 @@ import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { findOrCreateCustomer } from '../utils/lead-customer.js';
+import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
 
 export const leadAppointmentsRouter = Router();
 leadAppointmentsRouter.use(authenticate);
@@ -94,6 +95,12 @@ leadAppointmentsRouter.post('/', async (req: Request, res: Response, next: NextF
       },
       include: { customer: { select: { id: true, name: true } } },
     });
+
+    // Send welcome WhatsApp template (gated by LEAD_WELCOME_WA_ENABLED)
+    if (customerPhone) {
+      sendLeadWelcomeTemplate(customerPhone, customerName || customerPhone)
+        .catch(err => console.error('[lead-appointments] welcome template error:', err));
+    }
 
     res.status(201).json({ success: true, data: item });
   } catch (error) {

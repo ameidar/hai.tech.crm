@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { findOrCreateCustomer } from '../utils/lead-customer.js';
+import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
 
 export const campaignLeadsRouter = Router();
 
@@ -46,6 +47,12 @@ campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunc
     });
 
     console.log(`[Campaign] Lead ${lead.id} — ${isNew ? 'new' : 'existing'} customer ${customerId}`);
+
+    // Send welcome WhatsApp template (gated by LEAD_WELCOME_WA_ENABLED)
+    if (phone) {
+      sendLeadWelcomeTemplate(phone, name)
+        .catch(err => console.error('[Campaign] welcome template error:', err));
+    }
 
     // Also update campaign_recipients if recipient found by phone
     if (campaignId && phone) {

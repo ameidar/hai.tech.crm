@@ -6,6 +6,7 @@ import { sendWelcomeNotifications, notifyAdminNewLead } from '../services/notifi
 import { handleStatusReply } from '../services/whatsapp-reminder.service.js';
 import { logAudit } from '../utils/audit.js';
 import { initiateVapiCall } from '../services/vapi.js';
+import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
 import rateLimit from 'express-rate-limit';
 
 // Rate limiter for public lead submission endpoint
@@ -530,55 +531,9 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
     }).catch(err => console.error('[WEBHOOK] Failed to send welcome notifications:', err));
 
     // Auto-send WhatsApp welcome template to new leads (feature flag gated)
-    if (process.env.LEAD_WELCOME_WA_ENABLED === 'true' && customer.phone) {
-      (async () => {
-        try {
-          const normalizedPhone = customer.phone!.replace(/\D/g, '').replace(/^0/, '972');
-          const waPhoneId = process.env.WA_PHONE_NUMBER_ID || '';
-          const waToken = process.env.WA_ACCESS_TOKEN || '';
-          const firstName = customer.name.split(' ')[0];
-
-          // Ensure conversation record exists
-          let conv = await prisma.waConversation.findFirst({ where: { phone: normalizedPhone } });
-          if (!conv) {
-            conv = await prisma.waConversation.create({
-              data: { phone: normalizedPhone, contactName: customer.name, phoneNumberId: waPhoneId, businessPhone: '+972533027763' },
-            });
-          }
-
-          // Send template via Meta API
-          const axios = (await import('axios')).default;
-          const resp = await axios.post(
-            `https://graph.facebook.com/v20.0/${waPhoneId}/messages`,
-            {
-              messaging_product: 'whatsapp',
-              to: normalizedPhone,
-              type: 'template',
-              template: {
-                name: 'lead_welcome_hai',
-                language: { code: 'he' },
-                components: [{ type: 'body', parameters: [{ type: 'text', text: firstName }] }],
-              },
-            },
-            { headers: { Authorization: `Bearer ${waToken}`, 'Content-Type': 'application/json' } }
-          );
-
-          const waId = resp.data?.messages?.[0]?.id;
-          await prisma.waMessage.create({
-            data: {
-              conversationId: conv.id,
-              direction: 'outbound',
-              content: `[תבנית: lead_welcome_hai] היי ${firstName} 👋 קיבלנו את ההתעניינות שלך!`,
-              waMessageId: waId || undefined,
-              status: 'sent',
-              isAiGenerated: false,
-            },
-          });
-          console.log(`[WEBHOOK] Lead welcome template sent to ${normalizedPhone}`);
-        } catch (err: any) {
-          console.error('[WEBHOOK] Failed to send lead welcome template:', err.response?.data || err.message);
-        }
-      })();
+    if (customer.phone) {
+      sendLeadWelcomeTemplate(customer.phone, customer.name)
+        .catch(err => console.error('[WEBHOOK] welcome template error:', err));
     }
 
     // Notify admin about new lead

@@ -782,7 +782,8 @@ export default function CycleDetail() {
                     <span className={`badge ${
                       cycle.status === 'active' ? 'badge-success' :
                       cycle.status === 'completed' ? 'badge-info' :
-                      cycle.status === 'frozen' ? 'badge-secondary' : 'badge-danger'
+                      cycle.status === 'frozen' ? 'badge-secondary' :
+                      cycle.status === 'retainer' ? 'badge-warning' : 'badge-danger'
                     }`}>
                       {cycleStatusHebrew[cycle.status]}
                     </span>

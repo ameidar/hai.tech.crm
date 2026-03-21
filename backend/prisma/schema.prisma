@@ -53,6 +53,7 @@ enum CycleStatus {
   completed
   cancelled
   frozen
+  retainer
 }
 
 enum DayOfWeek {

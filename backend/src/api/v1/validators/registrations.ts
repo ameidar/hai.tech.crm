@@ -61,6 +61,9 @@ export const updateRegistrationSchema = z.object({
   invoiceLink: z.string().url().optional().nullable(),
   cancellationReason: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  refundAmount: z.number().nonnegative().optional().nullable(),
+  refundDate: z.string().optional().nullable(),
+  creditInvoiceLink: z.string().url().optional().nullable(),
 });
 
 /**

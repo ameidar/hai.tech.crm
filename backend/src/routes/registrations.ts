@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -186,12 +186,18 @@ registrationsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
 
     const oldRegistration = await prisma.registration.findUnique({ where: { id } });
 
+    const { refundAmount, refundDate, creditInvoiceLink, ...coreData } = data;
+    const updateData: any = {
+      ...coreData,
+      cancellationDate: data.status === 'cancelled' || data.status === 'pending_cancellation' ? new Date() : undefined,
+    };
+    if (refundAmount !== undefined) updateData.refundAmount = refundAmount;
+    if (refundDate !== undefined) updateData.refundDate = refundDate ? new Date(refundDate) : null;
+    if (creditInvoiceLink !== undefined) updateData.creditInvoiceLink = creditInvoiceLink;
+
     const registration = await prisma.registration.update({
       where: { id },
-      data: {
-        ...data,
-        cancellationDate: data.status === 'cancelled' || data.status === 'pending_cancellation' ? new Date() : undefined,
-      },
+      data: updateData,
       include: {
         student: {
           include: {
@@ -310,20 +316,30 @@ registrationsRouter.post('/:id/send-cancellation-form', managerOrAdmin, async (r
       throw new AppError(400, 'לא נמצא לקוח להרשמה זו');
     }
 
-    const token = randomUUID();
     const courseName = registration.cycle.course?.name || registration.cycle.name;
 
-    await prisma.cancellationRequest.create({
-      data: {
-        registrationId: id,
-        customerName: customer.name,
-        studentName: registration.student.name,
-        token,
-        status: 'pending',
-      },
+    // Find existing pending request or create a new one
+    let cancellationRequest = await prisma.cancellationRequest.findFirst({
+      where: { registrationId: id, status: 'pending' },
     });
 
-    const formUrl = `${process.env.FRONTEND_URL || 'https://crm.orma-ai.com'}/cancel/${token}`;
+    let token: string;
+    if (cancellationRequest) {
+      token = cancellationRequest.token;
+    } else {
+      token = randomBytes(32).toString('hex');
+      cancellationRequest = await prisma.cancellationRequest.create({
+        data: {
+          registrationId: id,
+          customerName: customer.name,
+          studentName: registration.student.name,
+          token,
+          status: 'pending',
+        },
+      });
+    }
+
+    const formUrl = `https://crm.orma-ai.com/public/cancel/${token}`;
 
     // Send email
     if (customer.email) {
@@ -385,7 +401,7 @@ ${formUrl}
       await sendWhatsAppMessage(customer.phone, whatsappMessage);
     }
 
-    res.json({ success: true, token, message: 'טופס ביטול נשלח ללקוח' });
+    res.json({ success: true, token, link: formUrl, message: 'טופס ביטול נשלח ללקוח' });
   } catch (error) {
     next(error);
   }

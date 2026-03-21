@@ -233,6 +233,9 @@ export interface Registration {
   invoiceLink?: string;
   cancellationDate?: string;
   cancellationReason?: string;
+  refundAmount?: number;
+  refundDate?: string;
+  creditInvoiceLink?: string;
   notes?: string;
   createdAt: string;
   student?: Student;

@@ -8,7 +8,7 @@ import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal';
 import ViewSelector from '../components/ViewSelector';
-import type { Student, Cycle, Registration, PaymentStatus, PaymentMethod, Customer } from '../types';
+import type { Student, Cycle, Registration, PaymentStatus, PaymentMethod, Customer, RegistrationStatus } from '../types';
 import { paymentStatusHebrew } from '../types';
 
 export default function Students() {
@@ -264,18 +264,27 @@ export default function Students() {
                   {student.registrations && student.registrations.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-gray-50">
                       {student.registrations.map((reg) => (
-                        <button
-                          key={reg.id}
-                          onClick={() => setEditPayment({ student, registration: reg })}
-                          className={`px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 border ${
-                            reg.paymentStatus === 'paid' ? 'bg-green-50 text-green-700 border-green-200' :
-                            reg.paymentStatus === 'partial' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
-                            'bg-red-50 text-red-700 border-red-200'
-                          }`}
-                        >
-                          <CreditCard size={10} />
-                          {reg.cycle?.course?.name?.substring(0, 12) || 'מחזור'}
-                        </button>
+                        <div key={reg.id}>
+                          <button
+                            onClick={() => setEditPayment({ student, registration: reg })}
+                            className={`px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 border ${
+                              reg.status === 'cancelled' ? 'bg-gray-100 text-gray-400 border-gray-200 line-through' :
+                              reg.paymentStatus === 'paid' ? 'bg-green-50 text-green-700 border-green-200' :
+                              reg.paymentStatus === 'partial' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
+                              'bg-red-50 text-red-700 border-red-200'
+                            }`}
+                          >
+                            <CreditCard size={10} />
+                            {reg.cycle?.course?.name?.substring(0, 12) || 'מחזור'}
+                          </button>
+                          {reg.status === 'cancelled' && (reg.cancellationDate || reg.refundAmount || reg.creditInvoiceLink) && (
+                            <div className="text-xs text-gray-500 mt-0.5 space-y-0.5 pr-1">
+                              {reg.cancellationDate && <div>📅 {new Date(reg.cancellationDate).toLocaleDateString('he-IL')}</div>}
+                              {reg.refundAmount && <div>💰 ₪{reg.refundAmount}</div>}
+                              {reg.creditInvoiceLink && <div>🧾 <a href={reg.creditInvoiceLink} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">זיכוי</a></div>}
+                            </div>
+                          )}
+                        </div>
                       ))}
                     </div>
                   )}
@@ -805,23 +814,50 @@ interface PaymentEditFormProps {
 }
 
 function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: PaymentEditFormProps) {
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    status: RegistrationStatus;
+    amount: number;
+    paymentStatus: string;
+    paymentMethod: string;
+    invoiceLink: string;
+    notes: string;
+    cancellationDate: string;
+    cancellationReason: string;
+    refundAmount: string;
+    refundDate: string;
+    creditInvoiceLink: string;
+  }>({
+    status: registration.status || 'active' as RegistrationStatus,
     amount: registration.amount || 0,
     paymentStatus: registration.paymentStatus || 'unpaid',
     paymentMethod: registration.paymentMethod || '',
     invoiceLink: registration.invoiceLink || '',
     notes: registration.notes || '',
+    cancellationDate: registration.cancellationDate ? registration.cancellationDate.split('T')[0] : '',
+    cancellationReason: registration.cancellationReason || '',
+    refundAmount: registration.refundAmount ? String(registration.refundAmount) : '',
+    refundDate: registration.refundDate ? registration.refundDate.split('T')[0] : '',
+    creditInvoiceLink: registration.creditInvoiceLink || '',
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({
+    const payload: Partial<Registration> = {
+      status: formData.status as RegistrationStatus,
       amount: formData.amount || undefined,
       paymentStatus: formData.paymentStatus as PaymentStatus,
       paymentMethod: formData.paymentMethod as PaymentMethod || undefined,
       invoiceLink: formData.invoiceLink || undefined,
       notes: formData.notes || undefined,
-    });
+    };
+    if (formData.status === 'cancelled') {
+      payload.cancellationDate = formData.cancellationDate || undefined;
+      payload.cancellationReason = formData.cancellationReason || undefined;
+      payload.refundAmount = formData.refundAmount ? Number(formData.refundAmount) : undefined;
+      payload.refundDate = formData.refundDate || undefined;
+      payload.creditInvoiceLink = formData.creditInvoiceLink || undefined;
+    }
+    onSubmit(payload);
   };
 
   return (
@@ -833,6 +869,17 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
         <p className="text-xs text-gray-500">
           {registration.cycle?.course?.name} • {registration.cycle?.branch?.name}
         </p>
+      </div>
+
+      <div>
+        <label className="form-label">סטטוס הרשמה</label>
+        <select value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value as RegistrationStatus })} className="form-input">
+          <option value="registered">נרשם</option>
+          <option value="active">פעיל</option>
+          <option value="completed">הושלם</option>
+          <option value="pending_cancellation">ממתין לביטול</option>
+          <option value="cancelled">בוטל</option>
+        </select>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
@@ -911,6 +958,34 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
           />
         </div>
       </div>
+
+      {formData.status === 'cancelled' && (
+        <div className="border-t pt-4 space-y-3">
+          <h4 className="text-sm font-semibold text-red-600">פרטי ביטול</h4>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">תאריך ביטול</label>
+              <input type="date" className="form-input" value={formData.cancellationDate} onChange={(e) => setFormData({...formData, cancellationDate: e.target.value})} />
+            </div>
+            <div>
+              <label className="form-label">סכום זיכוי (₪)</label>
+              <input type="number" className="form-input" value={formData.refundAmount} onChange={(e) => setFormData({...formData, refundAmount: e.target.value})} min="0" />
+            </div>
+            <div className="col-span-2">
+              <label className="form-label">סיבת ביטול</label>
+              <textarea className="form-input" value={formData.cancellationReason} onChange={(e) => setFormData({...formData, cancellationReason: e.target.value})} rows={2} />
+            </div>
+            <div>
+              <label className="form-label">תאריך זיכוי</label>
+              <input type="date" className="form-input" value={formData.refundDate} onChange={(e) => setFormData({...formData, refundDate: e.target.value})} />
+            </div>
+            <div>
+              <label className="form-label">לינק חשבונית זיכוי</label>
+              <input type="url" className="form-input" placeholder="https://..." value={formData.creditInvoiceLink} onChange={(e) => setFormData({...formData, creditInvoiceLink: e.target.value})} dir="ltr" />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex justify-end gap-3 pt-4 border-t">
         <button type="button" onClick={onCancel} className="btn btn-secondary">

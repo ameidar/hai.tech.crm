@@ -30,12 +30,13 @@ function computeRevenuePerMeeting(cycle: any): number {
       const count = cycle.registrations?.length ?? cycle._count?.registrations ?? 0;
       return Math.round(Number(cycle.pricePerStudent) * count);
     }
-    // Sum registration amounts (available in detail endpoint)
+    // Sum active registration amounts (available in detail endpoint)
     if (Array.isArray(cycle.registrations) && cycle.registrations.length > 0) {
-      const totalRegAmount = cycle.registrations.reduce((s: number, r: any) => s + (r.amount ? Number(r.amount) : 0), 0);
+      const activeRegs = cycle.registrations.filter((r: any) => !['cancelled', 'pending_cancellation'].includes(r.status));
+      const totalRegAmount = activeRegs.reduce((s: number, r: any) => s + (r.amount ? Number(r.amount) : 0), 0);
       return totalMeetings > 0 ? Math.round(totalRegAmount / totalMeetings) : 0;
     }
-    // Fallback: aggregated sum if available (list endpoint)
+    // Fallback: aggregated sum if available (list endpoint — already filtered to active)
     if (cycle._sum?.registrations?.amount) {
       return totalMeetings > 0 ? Math.round(Number(cycle._sum.registrations.amount) / totalMeetings) : 0;
     }
@@ -139,7 +140,7 @@ cyclesRouter.get('/', async (req, res, next) => {
           instructor: { select: { id: true, name: true } },
           institutionalOrder: { select: { id: true, orderNumber: true } },
           _count: { select: { registrations: true, meetings: true } },
-          registrations: { select: { amount: true } },
+          registrations: { where: { status: { notIn: ['cancelled', 'pending_cancellation'] } }, select: { amount: true } },
         },
         orderBy: { startDate: 'desc' },
         skip: (page - 1) * limit,

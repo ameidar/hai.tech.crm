@@ -4,7 +4,7 @@
  * GATED by LEAD_WELCOME_WA_ENABLED=true env var (default: off).
  */
 import axios from 'axios';
-import prisma from '../db.js';
+import { prisma } from '../utils/prisma.js';
 
 export async function sendLeadWelcomeTemplate(phone: string, name: string): Promise<void> {
   if (process.env.LEAD_WELCOME_WA_ENABLED !== 'true') return;

@@ -240,6 +240,9 @@ registrationsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
 
     const oldRegistration = await prisma.registration.findUnique({ where: { id } });
 
+    // Delete related CancellationRequests first (no cascade defined)
+    await prisma.cancellationRequest.deleteMany({ where: { registrationId: id } });
+
     await prisma.registration.delete({
       where: { id },
     });

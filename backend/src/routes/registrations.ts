@@ -191,6 +191,11 @@ registrationsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
       ...coreData,
       cancellationDate: data.status === 'cancelled' || data.status === 'pending_cancellation' ? new Date() : undefined,
     };
+
+    // Auto-set paymentStatus = 'paid' when payment method is institutional
+    if (updateData.paymentMethod === 'institutional') {
+      updateData.paymentStatus = 'paid';
+    }
     if (refundAmount !== undefined) updateData.refundAmount = refundAmount;
     if (refundDate !== undefined) updateData.refundDate = refundDate ? new Date(refundDate) : null;
     if (creditInvoiceLink !== undefined) updateData.creditInvoiceLink = creditInvoiceLink;

@@ -1116,7 +1116,7 @@ export default function CycleDetail() {
                             reg.paymentStatus === 'paid' ? 'badge-success' :
                             reg.paymentStatus === 'partial' ? 'badge-warning' : 'badge-danger'
                           }`}>
-                            {paymentStatusHebrew[reg.paymentStatus || 'unpaid']}
+                            {reg.paymentMethod === 'institutional' ? 'שולם (מוסדי)' : paymentStatusHebrew[reg.paymentStatus || 'unpaid']}
                           </span>
                         </div>
                         {['active', 'registered'].includes(reg.status) && isAdmin && (

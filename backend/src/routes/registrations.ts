@@ -409,10 +409,12 @@ registrationsRouter.post('/:id/send-cancellation-form', managerOrAdmin, async (r
   </table>
 </body>
 </html>`;
-      await sendEmail(targetEmail, `טופס ביטול - ${courseName} - Hai.Tech`, emailHtml);
+      // Non-blocking — respond immediately, send in background
+      sendEmail(targetEmail, `טופס ביטול - ${courseName} - Hai.Tech`, emailHtml)
+        .catch((err: unknown) => console.error('[CancelForm] Failed to send email:', err));
     }
 
-    // Send WhatsApp
+    // Send WhatsApp — non-blocking
     if (doSendWhatsApp && targetPhone) {
       const whatsappMessage = `שלום ${customer.name},
 
@@ -422,7 +424,8 @@ registrationsRouter.post('/:id/send-cancellation-form', managerOrAdmin, async (r
 ${formUrl}
 
 צוות Hai.Tech 💙`;
-      await sendWhatsAppMessage(targetPhone, whatsappMessage);
+      sendWhatsAppMessage(targetPhone, whatsappMessage)
+        .catch((err: unknown) => console.error('[CancelForm] Failed to send WhatsApp:', err));
     }
 
     res.json({ success: true, token, link: formUrl, message: 'טופס ביטול נשלח ללקוח' });

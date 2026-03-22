@@ -40,6 +40,12 @@ interface Campaign {
   totalClicks?: number;
 }
 
+interface FileRecipient {
+  name?: string;
+  phone?: string;
+  email?: string;
+}
+
 interface AudienceFilters {
   cycleIds?: string[];
   courseIds?: string[];
@@ -47,6 +53,10 @@ interface AudienceFilters {
   ageMin?: number;
   ageMax?: number;
   cycleStatus?: 'active' | 'completed' | 'all';
+  registrationStatus?: 'all' | 'registered' | 'not_registered';
+  hasEmail?: boolean;
+  hasPhone?: boolean;
+  fileRecipients?: FileRecipient[];
 }
 
 interface ContentVariant {
@@ -125,7 +135,10 @@ export default function Campaigns() {
     courseIds: [],
     branchIds: [],
     cycleStatus: 'all',
+    registrationStatus: 'all',
   });
+  const [fileParseError, setFileParseError] = useState('');
+  const [fileName, setFileName] = useState('');
   const [content, setContent] = useState({
     subject: '',
     contentHtml: '',
@@ -195,7 +208,7 @@ export default function Campaigns() {
     setWorkingId(null);
     setStep(0);
     setForm({ name: '', description: '', channel: 'email' });
-    setFilters({ cycleIds: [], courseIds: [], branchIds: [], cycleStatus: 'all' });
+    setFilters({ cycleIds: [], courseIds: [], branchIds: [], cycleStatus: 'all', registrationStatus: 'all' });
     setCycleSearch('');
     setContent({ subject: '', contentHtml: '', contentWa: '' });
     setSchedule({ type: 'now', scheduledAt: '' });
@@ -206,7 +219,67 @@ export default function Campaigns() {
     setLandingUrl('');
     setTestRecipient('');
     setTestResult('');
+    setFileName('');
+    setFileParseError('');
     setBuilderOpen(true);
+  };
+
+  // ─── CSV parser ───────────────────────────────────────────────────────────
+
+  const parseCsvFile = (file: File) => {
+    setFileParseError('');
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result as string;
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) {
+          setFileParseError('הקובץ ריק או חסר שורות');
+          return;
+        }
+        // Detect delimiter: comma or semicolon or tab
+        const delim = lines[0].includes('\t') ? '\t' : lines[0].includes(';') ? ';' : ',';
+        const headers = lines[0].split(delim).map(h => h.trim().toLowerCase().replace(/["']/g, ''));
+        // Map header index
+        const idx = (keys: string[]) => {
+          for (const k of keys) {
+            const i = headers.findIndex(h => h.includes(k));
+            if (i >= 0) return i;
+          }
+          return -1;
+        };
+        const phoneIdx = idx(['phone', 'טלפון', 'mobile', 'נייד', 'tel']);
+        const emailIdx = idx(['email', 'מייל', 'mail']);
+        const nameIdx  = idx(['name', 'שם', 'fullname', 'full_name']);
+
+        if (phoneIdx < 0 && emailIdx < 0) {
+          setFileParseError('לא נמצאה עמודת טלפון או מייל. וודא שיש כותרת: phone / email / טלפון / מייל');
+          return;
+        }
+
+        const recipients: FileRecipient[] = [];
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(delim).map(c => c.trim().replace(/["']/g, ''));
+          const phone = phoneIdx >= 0 ? cols[phoneIdx]?.replace(/\D/g, '') : undefined;
+          const email = emailIdx >= 0 ? cols[emailIdx] : undefined;
+          const name  = nameIdx >= 0 ? cols[nameIdx] : undefined;
+          if (phone || email) {
+            recipients.push({ phone: phone || undefined, email: email || undefined, name: name || undefined });
+          }
+        }
+
+        if (recipients.length === 0) {
+          setFileParseError('לא נמצאו אנשי קשר תקינים בקובץ');
+          return;
+        }
+        setFilters(f => ({ ...f, fileRecipients: recipients }));
+        setAudienceCount(recipients.length);
+      } catch {
+        setFileParseError('שגיאה בקריאת הקובץ');
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
   };
 
   const openEdit = (c: Campaign) => {
@@ -706,11 +779,105 @@ export default function Campaigns() {
                     </select>
                   </div>
 
+                  {/* Registration status */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">סטטוס הרשמה</label>
+                    <div className="flex gap-2">
+                      {[
+                        { value: 'all', label: '👥 כולם' },
+                        { value: 'registered', label: '✅ רשומים בלבד' },
+                        { value: 'not_registered', label: '🔴 לא רשומים בלבד' },
+                      ].map(opt => (
+                        <button
+                          key={opt.value}
+                          onClick={() => setFilters(f => ({ ...f, registrationStatus: opt.value as AudienceFilters['registrationStatus'] }))}
+                          className={`flex-1 text-xs py-2 px-2 rounded-lg border-2 font-medium transition-colors ${
+                            (filters.registrationStatus || 'all') === opt.value
+                              ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                              : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Contact filters */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">פרטי קשר</label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filters.hasEmail === true}
+                          onChange={e => setFilters(f => ({ ...f, hasEmail: e.target.checked ? true : undefined }))}
+                          className="rounded accent-indigo-600"
+                        />
+                        <span className="text-sm">📧 יש מייל בלבד</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filters.hasPhone === true}
+                          onChange={e => setFilters(f => ({ ...f, hasPhone: e.target.checked ? true : undefined }))}
+                          className="rounded accent-indigo-600"
+                        />
+                        <span className="text-sm">📱 יש טלפון בלבד</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* File upload */}
+                  <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 bg-gray-50">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-sm font-semibold text-gray-700">📁 העלאת קובץ (CSV)</span>
+                      {filters.fileRecipients && filters.fileRecipients.length > 0 && (
+                        <span className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full font-medium">
+                          ✓ {filters.fileRecipients.length} אנשי קשר נטענו מ-{fileName}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 mb-2">
+                      קובץ CSV עם עמודות: <code className="bg-gray-200 px-1 rounded">phone</code> / <code className="bg-gray-200 px-1 rounded">email</code> / <code className="bg-gray-200 px-1 rounded">name</code> (כותרות בעברית או אנגלית)
+                    </p>
+                    <input
+                      type="file"
+                      accept=".csv,.txt"
+                      onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (file) parseCsvFile(file);
+                      }}
+                      className="block w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-4 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white file:text-sm file:font-medium file:cursor-pointer hover:file:bg-indigo-700"
+                    />
+                    {fileParseError && (
+                      <p className="text-xs text-red-600 mt-1">⚠️ {fileParseError}</p>
+                    )}
+                    {filters.fileRecipients && filters.fileRecipients.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setFilters(f => ({ ...f, fileRecipients: undefined }));
+                          setFileName('');
+                          setAudienceCount(null);
+                        }}
+                        className="mt-2 text-xs text-red-500 hover:text-red-700"
+                      >
+                        ✕ הסר קובץ
+                      </button>
+                    )}
+                    {filters.fileRecipients && filters.fileRecipients.length === 0 && (
+                      <p className="text-xs text-amber-600 mt-1">⚠️ בחירת קובץ תבטל את שאר הסינונים — ישלח רק לרשימה בקובץ</p>
+                    )}
+                    {!filters.fileRecipients && (
+                      <p className="text-xs text-amber-600 mt-1">⚠️ בחירת קובץ תבטל את שאר הסינונים — ישלח רק לרשימה בקובץ</p>
+                    )}
+                  </div>
+
                   {/* Preview button */}
                   <button
                     onClick={previewAudience}
-                    disabled={audienceLoading}
-                    className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition-colors"
+                    disabled={audienceLoading || (filters.fileRecipients !== undefined && filters.fileRecipients.length > 0)}
+                    className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition-colors disabled:opacity-40"
                   >
                     <Users size={16} />
                     {audienceLoading ? 'מחשב...' : 'חשב קהל'}

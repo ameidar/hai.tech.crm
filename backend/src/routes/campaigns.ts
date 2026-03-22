@@ -373,13 +373,17 @@ campaignsRouter.post('/:id/send', async (req: Request, res: Response, next: Next
       const audience = await resolveAudience(filters);
 
       await prisma.campaignRecipient.createMany({
-        data: audience.recipients.map(r => ({
-          campaignId,
-          customerId: r.customerId,
-          phone: r.phone,
-          email: r.email,
-          status: 'pending',
-        })),
+        data: audience.recipients.map(r => {
+          const isAnon = r.customerId.startsWith('file:');
+          return {
+            campaignId,
+            customerId: isAnon ? null : r.customerId,
+            recipientName: isAnon ? r.customerName : null,
+            phone: r.phone,
+            email: r.email,
+            status: 'pending',
+          };
+        }),
         skipDuplicates: true,
       });
 

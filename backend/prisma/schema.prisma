@@ -933,7 +933,8 @@ model Campaign {
 model CampaignRecipient {
   id          String    @id @default(uuid())
   campaignId  String    @map("campaign_id")
-  customerId  String    @map("customer_id")
+  customerId  String?   @map("customer_id")
+  recipientName String? @map("recipient_name")
   phone       String?
   email       String?
   status      String    @default("pending")
@@ -944,7 +945,7 @@ model CampaignRecipient {
   clickCount  Int       @default(0) @map("click_count")
   createdAt   DateTime  @default(now()) @map("created_at")
   campaign    Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  customer    Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer    Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
   @@map("campaign_recipients")
 }

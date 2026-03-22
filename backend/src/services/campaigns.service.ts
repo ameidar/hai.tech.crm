@@ -41,6 +41,37 @@ function sleep(ms: number) {
 export async function resolveAudience(filters: AudienceFilters): Promise<AudienceResult> {
   const { cycleIds, courseIds, branchIds, ageMin, ageMax, cycleStatus = 'all' } = filters;
 
+  const hasFilters =
+    (cycleIds && cycleIds.length > 0) ||
+    (courseIds && courseIds.length > 0) ||
+    (branchIds && branchIds.length > 0) ||
+    ageMin !== undefined ||
+    ageMax !== undefined ||
+    (cycleStatus && cycleStatus !== 'all');
+
+  // ── No filters: return ALL customers directly ─────────────────────────────
+  if (!hasFilters) {
+    const customers = await prisma.customer.findMany({
+      where: { deletedAt: null },
+      select: { id: true, name: true, phone: true, email: true },
+    });
+
+    const recipients: RecipientInfo[] = customers.map(c => ({
+      customerId: c.id,
+      customerName: c.name,
+      phone: c.phone || undefined,
+      email: c.email || undefined,
+    }));
+
+    return {
+      count: recipients.length,
+      sample: recipients.slice(0, 10),
+      recipients,
+    };
+  }
+
+  // ── With filters: go through registrations ────────────────────────────────
+
   // Build cycle where clause
   const cycleWhere: Record<string, unknown> = {};
   if (cycleIds && cycleIds.length > 0) {
@@ -58,7 +89,6 @@ export async function resolveAudience(filters: AudienceFilters): Promise<Audienc
     } else if (cycleStatus === 'completed') {
       cycleWhere.status = 'completed';
     }
-    // 'all' = no status filter
   }
 
   // Build student where clause for age
@@ -67,13 +97,11 @@ export async function resolveAudience(filters: AudienceFilters): Promise<Audienc
   if (ageMin !== undefined || ageMax !== undefined) {
     const birthDateFilter: Record<string, Date> = {};
     if (ageMax !== undefined) {
-      // born after (now - ageMax - 1 years) → youngest cutoff
       const minBirth = new Date(now);
       minBirth.setFullYear(minBirth.getFullYear() - ageMax - 1);
       birthDateFilter.gte = minBirth;
     }
     if (ageMin !== undefined) {
-      // born before (now - ageMin years) → oldest cutoff
       const maxBirth = new Date(now);
       maxBirth.setFullYear(maxBirth.getFullYear() - ageMin);
       birthDateFilter.lte = maxBirth;

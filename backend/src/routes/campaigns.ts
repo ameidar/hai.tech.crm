@@ -36,6 +36,71 @@ campaignsRouter.get('/click', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/campaigns/unsubscribe?rid=RECIPIENT_ID
+ * Email unsubscribe — marks customer as unsubscribed, shows confirmation page
+ */
+campaignsRouter.get('/unsubscribe', async (req: Request, res: Response) => {
+  const { rid } = req.query as Record<string, string>;
+
+  const html = (title: string, body: string, color = '#10b981') => `
+<!DOCTYPE html><html dir="rtl" lang="he"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title>
+<style>
+  body{font-family:Arial,sans-serif;background:#f9fafb;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+  .card{background:#fff;border-radius:16px;padding:40px 48px;max-width:420px;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,.08)}
+  .icon{font-size:48px;margin-bottom:16px}
+  h1{color:#111;font-size:22px;margin:0 0 12px}
+  p{color:#555;font-size:15px;line-height:1.6;margin:0}
+  .btn{display:inline-block;margin-top:24px;padding:10px 24px;background:${color};color:#fff;border-radius:8px;text-decoration:none;font-size:14px}
+</style></head><body><div class="card">
+<div class="icon">${color === '#10b981' ? '✅' : '⚠️'}</div>
+<h1>${title}</h1><p>${body}</p>
+<a href="https://hai.tech" class="btn">חזרה לאתר</a>
+</div></body></html>`;
+
+  if (!rid) {
+    res.status(400).send(html('שגיאה', 'לינק לא תקין.', '#ef4444'));
+    return;
+  }
+
+  try {
+    const recipient = await prisma.campaignRecipient.findUnique({
+      where: { id: rid },
+      include: { customer: true },
+    });
+
+    if (!recipient) {
+      res.status(404).send(html('לא נמצא', 'לינק לא תקין או פג תוקף.', '#f59e0b'));
+      return;
+    }
+
+    // Mark customer as unsubscribed (if has a customer)
+    if (recipient.customerId) {
+      await prisma.customer.update({
+        where: { id: recipient.customerId },
+        data: { emailUnsubscribed: true, emailUnsubscribedAt: new Date() },
+      });
+    }
+
+    // Log the unsubscribe on the recipient record
+    await prisma.campaignRecipient.update({
+      where: { id: rid },
+      data: { status: 'unsubscribed' },
+    });
+
+    const name = recipient.customer?.name || recipient.recipientName || '';
+    res.send(html(
+      'הוסרת בהצלחה מרשימת התפוצה',
+      `${name ? `שלום ${name},<br><br>` : ''}הוסרת מרשימת התפוצה שלנו ולא תקבל מיילים שיווקיים בעתיד.<br><br>אם הוסרת בטעות, פנה אלינו בכתובת info@hai.tech`
+    ));
+  } catch (err) {
+    console.error('Unsubscribe error:', err);
+    res.status(500).send(html('שגיאה', 'אירעה שגיאה. נסה שוב מאוחר יותר.', '#ef4444'));
+  }
+});
+
+/**
  * GET /api/campaigns/track/open/:campaignId/:recipientId
  * Email open tracking — records first open, returns a 1×1 transparent GIF
  */
@@ -112,12 +177,22 @@ campaignsRouter.get('/', async (_req: Request, res: Response, next: NextFunction
     const openedMap: Record<string, number> = {};
     for (const o of openedCounts) openedMap[o.campaignId] = o._count._all;
 
+    // Unsubscribed counts
+    const unsubscribedCounts = await prisma.campaignRecipient.groupBy({
+      by: ['campaignId'],
+      where: { campaignId: { in: campaignIds }, status: 'unsubscribed' },
+      _count: { _all: true },
+    });
+    const unsubscribedMap: Record<string, number> = {};
+    for (const u of unsubscribedCounts) unsubscribedMap[u.campaignId] = u._count._all;
+
     res.json(campaigns.map(c => ({
       ...c,
       totalClicks: clickMap[c.id] ?? 0,
       pendingCount: pendingMap[c.id] ?? 0,
       sentTodayCount: sentTodayMap[c.id] ?? 0,
       openedCount: openedMap[c.id] ?? 0,
+      unsubscribedCount: unsubscribedMap[c.id] ?? 0,
     })));
   } catch (err) {
     next(err);

@@ -30,6 +30,7 @@ interface Campaign {
   deliveredCount: number;
   failedCount: number;
   openedCount: number;
+  unsubscribedCount: number;
   scheduledAt?: string;
   completedAt?: string;
   createdAt: string;
@@ -433,6 +434,7 @@ export default function Campaigns() {
                 <th className="text-right px-4 py-3 font-medium text-gray-600">נמענים</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">פתיחות 👁️</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">לחיצות 🔗</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600">הסרות 🚫</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">תזמון/השלמה</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">פעולות</th>
               </tr>
@@ -491,6 +493,11 @@ export default function Campaigns() {
                   <td className="px-4 py-3 text-center">
                     {(c.totalClicks ?? 0) > 0
                       ? <span className="font-semibold text-blue-600">{c.totalClicks}</span>
+                      : <span className="text-gray-300">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {(c.unsubscribedCount ?? 0) > 0
+                      ? <span className="font-semibold text-red-500">{c.unsubscribedCount}</span>
                       : <span className="text-gray-300">—</span>}
                   </td>
                   <td className="px-4 py-3 text-gray-500 text-xs">
@@ -999,6 +1006,16 @@ export default function Campaigns() {
                         placeholder="שלום {שם_הורה}! ..."
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none"
                       />
+                    </div>
+                  )}
+
+                  {/* Unsubscribe notice */}
+                  {(form.channel === 'email' || form.channel === 'both') && (
+                    <div className="flex items-start gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
+                      <span className="text-lg">🚫</span>
+                      <div>
+                        <strong>הסרה אוטומטית:</strong> לכל מייל שיישלח יתווסף אוטומטית footer עם לינק "הסר אותי מרשימת התפוצה" + כותרת <code className="bg-green-100 px-1 rounded">List-Unsubscribe</code> (Gmail מציג כפתור הסרה מובנה). לקוחות שנסירו לא יקבלו מיילים עתידיים.
+                      </div>
                     </div>
                   )}
 

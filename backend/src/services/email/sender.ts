@@ -7,6 +7,7 @@ export interface EmailOptions {
   html?: string;
   text?: string;
   replyTo?: string;
+  headers?: Record<string, string>;
   attachments?: Array<{
     filename: string;
     content: Buffer | string;
@@ -53,7 +54,7 @@ const getTransporter = () => {
 
 // Send a single email
 export const sendEmail = async (options: EmailOptions): Promise<EmailResult> => {
-  const { to, subject, html, text, replyTo, attachments } = options;
+  const { to, subject, html, text, replyTo, headers, attachments } = options;
 
   // Validate required fields
   if (!to || !subject) {
@@ -83,6 +84,7 @@ export const sendEmail = async (options: EmailOptions): Promise<EmailResult> => 
       html,
       text,
       replyTo: replyTo || fromEmail,
+      headers,
       attachments,
     };
 

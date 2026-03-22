@@ -127,7 +127,7 @@ export async function resolveAudience(filters: AudienceFilters): Promise<Audienc
     });
     const registeredIds = new Set(activeRegs.map(r => r.student.customerId));
 
-    const customerWhere: Record<string, unknown> = { deletedAt: null };
+    const customerWhere: Record<string, unknown> = { deletedAt: null, emailUnsubscribed: false };
     if (hasEmail) customerWhere.email = { not: null };
     if (hasPhone) customerWhere.phone = { not: null };
 
@@ -151,7 +151,7 @@ export async function resolveAudience(filters: AudienceFilters): Promise<Audienc
   // ── No cycle/contact filters + registered=all: all customers ─────────────
   if (!hasCycleFilters && !hasContactFilters && registrationStatus === 'all') {
     const customers = await prisma.customer.findMany({
-      where: { deletedAt: null },
+      where: { deletedAt: null, emailUnsubscribed: false },
       select: { id: true, name: true, phone: true, email: true },
     });
 
@@ -196,8 +196,8 @@ export async function resolveAudience(filters: AudienceFilters): Promise<Audienc
     studentWhere.birthDate = birthDateFilter;
   }
 
-  // Customer contact filter
-  const customerWhere: Record<string, unknown> = { deletedAt: null };
+  // Customer contact filter (always exclude unsubscribed)
+  const customerWhere: Record<string, unknown> = { deletedAt: null, emailUnsubscribed: false };
   if (hasEmail) customerWhere.email = { not: null };
   if (hasPhone) customerWhere.phone = { not: null };
 
@@ -288,22 +288,37 @@ export async function sendCampaign(campaignId: string, dailyLimit?: number): Pro
     const shouldSendEmail = (channel === 'email' || channel === 'both') && recipient.email;
     const shouldSendWa = (channel === 'whatsapp' || channel === 'both') && recipient.phone;
 
+    // Build unsubscribe URL
+    const unsubscribeUrl = `${BASE_URL}/api/campaigns/unsubscribe?rid=${encodeURIComponent(recipient.id)}`;
+
     // Inject open-tracking pixel into email HTML
     const openPixelUrl = `${BASE_URL}/api/campaigns/track/open/${encodeURIComponent(campaign.id)}/${encodeURIComponent(recipient.id)}`;
     const openPixel = `<img src="${openPixelUrl}" width="1" height="1" style="display:none;border:0;outline:0;" alt="" />`;
-    const resolvedHtmlWithPixel = resolvedHtml
+
+    // Build unsubscribe footer
+    const unsubscribeFooter = `
+<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;text-align:center;font-family:Arial,sans-serif;font-size:12px;color:#9ca3af;">
+  קיבלת מייל זה כי אתה נמצא ברשימת התפוצה של דרך ההייטק.<br>
+  <a href="${unsubscribeUrl}" style="color:#6b7280;text-decoration:underline;">הסר אותי מרשימת התפוצה</a>
+</div>`;
+
+    const htmlWithExtras = resolvedHtml
       ? resolvedHtml.includes('</body>')
-        ? resolvedHtml.replace(/<\/body>/i, `${openPixel}</body>`)
-        : resolvedHtml + openPixel
+        ? resolvedHtml.replace(/<\/body>/i, `${unsubscribeFooter}${openPixel}</body>`)
+        : resolvedHtml + unsubscribeFooter + openPixel
       : resolvedHtml;
 
     // Send email
-    if (shouldSendEmail && campaign.subject && resolvedHtmlWithPixel) {
+    if (shouldSendEmail && campaign.subject && htmlWithExtras) {
       try {
         const result = await sendEmail({
           to: recipient.email!,
           subject: (campaign.subject || '').replace(/\{שם_הורה\}/g, recipientName).replace(/\{שם_ילד\}/g, recipientName),
-          html: resolvedHtmlWithPixel,
+          html: htmlWithExtras,
+          headers: {
+            'List-Unsubscribe': `<${unsubscribeUrl}>`,
+            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+          },
         });
         if (result.success) {
           sent = true;

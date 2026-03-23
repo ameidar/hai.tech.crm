@@ -39,6 +39,11 @@ const createTransporter = () => {
       user,
       pass, // Use App Password for Gmail
     },
+    pool: true,        // Reuse a single SMTP connection instead of reconnecting per email
+    maxConnections: 1, // Keep one persistent connection to avoid "Too many login attempts"
+    maxMessages: Infinity,
+    rateDelta: 1000,   // Rate window (ms)
+    rateLimit: 14,     // Max 14 emails/second (~840/min) — well within Gmail limits
   });
 };
 

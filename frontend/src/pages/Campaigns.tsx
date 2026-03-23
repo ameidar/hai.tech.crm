@@ -145,7 +145,7 @@ export default function Campaigns() {
     contentHtml: '',
     contentWa: '',
   });
-  const [dailyLimit, setDailyLimit] = useState<number>(1000);
+  const [dailyLimit, setDailyLimit] = useState<number>(1500);
   const [schedule, setSchedule] = useState({
     type: 'now' as 'now' | 'scheduled',
     scheduledAt: '',
@@ -520,7 +520,7 @@ export default function Campaigns() {
                       {c.pendingCount > 0 && c.status !== 'sending' && (
                         <button
                           onClick={async () => {
-                            const limit = window.prompt(`שלח אצווה הבאה מ-"${c.name}"\nכמה הודעות לשלוח? (ממתינים: ${c.pendingCount})`, '1000');
+                            const limit = window.prompt(`שלח אצווה הבאה מ-"${c.name}"\nכמה הודעות לשלוח? (ממתינים: ${c.pendingCount})`, '1500');
                             if (!limit) return;
                             await api.post(`/campaigns/${c.id}/send`, { dailyLimit: Number(limit) });
                             qc.invalidateQueries({ queryKey: ['campaigns'] });
@@ -1080,7 +1080,7 @@ export default function Campaigns() {
 
                   {/* Daily limit */}
                   <div className="border border-blue-200 bg-blue-50 rounded-xl p-4">
-                    <h4 className="font-medium text-blue-800 mb-2 text-sm">📊 מגבלה יומית (Gmail: מקס׳ ~1000/יום)</h4>
+                    <h4 className="font-medium text-blue-800 mb-2 text-sm">📊 מגבלה יומית (Gmail: מקס׳ ~1500/יום)</h4>
                     <div className="flex items-center gap-3">
                       <input
                         type="number"

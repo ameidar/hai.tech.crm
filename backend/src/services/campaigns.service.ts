@@ -276,10 +276,15 @@ export async function sendCampaign(campaignId: string, dailyLimit?: number): Pro
     const recipientName = (recipient as { customer?: { name?: string }; recipientName?: string }).customer?.name
       || (recipient as { recipientName?: string }).recipientName
       || '';
+
+    // Build unsubscribe URL BEFORE resolving HTML so {{{unsubscribe_url}}} placeholder works
+    const unsubscribeUrl = `${BASE_URL}/api/campaigns/unsubscribe?rid=${encodeURIComponent(recipient.id)}`;
+
     const resolvedHtml = (campaign.contentHtml ?? '')
       .replace(/\{utm_link\}/g, trackingUrl)
       .replace(/\{שם_הורה\}/g, recipientName)
-      .replace(/\{שם_ילד\}/g, recipientName);
+      .replace(/\{שם_ילד\}/g, recipientName)
+      .replace(/\{{2,3}unsubscribe_url\}{2,3}/g, unsubscribeUrl);
     const resolvedWa = (campaign.contentWa ?? '')
       .replace(/\{utm_link\}/g, trackingUrl)
       .replace(/\{שם_הורה\}/g, recipientName)
@@ -287,9 +292,6 @@ export async function sendCampaign(campaignId: string, dailyLimit?: number): Pro
 
     const shouldSendEmail = (channel === 'email' || channel === 'both') && recipient.email;
     const shouldSendWa = (channel === 'whatsapp' || channel === 'both') && recipient.phone;
-
-    // Build unsubscribe URL
-    const unsubscribeUrl = `${BASE_URL}/api/campaigns/unsubscribe?rid=${encodeURIComponent(recipient.id)}`;
 
     // Inject open-tracking pixel into email HTML
     const openPixelUrl = `${BASE_URL}/api/campaigns/track/open/${encodeURIComponent(campaign.id)}/${encodeURIComponent(recipient.id)}`;

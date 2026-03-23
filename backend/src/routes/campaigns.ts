@@ -445,6 +445,15 @@ campaignsRouter.post('/:id/send', async (req: Request, res: Response, next: Next
     if (!isResend) {
       // First send: build audience → create recipients
       const filters = campaign.audienceFilters as AudienceFilters;
+
+      // Auto-enforce contact requirement based on channel:
+      // email-only → must have email, whatsapp-only → must have phone
+      if (campaign.channel === 'email') {
+        filters.hasEmail = true;
+      } else if (campaign.channel === 'whatsapp') {
+        filters.hasPhone = true;
+      }
+
       const audience = await resolveAudience(filters);
 
       await prisma.campaignRecipient.createMany({

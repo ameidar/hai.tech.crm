@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Calendar, Clock, Users, CheckCircle, XCircle, AlertCircle, Video, ChevronLeft, BookOpen, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { useMeetings, useUpdateMeeting } from '../hooks/useApi';
+import { useMeetings, useUpdateMeeting, useCycles } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import Modal from '../components/ui/Modal';
@@ -39,15 +39,28 @@ export default function InstructorDashboard() {
     return {};
   }, [viewMode]);
 
-  const { data: meetings, isLoading } = useMeetings(dateRange);
+  // Pass higher limit for 'all' view to avoid missing future meetings
+  const meetingsParams = useMemo(() => ({
+    ...dateRange,
+    ...(viewMode === 'all' ? { limit: 500 } : {}),
+  }), [dateRange, viewMode]);
+
+  const { data: meetings, isLoading } = useMeetings(meetingsParams);
   const updateMeeting = useUpdateMeeting();
+
+  // Fetch ALL instructor cycles independently (so DDL is always complete)
+  const { data: allCyclesData } = useCycles({ limit: 200 });
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
+    const thisYear = new Date().getFullYear();
+    const meetingYear = date.getFullYear();
     return date.toLocaleDateString('he-IL', {
       weekday: 'long',
       day: 'numeric',
       month: 'long',
+      // Show year only when it's not the current year (prevents confusion with past cycles)
+      ...(meetingYear !== thisYear ? { year: 'numeric' } : {}),
     });
   };
 
@@ -89,8 +102,13 @@ export default function InstructorDashboard() {
     }
   };
 
-  // Get unique cycles for filter
+  // Use independently-fetched cycles for the DDL (not derived from loaded meetings)
+  // This ensures the active cycle always appears even if its meetings are beyond the pagination limit
   const cycles = useMemo(() => {
+    if (allCyclesData && Array.isArray(allCyclesData) && allCyclesData.length > 0) {
+      return allCyclesData.map((c: any) => ({ id: c.id, name: c.name }));
+    }
+    // Fallback: derive from loaded meetings (legacy behavior)
     if (!meetings || !Array.isArray(meetings)) return [];
     const seen = new Map<string, string>();
     meetings.forEach(m => {
@@ -99,7 +117,7 @@ export default function InstructorDashboard() {
       }
     });
     return Array.from(seen.entries()).map(([id, name]) => ({ id, name }));
-  }, [meetings]);
+  }, [allCyclesData, meetings]);
 
   // Filter meetings by cycle
   const filteredMeetings = useMemo(() => {
@@ -181,7 +199,11 @@ export default function InstructorDashboard() {
           <div className="mb-4">
             <select
               value={cycleFilter}
-              onChange={(e) => setCycleFilter(e.target.value)}
+              onChange={(e) => {
+                setCycleFilter(e.target.value);
+                // Auto-switch to "all" view so all cycle meetings are visible
+                if (e.target.value !== 'all') setViewMode('all');
+              }}
               className="px-4 py-2 rounded-lg border border-gray-200 bg-white text-gray-700 font-medium"
             >
               <option value="all">כל המחזורים</option>

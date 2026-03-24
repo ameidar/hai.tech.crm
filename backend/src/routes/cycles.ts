@@ -116,10 +116,19 @@ cyclesRouter.get('/', async (req, res, next) => {
     const status = req.query.status as string | undefined;
     const type = req.query.type as string | undefined;
     const branchId = req.query.branchId as string | undefined;
-    const instructorId = req.query.instructorId as string | undefined;
+    let instructorId = req.query.instructorId as string | undefined;
     const courseId = req.query.courseId as string | undefined;
     const dayOfWeek = req.query.dayOfWeek as string | undefined;
     const search = req.query.search as string | undefined;
+
+    // If user is an instructor, restrict to their own cycles only
+    if (req.user?.role === 'instructor') {
+      const instructor = await prisma.instructor.findUnique({
+        where: { userId: req.user.userId },
+        select: { id: true },
+      });
+      if (instructor) instructorId = instructor.id;
+    }
 
     const where = {
       ...(status && { status: status as any }),

@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { findOrCreateCustomer } from '../utils/lead-customer.js';
 import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
+import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
 
 export const campaignLeadsRouter = Router();
 
@@ -34,19 +35,17 @@ campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunc
       notes: interest ? `תחום עניין: ${interest}` : 'ליד מקמפיין',
     });
 
-    // Create LeadAppointment
-    const lead = await prisma.leadAppointment.create({
-      data: {
-        customerName: name,
-        customerPhone: phone,
-        customerEmail: email,
-        interest,
-        source: campaignId ? `campaign:${campaignId}` : 'campaign',
-        ...(customerId && { customerId }),
-      },
+    // Create or merge LeadAppointment (dedup by phone)
+    const { lead, isDuplicate } = await findOrCreateLeadAppointment({
+      customerId: customerId ?? null,
+      customerName: name,
+      customerPhone: phone,
+      customerEmail: email,
+      interest,
+      source: campaignId ? `campaign:${campaignId}` : 'campaign',
     });
 
-    console.log(`[Campaign] Lead ${lead.id} — ${isNew ? 'new' : 'existing'} customer ${customerId}`);
+    console.log(`[Campaign] Lead ${lead.id} — ${isDuplicate ? 'merged duplicate' : (isNew ? 'new' : 'existing')} customer ${customerId}`);
 
     // Send welcome WhatsApp template (gated by LEAD_WELCOME_WA_ENABLED)
     if (phone) {

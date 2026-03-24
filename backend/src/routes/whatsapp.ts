@@ -7,6 +7,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { findOrCreateCustomer } from '../utils/lead-customer.js';
+import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
 import { config } from '../config.js';
 import jwt from 'jsonwebtoken';
 import OpenAI from 'openai';
@@ -574,19 +575,17 @@ router.post('/webhook', async (req: Request, res: Response) => {
                 notes: `שיחת וואטסאפ. קישור: ${waLink}`,
               });
 
-              await prisma.leadAppointment.create({
-                data: {
-                  customerId: waCustomerId || null,
-                  customerName: contactName || phone,
-                  customerPhone: phone,
-                  source: 'whatsapp',
-                  appointmentNotes: isNew
-                    ? `ליד חדש מוואטסאפ. לשיחה: ${waLink}`
-                    : `לקוח קיים פנה שוב בוואטסאפ. לשיחה: ${waLink}`,
-                  appointmentStatus: 'pending',
-                }
+              await findOrCreateLeadAppointment({
+                customerId: waCustomerId || null,
+                customerName: contactName || phone,
+                customerPhone: phone,
+                source: 'whatsapp',
+                appointmentNotes: isNew
+                  ? `ליד חדש מוואטסאפ. לשיחה: ${waLink}`
+                  : `לקוח קיים פנה שוב בוואטסאפ. לשיחה: ${waLink}`,
+                appointmentStatus: 'pending',
               });
-              console.log(`[WA] Lead created for ${isNew ? 'new' : 'existing'} customer ${phone}`);
+              console.log(`[WA] Lead upserted for ${isNew ? 'new' : 'existing'} customer ${phone}`);
             } catch (e) {
               console.error('[WA] Lead creation error:', e);
             }

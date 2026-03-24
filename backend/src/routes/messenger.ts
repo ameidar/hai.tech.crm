@@ -7,6 +7,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { findOrCreateCustomer } from '../utils/lead-customer.js';
+import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
 import axios from 'axios';
 import OpenAI from 'openai';
 
@@ -288,11 +289,7 @@ async function fetchAndSaveFBLead(leadgenId: string) {
 
   // Find or create customer + create LeadAppointment
   if (fullName || phone) {
-    const existingAppt = await prisma.leadAppointment.findFirst({
-      where: { customerPhone: phone || '', source: 'facebook' },
-    });
-
-    // Always find/create customer (new feature)
+    // Find/create customer
     const campaignLabel = [lead.campaign_name, lead.ad_name].filter(Boolean).join(' / ');
     const { customerId } = await findOrCreateCustomer({
       name: fullName || undefined,
@@ -304,27 +301,23 @@ async function fetchAndSaveFBLead(leadgenId: string) {
       childAge: childAge || undefined,
     });
 
-    if (!existingAppt) {
-      await prisma.leadAppointment.create({
-        data: {
-          customerId: customerId || null,
-          customerName: fullName || phone || 'ליד פייסבוק',
-          customerPhone: phone || '',
-          customerEmail: email || null,
-          childName: childName || null,
-          interest: interest || campaignLabel || 'פייסבוק',
-          source: 'facebook',
-          appointmentStatus: 'pending',
-          campaignId: lead.campaign_id || null,
-          campaignName: lead.campaign_name || null,
-          adId: lead.ad_id || null,
-          adName: lead.ad_name || null,
-          adsetName: lead.adset_name || null,
-          formId: lead.form_id || null,
-        },
-      });
-      console.log(`[FB LeadAds] Created LeadAppointment for: ${fullName || phone}`);
-    }
+    const { isDuplicate: fbDuplicate } = await findOrCreateLeadAppointment({
+      customerId: customerId || null,
+      customerName: fullName || phone || 'ליד פייסבוק',
+      customerPhone: phone || '',
+      customerEmail: email || null,
+      childName: childName || null,
+      interest: interest || campaignLabel || 'פייסבוק',
+      source: 'facebook',
+      appointmentStatus: 'pending',
+      campaignId: lead.campaign_id || null,
+      campaignName: lead.campaign_name || null,
+      adId: lead.ad_id || null,
+      adName: lead.ad_name || null,
+      adsetName: lead.adset_name || null,
+      formId: lead.form_id || null,
+    });
+    console.log(`[FB LeadAds] ${fbDuplicate ? 'Merged duplicate' : 'Created'} LeadAppointment for: ${fullName || phone}`);
   }
 
   console.log(`[FB LeadAds] Saved lead: ${fullName || leadgenId} (${phone || 'no phone'})`);

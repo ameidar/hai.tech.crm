@@ -105,7 +105,11 @@ meetingsRouter.get('/', async (req, res, next) => {
       ...(status && { status: status as any }),
       ...(instructorId && { instructorId }),
       ...(cycleId && { cycleId }),
-      ...(branchId && { cycle: { branchId } }),
+      // Always hide meetings from cancelled cycles
+      cycle: {
+        status: { not: 'cancelled' as any },
+        ...(branchId && { branchId }),
+      },
     };
 
     const [meetings, total] = await Promise.all([

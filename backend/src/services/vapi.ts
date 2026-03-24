@@ -2,6 +2,7 @@ import { config } from '../config.js';
 import { prisma } from '../utils/prisma.js';
 import { sendWhatsAppMessage } from './notifications.js';
 import { findOrCreateCustomer } from '../utils/lead-customer.js';
+import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
 
 const VAPI_API_BASE = 'https://api.vapi.ai';
 
@@ -52,20 +53,18 @@ export async function initiateVapiCall(data: {
 }): Promise<{ leadAppointmentId: string; callId?: string; status: string }> {
   const isDuringBusinessHours = isBusinessHoursInIsrael();
   
-  // Create LeadAppointment record
-  const leadAppointment = await prisma.leadAppointment.create({
-    data: {
-      customerId: data.customerId || null,
-      customerName: data.customerName,
-      customerPhone: data.customerPhone,
-      customerEmail: data.customerEmail || null,
-      childName: data.childName || null,
-      interest: data.interest || null,
-      source: data.source || 'website',
-      callStatus: isDuringBusinessHours ? 'queued' : 'pending',
-      appointmentStatus: 'pending',
-      appointmentNotes: isDuringBusinessHours ? null : 'שיחה תתבצע בשעות הפעילות (08:00-21:00)',
-    },
+  // Find existing open lead or create new (dedup by phone)
+  const { lead: leadAppointment } = await findOrCreateLeadAppointment({
+    customerId: data.customerId || null,
+    customerName: data.customerName,
+    customerPhone: data.customerPhone,
+    customerEmail: data.customerEmail || null,
+    childName: data.childName || null,
+    interest: data.interest || null,
+    source: data.source || 'website',
+    callStatus: isDuringBusinessHours ? 'queued' : 'pending',
+    appointmentStatus: 'pending',
+    appointmentNotes: isDuringBusinessHours ? null : 'שיחה תתבצע בשעות הפעילות (08:00-21:00)',
   });
 
   if (!isDuringBusinessHours) {
@@ -236,17 +235,17 @@ export async function handleEndOfCallReport(payload: any): Promise<void> {
       });
       // Still try to get a display name
       const existingCustomer = inboundCustomerId ? await prisma.customer.findUnique({ where: { id: inboundCustomerId } }) : null;
-      leadAppointment = await prisma.leadAppointment.create({
-        data: {
-          customerId: inboundCustomerId || null,
-          customerName: existingCustomer?.name || callerNumber,
-          customerPhone: normalizedPhone || callerNumber,
-          source: 'inbound',
-          callDirection: 'inbound',
-          vapiCallId: callId,
-          callStatus: 'ended',
-        },
+      const { lead: inboundLead } = await findOrCreateLeadAppointment({
+        customerId: inboundCustomerId || null,
+        customerName: existingCustomer?.name || callerNumber,
+        customerPhone: normalizedPhone || callerNumber,
+        source: 'inbound',
+        callDirection: 'inbound',
+        vapiCallId: callId,
+        callStatus: 'ended',
       });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      leadAppointment = inboundLead as any;
       console.log(`[VAPI WEBHOOK] Created inbound LeadAppointment for ${callerNumber} (${leadAppointment.id})`);
     } else {
       console.error('[VAPI WEBHOOK] No lead appointment found for call:', callId);

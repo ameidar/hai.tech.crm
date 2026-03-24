@@ -3,6 +3,7 @@ import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { config } from '../config.js';
 import { sendWelcomeNotifications, notifyAdminNewLead } from '../services/notifications.js';
+import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
 import { handleStatusReply } from '../services/whatsapp-reminder.service.js';
 import { logAudit } from '../utils/audit.js';
 import { initiateVapiCall } from '../services/vapi.js';
@@ -642,21 +643,23 @@ webhookRouter.post('/whatsapp-summary', async (req, res, next) => {
         }
       }
 
-      // Create LeadAppointment
-      const lead = await prisma.leadAppointment.create({
-        data: {
-          customerId,
-          customerName: name || 'לא ידוע',
-          customerPhone: phone || '',
-          customerEmail: (email && email !== 'לא') ? email : null,
-          childName: (child_name && child_name !== 'לא') ? child_name : null,
-          source: 'whatsapp',
-          callSummary: summary || null,
-          appointmentStatus: 'new',
-        },
+      // Create or merge LeadAppointment (dedup by phone)
+      const { lead, isDuplicate } = await findOrCreateLeadAppointment({
+        customerId,
+        customerName: name || 'לא ידוע',
+        customerPhone: phone || '',
+        customerEmail: (email && email !== 'לא') ? email : null,
+        childName: (child_name && child_name !== 'לא') ? child_name : null,
+        source: 'whatsapp',
+        callSummary: summary || null,
+        appointmentStatus: 'new',
       });
 
-      results.push({ success: true, leadId: lead.id, customerId });
+      if (isDuplicate) {
+        console.log(`[WhatsApp-summary] Merged duplicate lead for phone ${phone}`);
+      }
+
+      results.push({ success: true, leadId: lead.id, customerId, isDuplicate });
     }
 
     // Notify admin

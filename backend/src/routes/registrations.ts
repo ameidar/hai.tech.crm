@@ -3,6 +3,7 @@ import { randomUUID, randomBytes } from 'crypto';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
 import { updateRegistrationSchema, uuidSchema } from '../types/schemas.js';
 import { z } from 'zod';
 import { parsePaginationParams, paginatedResponse } from '../utils/pagination.js';
@@ -191,6 +192,11 @@ registrationsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
       ...coreData,
       cancellationDate: data.status === 'cancelled' || data.status === 'pending_cancellation' ? new Date() : undefined,
     };
+
+    // Auto-set paymentStatus = 'paid' when payment method is institutional
+    if (updateData.paymentMethod === 'institutional') {
+      updateData.paymentStatus = 'paid';
+    }
     if (refundAmount !== undefined) updateData.refundAmount = refundAmount;
     if (refundDate !== undefined) updateData.refundDate = refundDate ? new Date(refundDate) : null;
     if (creditInvoiceLink !== undefined) updateData.creditInvoiceLink = creditInvoiceLink;
@@ -220,6 +226,10 @@ registrationsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
       handleCycleCascadeOnCancellation(registration.cycle.id).catch(err =>
         console.error('[CANCEL CASCADE] Error:', err)
       );
+      // Recalculate future meeting revenues based on new student count
+      recalcMeetingRevenue(registration.cycle.id).catch(err =>
+        console.error('[RECALC REVENUE] Error:', err)
+      );
     }
 
     res.json(registration);
@@ -234,6 +244,9 @@ registrationsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
     const id = uuidSchema.parse(req.params.id);
 
     const oldRegistration = await prisma.registration.findUnique({ where: { id } });
+
+    // Delete related CancellationRequests first (no cascade defined)
+    await prisma.cancellationRequest.deleteMany({ where: { registrationId: id } });
 
     await prisma.registration.delete({
       where: { id },
@@ -339,10 +352,29 @@ registrationsRouter.post('/:id/send-cancellation-form', managerOrAdmin, async (r
       });
     }
 
+    // Mark registration as pending_cancellation so UI shows the indicator
+    if (registration.status !== 'pending_cancellation' && registration.status !== 'cancelled') {
+      await prisma.registration.update({
+        where: { id },
+        data: { status: 'pending_cancellation' },
+      });
+    }
+
     const formUrl = `https://crm.orma-ai.com/public/cancel/${token}`;
 
+    // Optional overrides from request body
+    const {
+      overrideEmail,
+      overridePhone,
+      sendEmail: doSendEmail = true,
+      sendWhatsApp: doSendWhatsApp = true,
+    } = req.body as { overrideEmail?: string; overridePhone?: string; sendEmail?: boolean; sendWhatsApp?: boolean };
+
+    const targetEmail = overrideEmail || customer.email;
+    const targetPhone = overridePhone || customer.phone;
+
     // Send email
-    if (customer.email) {
+    if (doSendEmail && targetEmail) {
       const emailHtml = `
 <!DOCTYPE html>
 <html dir="rtl" lang="he">
@@ -385,11 +417,13 @@ registrationsRouter.post('/:id/send-cancellation-form', managerOrAdmin, async (r
   </table>
 </body>
 </html>`;
-      await sendEmail(customer.email, `טופס ביטול - ${courseName} - Hai.Tech`, emailHtml);
+      // Non-blocking — respond immediately, send in background
+      sendEmail(targetEmail, `טופס ביטול - ${courseName} - Hai.Tech`, emailHtml)
+        .catch((err: unknown) => console.error('[CancelForm] Failed to send email:', err));
     }
 
-    // Send WhatsApp
-    if (customer.phone) {
+    // Send WhatsApp — non-blocking
+    if (doSendWhatsApp && targetPhone) {
       const whatsappMessage = `שלום ${customer.name},
 
 קיבלנו את פנייתך בנוגע לביטול הקורס ${courseName} עבור ${registration.student.name}.
@@ -398,7 +432,8 @@ registrationsRouter.post('/:id/send-cancellation-form', managerOrAdmin, async (r
 ${formUrl}
 
 צוות Hai.Tech 💙`;
-      await sendWhatsAppMessage(customer.phone, whatsappMessage);
+      sendWhatsAppMessage(targetPhone, whatsappMessage)
+        .catch((err: unknown) => console.error('[CancelForm] Failed to send WhatsApp:', err));
     }
 
     res.json({ success: true, token, link: formUrl, message: 'טופס ביטול נשלח ללקוח' });

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { RefreshCw, Info, Copy, Check, Receipt, Users, MessageSquare, Mail } from 'lucide-react';
+import { RefreshCw, Info, Copy, Check, Receipt, Users, MessageSquare, Mail, Video, ExternalLink } from 'lucide-react';
 import Modal from './ui/Modal';
 import MeetingExpenses from './MeetingExpenses';
 import SendMessageModal from './SendMessageModal';
@@ -164,6 +164,78 @@ export default function MeetingDetailModal({
             </div>
           )}
         </div>
+
+        {/* Zoom Details */}
+        {meeting.zoomJoinUrl && (
+          <div className="border-t pt-4">
+            <h4 className="font-semibold text-gray-900 flex items-center gap-2 mb-3">
+              <Video size={18} className="text-blue-500" />
+              פרטי זום
+            </h4>
+            <div className="p-4 bg-blue-50 rounded-lg space-y-2">
+              {meeting.zoomMeetingId && (
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-600">מזהה פגישה:</span>
+                  <span className="font-mono font-medium">{meeting.zoomMeetingId}</span>
+                </div>
+              )}
+              {meeting.zoomPassword && (
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-600">סיסמה:</span>
+                  <span className="font-mono font-medium">{meeting.zoomPassword}</span>
+                </div>
+              )}
+              {meeting.zoomHostEmail && (
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-600">מארח:</span>
+                  <span className="font-medium">{meeting.zoomHostEmail}</span>
+                </div>
+              )}
+              {meeting.zoomHostKey && (
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-600">מפתח מארח:</span>
+                  <span className="font-mono font-medium">{meeting.zoomHostKey}</span>
+                </div>
+              )}
+              <div className="flex gap-2 pt-2">
+                <a
+                  href={meeting.zoomJoinUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-primary btn-sm flex items-center gap-1"
+                >
+                  <ExternalLink size={14} />
+                  הצטרף לפגישה
+                </a>
+                {meeting.zoomStartUrl && (
+                  <a
+                    href={meeting.zoomStartUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-secondary btn-sm flex items-center gap-1"
+                  >
+                    <Video size={14} />
+                    התחל כמארח
+                  </a>
+                )}
+              </div>
+              {meeting.zoomRecordingUrl && (
+                <div className="pt-2 border-t border-blue-200">
+                  <a
+                    href={meeting.zoomRecordingUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-blue-600 hover:underline flex items-center gap-1"
+                  >
+                    <ExternalLink size={14} />
+                    צפה בהקלטה
+                    {meeting.zoomRecordingPassword && ` (סיסמה: ${meeting.zoomRecordingPassword})`}
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Financial Details */}
         <div className="border-t pt-4">

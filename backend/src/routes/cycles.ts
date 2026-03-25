@@ -30,12 +30,13 @@ function computeRevenuePerMeeting(cycle: any): number {
       const count = cycle.registrations?.length ?? cycle._count?.registrations ?? 0;
       return Math.round(Number(cycle.pricePerStudent) * count);
     }
-    // Sum registration amounts (available in detail endpoint)
+    // Sum active registration amounts (available in detail endpoint)
     if (Array.isArray(cycle.registrations) && cycle.registrations.length > 0) {
-      const totalRegAmount = cycle.registrations.reduce((s: number, r: any) => s + (r.amount ? Number(r.amount) : 0), 0);
+      const activeRegs = cycle.registrations.filter((r: any) => !['cancelled', 'pending_cancellation'].includes(r.status));
+      const totalRegAmount = activeRegs.reduce((s: number, r: any) => s + (r.amount ? Number(r.amount) : 0), 0);
       return totalMeetings > 0 ? Math.round(totalRegAmount / totalMeetings) : 0;
     }
-    // Fallback: aggregated sum if available (list endpoint)
+    // Fallback: aggregated sum if available (list endpoint — already filtered to active)
     if (cycle._sum?.registrations?.amount) {
       return totalMeetings > 0 ? Math.round(Number(cycle._sum.registrations.amount) / totalMeetings) : 0;
     }
@@ -148,7 +149,7 @@ cyclesRouter.get('/', async (req, res, next) => {
           instructor: { select: { id: true, name: true } },
           institutionalOrder: { select: { id: true, orderNumber: true } },
           _count: { select: { registrations: true, meetings: true } },
-          registrations: { select: { amount: true } },
+          registrations: { where: { status: { notIn: ['cancelled', 'pending_cancellation'] } }, select: { amount: true } },
         },
         orderBy: { startDate: 'desc' },
         skip: (page - 1) * limit,
@@ -886,14 +887,34 @@ cyclesRouter.post('/:id/registrations', managerOrAdmin, async (req, res, next) =
 
     // Check if already registered
     const existing = await prisma.registration.findUnique({
-      where: {
-        studentId_cycleId: {
-          studentId: data.studentId,
-          cycleId,
-        },
-      },
+      where: { studentId_cycleId: { studentId: data.studentId, cycleId } },
     });
-    if (existing) throw new AppError(409, 'Student already registered for this cycle');
+
+    // If cancelled registration exists — reactivate it instead of creating new
+    if (existing) {
+      if (existing.status !== 'cancelled') {
+        throw new AppError(409, 'Student already registered for this cycle');
+      }
+      const reactivated = await prisma.registration.update({
+        where: { id: existing.id },
+        data: {
+          status: data.status ?? 'registered',
+          registrationDate: data.registrationDate ? new Date(data.registrationDate) : new Date(),
+          amount: data.amount,
+          paymentStatus: data.paymentStatus,
+          paymentMethod: data.paymentMethod,
+          cancellationDate: null,
+          cancellationReason: null,
+          refundAmount: null,
+          refundDate: null,
+        },
+        include: {
+          student: { include: { customer: { select: { id: true, name: true, phone: true } } } },
+          cycle: { select: { id: true, name: true } },
+        },
+      });
+      return res.status(200).json(reactivated);
+    }
 
     const registration = await prisma.registration.create({
       data: {

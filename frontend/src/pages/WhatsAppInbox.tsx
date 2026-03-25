@@ -178,6 +178,7 @@ export default function WhatsAppInbox() {
   const [searchingCustomers, setSearchingCustomers] = useState(false);
   const [newConvTarget, setNewConvTarget] = useState<{ phone: string; name: string } | null>(null);
   const [templateSearch, setTemplateSearch] = useState('');
+  const [templatePhoneId, setTemplatePhoneId] = useState<string>('');
   const [showPayModal, setShowPayModal] = useState(false);
   const [activePhones, setActivePhones] = useState<{ phoneNumberId: string; businessPhone: string; label: string }[]>([]);
   const [selectedFromPhone, setSelectedFromPhone] = useState<string>('');
@@ -243,7 +244,7 @@ export default function WhatsAppInbox() {
           loadConversations();
           return prev;
         }
-        return prev.map(c => {
+        const updated = prev.map(c => {
           if (c.id !== conversationId) return c;
           return {
             ...c,
@@ -252,12 +253,25 @@ export default function WhatsAppInbox() {
             unreadCount: message.direction === 'inbound' ? c.unreadCount + 1 : c.unreadCount
           };
         });
+        // Re-sort: most recent lastMessageAt first (like WhatsApp)
+        return [...updated].sort((a, b) => {
+          const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+          const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+          return tb - ta;
+        });
       });
     });
 
     es.addEventListener('conversation_updated', (e: MessageEvent) => {
       const updated = JSON.parse(e.data);
-      setConversations(prev => prev.map(c => c.id === updated.id ? { ...c, ...updated } : c));
+      setConversations(prev => {
+        const mapped = prev.map(c => c.id === updated.id ? { ...c, ...updated } : c);
+        return [...mapped].sort((a, b) => {
+          const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+          const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+          return tb - ta;
+        });
+      });
       setSelected(prev => prev?.id === updated.id ? { ...prev, ...updated } : prev);
     });
 
@@ -339,7 +353,7 @@ export default function WhatsAppInbox() {
   useEffect(() => {
     api('/phones').then(data => {
       setActivePhones(data);
-      if (data.length > 0) setSelectedFromPhone(data[0].phoneNumberId);
+      if (data.length > 0) { setSelectedFromPhone(data[0].phoneNumberId); setTemplatePhoneId(data[0].phoneNumberId); }
     }).catch(() => {});
   }, []);
 
@@ -416,7 +430,7 @@ export default function WhatsAppInbox() {
     if (templates.length > 0 && !forceReload) { setShowTemplateModal(true); return; }
     setLoadingTemplates(true);
     try {
-      const pid = phoneNumberId || selected?.phoneNumberId || selectedFromPhone || '';
+      const pid = phoneNumberId || templatePhoneId || selected?.phoneNumberId || selectedFromPhone || '';
       const qs = pid ? `?phoneNumberId=${pid}` : '';
       const data = await api(`/templates${qs}`);
       setTemplates(data);
@@ -576,7 +590,7 @@ export default function WhatsAppInbox() {
           {/* Template list */}
           <div className="w-72 bg-white border-l border-gray-200 flex flex-col flex-shrink-0">
             <div className="p-3 border-b border-gray-100 flex items-center justify-between">
-              <span className="text-xs font-medium text-gray-500">{templates.length} תבניות מאושרות</span>
+              <span className="text-xs font-medium text-gray-500">{templates.length} תבניות ({templates.filter(t => t.status === 'APPROVED').length} מאושרות)</span>
               <button
                 onClick={() => setTmplMgrTab('create')}
                 className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 font-medium"
@@ -584,6 +598,20 @@ export default function WhatsAppInbox() {
                 <Plus size={14} /> חדשה
               </button>
             </div>
+            {activePhones.length > 1 && (
+              <div className="px-3 py-2 border-b border-gray-100">
+                <select
+                  value={templatePhoneId}
+                  onChange={e => { setTemplatePhoneId(e.target.value); loadTemplates(true, e.target.value); }}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  dir="rtl"
+                >
+                  {activePhones.map(p => (
+                    <option key={p.phoneNumberId} value={p.phoneNumberId}>{p.label} ({p.businessPhone})</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="px-3 py-2 border-b border-gray-100">
               <input
                 type="text"
@@ -607,7 +635,14 @@ export default function WhatsAppInbox() {
                     onClick={() => { setSelectedTemplate(tmpl); setTmplMgrTab('list'); }}
                     className={`border-b border-gray-100 cursor-pointer px-3 py-3 hover:bg-gray-50 transition-colors ${selectedTemplate?.name === tmpl.name && tmplMgrTab === 'list' ? 'bg-blue-50 border-r-2 border-r-blue-400' : ''}`}
                   >
-                    <p className="text-sm font-medium text-gray-800 truncate">{tmpl.name.replace(/_/g, ' ')}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-gray-800 truncate flex-1">{tmpl.name.replace(/_/g, ' ')}</p>
+                      {tmpl.status !== 'APPROVED' && (
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${tmpl.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-600'}`}>
+                          {tmpl.status === 'PENDING' ? '⏳ ממתין' : '❌ נדחה'}
+                        </span>
+                      )}
+                    </div>
                     {varCount > 0 && <span className="text-xs text-orange-400">{varCount} משתנים</span>}
                     {body && <p className="text-xs text-gray-400 truncate mt-0.5">{body.slice(0, 60)}</p>}
                   </div>
@@ -1239,9 +1274,9 @@ export default function WhatsAppInbox() {
                         />
                       </div>
                       <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100">
-                        <p className="text-xs text-gray-400 font-medium">תבניות מאושרות ({templates.filter(t => !templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase())).length})</p>
+                        <p className="text-xs text-gray-400 font-medium">תבניות מאושרות ({templates.filter(t => t.status === 'APPROVED' && (!templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase()))).length})</p>
                       </div>
-                    {templates.filter(t => !templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase())).map(tmpl => {
+                    {templates.filter(t => t.status === 'APPROVED' && (!templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase()))).map(tmpl => {
                       const body = getBodyText(tmpl);
                       const varCount = countVars(body);
                       const isSelected = !showCreateTemplate && selectedTemplate?.name === tmpl.name;

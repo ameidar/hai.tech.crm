@@ -172,6 +172,8 @@ model Customer {
   lmsPassword  String?   @map("lms_password")
   source       String?   @map("source")
   leadStatus   String?   @default("new") @map("lead_status") // new | contacted | in_progress | converted | closed
+  emailUnsubscribed   Boolean   @default(false) @map("email_unsubscribed")
+  emailUnsubscribedAt DateTime? @map("email_unsubscribed_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
   deletedAt    DateTime? @map("deleted_at")
@@ -933,17 +935,19 @@ model Campaign {
 model CampaignRecipient {
   id          String    @id @default(uuid())
   campaignId  String    @map("campaign_id")
-  customerId  String    @map("customer_id")
+  customerId  String?   @map("customer_id")
+  recipientName String? @map("recipient_name")
   phone       String?
   email       String?
   status      String    @default("pending")
   error       String?
   sentAt      DateTime? @map("sent_at")
+  openedAt    DateTime? @map("opened_at")
   clickedAt   DateTime? @map("clicked_at")
   clickCount  Int       @default(0) @map("click_count")
   createdAt   DateTime  @default(now()) @map("created_at")
   campaign    Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  customer    Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer    Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
   @@map("campaign_recipients")
 }

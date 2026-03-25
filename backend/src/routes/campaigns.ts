@@ -35,6 +35,93 @@ campaignsRouter.get('/click', async (req: Request, res: Response) => {
   res.redirect(302, redirectTo);
 });
 
+/**
+ * GET /api/campaigns/unsubscribe?rid=RECIPIENT_ID
+ * Email unsubscribe — marks customer as unsubscribed, shows confirmation page
+ */
+campaignsRouter.get('/unsubscribe', async (req: Request, res: Response) => {
+  const { rid } = req.query as Record<string, string>;
+
+  const html = (title: string, body: string, color = '#10b981') => `
+<!DOCTYPE html><html dir="rtl" lang="he"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title>
+<style>
+  body{font-family:Arial,sans-serif;background:#f9fafb;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+  .card{background:#fff;border-radius:16px;padding:40px 48px;max-width:420px;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,.08)}
+  .icon{font-size:48px;margin-bottom:16px}
+  h1{color:#111;font-size:22px;margin:0 0 12px}
+  p{color:#555;font-size:15px;line-height:1.6;margin:0}
+  .btn{display:inline-block;margin-top:24px;padding:10px 24px;background:${color};color:#fff;border-radius:8px;text-decoration:none;font-size:14px}
+</style></head><body><div class="card">
+<div class="icon">${color === '#10b981' ? '✅' : '⚠️'}</div>
+<h1>${title}</h1><p>${body}</p>
+<a href="https://hai.tech" class="btn">חזרה לאתר</a>
+</div></body></html>`;
+
+  if (!rid) {
+    res.status(400).send(html('שגיאה', 'לינק לא תקין.', '#ef4444'));
+    return;
+  }
+
+  try {
+    const recipient = await prisma.campaignRecipient.findUnique({
+      where: { id: rid },
+      include: { customer: true },
+    });
+
+    if (!recipient) {
+      res.status(404).send(html('לא נמצא', 'לינק לא תקין או פג תוקף.', '#f59e0b'));
+      return;
+    }
+
+    // Mark customer as unsubscribed (if has a customer)
+    if (recipient.customerId) {
+      await prisma.customer.update({
+        where: { id: recipient.customerId },
+        data: { emailUnsubscribed: true, emailUnsubscribedAt: new Date() },
+      });
+    }
+
+    // Log the unsubscribe on the recipient record
+    await prisma.campaignRecipient.update({
+      where: { id: rid },
+      data: { status: 'unsubscribed' },
+    });
+
+    const name = recipient.customer?.name || recipient.recipientName || '';
+    res.send(html(
+      'הוסרת בהצלחה מרשימת התפוצה',
+      `${name ? `שלום ${name},<br><br>` : ''}הוסרת מרשימת התפוצה שלנו ולא תקבל מיילים שיווקיים בעתיד.<br><br>אם הוסרת בטעות, פנה אלינו בכתובת info@hai.tech`
+    ));
+  } catch (err) {
+    console.error('Unsubscribe error:', err);
+    res.status(500).send(html('שגיאה', 'אירעה שגיאה. נסה שוב מאוחר יותר.', '#ef4444'));
+  }
+});
+
+/**
+ * GET /api/campaigns/track/open/:campaignId/:recipientId
+ * Email open tracking — records first open, returns a 1×1 transparent GIF
+ */
+campaignsRouter.get('/track/open/:campaignId/:recipientId', async (req: Request, res: Response) => {
+  const { campaignId, recipientId } = req.params;
+  // 1×1 transparent GIF
+  const pixel = Buffer.from(
+    'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+    'base64'
+  );
+  res.set('Content-Type', 'image/gif');
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.end(pixel);
+
+  // Fire-and-forget — don't block the response
+  prisma.campaignRecipient.updateMany({
+    where: { id: recipientId, campaignId, openedAt: null },
+    data: { openedAt: new Date() },
+  }).catch(err => console.error('Open tracking error:', err));
+});
+
 // ─── Protected Routes (auth required) ─────────────────────────────────────
 
 campaignsRouter.use(authenticate);
@@ -51,19 +138,62 @@ campaignsRouter.get('/', async (_req: Request, res: Response, next: NextFunction
       },
     });
 
-    // Add total click count per campaign
     const campaignIds = campaigns.map(c => c.id);
+
+    // Click counts
     const clickCounts = await prisma.campaignRecipient.groupBy({
       by: ['campaignId'],
       where: { campaignId: { in: campaignIds }, clickCount: { gt: 0 } },
       _sum: { clickCount: true },
     });
     const clickMap: Record<string, number> = {};
-    for (const cc of clickCounts) {
-      clickMap[cc.campaignId] = cc._sum.clickCount ?? 0;
-    }
+    for (const cc of clickCounts) clickMap[cc.campaignId] = cc._sum.clickCount ?? 0;
 
-    res.json(campaigns.map(c => ({ ...c, totalClicks: clickMap[c.id] ?? 0 })));
+    // Pending counts per campaign
+    const pendingCounts = await prisma.campaignRecipient.groupBy({
+      by: ['campaignId'],
+      where: { campaignId: { in: campaignIds }, status: 'pending' },
+      _count: { _all: true },
+    });
+    const pendingMap: Record<string, number> = {};
+    for (const p of pendingCounts) pendingMap[p.campaignId] = p._count._all;
+
+    // Sent today counts
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const sentToday = await prisma.campaignRecipient.groupBy({
+      by: ['campaignId'],
+      where: { campaignId: { in: campaignIds }, status: 'sent', sentAt: { gte: todayStart } },
+      _count: { _all: true },
+    });
+    const sentTodayMap: Record<string, number> = {};
+    for (const s of sentToday) sentTodayMap[s.campaignId] = s._count._all;
+
+    // Opened counts
+    const openedCounts = await prisma.campaignRecipient.groupBy({
+      by: ['campaignId'],
+      where: { campaignId: { in: campaignIds }, openedAt: { not: null } },
+      _count: { _all: true },
+    });
+    const openedMap: Record<string, number> = {};
+    for (const o of openedCounts) openedMap[o.campaignId] = o._count._all;
+
+    // Unsubscribed counts
+    const unsubscribedCounts = await prisma.campaignRecipient.groupBy({
+      by: ['campaignId'],
+      where: { campaignId: { in: campaignIds }, status: 'unsubscribed' },
+      _count: { _all: true },
+    });
+    const unsubscribedMap: Record<string, number> = {};
+    for (const u of unsubscribedCounts) unsubscribedMap[u.campaignId] = u._count._all;
+
+    res.json(campaigns.map(c => ({
+      ...c,
+      totalClicks: clickMap[c.id] ?? 0,
+      pendingCount: pendingMap[c.id] ?? 0,
+      sentTodayCount: sentTodayMap[c.id] ?? 0,
+      openedCount: openedMap[c.id] ?? 0,
+      unsubscribedCount: unsubscribedMap[c.id] ?? 0,
+    })));
   } catch (err) {
     next(err);
   }
@@ -296,49 +426,71 @@ campaignsRouter.post('/:id/test-send', async (req: Request, res: Response, next:
 campaignsRouter.post('/:id/send', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const campaignId = req.params.id;
-    const { scheduledAt } = req.body;
+    const { scheduledAt, dailyLimit } = req.body as { scheduledAt?: string; dailyLimit?: number };
 
     const campaign = await prisma.campaign.findUniqueOrThrow({
       where: { id: campaignId },
+      include: { _count: { select: { recipients: { where: { status: 'pending' } } } } },
     });
 
-    if (campaign.status !== 'draft' && campaign.status !== 'scheduled') {
-      res.status(400).json({ error: 'Campaign already sent or in progress' });
+    const pendingCount = (campaign as any)._count?.recipients ?? 0;
+
+    // Allow re-sending if there are still pending recipients (daily batch mode)
+    const isResend = pendingCount > 0 && campaign.status !== 'draft' && campaign.status !== 'scheduled';
+    if (!isResend && campaign.status !== 'draft' && campaign.status !== 'scheduled') {
+      res.status(400).json({ error: 'No pending recipients to send' });
       return;
     }
 
-    const filters = campaign.audienceFilters as AudienceFilters;
-    const audience = await resolveAudience(filters);
+    if (!isResend) {
+      // First send: build audience → create recipients
+      const filters = campaign.audienceFilters as AudienceFilters;
 
-    // Build recipients
-    await prisma.campaignRecipient.createMany({
-      data: audience.recipients.map(r => ({
-        campaignId,
-        customerId: r.customerId,
-        phone: r.phone,
-        email: r.email,
-        status: 'pending',
-      })),
-      skipDuplicates: true,
-    });
+      // Auto-enforce contact requirement based on channel:
+      // email-only → must have email, whatsapp-only → must have phone
+      if (campaign.channel === 'email') {
+        filters.hasEmail = true;
+      } else if (campaign.channel === 'whatsapp') {
+        filters.hasPhone = true;
+      }
 
-    await prisma.campaign.update({
-      where: { id: campaignId },
-      data: { recipientCount: audience.count },
-    });
+      const audience = await resolveAudience(filters);
+
+      await prisma.campaignRecipient.createMany({
+        data: audience.recipients.map(r => {
+          const isAnon = r.customerId.startsWith('file:');
+          return {
+            campaignId,
+            customerId: isAnon ? null : r.customerId,
+            recipientName: isAnon ? r.customerName : null,
+            phone: r.phone,
+            email: r.email,
+            status: 'pending',
+          };
+        }),
+        skipDuplicates: true,
+      });
+
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { recipientCount: audience.count },
+      });
+    }
+
+    const batchSize = dailyLimit ?? undefined;
 
     if (scheduledAt) {
       await prisma.campaign.update({
         where: { id: campaignId },
         data: { status: 'scheduled', scheduledAt: new Date(scheduledAt) },
       });
-      res.json({ status: 'scheduled', scheduledAt, recipientCount: audience.count });
+      res.json({ status: 'scheduled', scheduledAt });
     } else {
-      // Fire-and-forget sending
-      sendCampaign(campaignId).catch(err => {
+      // Fire-and-forget sending with optional daily limit
+      sendCampaign(campaignId, batchSize).catch(err => {
         console.error(`Campaign ${campaignId} send error:`, err);
       });
-      res.json({ status: 'sending', recipientCount: audience.count });
+      res.json({ status: 'sending', dailyLimit: batchSize ?? null, pendingBefore: pendingCount });
     }
   } catch (err) {
     next(err);

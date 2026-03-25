@@ -7,7 +7,7 @@ import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import Modal from '../components/ui/Modal';
 import { CourseMaterials } from '../components/CourseMaterials';
-import { meetingStatusHebrew, dayOfWeekHebrew } from '../types';
+import { meetingStatusHebrew, dayOfWeekHebrew, cycleStatusHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
 export default function InstructorDashboard() {
@@ -106,7 +106,12 @@ export default function InstructorDashboard() {
   // This ensures the active cycle always appears even if its meetings are beyond the pagination limit
   const cycles = useMemo(() => {
     if (allCyclesData && Array.isArray(allCyclesData) && allCyclesData.length > 0) {
-      return allCyclesData.map((c: any) => ({ id: c.id, name: c.name }));
+      return allCyclesData.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        status: c.status,
+        totalMeetings: c.totalMeetings ?? null,
+      }));
     }
     // Fallback: derive from loaded meetings (legacy behavior)
     if (!meetings || !Array.isArray(meetings)) return [];
@@ -116,7 +121,7 @@ export default function InstructorDashboard() {
         seen.set(m.cycle.id, m.cycle.name);
       }
     });
-    return Array.from(seen.entries()).map(([id, name]) => ({ id, name }));
+    return Array.from(seen.entries()).map(([id, name]) => ({ id, name, status: undefined, totalMeetings: null }));
   }, [allCyclesData, meetings]);
 
   // Filter meetings by cycle
@@ -127,12 +132,15 @@ export default function InstructorDashboard() {
   }, [meetings, cycleFilter]);
 
   const stats = useMemo(() => {
+    // When a specific cycle is selected, "total" = cycle's configured totalMeetings (not the DB count)
+    const selectedCycle = cycleFilter !== 'all' ? cycles.find(c => c.id === cycleFilter) : null;
+    const total = selectedCycle?.totalMeetings ?? filteredMeetings.length;
     return {
-      total: filteredMeetings.length,
+      total,
       completed: filteredMeetings.filter(m => m.status === 'completed').length,
       pending: filteredMeetings.filter(m => m.status === 'scheduled').length,
     };
-  }, [filteredMeetings]);
+  }, [filteredMeetings, cycleFilter, cycles]);
 
   if (isLoading) {
     return <Loading size="lg" text="טוען פגישות..." />;
@@ -208,7 +216,9 @@ export default function InstructorDashboard() {
             >
               <option value="all">כל המחזורים</option>
               {cycles.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
+                <option key={c.id} value={c.id}>
+                  {c.name}{c.status ? ` (${cycleStatusHebrew[c.status as keyof typeof cycleStatusHebrew] ?? c.status})` : ''}
+                </option>
               ))}
             </select>
           </div>

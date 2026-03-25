@@ -894,8 +894,12 @@ router.get('/templates', authenticate, async (req: Request, res: Response) => {
         headers: { Authorization: `Bearer ${ACCESS_TOKEN}` }
       }
     );
-    const approved = (resp.data.data || []).filter((t: any) => t.status === 'APPROVED');
-    res.json(approved);
+    // Sort: APPROVED first, then PENDING, then others
+    const all = (resp.data.data || []).sort((a: any, b: any) => {
+      const order: Record<string, number> = { APPROVED: 0, PENDING: 1, REJECTED: 2 };
+      return (order[a.status] ?? 3) - (order[b.status] ?? 3);
+    });
+    res.json(all);
   } catch (err: any) {
     console.error('[WA] Templates fetch error:', err.response?.data || err.message);
     res.status(500).json({ error: 'Failed to fetch templates' });

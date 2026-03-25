@@ -118,6 +118,7 @@ function AppRoutes() {
       <Route path="/reset-password/:token" element={<ResetPassword />} />
       <Route path="/public/quote/:id" element={<PublicQuoteView />} />
       <Route path="/cancel/:token" element={<PublicCancelForm />} />
+      <Route path="/public/cancel/:token" element={<PublicCancelForm />} />
       <Route path="/campaign/:campaignId" element={<CampaignLanding />} />
       <Route path="/pay/:token" element={<PayPage />} />
       <Route path="/m/:meetingId/:token" element={<MeetingStatus />} />

@@ -7,6 +7,7 @@ import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
 import { handleStatusReply } from '../services/whatsapp-reminder.service.js';
 import { logAudit } from '../utils/audit.js';
 import { initiateVapiCall } from '../services/vapi.js';
+import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
 import rateLimit from 'express-rate-limit';
 
 // Rate limiter for public lead submission endpoint
@@ -529,6 +530,12 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       phone: customer.phone,
       email: customer.email,
     }).catch(err => console.error('[WEBHOOK] Failed to send welcome notifications:', err));
+
+    // Auto-send WhatsApp welcome template to new leads (feature flag gated)
+    if (customer.phone) {
+      sendLeadWelcomeTemplate(customer.phone, customer.name)
+        .catch(err => console.error('[WEBHOOK] welcome template error:', err));
+    }
 
     // Notify admin about new lead
     notifyAdminNewLead({

@@ -35,12 +35,26 @@ const formatDateHebrew = (date: Date): string => {
   });
 };
 
+// ⚠️ DO NOT use this for @db.Time fields (meeting.startTime / meeting.endTime).
+// @db.Time values from Prisma arrive as UTC-epoch Dates (e.g. 1970-01-01T17:30:00Z).
+// Calling toLocaleTimeString with timeZone:'Asia/Jerusalem' adds the UTC+2/+3 offset
+// and displays 17:30 as 19:30 — wrong!
+// Use formatDbTime() below for @db.Time columns.
 const formatTimeHebrew = (date: Date): string => {
   return date.toLocaleTimeString('he-IL', {
     hour: '2-digit',
     minute: '2-digit',
     timeZone: TZ,
   });
+};
+
+// Format a @db.Time field (time without time zone) correctly.
+// Prisma returns these as UTC-epoch Dates; use UTC getters to read the stored time as-is.
+const formatDbTime = (date: Date | null | undefined): string => {
+  if (!date) return '';
+  const h = date.getUTCHours().toString().padStart(2, '0');
+  const m = date.getUTCMinutes().toString().padStart(2, '0');
+  return `${h}:${m}`;
 };
 
 // Get start-of-day and end-of-day in Israel timezone (returns UTC Date objects for DB queries)
@@ -118,7 +132,7 @@ const sendInstructorReminders = async () => {
         instructorName: instructor.name,
         className: meeting.cycle.course.name,
         date: formatDateHebrew(meeting.scheduledDate),
-        time: meeting.startTime ? formatTimeHebrew(meeting.startTime as unknown as Date) : '',
+        time: meeting.startTime ? formatDbTime(meeting.startTime as unknown as Date) : '',
         location: meeting.cycle.branch?.name || 'אונליין',
         studentCount: meeting.cycle.registrations.length,
         zoomLink: meeting.zoomJoinUrl || undefined,
@@ -194,7 +208,7 @@ const sendParentReminders = async () => {
           studentName: student.name,
           className: meeting.cycle.course.name,
           date: formatDateHebrew(meeting.scheduledDate),
-          time: meeting.startTime ? formatTimeHebrew(meeting.startTime as unknown as Date) : '',
+          time: meeting.startTime ? formatDbTime(meeting.startTime as unknown as Date) : '',
           location: meeting.cycle.branch?.name || 'אונליין',
           instructorName: meeting.cycle.instructor?.name || 'צוות HaiTech',
           isOnline,

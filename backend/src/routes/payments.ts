@@ -578,6 +578,11 @@ router.get('/today', authenticate, async (req: any, res) => {
     return res.status(403).json({ error: 'אין הרשאה' });
   }
 
+  // Prevent Cloudflare / any proxy from caching this dynamic endpoint
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Surrogate-Control', 'no-store');
+
   // Israel time — UTC+2 (or UTC+3 DST, but safe to use fixed +2 for day boundaries)
   const now = new Date();
   const israelOffset = 2 * 60 * 60 * 1000; // UTC+2

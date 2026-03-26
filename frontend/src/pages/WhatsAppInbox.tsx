@@ -147,7 +147,15 @@ export default function WhatsAppInbox() {
   const [templateVars, setTemplateVars] = useState<string[]>([]);
   const [expandedTemplate, setExpandedTemplate] = useState<string | null>(null);
   // Top-level view mode
-  const [viewMode, setViewMode] = useState<'inbox' | 'templates' | 'callbacks' | 'bot-settings'>('inbox');
+  const [viewMode, setViewMode] = useState<'inbox' | 'templates' | 'callbacks' | 'bot-settings' | 'broadcast'>('inbox');
+  // Broadcast state
+  const [broadcastTemplate, setBroadcastTemplate] = useState<WaTemplate | null>(null);
+  const [broadcastRecipients, setBroadcastRecipients] = useState<{phone: string; name: string; cycleId?: string; cycleName?: string}[]>([]);
+  const [broadcastSelected, setBroadcastSelected] = useState<Set<string>>(new Set());
+  const [broadcastLoading, setBroadcastLoading] = useState(false);
+  const [broadcastSending, setBroadcastSending] = useState(false);
+  const [broadcastResults, setBroadcastResults] = useState<{sent: number; failed: number; results: any[]} | null>(null);
+  const [broadcastPhoneId, setBroadcastPhoneId] = useState<string>('');
   // Bot settings
   const [botSystemPrompt, setBotSystemPrompt] = useState('');
   const [botKnowledgeBase, setBotKnowledgeBase] = useState('');
@@ -307,6 +315,78 @@ export default function WhatsAppInbox() {
     await api(`/callbacks/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'done' }) });
     setCallbackRequests(prev => prev.map(r => r.id === id ? { ...r, status: 'done' } : r));
     setCallbackPending(prev => Math.max(0, prev - 1));
+  };
+
+  const loadBroadcastRecipients = useCallback(async () => {
+    setBroadcastLoading(true);
+    try {
+      // Fetch registrations with active cycles (uses /api directly, not /api/wa)
+      const fetchApi = async (path: string) => {
+        const res = await fetch(`/api${path}`, { headers: authHeaders() });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      };
+      const [r1, r2] = await Promise.all([
+        fetchApi('/registrations?limit=2000&status=active'),
+        fetchApi('/registrations?limit=2000&status=registered'),
+      ]);
+      const regs = [...(r1?.data || r1 || []), ...(r2?.data || r2 || [])];
+      const seen = new Set<string>();
+      const recipients: {phone: string; name: string; cycleName?: string}[] = [];
+      for (const reg of regs) {
+        const cust = reg.student?.customer;
+        if (!cust?.phone || !cust?.id) continue;
+        if (reg.cycle?.status !== 'active') continue;
+        if (seen.has(cust.id)) continue;
+        seen.add(cust.id);
+        // Normalize phone to 972XXXXXXXXX
+        const rawPhone = cust.phone.replace(/[^0-9]/g, '');
+        const phone = rawPhone.startsWith('0') ? '972' + rawPhone.slice(1) : rawPhone;
+        recipients.push({ phone, name: cust.name || '', cycleName: reg.cycle?.name });
+      }
+      setBroadcastRecipients(recipients);
+      setBroadcastSelected(new Set(recipients.map(r => r.phone)));
+    } catch (e) {
+      console.error('Failed to load broadcast recipients', e);
+    } finally {
+      setBroadcastLoading(false);
+    }
+  }, []);
+
+  const sendBroadcast = async () => {
+    if (!broadcastTemplate || broadcastSelected.size === 0) return;
+    setBroadcastSending(true);
+    setBroadcastResults(null);
+    try {
+      const recipients = broadcastRecipients
+        .filter(r => broadcastSelected.has(r.phone))
+        .map(r => ({ phone: r.phone, name: r.name }));
+
+      // Build components for image header if applicable
+      const headerComp = (broadcastTemplate.components as any[])?.find((c) => c.type === 'HEADER' && c.format === 'IMAGE');
+      const components = headerComp ? [{
+        type: 'header',
+        parameters: [{ type: 'image', image: { link: (headerComp.example?.header_handle?.[0]) || '' } }]
+      }] : [];
+
+      const data = await api('/broadcast', {
+        method: 'POST',
+        body: JSON.stringify({
+          templateName: broadcastTemplate.name,
+          language: broadcastTemplate.language || 'he',
+          components,
+          phoneNumberId: broadcastPhoneId || activePhones[0]?.phoneNumberId,
+          recipients,
+          delayMs: 4000,
+          previewText: broadcastTemplate.components?.find((c: any) => c.type === 'BODY')?.text?.slice(0, 100)
+        })
+      });
+      setBroadcastResults(data);
+    } catch (e) {
+      console.error('Broadcast failed', e);
+    } finally {
+      setBroadcastSending(false);
+    }
   };
 
   const loadBotConfig = useCallback(async () => {
@@ -555,6 +635,14 @@ export default function WhatsAppInbox() {
           {callbackPending > 0 && (
             <span className="bg-orange-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">{callbackPending}</span>
           )}
+        </button>
+
+        {/* Broadcast tab */}
+        <button
+          onClick={() => { setViewMode('broadcast'); if (broadcastRecipients.length === 0) loadBroadcastRecipients(); if (templates.length === 0) loadTemplates(); }}
+          className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'broadcast' ? 'border-red-500 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          📢 Broadcast
         </button>
 
         {/* Bot Settings tab — admin only */}
@@ -917,6 +1005,114 @@ export default function WhatsAppInbox() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Broadcast View ── */}
+      {viewMode === 'broadcast' && (
+        <div className="flex-1 overflow-y-auto p-6" dir="rtl">
+          <div className="max-w-3xl mx-auto space-y-6">
+            <h2 className="text-xl font-bold text-gray-800">📢 Broadcast — שליחה מרובה</h2>
+
+            {/* Step 1: Choose template */}
+            <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
+              <h3 className="font-semibold text-gray-700 text-sm">1. בחר תבנית</h3>
+              <div className="flex gap-3 items-center flex-wrap">
+                <select
+                  value={broadcastTemplate?.name || ''}
+                  onChange={e => setBroadcastTemplate(templates.find(t => t.name === e.target.value) || null)}
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300 min-w-[240px]"
+                >
+                  <option value="">-- בחר תבנית --</option>
+                  {templates.filter(t => t.status === 'APPROVED').map(t => (
+                    <option key={t.name} value={t.name}>{t.name}</option>
+                  ))}
+                </select>
+                {activePhones.length > 1 && (
+                  <select
+                    value={broadcastPhoneId}
+                    onChange={e => setBroadcastPhoneId(e.target.value)}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+                    dir="ltr"
+                  >
+                    {activePhones.map(p => (
+                      <option key={p.phoneNumberId} value={p.phoneNumberId}>{p.label}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              {broadcastTemplate && (
+                <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700 whitespace-pre-wrap">
+                  {broadcastTemplate.components?.find((c: any) => c.type === 'BODY')?.text || '—'}
+                </div>
+              )}
+            </div>
+
+            {/* Step 2: Recipients */}
+            <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-gray-700 text-sm">2. נמענים</h3>
+                <div className="flex gap-2 items-center">
+                  <span className="text-xs text-gray-500">נבחרו {broadcastSelected.size} מתוך {broadcastRecipients.length}</span>
+                  <button onClick={() => setBroadcastSelected(new Set(broadcastRecipients.map(r => r.phone)))} className="text-xs text-blue-500 hover:underline">בחר הכל</button>
+                  <button onClick={() => setBroadcastSelected(new Set())} className="text-xs text-gray-400 hover:underline">נקה</button>
+                  <button onClick={loadBroadcastRecipients} disabled={broadcastLoading} className="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded-lg">
+                    {broadcastLoading ? '...' : '🔄 טען'}
+                  </button>
+                </div>
+              </div>
+              {broadcastLoading ? (
+                <div className="text-sm text-gray-400 text-center py-4">טוען נמענים...</div>
+              ) : (
+                <div className="max-h-64 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-50">
+                  {broadcastRecipients.map(r => (
+                    <label key={r.phone} className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm">
+                      <input
+                        type="checkbox"
+                        checked={broadcastSelected.has(r.phone)}
+                        onChange={e => {
+                          const next = new Set(broadcastSelected);
+                          e.target.checked ? next.add(r.phone) : next.delete(r.phone);
+                          setBroadcastSelected(next);
+                        }}
+                        className="accent-red-500"
+                      />
+                      <span className="flex-1 font-medium text-gray-800">{r.name || '—'}</span>
+                      <span className="text-gray-400 font-mono text-xs" dir="ltr">{r.phone}</span>
+                      {r.cycleName && <span className="text-xs text-gray-400 truncate max-w-[160px]">{r.cycleName}</span>}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Step 3: Send */}
+            <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
+              <h3 className="font-semibold text-gray-700 text-sm">3. שלח</h3>
+              <p className="text-xs text-gray-500">ישלחו {broadcastSelected.size} הודעות בפרש 4 שניות בין כל שליחה. ההודעות יתועדו בשיחות CRM.</p>
+              <button
+                onClick={sendBroadcast}
+                disabled={broadcastSending || !broadcastTemplate || broadcastSelected.size === 0}
+                className="flex items-center gap-2 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white px-6 py-2.5 rounded-xl font-medium text-sm transition-colors"
+              >
+                {broadcastSending ? '⏳ שולח...' : `📢 שלח ל-${broadcastSelected.size} אנשים`}
+              </button>
+
+              {/* Results */}
+              {broadcastResults && (
+                <div className={`p-3 rounded-lg text-sm ${broadcastResults.failed === 0 ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'}`}>
+                  ✅ הצליח: {broadcastResults.sent} &nbsp;|&nbsp; ❌ נכשל: {broadcastResults.failed}
+                  {broadcastResults.failed > 0 && (
+                    <div className="mt-2 text-xs space-y-1">
+                      {broadcastResults.results.filter((r: any) => r.status === 'failed').map((r: any) => (
+                        <div key={r.phone}>{r.phone}: {r.error}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

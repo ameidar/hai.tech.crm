@@ -150,6 +150,7 @@ export default function WhatsAppInbox() {
   const [viewMode, setViewMode] = useState<'inbox' | 'templates' | 'callbacks' | 'bot-settings' | 'broadcast'>('inbox');
   // Broadcast state
   const [broadcastTemplate, setBroadcastTemplate] = useState<WaTemplate | null>(null);
+  const [broadcastTemplates, setBroadcastTemplates] = useState<WaTemplate[]>([]);
   const [broadcastRecipients, setBroadcastRecipients] = useState<{phone: string; name: string; cycleId?: string; cycleName?: string}[]>([]);
   const [broadcastSelected, setBroadcastSelected] = useState<Set<string>>(new Set());
   const [broadcastLoading, setBroadcastLoading] = useState(false);
@@ -317,6 +318,24 @@ export default function WhatsAppInbox() {
     setCallbackPending(prev => Math.max(0, prev - 1));
   };
 
+  const loadBroadcastTemplates = useCallback(async (phoneNumberId?: string) => {
+    try {
+      const pid = phoneNumberId || broadcastPhoneId || activePhones[0]?.phoneNumberId || '';
+      const qs = pid ? `?phoneNumberId=${pid}` : '';
+      const data = await api(`/templates${qs}`);
+      setBroadcastTemplates(Array.isArray(data) ? data : []);
+      setBroadcastTemplate(null); // reset selection when phone changes
+    } catch (e) {
+      console.error('Failed to load broadcast templates', e);
+    }
+  }, [broadcastPhoneId, activePhones]);
+
+  // Reload templates when phone selector changes in broadcast tab
+  const handleBroadcastPhoneChange = (phoneId: string) => {
+    setBroadcastPhoneId(phoneId);
+    loadBroadcastTemplates(phoneId);
+  };
+
   const loadBroadcastRecipients = useCallback(async () => {
     setBroadcastLoading(true);
     try {
@@ -378,7 +397,7 @@ export default function WhatsAppInbox() {
           phoneNumberId: broadcastPhoneId || activePhones[0]?.phoneNumberId,
           recipients,
           delayMs: 4000,
-          previewText: broadcastTemplate.components?.find((c: any) => c.type === 'BODY')?.text?.slice(0, 100)
+          previewText: (broadcastTemplate.components as any[])?.find((c: any) => c.type === 'BODY')?.text?.slice(0, 100)
         })
       });
       setBroadcastResults(data);
@@ -639,7 +658,7 @@ export default function WhatsAppInbox() {
 
         {/* Broadcast tab */}
         <button
-          onClick={() => { setViewMode('broadcast'); if (broadcastRecipients.length === 0) loadBroadcastRecipients(); if (templates.length === 0) loadTemplates(); }}
+          onClick={() => { setViewMode('broadcast'); if (broadcastRecipients.length === 0) loadBroadcastRecipients(); if (broadcastTemplates.length === 0) loadBroadcastTemplates(); }}
           className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'broadcast' ? 'border-red-500 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
         >
           📢 Broadcast
@@ -1018,20 +1037,10 @@ export default function WhatsAppInbox() {
             <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
               <h3 className="font-semibold text-gray-700 text-sm">1. בחר תבנית</h3>
               <div className="flex gap-3 items-center flex-wrap">
-                <select
-                  value={broadcastTemplate?.name || ''}
-                  onChange={e => setBroadcastTemplate(templates.find(t => t.name === e.target.value) || null)}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300 min-w-[240px]"
-                >
-                  <option value="">-- בחר תבנית --</option>
-                  {templates.filter(t => t.status === 'APPROVED').map(t => (
-                    <option key={t.name} value={t.name}>{t.name}</option>
-                  ))}
-                </select>
                 {activePhones.length > 1 && (
                   <select
-                    value={broadcastPhoneId}
-                    onChange={e => setBroadcastPhoneId(e.target.value)}
+                    value={broadcastPhoneId || activePhones[0]?.phoneNumberId || ''}
+                    onChange={e => handleBroadcastPhoneChange(e.target.value)}
                     className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
                     dir="ltr"
                   >
@@ -1040,6 +1049,16 @@ export default function WhatsAppInbox() {
                     ))}
                   </select>
                 )}
+                <select
+                  value={broadcastTemplate?.name || ''}
+                  onChange={e => setBroadcastTemplate(broadcastTemplates.find(t => t.name === e.target.value) || null)}
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300 min-w-[240px]"
+                >
+                  <option value="">-- בחר תבנית --</option>
+                  {broadcastTemplates.filter(t => t.status === 'APPROVED').map(t => (
+                    <option key={t.name} value={t.name}>{t.name}</option>
+                  ))}
+                </select>
               </div>
               {broadcastTemplate && (
                 <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700 whitespace-pre-wrap">

@@ -993,6 +993,113 @@ router.post('/send-template', authenticate, async (req: Request, res: Response) 
   }
 });
 
+// ── POST /api/wa/broadcast — Send template to multiple recipients + log in CRM
+router.post('/broadcast', authenticate, async (req: Request, res: Response) => {
+  try {
+    const {
+      templateName,
+      language = 'he',
+      components = [],
+      phoneNumberId: reqPhoneNumberId,
+      recipients,   // [{ phone: '972XXXXXXXXX', name?: string }]
+      delayMs = 4000,
+      previewText
+    } = req.body;
+
+    if (!templateName || !Array.isArray(recipients) || recipients.length === 0) {
+      return res.status(400).json({ error: 'templateName and recipients[] are required' });
+    }
+
+    const phoneNumId = reqPhoneNumberId || PHONE_NUMBER_ID;
+    const bizPhone = ACTIVE_PHONES.find(p => p.phoneNumberId === phoneNumId)?.businessPhone || null;
+    const token = ACCESS_TOKEN;
+
+    const results: { phone: string; name?: string; status: 'sent' | 'failed'; waMessageId?: string; error?: string }[] = [];
+
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+    for (let i = 0; i < recipients.length; i++) {
+      const { phone, name } = recipients[i];
+      if (i > 0) await sleep(delayMs);
+
+      let waId: string | null = null;
+      try {
+        // Send template via Meta API
+        const resp = await axios.post(
+          `${WA_API_URL}/${phoneNumId}/messages`,
+          {
+            messaging_product: 'whatsapp',
+            to: phone,
+            type: 'template',
+            template: {
+              name: templateName,
+              language: { code: language },
+              ...(components.length > 0 && { components })
+            }
+          },
+          { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+        );
+        waId = resp.data?.messages?.[0]?.id || null;
+      } catch (err: any) {
+        const errMsg = err.response?.data?.error?.message || err.message;
+        console.error(`[WA Broadcast] Failed to send to ${phone}:`, errMsg);
+        results.push({ phone, name, status: 'failed', error: errMsg });
+        continue;
+      }
+
+      // Find or create conversation
+      let conv = await prisma.waConversation.findFirst({
+        where: { phone, phoneNumberId: phoneNumId }
+      });
+      if (!conv) {
+        conv = await prisma.waConversation.create({
+          data: {
+            phone,
+            contactName: name || null,
+            status: 'open',
+            businessPhone: bizPhone,
+            phoneNumberId: phoneNumId,
+            lastMessageAt: new Date(),
+            lastMessagePreview: previewText?.slice(0, 100) || `[תבנית: ${templateName}]`
+          }
+        });
+      }
+
+      // Log message
+      const content = previewText || `[תבנית: ${templateName}]`;
+      await prisma.waMessage.create({
+        data: {
+          conversationId: conv.id,
+          direction: 'outbound',
+          content,
+          waMessageId: waId || undefined,
+          status: 'sent',
+          isAiGenerated: false
+        }
+      });
+
+      await prisma.waConversation.update({
+        where: { id: conv.id },
+        data: {
+          lastMessageAt: new Date(),
+          lastMessagePreview: content.slice(0, 100),
+          updatedAt: new Date()
+        }
+      });
+
+      results.push({ phone, name, status: 'sent', waMessageId: waId || undefined });
+    }
+
+    const sent = results.filter(r => r.status === 'sent').length;
+    const failed = results.filter(r => r.status === 'failed').length;
+    console.log(`[WA Broadcast] Done — sent: ${sent}, failed: ${failed}`);
+    res.json({ sent, failed, results });
+  } catch (err) {
+    console.error('[WA] broadcast error:', err);
+    res.status(500).json({ error: 'Broadcast failed' });
+  }
+});
+
 // ── GET /api/wa/phones — List active WhatsApp phone numbers
 router.get('/phones', authenticate, (_req: Request, res: Response) => {
   res.json(ACTIVE_PHONES.filter(p => p.phoneNumberId));

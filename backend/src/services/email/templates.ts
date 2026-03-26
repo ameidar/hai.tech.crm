@@ -42,10 +42,16 @@ export interface ManagementSummaryData {
   cancelledClasses: number;
   totalStudents: number;
   attendanceRate: number;
-  // Financial
+  // Financial — from meetings
   totalRevenue?: number;
   totalInstructorPayment?: number;
   totalProfit?: number;
+  // WooCommerce payments (digital courses, Passover camp, private courses)
+  wooPayments?: {
+    count: number;
+    total: number;
+    payments: Array<{ customerName: string; amount: number; description: string }>;
+  };
   // Insights
   insights?: string[];
   upcomingClasses: Array<{
@@ -198,6 +204,8 @@ export const managementSummaryTemplate = (data: ManagementSummaryData): string =
   ${baseStyles}
   <style>
     .financial-box { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin: 20px 0; }
+    .woo-box { background: #faf5ff; border: 1px solid #e9d5ff; border-radius: 8px; padding: 20px; margin: 20px 0; }
+    .woo-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f3e8ff; font-size: 14px; }
     .financial-grid { display: flex; gap: 12px; flex-wrap: wrap; }
     .financial-item { flex: 1; min-width: 140px; background: white; border-radius: 6px; padding: 14px; text-align: center; border: 1px solid #e5e7eb; }
     .financial-item .label { font-size: 12px; color: #6b7280; margin-bottom: 6px; }
@@ -249,6 +257,28 @@ export const managementSummaryTemplate = (data: ManagementSummaryData): string =
         <p style="font-size:12px;color:#6b7280;margin:10px 0 0">
           ממוצע הכנסה לשיעור: ${data.completedClasses > 0 ? formatCurrency(Math.round(data.totalRevenue! / data.completedClasses)) : '—'}
         </p>
+      </div>
+      ` : ''}
+
+      ${data.wooPayments && data.wooPayments.count > 0 ? `
+      <h2>🛒 רכישות אונליין היום (${data.wooPayments.count})</h2>
+      <div class="woo-box">
+        <div class="financial-grid" style="margin-bottom:14px">
+          <div class="financial-item">
+            <div class="label">מספר רכישות</div>
+            <div class="value revenue">${data.wooPayments.count}</div>
+          </div>
+          <div class="financial-item">
+            <div class="label">סה"כ הכנסות אונליין</div>
+            <div class="value revenue">${formatCurrency(data.wooPayments.total)}</div>
+          </div>
+        </div>
+        ${data.wooPayments.payments.map(p => `
+        <div class="woo-row">
+          <span>${p.customerName}</span>
+          <span style="color:#6b7280;font-size:13px">${p.description}</span>
+          <span style="font-weight:bold;color:#7c3aed">${formatCurrency(p.amount)}</span>
+        </div>`).join('')}
       </div>
       ` : ''}
 

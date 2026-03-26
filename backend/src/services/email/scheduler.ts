@@ -305,7 +305,7 @@ const sendManagementSummary = async () => {
       ? Math.round((attendanceRecords / totalExpectedAttendance) * 100) 
       : 0;
 
-    // Fetch financial data for today
+    // Fetch financial data for today (from meetings)
     const financialData = await prisma.meeting.aggregate({
       where: {
         scheduledDate: { gte: today, lt: tomorrow },
@@ -320,8 +320,39 @@ const sendManagementSummary = async () => {
     const totalRevenue = Number(financialData._sum.revenue ?? 0);
     const totalInstructorPayment = Number(financialData._sum.instructorPayment ?? 0);
     const totalProfit = Number(financialData._sum.profit ?? 0);
-    const profitMargin = totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0;
     const revenuePerClass = completedMeetings > 0 ? Math.round(totalRevenue / completedMeetings) : 0;
+
+    // Fetch WooCommerce payments for today (digital courses, Passover camp, private purchases)
+    const israelOffset = 2 * 60 * 60 * 1000;
+    const israelNow = new Date(Date.now() + israelOffset);
+    const todayStr = israelNow.toISOString().slice(0, 10);
+    const dayStart = new Date(`${todayStr}T00:00:00.000+02:00`);
+    const dayEnd = new Date(`${todayStr}T23:59:59.999+02:00`);
+
+    const wooPaymentsRaw = await prisma.payment.findMany({
+      where: {
+        status: 'paid',
+        paidAt: { gte: dayStart, lte: dayEnd },
+      },
+      orderBy: { paidAt: 'desc' },
+      select: { customerName: true, amount: true, description: true },
+    });
+
+    const wooTotal = wooPaymentsRaw.reduce((sum, p) => sum + Number(p.amount), 0);
+    const wooPayments = wooPaymentsRaw.length > 0 ? {
+      count: wooPaymentsRaw.length,
+      total: wooTotal,
+      payments: wooPaymentsRaw.map(p => ({
+        customerName: p.customerName,
+        amount: Number(p.amount),
+        description: p.description,
+      })),
+    } : undefined;
+
+    // Combined totals (meetings + online purchases)
+    const combinedRevenue = totalRevenue + wooTotal;
+    const combinedProfit = totalProfit + wooTotal; // online purchases are 100% profit (no instructor cost)
+    const profitMargin = combinedRevenue > 0 ? Math.round((combinedProfit / combinedRevenue) * 100) : 0;
 
     // Build alerts
     const alerts: string[] = [];
@@ -346,7 +377,11 @@ const sendManagementSummary = async () => {
       insights.push(`👍 נוכחות טובה — ${attendanceRate}%. יש מקום לשיפור קל.`);
     }
     if (profitMargin > 0) {
-      insights.push(`💰 מרווח רווח של ${profitMargin}% — ממוצע ₪${revenuePerClass.toLocaleString('he-IL')} לשיעור.`);
+      const combinedNote = wooTotal > 0 ? ` (כולל ₪${wooTotal.toLocaleString('he-IL')} מרכישות אונליין)` : '';
+      insights.push(`💰 מרווח רווח של ${profitMargin}%${combinedNote} — ממוצע ₪${revenuePerClass.toLocaleString('he-IL')} לשיעור.`);
+    }
+    if (wooTotal > 0 && completedMeetings === 0) {
+      insights.push(`🛒 ${wooPaymentsRaw.length} רכישות אונליין היום — סה"כ ₪${wooTotal.toLocaleString('he-IL')}.`);
     }
     if (postponedMeetings > 0) {
       const lostRevenue = Math.round(revenuePerClass * postponedMeetings);
@@ -363,9 +398,10 @@ const sendManagementSummary = async () => {
       cancelledClasses: cancelledMeetings,
       totalStudents: attendanceRecords,
       attendanceRate,
-      totalRevenue,
+      totalRevenue: combinedRevenue,
       totalInstructorPayment,
-      totalProfit,
+      totalProfit: combinedProfit,
+      wooPayments,
       insights,
       upcomingClasses: upcomingMeetings.map(m => ({
         name: m.cycle.course.name,

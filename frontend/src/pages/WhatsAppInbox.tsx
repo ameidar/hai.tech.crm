@@ -157,6 +157,7 @@ export default function WhatsAppInbox() {
   const [broadcastSending, setBroadcastSending] = useState(false);
   const [broadcastResults, setBroadcastResults] = useState<{sent: number; failed: number; results: any[]} | null>(null);
   const [broadcastPhoneId, setBroadcastPhoneId] = useState<string>('');
+  const [broadcastSegment, setBroadcastSegment] = useState<'active-cycle' | 'all-customers' | 'leads'>('active-cycle');
   // Bot settings
   const [botSystemPrompt, setBotSystemPrompt] = useState('');
   const [botKnowledgeBase, setBotKnowledgeBase] = useState('');
@@ -336,33 +337,66 @@ export default function WhatsAppInbox() {
     loadBroadcastTemplates(phoneId);
   };
 
-  const loadBroadcastRecipients = useCallback(async () => {
+  const loadBroadcastRecipients = useCallback(async (segment?: 'active-cycle' | 'all-customers' | 'leads') => {
     setBroadcastLoading(true);
+    const seg = segment || broadcastSegment;
     try {
-      // Fetch registrations with active cycles (uses /api directly, not /api/wa)
       const fetchApi = async (path: string) => {
         const res = await fetch(`/api${path}`, { headers: authHeaders() });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
       };
-      const [r1, r2] = await Promise.all([
-        fetchApi('/registrations?limit=2000&status=active'),
-        fetchApi('/registrations?limit=2000&status=registered'),
-      ]);
-      const regs = [...(r1?.data || r1 || []), ...(r2?.data || r2 || [])];
-      const seen = new Set<string>();
+
+      const normalize = (raw: string) => {
+        const d = raw.replace(/[^0-9]/g, '');
+        return d.startsWith('0') ? '972' + d.slice(1) : d;
+      };
+
       const recipients: {phone: string; name: string; cycleName?: string}[] = [];
-      for (const reg of regs) {
-        const cust = reg.student?.customer;
-        if (!cust?.phone || !cust?.id) continue;
-        if (reg.cycle?.status !== 'active') continue;
-        if (seen.has(cust.id)) continue;
-        seen.add(cust.id);
-        // Normalize phone to 972XXXXXXXXX
-        const rawPhone = cust.phone.replace(/[^0-9]/g, '');
-        const phone = rawPhone.startsWith('0') ? '972' + rawPhone.slice(1) : rawPhone;
-        recipients.push({ phone, name: cust.name || '', cycleName: reg.cycle?.name });
+      const seen = new Set<string>();
+
+      if (seg === 'active-cycle') {
+        const [r1, r2] = await Promise.all([
+          fetchApi('/registrations?limit=2000&status=active'),
+          fetchApi('/registrations?limit=2000&status=registered'),
+        ]);
+        for (const reg of [...(r1?.data || []), ...(r2?.data || [])]) {
+          const cust = reg.student?.customer;
+          if (!cust?.phone || !cust?.id || reg.cycle?.status !== 'active') continue;
+          if (seen.has(cust.id)) continue;
+          seen.add(cust.id);
+          recipients.push({ phone: normalize(cust.phone), name: cust.name || '', cycleName: reg.cycle?.name });
+        }
+      } else if (seg === 'all-customers') {
+        // Load all customers with phone, paginated
+        let page = 1;
+        while (true) {
+          const data = await fetchApi(`/customers?limit=5000&page=${page}`);
+          const items = data?.data || [];
+          for (const c of items) {
+            if (!c.phone || seen.has(c.id)) continue;
+            seen.add(c.id);
+            recipients.push({ phone: normalize(c.phone), name: c.name || '' });
+          }
+          if (!data?.pagination?.hasNext || recipients.length >= 5000) break;
+          page++;
+        }
+      } else if (seg === 'leads') {
+        let page = 1;
+        while (true) {
+          const data = await fetchApi(`/customers?limit=5000&page=${page}`);
+          const items = data?.data || [];
+          for (const c of items) {
+            if (!c.phone || seen.has(c.id)) continue;
+            if (c.leadStatus !== 'new' && c.leadStatus !== 'contacted') continue;
+            seen.add(c.id);
+            recipients.push({ phone: normalize(c.phone), name: c.name || '', cycleName: c.source || '' });
+          }
+          if (!data?.pagination?.hasNext || recipients.length >= 2000) break;
+          page++;
+        }
       }
+
       setBroadcastRecipients(recipients);
       setBroadcastSelected(new Set(recipients.map(r => r.phone)));
     } catch (e) {
@@ -370,7 +404,7 @@ export default function WhatsAppInbox() {
     } finally {
       setBroadcastLoading(false);
     }
-  }, []);
+  }, [broadcastSegment]);
 
   const sendBroadcast = async () => {
     if (!broadcastTemplate || broadcastSelected.size === 0) return;
@@ -1069,13 +1103,26 @@ export default function WhatsAppInbox() {
 
             {/* Step 2: Recipients */}
             <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <h3 className="font-semibold text-gray-700 text-sm">2. נמענים</h3>
-                <div className="flex gap-2 items-center">
+                <div className="flex gap-2 items-center flex-wrap">
+                  <select
+                    value={broadcastSegment}
+                    onChange={e => {
+                      const seg = e.target.value as typeof broadcastSegment;
+                      setBroadcastSegment(seg);
+                      loadBroadcastRecipients(seg);
+                    }}
+                    className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-red-300"
+                  >
+                    <option value="active-cycle">🟢 מחזור פעיל בלבד</option>
+                    <option value="all-customers">👥 כל הלקוחות</option>
+                    <option value="leads">🎯 לידים בלבד</option>
+                  </select>
                   <span className="text-xs text-gray-500">נבחרו {broadcastSelected.size} מתוך {broadcastRecipients.length}</span>
                   <button onClick={() => setBroadcastSelected(new Set(broadcastRecipients.map(r => r.phone)))} className="text-xs text-blue-500 hover:underline">בחר הכל</button>
                   <button onClick={() => setBroadcastSelected(new Set())} className="text-xs text-gray-400 hover:underline">נקה</button>
-                  <button onClick={loadBroadcastRecipients} disabled={broadcastLoading} className="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded-lg">
+                  <button onClick={() => loadBroadcastRecipients()} disabled={broadcastLoading} className="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded-lg">
                     {broadcastLoading ? '...' : '🔄 טען'}
                   </button>
                 </div>

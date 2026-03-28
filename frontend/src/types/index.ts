@@ -39,7 +39,7 @@ export interface Customer {
   leadStatus?: string;
   createdAt: string;
   students?: Student[];
-  payments?: { id: string }[];
+  payments?: { id: string; amount?: number; description?: string; paidAt?: string }[];
   _count?: {
     students: number;
   };

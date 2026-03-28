@@ -16,7 +16,7 @@ customersRouter.get('/', async (req, res, next) => {
     const { page, limit } = paginationSchema.parse(req.query);
     const search = req.query.search as string | undefined;
     const city = req.query.city as string | undefined;
-    const sortBy = req.query.sortBy as string | undefined; // 'lastPayment' | undefined
+    const sortBy = req.query.sortBy as string | undefined; // 'lastPayment' | 'updatedAt' | undefined
 
     const where = {
       ...(search && {
@@ -68,6 +68,7 @@ customersRouter.get('/', async (req, res, next) => {
         return bDate - aDate;
       });
     } else {
+      const orderBy = sortBy === 'updatedAt' ? { updatedAt: 'desc' as const } : { createdAt: 'desc' as const };
       [customers, total] = await Promise.all([
         prisma.customer.findMany({
           where,
@@ -79,7 +80,7 @@ customersRouter.get('/', async (req, res, next) => {
               take: 1,
             },
           },
-          orderBy: { createdAt: 'desc' },
+          orderBy,
           skip: (page - 1) * limit,
           take: limit,
         }),

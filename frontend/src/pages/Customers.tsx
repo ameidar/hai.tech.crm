@@ -48,7 +48,7 @@ export default function Customers() {
     (localStorage.getItem('customers-view') as 'grid' | 'list') || 'grid'
   );
   const [sortConfig, setSortConfig] = useState<SortConfig>(null);
-  const [activeTab, setActiveTab] = useState<'all' | 'buyers'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'buyers' | 'updated'>('all');
 
   const toggleViewMode = (mode: 'grid' | 'list') => {
     setViewMode(mode);
@@ -75,7 +75,7 @@ export default function Customers() {
   const { data: customersResult, isLoading } = useCustomers({
     search,
     page,
-    sortBy: activeTab === 'buyers' ? 'lastPayment' : undefined,
+    sortBy: activeTab === 'buyers' ? 'lastPayment' : activeTab === 'updated' ? 'updatedAt' : undefined,
   });
   const customers = customersResult?.data ?? [];
   const pagination = customersResult?.pagination;
@@ -184,6 +184,12 @@ export default function Customers() {
           >
             <ShoppingBag size={14} /> רוכשים אחרונים
           </button>
+          <button
+            onClick={() => { setActiveTab('updated'); setPage(1); setSortConfig(null); }}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px flex items-center gap-1.5 ${activeTab === 'updated' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            🕐 עודכנו לאחרונה
+          </button>
         </div>
 
         {/* Bulk Actions Bar */}
@@ -254,6 +260,7 @@ export default function Customers() {
                     <SortableTh label="תלמידים" sortKey="students" sortConfig={sortConfig} onSort={handleSort} align="center" />
                     <th className="p-3 text-center font-medium text-gray-600">תשלומים</th>
                     {activeTab === 'buyers' && <th className="p-3 text-right font-medium text-gray-600">רכישה אחרונה</th>}
+                    {activeTab === 'updated' && <th className="p-3 text-right font-medium text-gray-600">עודכן</th>}
                     <th className="p-3 text-right font-medium text-gray-600">סטטוס</th>
                     <th className="p-3 text-right font-medium text-gray-600">פעולות</th>
                   </tr>
@@ -300,6 +307,16 @@ export default function Customers() {
                               {(customer.payments[0].amount ?? 0) > 0 && (
                                 <div className="text-xs text-green-600 font-medium">₪{(customer.payments[0].amount ?? 0).toLocaleString()}</div>
                               )}
+                            </div>
+                          ) : '-'}
+                        </td>
+                      )}
+                      {activeTab === 'updated' && (
+                        <td className="p-3 text-right text-sm text-gray-600">
+                          {customer.updatedAt ? (
+                            <div>
+                              <div className="font-medium">{new Date(customer.updatedAt).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: '2-digit' })}</div>
+                              <div className="text-xs text-gray-400">{new Date(customer.updatedAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}</div>
                             </div>
                           ) : '-'}
                         </td>

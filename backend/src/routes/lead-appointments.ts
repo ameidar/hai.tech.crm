@@ -18,6 +18,9 @@ leadAppointmentsRouter.get('/', async (req: Request, res: Response, next: NextFu
     const dateFrom = (req.query.dateFrom || req.query.from) as string;
     const dateTo = (req.query.dateTo || req.query.to) as string;
 
+    const sortBy = req.query.sortBy as string; // 'createdAt' | 'updatedAt'
+    const orderField = sortBy === 'updatedAt' ? 'updatedAt' : 'createdAt';
+
     const where: any = {};
     if (status) where.appointmentStatus = status;
     if (source) where.source = source;
@@ -30,7 +33,7 @@ leadAppointmentsRouter.get('/', async (req: Request, res: Response, next: NextFu
     const [items, total] = await Promise.all([
       prisma.leadAppointment.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { [orderField]: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
         include: { customer: { select: { id: true, name: true } } },

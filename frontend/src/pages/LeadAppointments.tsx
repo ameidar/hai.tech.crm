@@ -27,6 +27,7 @@ interface LeadAppointment {
   whatsappSent?: boolean;
   emailSent?: boolean;
   createdAt: string;
+  updatedAt: string;
   // Campaign fields (Facebook)
   campaignId?: string;
   campaignName?: string;
@@ -71,6 +72,7 @@ export default function LeadAppointments() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [page, setPage] = useState(1);
+  const [sortBy, setSortBy] = useState<'createdAt' | 'updatedAt'>('createdAt');
   const [selectedLead, setSelectedLead] = useState<LeadAppointment | null>(null);
 
   // Fetch leads
@@ -81,9 +83,10 @@ export default function LeadAppointments() {
   if (sourceFilter) params.set('source', sourceFilter);
   if (fromDate) params.set('from', fromDate);
   if (toDate) params.set('to', toDate);
+  if (sortBy === 'updatedAt') params.set('sortBy', 'updatedAt');
 
   const { data, isLoading } = useQuery({
-    queryKey: ['lead-appointments', page, statusFilter, sourceFilter, fromDate, toDate],
+    queryKey: ['lead-appointments', page, statusFilter, sourceFilter, fromDate, toDate, sortBy],
     queryFn: async () => {
       const res = await api.get(`/lead-appointments?${params.toString()}`);
       return res.data;
@@ -155,6 +158,17 @@ export default function LeadAppointments() {
             className="border border-gray-300 rounded-md px-3 py-2 text-sm"
           />
         </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">מיון לפי</label>
+          <select
+            value={sortBy}
+            onChange={(e) => { setSortBy(e.target.value as 'createdAt' | 'updatedAt'); setPage(1); }}
+            className={`border rounded-md px-3 py-2 text-sm font-medium transition-colors ${sortBy === 'updatedAt' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-700'}`}
+          >
+            <option value="createdAt">תאריך פנייה</option>
+            <option value="updatedAt">עדכון אחרון</option>
+          </select>
+        </div>
       </div>
 
       {/* Table */}
@@ -167,7 +181,9 @@ export default function LeadAppointments() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">תאריך פנייה</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                  {sortBy === 'updatedAt' ? 'עודכן' : 'תאריך פנייה'}
+                </th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">שם</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">טלפון</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ילד/ה</th>
@@ -182,7 +198,17 @@ export default function LeadAppointments() {
               {leads.map((lead) => (
                 <tr key={lead.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedLead(lead)}>
                   <td className="px-4 py-3 text-sm whitespace-nowrap">
-                    {new Date(lead.createdAt).toLocaleDateString('he-IL')}
+                    {sortBy === 'updatedAt' ? (
+                      <div>
+                        <div className="font-medium">{new Date(lead.updatedAt).toLocaleDateString('he-IL')}</div>
+                        <div className="text-xs text-gray-400">{new Date(lead.updatedAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}</div>
+                        {new Date(lead.updatedAt) > new Date(lead.createdAt) && (
+                          <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">עודכן</span>
+                        )}
+                      </div>
+                    ) : (
+                      new Date(lead.createdAt).toLocaleDateString('he-IL')
+                    )}
                   </td>
                   <td className="px-4 py-3 text-sm font-medium">{lead.customerName}</td>
                   <td className="px-4 py-3 text-sm" dir="ltr">{lead.customerPhone}</td>

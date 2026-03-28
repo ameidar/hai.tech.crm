@@ -323,8 +323,8 @@ export default function Layout() {
         <Outlet />
       </main>
 
-      {/* DEV branch indicator */}
-      {import.meta.env.VITE_BRANCH === 'dev' && (
+      {/* DEV branch indicator — only in development mode */}
+      {import.meta.env.DEV && (
         <div style={{
           position: 'fixed',
           bottom: '12px',

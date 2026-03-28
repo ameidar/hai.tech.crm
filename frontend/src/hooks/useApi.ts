@@ -61,14 +61,15 @@ export const mutateData = async <T, D>(url: string, method: 'post' | 'put' | 'de
 };
 
 // ==================== Customers ====================
-export const useCustomers = (params?: { search?: string; limit?: number; page?: number }) => {
+export const useCustomers = (params?: { search?: string; limit?: number; page?: number; sortBy?: string }) => {
   const queryParams = new URLSearchParams();
   if (params?.search) queryParams.append('search', params.search);
   queryParams.append('limit', String(params?.limit || 100));
   if (params?.page && params.page > 1) queryParams.append('page', String(params.page));
+  if (params?.sortBy) queryParams.append('sortBy', params.sortBy);
   const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
   return useQuery({
-    queryKey: ['customers', params?.search, params?.limit, params?.page],
+    queryKey: ['customers', params?.search, params?.limit, params?.page, params?.sortBy],
     queryFn: () => fetchDataWithPagination<Customer[]>(`/customers${queryString}`),
   });
 };

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Plus, Search, Phone, Mail, MapPin, Users, Trash2, Edit2, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown, CheckSquare, Square, X, Download } from 'lucide-react';
+import { Plus, Search, Phone, Mail, MapPin, Users, Trash2, Edit2, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown, CheckSquare, Square, X, Download, ShoppingBag } from 'lucide-react';
 import { useCustomers, useCreateCustomer, useUpdateCustomer, useDeleteCustomer } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import { SkeletonCardGrid } from '../components/ui/Loading';
@@ -48,6 +48,7 @@ export default function Customers() {
     (localStorage.getItem('customers-view') as 'grid' | 'list') || 'grid'
   );
   const [sortConfig, setSortConfig] = useState<SortConfig>(null);
+  const [activeTab, setActiveTab] = useState<'all' | 'buyers'>('all');
 
   const toggleViewMode = (mode: 'grid' | 'list') => {
     setViewMode(mode);
@@ -71,7 +72,11 @@ export default function Customers() {
     setPage(1); // reset page on new search
   };
 
-  const { data: customersResult, isLoading } = useCustomers({ search, page });
+  const { data: customersResult, isLoading } = useCustomers({
+    search,
+    page,
+    sortBy: activeTab === 'buyers' ? 'lastPayment' : undefined,
+  });
   const customers = customersResult?.data ?? [];
   const pagination = customersResult?.pagination;
   const createCustomer = useCreateCustomer();
@@ -165,6 +170,22 @@ export default function Customers() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
+        {/* Tabs */}
+        <div className="mb-5 flex gap-2 border-b border-gray-200">
+          <button
+            onClick={() => { setActiveTab('all'); setPage(1); }}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${activeTab === 'all' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            כל הלקוחות
+          </button>
+          <button
+            onClick={() => { setActiveTab('buyers'); setPage(1); setSortConfig(null); }}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px flex items-center gap-1.5 ${activeTab === 'buyers' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <ShoppingBag size={14} /> רוכשים אחרונים
+          </button>
+        </div>
+
         {/* Bulk Actions Bar */}
         {selectedIds.size > 0 && (
           <div className="mb-4 p-4 bg-blue-600 text-white rounded-lg flex items-center gap-4 flex-wrap">
@@ -232,6 +253,7 @@ export default function Customers() {
                     <SortableTh label="עיר" sortKey="city" sortConfig={sortConfig} onSort={handleSort} />
                     <SortableTh label="תלמידים" sortKey="students" sortConfig={sortConfig} onSort={handleSort} align="center" />
                     <th className="p-3 text-center font-medium text-gray-600">תשלומים</th>
+                    {activeTab === 'buyers' && <th className="p-3 text-right font-medium text-gray-600">רכישה אחרונה</th>}
                     <th className="p-3 text-right font-medium text-gray-600">סטטוס</th>
                     <th className="p-3 text-right font-medium text-gray-600">פעולות</th>
                   </tr>
@@ -265,6 +287,23 @@ export default function Customers() {
                           ? <span className="text-indigo-600">🎓 {customer.payments.length}</span>
                           : '-'}
                       </td>
+                      {activeTab === 'buyers' && (
+                        <td className="p-3 text-right">
+                          {customer.payments?.[0]?.paidAt ? (
+                            <div className="text-sm">
+                              <div className="font-medium text-gray-800">
+                                {new Date(customer.payments[0].paidAt).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: '2-digit' })}
+                              </div>
+                              <div className="text-xs text-gray-500 truncate max-w-[140px]" title={customer.payments[0].description}>
+                                {customer.payments[0].description}
+                              </div>
+                              {(customer.payments[0].amount ?? 0) > 0 && (
+                                <div className="text-xs text-green-600 font-medium">₪{(customer.payments[0].amount ?? 0).toLocaleString()}</div>
+                              )}
+                            </div>
+                          ) : '-'}
+                        </td>
+                      )}
                       <td className="p-3">
                         <LeadStatusBadge status={customer.leadStatus} />
                       </td>

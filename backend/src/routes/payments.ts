@@ -18,6 +18,41 @@ function generatePayToken(orderId: number): { token: string; ts: number } {
   return { token, ts };
 }
 
+/**
+ * Resolve or auto-create a CRM customer from WooCommerce billing info.
+ * Search order: email → phone → create new.
+ * Returns the customer ID (always).
+ */
+async function resolveOrCreateCustomer(
+  email: string | undefined,
+  phone: string,
+  fullName: string
+): Promise<string> {
+  // 1. Try by email
+  if (email) {
+    const byEmail = await prisma.customer.findFirst({ where: { email } });
+    if (byEmail) return byEmail.id;
+  }
+  // 2. Try by phone (last 9 digits)
+  if (phone.length >= 9) {
+    const byPhone = await prisma.customer.findFirst({
+      where: { phone: { contains: phone.slice(-9) } },
+    });
+    if (byPhone) return byPhone.id;
+  }
+  // 3. Create new customer — will appear in CRM for follow-up
+  const newCustomer = await prisma.customer.create({
+    data: {
+      name: fullName || email || 'לקוח חדש',
+      email: email || undefined,
+      phone: phone || undefined,
+      source: 'website',
+    },
+  });
+  console.log(`[Payments] Auto-created customer "${newCustomer.name}" (${newCustomer.id}) from WC order`);
+  return newCustomer.id;
+}
+
 /** Extract Morning/GreenInvoice invoice URL and number from WC order meta_data */
 function extractGreenInvoice(metaData: any[]): { invoiceUrl: string | null; invoiceNumber: string | null } {
   // Primary: greeninvoice_data JSON object (contains id → view URL)
@@ -376,18 +411,8 @@ router.post('/wc-webhook', async (req, res) => {
       const lastName = order.billing?.last_name || '';
       const fullName = `${firstName} ${lastName}`.trim();
 
-      // Try to find existing customer by email or phone
-      let customerId: string | undefined;
-      if (email) {
-        const byEmail = await prisma.customer.findFirst({ where: { email } });
-        if (byEmail) customerId = byEmail.id;
-      }
-      if (!customerId && phone.length >= 9) {
-        const byPhone = await prisma.customer.findFirst({
-          where: { phone: { contains: phone.slice(-9) } },
-        });
-        if (byPhone) customerId = byPhone.id;
-      }
+      // Always resolve (or auto-create) a CRM customer — no orphan payments
+      const customerId = await resolveOrCreateCustomer(email, phone, fullName);
 
       // Build description from line items or fee lines
       const items: string[] = [];
@@ -408,10 +433,10 @@ router.post('/wc-webhook', async (req, res) => {
           customerPhone: phone || undefined,
           invoiceUrl: wh_invoiceUrl || undefined,
           invoiceNumber: wh_invoiceNumber || undefined,
-          ...(customerId ? { customerId } : {}),
+          customerId,
         },
       });
-      console.log(`[WC Webhook] Created new payment for order ${order.id} (${fullName}, ${email})`);
+      console.log(`[WC Webhook] Created new payment for order ${order.id} (${fullName}, ${email}) → customer ${customerId}`);
     }
   } catch (e) {
     console.error('[WC Webhook] Error:', e);
@@ -468,15 +493,8 @@ router.post('/sync-woo', async (req: any, res) => {
       const lastName = order.billing?.last_name || '';
       const fullName = `${firstName} ${lastName}`.trim();
 
-      let customerId: string | undefined;
-      if (email) {
-        const byEmail = await prisma.customer.findFirst({ where: { email } });
-        if (byEmail) customerId = byEmail.id;
-      }
-      if (!customerId && phone.length >= 9) {
-        const byPhone = await prisma.customer.findFirst({ where: { phone: { contains: phone.slice(-9) } } });
-        if (byPhone) customerId = byPhone.id;
-      }
+      // Always resolve (or auto-create) a CRM customer — no orphan payments
+      const customerId = await resolveOrCreateCustomer(email, phone, fullName);
 
       const items: string[] = [];
       for (const li of order.line_items || []) items.push(li.name);
@@ -497,7 +515,7 @@ router.post('/sync-woo', async (req: any, res) => {
           customerPhone: phone || undefined,
           invoiceUrl: sync_invoiceUrl || undefined,
           invoiceNumber: sync_invoiceNumber || undefined,
-          ...(customerId ? { customerId } : {}),
+          customerId,
         },
       });
       created++;

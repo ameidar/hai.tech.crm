@@ -270,7 +270,7 @@ async function fetchAndSaveFBLead(leadgenId: string) {
   const childAge = fields['child_age'] || fields['גיל הילד'] || fields['גיל'] || null;
   const interest = fields['interest'] || fields['תחום עניין'] || fields['קורס'] || null;
 
-  const fbLead = await prisma.facebookLead.upsert({
+  void (await prisma.facebookLead.upsert({
     where: { fbLeadId: lead.id },
     update: {},
     create: {
@@ -285,7 +285,7 @@ async function fetchAndSaveFBLead(leadgenId: string) {
       rawData: lead.field_data || null,
       fbCreatedTime: lead.created_time ? new Date(lead.created_time) : null,
     },
-  });
+  }));
 
   // Find or create customer + create LeadAppointment
   if (fullName || phone) {

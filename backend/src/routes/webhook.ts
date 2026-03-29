@@ -834,7 +834,6 @@ webhookRouter.post('/whatsapp-incoming', async (req: Request, res: Response) => 
     if (typeWebhook !== 'incomingMessageReceived') return;
 
     const chatId: string = body?.senderData?.chatId || '';
-    const senderPhone: string = body?.senderData?.sender?.replace('@c.us', '') || '';
 
     // Ignore all group messages
     if (chatId.includes('@g.us')) return;

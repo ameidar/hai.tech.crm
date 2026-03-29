@@ -5,7 +5,6 @@
  */
 import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
-import * as path from 'path';
 
 const prisma = new PrismaClient();
 
@@ -104,7 +103,7 @@ async function main() {
     }
 
     try {
-      const customer = await prisma.customer.create({
+      await prisma.customer.create({
         data: {
           name: fullName,
           email,

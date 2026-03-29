@@ -208,7 +208,7 @@ systemUsersRouter.delete('/:id', adminOnly, async (req, res, next) => {
 });
 
 // ── GET /api/system-users/online — who's currently active (last 5 min)
-systemUsersRouter.get('/online', managerOrAdmin, async (req, res, next) => {
+systemUsersRouter.get('/online', managerOrAdmin, async (_req, res, next) => {
   try {
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
     const onlineUsers = await prisma.user.findMany({

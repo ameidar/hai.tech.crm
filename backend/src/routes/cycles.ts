@@ -950,7 +950,7 @@ cyclesRouter.post('/:id/registrations', managerOrAdmin, async (req, res, next) =
 });
 
 // Sync ALL active cycles progress from meetings table (bulk)
-cyclesRouter.post('/sync-all', managerOrAdmin, async (req, res, next) => {
+cyclesRouter.post('/sync-all', managerOrAdmin, async (_req, res, next) => {
   try {
     const cycles = await prisma.cycle.findMany({
       where: { status: 'active', deletedAt: null },

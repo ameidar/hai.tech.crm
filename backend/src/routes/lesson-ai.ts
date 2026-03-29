@@ -8,7 +8,6 @@ import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { generateLessonPlan } from '../services/lesson-ai.service.js';
-import { AppError } from '../middleware/errorHandler.js';
 import { z } from 'zod';
 
 export const lessonAiRouter = Router();

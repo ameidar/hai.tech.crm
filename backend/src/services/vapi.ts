@@ -226,7 +226,6 @@ export async function handleEndOfCallReport(payload: any): Promise<void> {
     if (callType === 'inboundPhoneCall' && callerNumber) {
       let normalizedPhone = callerNumber.replace(/\D/g, '');
       if (normalizedPhone.startsWith('972')) normalizedPhone = '0' + normalizedPhone.substring(3);
-      const last9 = normalizedPhone.slice(-9);
       const { customerId: inboundCustomerId } = await findOrCreateCustomer({
         name: undefined, // inbound — we don't know the name yet
         phone: normalizedPhone || callerNumber,
@@ -246,12 +245,15 @@ export async function handleEndOfCallReport(payload: any): Promise<void> {
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       leadAppointment = inboundLead as any;
-      console.log(`[VAPI WEBHOOK] Created inbound LeadAppointment for ${callerNumber} (${leadAppointment.id})`);
+      console.log(`[VAPI WEBHOOK] Created inbound LeadAppointment for ${callerNumber} (${leadAppointment!.id})`);
     } else {
       console.error('[VAPI WEBHOOK] No lead appointment found for call:', callId);
       return;
     }
   }
+
+  // At this point leadAppointment is guaranteed non-null (or we returned early)
+  if (!leadAppointment) return;
 
   // Extract data from payload
   const transcript = payload.transcript || null;

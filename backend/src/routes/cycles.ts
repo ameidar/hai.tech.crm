@@ -6,6 +6,7 @@ import { createCycleSchema, updateCycleSchema, createRegistrationSchema, paginat
 import { fetchHolidays, dayNameToNumber, calculateCycleEndDate } from '../utils/holidays.js';
 import { zoomService, getHostKeyByEmail } from '../services/zoom.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
+import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
 
 // Make.com webhook removed — Zoom recordings handled directly via /api/zoom-webhook
 
@@ -936,6 +937,11 @@ cyclesRouter.post('/:id/registrations', managerOrAdmin, async (req, res, next) =
         },
       },
     });
+
+    // Recalculate future meeting revenues based on new student count
+    recalcMeetingRevenue(cycleId).catch(err =>
+      console.error('[RECALC REVENUE] Error after registration create:', err)
+    );
 
     res.status(201).json(registration);
   } catch (error) {

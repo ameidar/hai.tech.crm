@@ -17,6 +17,7 @@ customersRouter.get('/', async (req, res, next) => {
     const search = req.query.search as string | undefined;
     const city = req.query.city as string | undefined;
     const sortBy = req.query.sortBy as string | undefined; // 'lastPayment' | 'updatedAt' | undefined
+    const leadStatus = req.query.leadStatus as string | undefined;
 
     const where = {
       ...(search && {
@@ -27,6 +28,7 @@ customersRouter.get('/', async (req, res, next) => {
         ],
       }),
       ...(city && { city }),
+      ...(leadStatus && { leadStatus: leadStatus as any }),
       // When sortBy=lastPayment, only return customers who have at least one paid payment
       ...(sortBy === 'lastPayment' && {
         payments: { some: { status: 'paid' } },

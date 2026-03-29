@@ -370,7 +370,7 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
         if (estPayment === 0 && instr) {
           if (aType === 'online' && toNumber(instr.rateOnline) > 0) {
             estPayment = toNumber(instr.rateOnline);
-          } else if (aType === 'private' && toNumber(instr.ratePrivate) > 0) {
+          } else if (aType === 'private_lesson' && toNumber(instr.ratePrivate) > 0) {
             estPayment = toNumber(instr.ratePrivate);
           } else if (toNumber(instr.rateFrontal) > 0) {
             estPayment = toNumber(instr.rateFrontal);
@@ -485,7 +485,7 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
         if (estimatedPayment === 0 && instructor) {
           if (activityType === 'online' && toNumber(instructor.rateOnline) > 0) {
             estimatedPayment = toNumber(instructor.rateOnline);
-          } else if (activityType === 'private' && toNumber(instructor.ratePrivate) > 0) {
+          } else if (activityType === 'private_lesson' && toNumber(instructor.ratePrivate) > 0) {
             estimatedPayment = toNumber(instructor.ratePrivate);
           } else if (toNumber(instructor.rateFrontal) > 0) {
             estimatedPayment = toNumber(instructor.rateFrontal);

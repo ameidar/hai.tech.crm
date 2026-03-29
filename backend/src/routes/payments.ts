@@ -79,17 +79,6 @@ function extractGreenInvoice(metaData: any[]): { invoiceUrl: string | null; invo
   };
 }
 
-/** Fetch WooCommerce order details */
-async function getWooOrder(orderId: number) {
-  const { siteUrl, consumerKey, consumerSecret } = config.woo;
-  const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
-  const res = await fetch(`${siteUrl}/wp-json/wc/v3/orders/${orderId}`, {
-    headers: { Authorization: `Basic ${auth}` },
-  });
-  if (!res.ok) return null;
-  return res.json() as Promise<any>;
-}
-
 const router = Router();
 
 // ─── Authenticated routes ─────────────────────────────────────────────────────

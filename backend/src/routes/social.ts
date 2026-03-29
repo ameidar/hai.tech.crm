@@ -167,7 +167,6 @@ router.post('/publish/facebook', authenticate, managerOrAdmin, async (req: Reque
       formData.append('caption', text);
       formData.append('access_token', FB_PAGE_TOKEN);
       // Upload as base64 URL
-      const dataUrl = `data:${mimeType || 'image/png'};base64,${imageBase64}`;
 
       // Use native FormData (Node.js 18+)
       const fd = new FormData();

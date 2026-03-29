@@ -10,7 +10,7 @@ export const facebookLeadsRouter = Router();
 const FB_PAGE_ID = process.env.FB_PAGE_ID || '124822734055754';
 const FB_PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN || '';
 const FB_VERIFY_TOKEN = process.env.FB_WEBHOOK_VERIFY_TOKEN || 'haitech-fb-verify-2026';
-const FB_APP_SECRET = process.env.FB_APP_SECRET || '';
+// const FB_APP_SECRET = process.env.FB_APP_SECRET || '';
 
 // ─── WEBHOOK (public) ───────────────────────────────────────────────────────
 
@@ -30,7 +30,7 @@ facebookLeadsRouter.get('/webhook', (req: Request, res: Response) => {
 });
 
 // POST /api/facebook/webhook — receive lead events
-facebookLeadsRouter.post('/webhook', async (req: Request, res: Response, next: NextFunction) => {
+facebookLeadsRouter.post('/webhook', async (req: Request, res: Response) => {
   try {
     const body = req.body;
 
@@ -123,7 +123,7 @@ facebookLeadsRouter.patch('/leads/:id', async (req: Request, res: Response, next
 });
 
 // POST /api/facebook/sync — pull existing leads from Meta
-facebookLeadsRouter.post('/sync', async (req: Request, res: Response, next: NextFunction) => {
+facebookLeadsRouter.post('/sync', async (_req: Request, res: Response, next: NextFunction) => {
   try {
     if (!FB_PAGE_ACCESS_TOKEN) {
       throw new AppError(400, 'FB_PAGE_ACCESS_TOKEN not configured. Please set it in .env');

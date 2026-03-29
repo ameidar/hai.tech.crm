@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { randomUUID, randomBytes } from 'crypto';
+import { randomBytes } from 'crypto';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -291,6 +291,11 @@ registrationsRouter.post('/:id/cancel', managerOrAdmin, async (req, res, next) =
     // Cascade: check if cycle should be cancelled
     handleCycleCascadeOnCancellation(registration.cycle.id).catch(err =>
       console.error('[CANCEL CASCADE] Error:', err)
+    );
+
+    // Recalculate future meeting revenues based on new student count
+    recalcMeetingRevenue(registration.cycle.id).catch(err =>
+      console.error('[RECALC REVENUE] Error:', err)
     );
 
     res.json(registration);

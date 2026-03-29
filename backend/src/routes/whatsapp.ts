@@ -745,7 +745,7 @@ router.patch('/callbacks/:id', authenticate, async (req: Request, res: Response)
 });
 
 // ── GET /api/wa/callbacks/count — Pending count for badge
-router.get('/callbacks/count', authenticate, async (req: Request, res: Response) => {
+router.get('/callbacks/count', authenticate, async (_req: Request, res: Response) => {
   try {
     const count = await (prisma as any).waCallbackRequest.count({
       where: { status: 'pending' }
@@ -1106,7 +1106,7 @@ router.get('/phones', authenticate, (_req: Request, res: Response) => {
 });
 
 // ── GET /api/wa/conversations — List all conversations
-router.get('/conversations', authenticate, async (req: Request, res: Response) => {
+router.get('/conversations', authenticate, async (_req: Request, res: Response) => {
   try {
     const conversations = await prisma.waConversation.findMany({
       orderBy: { lastMessageAt: 'desc' },

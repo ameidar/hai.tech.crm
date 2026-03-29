@@ -179,16 +179,16 @@ describe('Validation Schemas', () => {
       expect(result.success).toBe(false);
     });
 
-    it('should enforce maximum limit of 500', () => {
-      const result = paginationSchema.safeParse({ limit: 1000 });
+    it('should enforce maximum limit of 5000', () => {
+      const result = paginationSchema.safeParse({ limit: 6000 });
       
       expect(result.success).toBe(false);
     });
 
-    it('should accept limit up to 500', () => {
-      const result = paginationSchema.parse({ limit: 500 });
+    it('should accept limit up to 5000', () => {
+      const result = paginationSchema.parse({ limit: 5000 });
       
-      expect(result.limit).toBe(500);
+      expect(result.limit).toBe(5000);
     });
   });
 });

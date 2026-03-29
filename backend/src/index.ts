@@ -65,6 +65,8 @@ import { devReadOnly } from './middleware/devReadOnly.js';
 // API v1 Router
 import { apiV1Router } from './api/v1/index.js';
 
+// API v1 Router
+
 const app = express();
 
 // Security middleware - disabled for HTTP dev access

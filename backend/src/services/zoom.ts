@@ -282,17 +282,24 @@ export async function createMeeting(
   params: CreateMeetingParams
 ): Promise<ZoomMeeting & { host_key?: string }> {
   // Format start_time for Zoom - send in Israel local time since timezone is Asia/Jerusalem
-  // Convert UTC date to Israel local time (UTC+2) for display
-  const pad = (n: number) => n.toString().padStart(2, '0');
+  // Use Intl.DateTimeFormat to correctly handle DST (Israel is UTC+2 in winter, UTC+3 in summer)
   const d = params.startTime;
-  
-  // Add 2 hours to UTC to get Israel time (simplified - doesn't handle DST)
-  const israelTime = new Date(d.getTime() + 2 * 60 * 60 * 1000);
-  const localTimeStr = `${israelTime.getUTCFullYear()}-${pad(israelTime.getUTCMonth() + 1)}-${pad(israelTime.getUTCDate())}T${pad(israelTime.getUTCHours())}:${pad(israelTime.getUTCMinutes())}:00`;
+
+  const israelFormatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jerusalem',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const parts = israelFormatter.formatToParts(d);
+  const get = (type: string) => parts.find(p => p.type === type)?.value ?? '00';
+  const localTimeStr = `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}:00`;
   
   console.log('[Zoom] Creating meeting with startTime:', {
     inputDateUTC: d.toISOString(),
-    israelTimeConverted: israelTime.toISOString(),
     formattedLocalTime: localTimeStr,
     timezone: params.timezone || 'Asia/Jerusalem',
     duration: params.duration,

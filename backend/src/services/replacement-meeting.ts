@@ -32,7 +32,7 @@ async function notifyReplacementFailed(postponedMeetingId: string, cycleName: st
  * Returns the new replacement meeting ID on success.
  * Throws on failure (callers should await and handle errors — do NOT use fire & forget).
  */
-export async function addReplacementMeeting(postponedMeetingId: string, actorUserId: string): Promise<string> {
+export async function addReplacementMeeting(postponedMeetingId: string, _actorUserId: string): Promise<string> {
   // Load the postponed meeting with cycle details
   const postponed = await prisma.meeting.findUnique({
     where: { id: postponedMeetingId },

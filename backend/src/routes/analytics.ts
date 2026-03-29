@@ -183,7 +183,7 @@ router.get('/devices', authenticate, async (req: Request, res: Response) => {
 
 // GET /api/analytics/realtime — active users in last 60 minutes
 // Combines GA4 realtime (max 30 min window) + CRM lastActive DB (60 min)
-router.get('/realtime', authenticate, async (req: Request, res: Response) => {
+router.get('/realtime', authenticate, async (_req: Request, res: Response) => {
   try {
     // 1. GA realtime (website visitors, last 30 min)
     let gaActive = 0;

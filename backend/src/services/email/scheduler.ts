@@ -35,18 +35,6 @@ const formatDateHebrew = (date: Date): string => {
   });
 };
 
-// ⚠️ DO NOT use this for @db.Time fields (meeting.startTime / meeting.endTime).
-// @db.Time values from Prisma arrive as UTC-epoch Dates (e.g. 1970-01-01T17:30:00Z).
-// Calling toLocaleTimeString with timeZone:'Asia/Jerusalem' adds the UTC+2/+3 offset
-// and displays 17:30 as 19:30 — wrong!
-// Use formatDbTime() below for @db.Time columns.
-const formatTimeHebrew = (date: Date): string => {
-  return date.toLocaleTimeString('he-IL', {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: TZ,
-  });
-};
 
 // Format a @db.Time field (time without time zone) correctly.
 // Prisma returns these as UTC-epoch Dates; use UTC getters to read the stored time as-is.
@@ -57,24 +45,6 @@ const formatDbTime = (date: Date | null | undefined): string => {
   return `${h}:${m}`;
 };
 
-// Get start-of-day and end-of-day in Israel timezone (returns UTC Date objects for DB queries)
-// ⚠️ Use only for DateTime/timestamptz columns (e.g. createdAt, updatedAt)
-const getIsraelDayBounds = (offsetDays = 0): { start: Date; end: Date } => {
-  const now = new Date();
-  // Get Israel date string "YYYY-MM-DD"
-  const israelDateStr = new Intl.DateTimeFormat('sv', { timeZone: TZ }).format(now);
-  // UTC midnight of that Israel date
-  const utcMidnight = new Date(`${israelDateStr}T00:00:00Z`);
-  // Get Israel hour at UTC midnight (= Israel offset in hours, e.g. 2 for UTC+2, 3 for UTC+3)
-  const israelHourAtUTCMidnight = parseInt(
-    new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hour12: false }).format(utcMidnight)
-  );
-  // Israel midnight in UTC = UTC midnight minus Israel offset
-  const israelMidnightUTC = new Date(utcMidnight.getTime() - israelHourAtUTCMidnight * 3_600_000);
-  const start = new Date(israelMidnightUTC.getTime() + offsetDays * 86_400_000);
-  const end   = new Date(start.getTime() + 86_400_000);
-  return { start, end };
-};
 
 // Get bounds for Prisma @db.Date columns (scheduledDate etc.)
 // Prisma converts JS Date → UTC date string for DATE columns.

@@ -36,14 +36,6 @@ function getIsraelDateOnly(offsetDays = 0): Date {
   return new Date(Date.UTC(y, m - 1, d + offsetDays));
 }
 
-/**
- * @deprecated — kept for pre-meeting time-window checks (startTime @db.Time fields).
- * Do NOT use for scheduledDate (@db.Date) queries.
- */
-function getIsraelDayBounds(offsetDays = 0): { start: Date; end: Date } {
-  const target = getIsraelDateOnly(offsetDays);
-  return { start: target, end: new Date(target.getTime() + 86_400_000) };
-}
 
 /**
  * Get current time in Israel as total minutes since midnight (DST-aware)

@@ -51,7 +51,7 @@ async function generateCampaignContent(params: {
   ageRange: string;
   userContext?: string;
 }): Promise<ContentVariant[]> {
-  const { audienceDesc, trends, channel, courseNames, ageRange, userContext } = params;
+  const { audienceDesc, trends, courseNames, ageRange, userContext } = params;
 
   const prompt = `אתה מומחה שיווק עבור "דרך ההייטק" - עסק לחוגי תכנות לילדים בישראל.
 

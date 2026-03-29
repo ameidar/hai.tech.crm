@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { prisma } from '../utils/prisma.js';
-import { resolveAudience, sendCampaign, buildTrackingUrl, AudienceFilters } from '../services/campaigns.service.js';
+import { resolveAudience, sendCampaign, AudienceFilters } from '../services/campaigns.service.js';
 import { generateCampaignAI } from '../services/campaignAI.service.js';
 import { sendEmail } from '../services/email/sender.js';
 import axios from 'axios';

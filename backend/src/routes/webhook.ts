@@ -2,26 +2,241 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { config } from '../config.js';
-import { sendWelcomeNotifications } from '../services/notifications.js';
+import { sendWelcomeNotifications, notifyAdminNewLead } from '../services/notifications.js';
+import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
+import { handleStatusReply } from '../services/whatsapp-reminder.service.js';
+import { logAudit } from '../utils/audit.js';
+import { initiateVapiCall } from '../services/vapi.js';
+import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
+import rateLimit from 'express-rate-limit';
+
+// Rate limiter for public lead submission endpoint
+// Max 5 submissions per IP per 10 minutes
+const leadsRateLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'יותר מדי בקשות. נסה שוב מאוחר יותר.' },
+  keyGenerator: (req) => {
+    // Use X-Forwarded-For if behind nginx proxy
+    const forwarded = req.headers['x-forwarded-for'];
+    return (Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0]) || req.ip || 'unknown';
+  },
+});
+
+// Validate input to prevent XSS / injection via lead forms
+function validateLeadInput(name: string, phone?: string): string | null {
+  // Reject HTML/script tags or template injection patterns
+  const dangerousPattern = /<[^>]*>|\{\{|\}\}|<script|javascript:|on\w+=/i;
+  if (dangerousPattern.test(name)) {
+    return 'שם לא תקין';
+  }
+  if (name.trim().length < 2) {
+    return 'שם חייב להכיל לפחות 2 תווים';
+  }
+  if (phone) {
+    // Israeli phone: starts with 05 or +9725, 10 digits
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (cleanPhone.length > 0 && !(
+      (cleanPhone.startsWith('05') && cleanPhone.length === 10) ||
+      (cleanPhone.startsWith('9725') && cleanPhone.length === 12) ||
+      (cleanPhone.startsWith('9722') && cleanPhone.length === 11)
+    )) {
+      return 'מספר טלפון לא תקין';
+    }
+  }
+  return null;
+}
 
 export const webhookRouter = Router();
 
 // API Key authentication middleware
 const apiKeyAuth = (req: Request, _res: Response, next: NextFunction) => {
+  // Green API incoming webhook — no auth needed (public endpoint)
+  if (req.path === '/whatsapp-incoming') return next();
+
   const apiKey = req.headers['x-api-key'] as string;
-  
+
   if (!apiKey) {
     return next(new AppError(401, 'API key required'));
   }
-  
+
   if (apiKey !== config.apiKey) {
     return next(new AppError(401, 'Invalid API key'));
   }
-  
+
   next();
 };
 
 webhookRouter.use(apiKeyAuth);
+
+// Search cycles by name
+// GET /api/webhook/cycles/search?name=xxx
+webhookRouter.get('/cycles/search', async (req, res, next) => {
+  try {
+    const name = req.query.name as string;
+
+    if (!name) {
+      throw new AppError(400, 'name query parameter is required');
+    }
+
+    const cycles = await prisma.cycle.findMany({
+      where: {
+        name: {
+          contains: name,
+          mode: 'insensitive',
+        },
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        startDate: true,
+        endDate: true,
+        type: true,
+        course: { select: { id: true, name: true } },
+        branch: { select: { id: true, name: true } },
+        instructor: { select: { id: true, name: true } },
+        _count: { select: { meetings: true } },
+      },
+      orderBy: { startDate: 'desc' },
+      take: 10,
+    });
+
+    res.json({
+      success: true,
+      count: cycles.length,
+      cycles: cycles.map(c => ({
+        id: c.id,
+        name: c.name,
+        status: c.status,
+        startDate: c.startDate,
+        endDate: c.endDate,
+        type: c.type,
+        courseName: c.course?.name,
+        branchName: c.branch?.name,
+        instructorName: c.instructor?.name,
+        meetingsCount: c._count.meetings,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get meeting for a cycle by date (defaults to today)
+// GET /api/webhook/cycles/:id/meeting?date=2026-02-07 (optional, defaults to today)
+webhookRouter.get('/cycles/:id/meeting', async (req, res, next) => {
+  try {
+    const cycleId = req.params.id;
+    const dateParam = req.query.date as string;
+
+    // Parse date or use today
+    let targetDate: Date;
+    if (dateParam) {
+      targetDate = new Date(dateParam);
+    } else {
+      targetDate = new Date();
+    }
+    targetDate.setHours(0, 0, 0, 0);
+
+    const nextDay = new Date(targetDate);
+    nextDay.setDate(nextDay.getDate() + 1);
+
+    const meeting = await prisma.meeting.findFirst({
+      where: {
+        cycleId,
+        scheduledDate: {
+          gte: targetDate,
+          lt: nextDay,
+        },
+      },
+      select: {
+        id: true,
+        scheduledDate: true,
+        startTime: true,
+        endTime: true,
+        status: true,
+        zoomJoinUrl: true,
+      },
+    });
+
+    if (!meeting) {
+      res.json({
+        success: true,
+        meeting: null,
+        message: `No meeting found for date ${targetDate.toISOString().split('T')[0]}`,
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      meeting: {
+        id: meeting.id,
+        scheduledDate: meeting.scheduledDate.toISOString().split('T')[0],
+        startTime: meeting.startTime,
+        endTime: meeting.endTime,
+        status: meeting.status,
+        hasZoomLink: !!meeting.zoomJoinUrl,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get next scheduled meeting for a cycle
+// GET /api/webhook/cycles/:id/next-meeting
+webhookRouter.get('/cycles/:id/next-meeting', async (req, res, next) => {
+  try {
+    const cycleId = req.params.id;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const meeting = await prisma.meeting.findFirst({
+      where: {
+        cycleId,
+        status: 'scheduled',
+        scheduledDate: { gte: today },
+      },
+      orderBy: { scheduledDate: 'asc' },
+      select: {
+        id: true,
+        scheduledDate: true,
+        startTime: true,
+        endTime: true,
+        status: true,
+        zoomJoinUrl: true,
+      },
+    });
+
+    if (!meeting) {
+      res.json({
+        success: true,
+        meeting: null,
+        message: 'No upcoming scheduled meetings found',
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      meeting: {
+        id: meeting.id,
+        scheduledDate: meeting.scheduledDate.toISOString().split('T')[0],
+        startTime: meeting.startTime,
+        endTime: meeting.endTime,
+        status: meeting.status,
+        hasZoomLink: !!meeting.zoomJoinUrl,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // Update meeting Zoom link
 // POST /api/webhook/meetings/:id/zoom
@@ -72,7 +287,7 @@ webhookRouter.post('/cycles/:id/zoom', async (req, res, next) => {
     const updates = await Promise.all(
       meetings.map(async (m: { meetingId: string; zoomMeetingId?: string; zoomJoinUrl: string; zoomStartUrl?: string }) => {
         return prisma.meeting.update({
-          where: { 
+          where: {
             id: m.meetingId,
             cycleId, // Ensure meeting belongs to cycle
           },
@@ -147,26 +362,22 @@ webhookRouter.get('/cycles/:id/meetings', async (req, res, next) => {
 
 // Create a lead/customer from external website
 // POST /api/webhook/leads
-webhookRouter.post('/leads', async (req, res, next) => {
+webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
   try {
-    // Log incoming request for debugging
-    console.log('[WEBHOOK /leads] Received:', JSON.stringify(req.body, null, 2));
-    
-    // Support multiple field name variations
-    const body = req.body;
-    const name = body.name || body.parentName || body.parent_name;
-    const phone = body.phone || body.telephone || body.tel;
-    const email = body.email || body.mail;
-    const city = body.city;
-    const notes = body.notes;
-    const message = body.message || body.הודעה;
-    const source = body.source || 'website';
-    const students = body.students;
-    // Child fields - support multiple naming conventions
-    const childName = body.childName || body.child_name || body.studentName || body.student_name || body['שם הילד/ה'] || body['שם_הילד'];
-    const childAge = body.childAge || body.child_age || body.age || body['גיל הילד/ה'] || body['גיל_הילד'];
-    const childGrade = body.childGrade || body.child_grade || body.grade;
-    const interest = body.interest || body.topic || body['תחום עניין'] || body['תחום_עניין'] || body.subject;
+    const {
+      name,
+      phone,
+      email,
+      city,
+      notes,
+      source = 'website',
+      students, // Optional: array of { name, birthDate?, grade? }
+      // New fields from website form
+      childName,
+      childAge,
+      interest,
+      message,
+    } = req.body;
 
     if (!name) {
       throw new AppError(400, 'name is required');
@@ -176,42 +387,23 @@ webhookRouter.post('/leads', async (req, res, next) => {
       throw new AppError(400, 'Either phone or email is required');
     }
 
-    // Israel timezone timestamp
-    const israelTime = new Date().toLocaleString('he-IL', { 
-      timeZone: 'Asia/Jerusalem',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    // Security: validate input against XSS/injection
+    const validationError = validateLeadInput(name, phone);
+    if (validationError) {
+      console.warn(`[WEBHOOK/leads] Rejected suspicious input from ${req.ip}: name="${name}", phone="${phone}"`);
+      throw new AppError(400, validationError);
+    }
 
-    // Build notes with all info
-    const noteParts: string[] = [];
-    noteParts.push(`[${israelTime}] מקור: ${source}`);
-    if (interest) noteParts.push(`תחום עניין: ${interest}`);
-    if (message) noteParts.push(`הודעה: ${message}`);
-    if (notes) noteParts.push(notes);
-    const fullNotes = noteParts.join('\n');
+    // Log the incoming IP for audit
+    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip;
+    console.log(`[WEBHOOK/leads] New lead from IP ${clientIp}: ${name} / ${phone}`);
 
-    // Build students array - support both array and single child fields
-    let studentsToCreate: Array<{ name: string; birthDate?: Date | null; age?: number | null; grade?: string | null }> = [];
-    
-    if (students && Array.isArray(students) && students.length > 0) {
-      studentsToCreate = students.map((s: { name: string; birthDate?: string; grade?: string; age?: number }) => ({
-        name: s.name,
-        birthDate: s.birthDate ? new Date(s.birthDate) : null,
-        age: s.age || null,
-        grade: s.grade || null,
-      }));
-    } else if (childName) {
-      // Single child from direct fields
-      studentsToCreate = [{
-        name: childName,
-        birthDate: null,
-        age: childAge || null,
-        grade: childGrade || null,
-      }];
+    // Validate phone format if provided
+    if (phone) {
+      const phoneRegex = /^[\d\s\-\+\(\)]{7,20}$/;
+      if (!phoneRegex.test(phone.trim())) {
+        throw new AppError(400, 'Invalid phone number format');
+      }
     }
 
     // Check if customer already exists by phone or email
@@ -227,56 +419,60 @@ webhookRouter.post('/leads', async (req, res, next) => {
       });
     }
 
+    // Build notes from all available info
+    const buildNotes = () => {
+      const parts = [];
+      if (interest) parts.push(`תחום עניין: ${interest}`);
+      if (message) parts.push(`הודעה: ${message}`);
+      if (notes) parts.push(notes);
+      if (childName && childAge) parts.push(`ילד/ה: ${childName}, גיל ${childAge}`);
+      else if (childName) parts.push(`ילד/ה: ${childName}`);
+      return parts.length > 0 ? parts.join(' | ') : 'פנייה חדשה';
+    };
+
     if (existingCustomer) {
       // Update existing customer with any new info
-      const updateData: any = {
-        notes: existingCustomer.notes 
-          ? `${existingCustomer.notes}\n---\n${fullNotes}`
-          : fullNotes,
-      };
-
-      // Add new students if provided and they don't exist
-      if (studentsToCreate.length > 0) {
-        const existingStudentNames = (await prisma.student.findMany({
-          where: { customerId: existingCustomer.id },
-          select: { name: true },
-        })).map(s => s.name.toLowerCase());
-
-        const newStudents = studentsToCreate.filter(
-          s => !existingStudentNames.includes(s.name.toLowerCase())
-        );
-
-        if (newStudents.length > 0) {
-          await prisma.student.createMany({
-            data: newStudents.map(s => ({
-              customerId: existingCustomer!.id,
-              name: s.name,
-              birthDate: s.birthDate,
-              age: s.age,
-              grade: s.grade,
-            })),
-          });
-        }
-      }
-
+      const noteText = buildNotes();
       const customer = await prisma.customer.update({
         where: { id: existingCustomer.id },
-        data: updateData,
+        data: {
+          notes: existingCustomer.notes
+            ? `${existingCustomer.notes}\n---\n[${new Date().toISOString()}] ${source}: ${noteText}`
+            : `[${new Date().toISOString()}] ${source}: ${noteText}`,
+        },
         include: {
           students: true,
         },
       });
 
-      // Create audit log
-      await prisma.auditLog.create({
-        data: {
-          action: 'LEAD_UPDATE',
-          entity: 'Customer',
-          entityId: customer.id,
-          newValue: { source, interest, message, childName, childAge },
-          ipAddress: req.ip || 'webhook',
-        },
-      }).catch(() => {}); // Don't fail if audit log fails
+      // If childName provided, check if student exists and create if not
+      if (childName) {
+        const existingStudent = await prisma.student.findFirst({
+          where: { customerId: existingCustomer.id, name: childName },
+        });
+        if (!existingStudent) {
+          await prisma.student.create({
+            data: {
+              customerId: existingCustomer.id,
+              name: childName,
+              notes: childAge ? `גיל: ${childAge}${interest ? ` | תחום עניין: ${interest}` : ''}` : (interest ? `תחום עניין: ${interest}` : undefined),
+            },
+          });
+        }
+      }
+
+      // Trigger Vapi AI call for returning customer with phone (not for WhatsApp leads)
+      if (customer.phone && source !== 'whatsapp') {
+        initiateVapiCall({
+          customerId: customer.id,
+          customerName: customer.name,
+          customerPhone: customer.phone,
+          customerEmail: customer.email || undefined,
+          childName: childName || undefined,
+          interest: interest || undefined,
+          source,
+        }).catch(err => console.error('[WEBHOOK] Failed to initiate Vapi call:', err));
+      }
 
       res.json({
         success: true,
@@ -286,12 +482,29 @@ webhookRouter.post('/leads', async (req, res, next) => {
           name: customer.name,
           phone: customer.phone,
           email: customer.email,
-          students: customer.students.map(s => ({ id: s.id, name: s.name })),
         },
         message: 'Customer already exists, notes updated',
       });
       return;
     }
+
+    // Build student data from either students array or childName/childAge
+    let studentsToCreate: Array<{ name: string; birthDate?: Date | null; grade?: string | null; notes?: string }> = [];
+
+    if (students && Array.isArray(students) && students.length > 0) {
+      studentsToCreate = students.map((s: { name: string; birthDate?: string; grade?: string }) => ({
+        name: s.name,
+        birthDate: s.birthDate ? new Date(s.birthDate) : null,
+        grade: s.grade || null,
+      }));
+    } else if (childName) {
+      studentsToCreate = [{
+        name: childName,
+        notes: childAge ? `גיל: ${childAge}${interest ? ` | תחום עניין: ${interest}` : ''}` : (interest ? `תחום עניין: ${interest}` : undefined),
+      }];
+    }
+
+    const noteText = buildNotes();
 
     // Create new customer
     const customer = await prisma.customer.create({
@@ -300,11 +513,10 @@ webhookRouter.post('/leads', async (req, res, next) => {
         phone: phone || null,
         email: email || null,
         city: city || null,
-        notes: fullNotes,
-        students: studentsToCreate.length > 0 
-          ? {
-              create: studentsToCreate,
-            }
+        notes: `[${new Date().toISOString()}] ${source}: ${noteText}`,
+        source: source || 'website',
+        students: studentsToCreate.length > 0
+          ? { create: studentsToCreate }
           : undefined,
       },
       include: {
@@ -312,23 +524,60 @@ webhookRouter.post('/leads', async (req, res, next) => {
       },
     });
 
-    // Create audit log
-    await prisma.auditLog.create({
-      data: {
-        action: 'LEAD_CREATE',
-        entity: 'Customer',
-        entityId: customer.id,
-        newValue: { source, interest, message, childName, childAge, studentsCount: studentsToCreate.length },
-        ipAddress: req.ip || 'webhook',
-      },
-    }).catch(() => {}); // Don't fail if audit log fails
-
     // Send welcome notifications (async, don't block response)
     sendWelcomeNotifications({
       name: customer.name,
       phone: customer.phone,
       email: customer.email,
     }).catch(err => console.error('[WEBHOOK] Failed to send welcome notifications:', err));
+
+    // Auto-send WhatsApp welcome template to new leads (feature flag gated)
+    if (customer.phone) {
+      sendLeadWelcomeTemplate(customer.phone, customer.name)
+        .catch(err => console.error('[WEBHOOK] welcome template error:', err));
+    }
+
+    // Notify admin about new lead
+    notifyAdminNewLead({
+      name: customer.name,
+      phone: customer.phone,
+      email: customer.email,
+      childName: childName || undefined,
+      interest: interest || undefined,
+      source,
+    }).catch(err => console.error('[WEBHOOK] Failed to notify admin:', err));
+
+    // Trigger Vapi AI call for new customer with phone (not for WhatsApp leads)
+    if (customer.phone && source !== 'whatsapp') {
+      initiateVapiCall({
+        customerId: customer.id,
+        customerName: customer.name,
+        customerPhone: customer.phone,
+        customerEmail: customer.email || undefined,
+        childName: childName || undefined,
+        interest: interest || undefined,
+        source,
+      }).catch(err => console.error('[WEBHOOK] Failed to initiate Vapi call:', err));
+    }
+
+    // Create audit log (includes IP + user-agent via req)
+    logAudit({
+      userId: 'system',
+      userName: 'Website Lead',
+      action: 'CREATE',
+      entity: 'customer',
+      entityId: customer.id,
+      req,
+      newValue: {
+        source,
+        name: customer.name,
+        phone: customer.phone,
+        email: customer.email,
+        childName,
+        interest,
+        clientIp,
+      },
+    }).catch(err => console.error('[WEBHOOK] Failed to create audit log:', err));
 
     res.status(201).json({
       success: true,
@@ -349,16 +598,196 @@ webhookRouter.post('/leads', async (req, res, next) => {
   }
 });
 
+// POST /api/webhook/whatsapp-summary
+// Receives WhatsApp conversation summaries from Make.com
+// Creates LeadAppointment records (and optionally Customer records)
+webhookRouter.post('/whatsapp-summary', async (req, res, next) => {
+  try {
+    // Accept both array and single object
+    const items = Array.isArray(req.body) ? req.body : [req.body];
+    const results = [];
+
+    for (const item of items) {
+      const { summary, name, phone, email, child_name, child_age } = item;
+
+      if (!name && !phone) {
+        results.push({ error: 'name or phone is required', item });
+        continue;
+      }
+
+      // Try to find or create customer
+      let customerId: string | null = null;
+      if (phone) {
+        const existing = await prisma.customer.findFirst({ where: { phone } });
+        if (existing) {
+          customerId = existing.id;
+          // Append summary to customer notes
+          await prisma.customer.update({
+            where: { id: existing.id },
+            data: {
+              notes: existing.notes
+                ? `${existing.notes}\n---\n[${new Date().toISOString()}] whatsapp: ${summary || 'שיחת וואטסאפ'}`
+                : `[${new Date().toISOString()}] whatsapp: ${summary || 'שיחת וואטסאפ'}`,
+            },
+          });
+        } else if (name) {
+          const customer = await prisma.customer.create({
+            data: {
+              name,
+              phone,
+              email: (email && email !== 'לא') ? email : null,
+              notes: `[${new Date().toISOString()}] whatsapp: ${summary || 'שיחת וואטסאפ'}`,
+              source: 'whatsapp',
+              students: (child_name && child_name !== 'לא') ? {
+                create: [{
+                  name: child_name,
+                  notes: (child_age && child_age !== 'לא') ? `גיל: ${child_age}` : undefined,
+                }],
+              } : undefined,
+            },
+          });
+          customerId = customer.id;
+        }
+      }
+
+      // Create or merge LeadAppointment (dedup by phone)
+      const { lead, isDuplicate } = await findOrCreateLeadAppointment({
+        customerId,
+        customerName: name || 'לא ידוע',
+        customerPhone: phone || '',
+        customerEmail: (email && email !== 'לא') ? email : null,
+        childName: (child_name && child_name !== 'לא') ? child_name : null,
+        source: 'whatsapp',
+        callSummary: summary || null,
+        appointmentStatus: 'new',
+      });
+
+      if (isDuplicate) {
+        console.log(`[WhatsApp-summary] Merged duplicate lead for phone ${phone}`);
+      }
+
+      results.push({ success: true, leadId: lead.id, customerId, isDuplicate });
+    }
+
+    // Notify admin
+    const count = results.filter(r => r.success).length;
+    if (count > 0) {
+      notifyAdminNewLead({
+        name: items[0]?.name || 'לא ידוע',
+        phone: items[0]?.phone || null,
+        source: 'whatsapp',
+      }).catch(err => console.error('[WEBHOOK] Failed to notify admin:', err));
+    }
+
+    logAudit({
+      userId: 'system',
+      userName: 'Make WhatsApp',
+      action: 'CREATE',
+      entity: 'lead_appointment',
+      entityId: results[0]?.leadId || 'batch',
+      newValue: { count, source: 'whatsapp' },
+    }).catch(err => console.error('[WEBHOOK] Failed to create audit log:', err));
+
+    res.status(201).json({ success: true, results });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Generic meeting update
+// Helper function to recalculate meeting financials
+async function recalculateMeetingFinancials(meetingId: string) {
+  const meeting = await prisma.meeting.findUnique({
+    where: { id: meetingId },
+    include: {
+      cycle: {
+        include: {
+          registrations: {
+            where: { status: { in: ['registered', 'active'] } },
+          },
+        },
+      },
+      instructor: true,
+    },
+  });
+
+  if (!meeting || meeting.status !== 'completed') {
+    return null;
+  }
+
+  const cycleData = meeting.cycle;
+
+  // Calculate revenue based on cycle type
+  let revenue = 0;
+  const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
+
+  if (cycleData.type === 'private') {
+    const totalRegistrationAmount = cycleData.registrations.reduce(
+      (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
+      0
+    );
+    revenue = Math.round(totalRegistrationAmount / cycleData.totalMeetings);
+  } else if (cycleData.type === 'institutional_per_child') {
+    const pricePerStudent = Number(cycleData.pricePerStudent || 0);
+    const studentCount = cycleData.studentCount || activeRegistrations.length;
+    revenue = Math.round(pricePerStudent * studentCount);
+  } else if (cycleData.type === 'institutional_fixed') {
+    revenue = Number(cycleData.meetingRevenue || 0);
+  }
+
+  // Calculate instructor payment based on activity type
+  const activityType = meeting.activityType || cycleData.activityType ||
+    (cycleData.isOnline ? 'online' : (cycleData.type === 'private' ? 'private_lesson' : 'frontal'));
+
+  const instructor = meeting.instructor;
+  let instructorPayment = 0;
+  if (instructor) {
+    let hourlyRate = 0;
+    switch (activityType) {
+      case 'online':
+        hourlyRate = Number(instructor.rateOnline || instructor.rateFrontal || 0);
+        break;
+      case 'private_lesson':
+        hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
+        break;
+      case 'frontal':
+      default:
+        hourlyRate = Number(instructor.rateFrontal || 0);
+        break;
+    }
+
+    const durationMinutes = cycleData.durationMinutes;
+    const durationHours = durationMinutes / 60;
+    instructorPayment = Math.round(hourlyRate * durationHours);
+  }
+
+  const profit = revenue - instructorPayment;
+
+  // Update meeting with calculated values
+  return prisma.meeting.update({
+    where: { id: meetingId },
+    data: {
+      revenue,
+      instructorPayment,
+      profit,
+    },
+  });
+}
+
 // PATCH /api/webhook/meetings/:id
 webhookRouter.patch('/meetings/:id', async (req, res, next) => {
   try {
     const meetingId = req.params.id;
-    const allowedFields = ['zoomMeetingId', 'zoomJoinUrl', 'zoomStartUrl', 'topic', 'notes'];
-    
+    const allowedFields = ['zoomMeetingId', 'zoomJoinUrl', 'zoomStartUrl', 'topic', 'notes', 'status'];
+    const validStatuses = ['scheduled', 'completed', 'cancelled', 'postponed'];
+
     const updateData: Record<string, any> = {};
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) {
+        // Validate status value
+        if (field === 'status' && !validStatuses.includes(req.body[field])) {
+          throw new AppError(400, `Invalid status. Must be one of: ${validStatuses.join(', ')}`);
+        }
         updateData[field] = req.body[field];
       }
     }
@@ -367,10 +796,18 @@ webhookRouter.patch('/meetings/:id', async (req, res, next) => {
       throw new AppError(400, 'No valid fields to update');
     }
 
-    const meeting = await prisma.meeting.update({
+    let meeting = await prisma.meeting.update({
       where: { id: meetingId },
       data: updateData,
     });
+
+    // If status changed to completed, automatically recalculate financials
+    if (updateData.status === 'completed') {
+      const recalculated = await recalculateMeetingFinancials(meetingId);
+      if (recalculated) {
+        meeting = recalculated;
+      }
+    }
 
     res.json({
       success: true,
@@ -378,5 +815,67 @@ webhookRouter.patch('/meetings/:id', async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+});
+
+// ==================== Incoming WhatsApp (Green API) ====================
+// POST /api/webhook/whatsapp-incoming
+// Handles: instructor poll replies + text replies for CRM status updates only.
+// Group messages are ignored.
+webhookRouter.post('/whatsapp-incoming', async (req: Request, res: Response) => {
+  // Always return 200 quickly to Green API
+  res.json({ received: true });
+
+  try {
+    const body = req.body;
+    const typeWebhook = body?.typeWebhook;
+
+    // Only handle incoming messages
+    if (typeWebhook !== 'incomingMessageReceived') return;
+
+    const chatId: string = body?.senderData?.chatId || '';
+
+    // Ignore all group messages
+    if (chatId.includes('@g.us')) return;
+
+    // Extract phone number (remove @c.us)
+    const phone = chatId.replace('@c.us', '');
+    if (!phone) return;
+
+    const msgType = body?.messageData?.typeMessage;
+    let isYes: boolean | null = null;
+    let rawMessage = '';
+
+    if (msgType === 'pollUpdateMessage') {
+      // Handle poll vote
+      const votes = body?.messageData?.pollUpdateMessageData?.stateMessage?.votes || [];
+      for (const vote of votes) {
+        const voters = vote?.optionVoters || [];
+        if (voters.some((v: string) => v.includes(phone))) {
+          rawMessage = vote?.optionName || '';
+          if (rawMessage.includes('כן') || rawMessage.toLowerCase().includes('yes')) {
+            isYes = true;
+          } else if (rawMessage.includes('לא') || rawMessage.toLowerCase().includes('no')) {
+            isYes = false;
+          }
+        }
+      }
+    } else if (msgType === 'textMessage') {
+      rawMessage = body?.messageData?.textMessageData?.textMessage || '';
+      const lower = rawMessage.toLowerCase().trim();
+      if (/^(כן|כ|נכון|yes|y|עברתי|העברתי|✅)/.test(lower)) {
+        isYes = true;
+      } else if (/^(לא|ל|no|n|לא עברתי|❌)/.test(lower)) {
+        isYes = false;
+      }
+    }
+
+    if (isYes !== null) {
+      await handleStatusReply(phone, isYes);
+    } else {
+      console.log(`[WhatsApp] Unrecognized incoming message from ${phone}: "${rawMessage}"`);
+    }
+  } catch (error: any) {
+    console.error('[WhatsApp] Error processing incoming message:', error.message);
   }
 });

@@ -1,44 +1,111 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound } from 'lucide-react';
-import { useInstructors, useCreateInstructor, useUpdateInstructor, useSendInstructorInvite, useResetInstructorPassword } from '../hooks/useApi';
+import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound, Trash2, AlertTriangle, Edit, CheckSquare, Paperclip, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { useInstructors, useCreateInstructor, useUpdateInstructor, useDeleteInstructor, useSendInstructorInvite, useResetInstructorPassword, useBulkUpdateInstructors } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
+import FileAttachments from '../components/FileAttachments';
 import { SkeletonCardGrid } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import ViewSelector from '../components/ViewSelector';
+import SendMessageModal from '../components/SendMessageModal';
 import type { Instructor } from '../types';
 
 export default function Instructors() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingInstructor, setEditingInstructor] = useState<Instructor | null>(null);
+  const [editingInstructorInitialTab, setEditingInstructorInitialTab] = useState<'details' | 'files'>('details');
   const [inviteModal, setInviteModal] = useState<{ instructor: Instructor; url: string } | null>(null);
   const [resetPasswordModal, setResetPasswordModal] = useState<{ instructor: Instructor; url: string } | null>(null);
-  const [searchFilter, setSearchFilter] = useState('');
+  const [messageInstructor, setMessageInstructor] = useState<Instructor | null>(null);
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState<Instructor | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkEditModal, setShowBulkEditModal] = useState(false);
+  const [bulkEmploymentType, setBulkEmploymentType] = useState<'freelancer' | 'employee'>('freelancer');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() =>
+    (localStorage.getItem('instructors-view') as 'grid' | 'list') || 'grid'
+  );
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
-  const { data: instructors, isLoading } = useInstructors();
-
-  // Initialize search from URL params
-  useEffect(() => {
-    const search = searchParams.get('search');
-    if (search) {
-      setSearchFilter(search);
-    }
-  }, [searchParams]);
-
-  // Filter instructors
-  const filteredInstructors = instructors?.filter((instructor) => {
-    if (!searchFilter) return true;
-    const searchLower = searchFilter.toLowerCase();
-    return (
-      instructor.name.toLowerCase().includes(searchLower) ||
-      instructor.phone?.includes(searchFilter) ||
-      instructor.email?.toLowerCase().includes(searchLower)
+  const handleSort = (key: string) => {
+    setSortConfig(prev =>
+      prev?.key === key
+        ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+        : { key, direction: 'asc' }
     );
-  });
+  };
+  const toggleViewMode = (mode: 'grid' | 'list') => {
+    setViewMode(mode);
+    localStorage.setItem('instructors-view', mode);
+  };
+
+  // Set defaults on first load (no params in URL)
+  useEffect(() => {
+    if (searchParams.size === 0) {
+      setSearchParams({ status: 'active' }, { replace: true });
+    }
+  }, []);
+
+  // Read filters from URL
+  const statusFilter = searchParams.get('status') ?? 'active'; // 'active' | 'inactive' | 'all'
+  const searchFilter = searchParams.get('search') || '';
+
+  const updateFilter = (key: string, value: string) => {
+    const newParams = new URLSearchParams(searchParams);
+    if (value) newParams.set(key, value);
+    else newParams.delete(key);
+    setSearchParams(newParams, { replace: true });
+  };
+  const setSearchFilter = (value: string) => updateFilter('search', value);
+
+  // Map to API param
+  const isActiveParam: boolean | '' =
+    statusFilter === 'active' ? true :
+    statusFilter === 'inactive' ? false : '';
+
+  const { data: instructors, isLoading } = useInstructors({ isActive: isActiveParam });
+  const bulkUpdate = useBulkUpdateInstructors();
+
+  // Client-side search + sort
+  const filteredInstructors = (() => {
+    let list = instructors?.filter((instructor) => {
+      if (!searchFilter) return true;
+      const searchLower = searchFilter.toLowerCase();
+      return (
+        instructor.name.toLowerCase().includes(searchLower) ||
+        instructor.phone?.includes(searchFilter) ||
+        instructor.email?.toLowerCase().includes(searchLower)
+      );
+    }) ?? [];
+
+    if (sortConfig) {
+      list = [...list].sort((a, b) => {
+        let aVal: any, bVal: any;
+        switch (sortConfig.key) {
+          case 'name':
+            aVal = String(a.name ?? ''); bVal = String(b.name ?? '');
+            return sortConfig.direction === 'asc' ? aVal.localeCompare(bVal, 'he') : bVal.localeCompare(aVal, 'he');
+          case 'rateFrontal':
+            aVal = a.rateFrontal != null ? parseFloat(String(a.rateFrontal)) : -1;
+            bVal = b.rateFrontal != null ? parseFloat(String(b.rateFrontal)) : -1;
+            break;
+          case 'rateOnline':
+            aVal = a.rateOnline != null ? parseFloat(String(a.rateOnline)) : -1;
+            bVal = b.rateOnline != null ? parseFloat(String(b.rateOnline)) : -1;
+            break;
+          case 'cycles': aVal = a._count?.cycles ?? 0; bVal = b._count?.cycles ?? 0; break;
+          case 'isActive': aVal = a.isActive ? 1 : 0; bVal = b.isActive ? 1 : 0; break;
+          default: return 0;
+        }
+        return sortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
+      });
+    }
+    return list;
+  })();
   const createInstructor = useCreateInstructor();
   const updateInstructor = useUpdateInstructor();
+  const deleteInstructor = useDeleteInstructor();
   const sendInvite = useSendInstructorInvite();
   const resetPassword = useResetInstructorPassword();
 
@@ -79,51 +146,243 @@ export default function Instructors() {
     }
   };
 
+  const handleDeleteInstructor = async () => {
+    if (!deleteConfirmModal) return;
+    try {
+      await deleteInstructor.mutateAsync(deleteConfirmModal.id);
+      setDeleteConfirmModal(null);
+    } catch (error: any) {
+      console.error('Failed to delete instructor:', error);
+      const errorMessage = error?.response?.data?.error || error?.message || 'לא ניתן למחוק מדריך זה';
+      alert(errorMessage);
+    }
+  };
+
+  const toggleSelectInstructor = (id: string) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (!filteredInstructors) return;
+    if (selectedIds.size === filteredInstructors.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredInstructors.map(i => i.id)));
+    }
+  };
+
+  const handleBulkUpdate = async () => {
+    if (selectedIds.size === 0) return;
+    try {
+      await bulkUpdate.mutateAsync({
+        instructorIds: Array.from(selectedIds),
+        data: { employmentType: bulkEmploymentType },
+      });
+      setSelectedIds(new Set());
+      setShowBulkEditModal(false);
+    } catch (error) {
+      console.error('Failed to bulk update:', error);
+      alert('שגיאה בעדכון מדריכים');
+    }
+  };
+
   return (
     <>
       <PageHeader
         title="מדריכים"
-        subtitle={`${instructors?.length || 0} מדריכים`}
+        subtitle={`${filteredInstructors?.length || 0} מדריכים${selectedIds.size > 0 ? ` (${selectedIds.size} נבחרו)` : ''}`}
         actions={
-          <button onClick={() => setShowAddModal(true)} className="btn btn-primary">
-            <Plus size={18} />
-            מדריך חדש
-          </button>
+          <div className="flex gap-2">
+            {selectedIds.size > 0 && (
+              <button 
+                onClick={() => setShowBulkEditModal(true)} 
+                className="btn btn-secondary"
+              >
+                <Edit size={18} />
+                עריכה גורפת ({selectedIds.size})
+              </button>
+            )}
+            <button onClick={() => setShowAddModal(true)} className="btn btn-primary">
+              <Plus size={18} />
+              מדריך חדש
+            </button>
+          </div>
         }
       />
 
       <div className="flex-1 p-6 overflow-auto">
-        {/* Search & Views */}
-        <div className="mb-4 flex gap-4 items-center">
-          <div className="relative flex-1 max-w-md">
+        {/* Search & Filters */}
+        <div className="mb-4 flex flex-wrap gap-3 items-center">
+          <button
+            onClick={toggleSelectAll}
+            className={`btn btn-sm ${selectedIds.size === filteredInstructors?.length && (filteredInstructors?.length ?? 0) > 0 ? 'btn-primary' : 'btn-secondary'}`}
+            title={selectedIds.size === filteredInstructors?.length ? 'בטל בחירה' : 'בחר הכל'}
+          >
+            <CheckSquare size={18} />
+          </button>
+
+          {/* Status filter */}
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+            {[
+              { value: 'active', label: 'פעילים' },
+              { value: 'inactive', label: 'לא פעילים' },
+              { value: 'all', label: 'הכל' },
+            ].map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => updateFilter('status', opt.value)}
+                className={`px-3 py-1.5 transition-colors ${statusFilter === opt.value ? 'bg-blue-600 text-white font-medium' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="relative flex-1 max-w-sm">
             <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
               value={searchFilter}
               onChange={(e) => setSearchFilter(e.target.value)}
-              placeholder="חיפוש מדריך..."
+              placeholder="חיפוש לפי שם / טלפון / מייל..."
               className="form-input pr-10 w-full"
             />
           </div>
+
+          <span className="text-sm text-gray-500 mr-auto">
+            {filteredInstructors?.length ?? 0} מדריכים
+          </span>
+
+          {/* View mode toggle */}
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+            <button
+              onClick={() => toggleViewMode('grid')}
+              className={`p-2 transition-colors ${viewMode === 'grid' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+              title="תצוגת כרטיסיות"
+            >
+              <LayoutGrid size={16} />
+            </button>
+            <button
+              onClick={() => toggleViewMode('list')}
+              className={`p-2 transition-colors ${viewMode === 'list' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+              title="תצוגת שורות"
+            >
+              <List size={16} />
+            </button>
+          </div>
+
           <ViewSelector entity="instructors" onApplyView={() => {}} />
         </div>
 
         {isLoading ? (
           <SkeletonCardGrid count={6} />
         ) : filteredInstructors && filteredInstructors.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredInstructors.map((instructor) => (
-              <InstructorCard
-                key={instructor.id}
-                instructor={instructor}
-                onEdit={() => setEditingInstructor(instructor)}
-                onSendInvite={() => handleSendInvite(instructor)}
-                onResetPassword={() => handleResetPassword(instructor)}
-                isInviteLoading={sendInvite.isPending}
-                isResetLoading={resetPassword.isPending}
-              />
-            ))}
-          </div>
+          viewMode === 'grid' ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredInstructors.map((instructor) => (
+                <InstructorCard
+                  key={instructor.id}
+                  instructor={instructor}
+                  onEdit={() => { setEditingInstructorInitialTab('details'); setEditingInstructor(instructor); }}
+                  onEditFiles={() => { setEditingInstructorInitialTab('files'); setEditingInstructor(instructor); }}
+                  onDelete={() => setDeleteConfirmModal(instructor)}
+                  onSendInvite={() => handleSendInvite(instructor)}
+                  onSendMessage={() => setMessageInstructor(instructor)}
+                  onResetPassword={() => handleResetPassword(instructor)}
+                  isInviteLoading={sendInvite.isPending}
+                  isResetLoading={resetPassword.isPending}
+                  isSelected={selectedIds.has(instructor.id)}
+                  onToggleSelect={() => toggleSelectInstructor(instructor.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            /* List / Table view */
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="w-8 p-3 text-right">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.size === filteredInstructors.length && filteredInstructors.length > 0}
+                        onChange={toggleSelectAll}
+                        className="rounded border-gray-300 text-blue-600"
+                      />
+                    </th>
+                    <SortableTh label="שם" sortKey="name" sortConfig={sortConfig} onSort={handleSort} />
+                    <th className="p-3 text-right font-medium text-gray-600">טלפון</th>
+                    <th className="p-3 text-right font-medium text-gray-600">מייל</th>
+                    <SortableTh label="פרונטלי" sortKey="rateFrontal" sortConfig={sortConfig} onSort={handleSort} align="center" />
+                    <SortableTh label="אונליין" sortKey="rateOnline" sortConfig={sortConfig} onSort={handleSort} align="center" />
+                    <SortableTh label="מחזורים" sortKey="cycles" sortConfig={sortConfig} onSort={handleSort} align="center" />
+                    <SortableTh label="סטטוס" sortKey="isActive" sortConfig={sortConfig} onSort={handleSort} align="center" />
+                    <th className="p-3 text-right font-medium text-gray-600">פעולות</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {filteredInstructors.map((instructor) => (
+                    <tr key={instructor.id} className={`hover:bg-gray-50 transition-colors ${selectedIds.has(instructor.id) ? 'bg-blue-50' : ''}`}>
+                      <td className="p-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(instructor.id)}
+                          onChange={() => toggleSelectInstructor(instructor.id)}
+                          className="rounded border-gray-300 text-blue-600"
+                        />
+                      </td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xs shrink-0">
+                            {instructor.name.charAt(0)}
+                          </div>
+                          <span className="font-medium text-gray-900">{instructor.name}</span>
+                          {instructor.userId && (
+                            <span className="badge badge-info text-xs px-1" title="יש חשבון"><UserCheck size={10} /></span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-3 text-gray-600 dir-ltr" dir="ltr">{instructor.phone}</td>
+                      <td className="p-3 text-gray-600 max-w-[180px] truncate" dir="ltr">{instructor.email}</td>
+                      <td className="p-3 text-center text-gray-700">{instructor.rateFrontal != null ? `₪${instructor.rateFrontal}` : '-'}</td>
+                      <td className="p-3 text-center text-gray-700">{instructor.rateOnline != null ? `₪${instructor.rateOnline}` : '-'}</td>
+                      <td className="p-3 text-center">
+                        <Link
+                          to={`/cycles?instructorId=${instructor.id}`}
+                          className="text-blue-600 hover:underline font-medium"
+                        >
+                          {instructor._count?.cycles || 0}
+                        </Link>
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className={`badge ${instructor.isActive ? 'badge-success' : 'badge-gray'}`}>
+                          {instructor.isActive ? 'פעיל' : 'לא פעיל'}
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => { setEditingInstructorInitialTab('details'); setEditingInstructor(instructor); }} className="text-blue-600 hover:text-blue-800 transition-colors" title="עריכה"><Edit size={14} /></button>
+                          <button onClick={() => setMessageInstructor(instructor)} className="text-green-600 hover:text-green-800 transition-colors" title="הודעה"><MessageCircle size={14} /></button>
+                          {!instructor.userId && (
+                            <button onClick={() => handleSendInvite(instructor)} className="text-purple-600 hover:text-purple-800 transition-colors" title="הזמנה"><Send size={14} /></button>
+                          )}
+                          <button onClick={() => setDeleteConfirmModal(instructor)} className="text-red-500 hover:text-red-700 transition-colors" title="מחק"><Trash2 size={14} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         ) : (
           <EmptyState
             icon={<UserCheck size={40} />}
@@ -156,15 +415,16 @@ export default function Instructors() {
       {/* Edit Instructor Modal */}
       <Modal
         isOpen={!!editingInstructor}
-        onClose={() => setEditingInstructor(null)}
+        onClose={() => { setEditingInstructor(null); setEditingInstructorInitialTab('details'); }}
         title="עריכת מדריך"
         size="lg"
       >
         {editingInstructor && (
           <InstructorForm
             instructor={editingInstructor}
+            initialTab={editingInstructorInitialTab}
             onSubmit={handleUpdateInstructor}
-            onCancel={() => setEditingInstructor(null)}
+            onCancel={() => { setEditingInstructor(null); setEditingInstructorInitialTab('details'); }}
             isLoading={updateInstructor.isPending}
           />
         )}
@@ -201,28 +461,168 @@ export default function Instructors() {
           />
         )}
       </Modal>
+
+      {/* Send Message Modal */}
+      <SendMessageModal
+        instructor={messageInstructor}
+        onClose={() => setMessageInstructor(null)}
+      />
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={!!deleteConfirmModal}
+        onClose={() => setDeleteConfirmModal(null)}
+        title="מחיקת מדריך"
+        size="sm"
+      >
+        {deleteConfirmModal && (
+          <div className="p-6">
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="text-red-600" size={28} />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-800">
+                האם למחוק את {deleteConfirmModal.name}?
+              </h3>
+              <p className="text-gray-500 text-sm mt-2">
+                פעולה זו אינה ניתנת לביטול. כל המידע על המדריך יימחק לצמיתות.
+              </p>
+              {deleteConfirmModal._count?.cycles ? (
+                <p className="text-amber-600 text-sm mt-2 font-medium">
+                  ⚠️ למדריך יש {deleteConfirmModal._count.cycles} מחזורים פעילים - לא ניתן למחוק
+                </p>
+              ) : null}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteConfirmModal(null)}
+                className="flex-1 btn btn-secondary"
+              >
+                ביטול
+              </button>
+              <button
+                onClick={handleDeleteInstructor}
+                disabled={deleteInstructor.isPending || (deleteConfirmModal._count?.cycles || 0) > 0}
+                className="flex-1 btn bg-red-600 text-white hover:bg-red-700 disabled:bg-red-300"
+              >
+                {deleteInstructor.isPending ? 'מוחק...' : 'מחק'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Bulk Edit Modal */}
+      <Modal
+        isOpen={showBulkEditModal}
+        onClose={() => setShowBulkEditModal(false)}
+        title={`עריכה גורפת (${selectedIds.size} מדריכים)`}
+        size="sm"
+      >
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">סוג העסקה</label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="employmentType"
+                  value="freelancer"
+                  checked={bulkEmploymentType === 'freelancer'}
+                  onChange={() => setBulkEmploymentType('freelancer')}
+                  className="text-blue-600"
+                />
+                <span>עצמאי</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="employmentType"
+                  value="employee"
+                  checked={bulkEmploymentType === 'employee'}
+                  onChange={() => setBulkEmploymentType('employee')}
+                  className="text-blue-600"
+                />
+                <span>שכיר</span>
+              </label>
+            </div>
+          </div>
+          
+          <div className="flex gap-3 pt-4">
+            <button
+              onClick={() => setShowBulkEditModal(false)}
+              className="flex-1 btn btn-secondary"
+            >
+              ביטול
+            </button>
+            <button
+              onClick={handleBulkUpdate}
+              disabled={bulkUpdate.isPending}
+              className="flex-1 btn btn-primary"
+            >
+              {bulkUpdate.isPending ? 'מעדכן...' : 'עדכן'}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </>
+  );
+}
+
+// Sortable Table Header
+function SortableTh({ label, sortKey, sortConfig, onSort, align = 'right' }: {
+  label: string;
+  sortKey: string;
+  sortConfig: { key: string; direction: 'asc' | 'desc' } | null;
+  onSort: (key: string) => void;
+  align?: 'right' | 'center' | 'left';
+}) {
+  const active = sortConfig?.key === sortKey;
+  const Icon = active ? (sortConfig?.direction === 'asc' ? ChevronUp : ChevronDown) : ChevronsUpDown;
+  return (
+    <th
+      className={`p-3 font-medium text-gray-600 cursor-pointer select-none hover:bg-gray-100 transition-colors text-${align}`}
+      onClick={() => onSort(sortKey)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        <Icon size={13} className={active ? 'text-blue-600' : 'text-gray-400'} />
+      </span>
+    </th>
   );
 }
 
 // Instructor Card
 interface InstructorCardProps {
+  onEditFiles: () => void;
   instructor: Instructor;
   onEdit: () => void;
+  onDelete: () => void;
   onSendInvite: () => void;
+  onSendMessage: () => void;
   onResetPassword: () => void;
   isInviteLoading?: boolean;
   isResetLoading?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }
 
-function InstructorCard({ instructor, onEdit, onSendInvite, onResetPassword, isInviteLoading, isResetLoading }: InstructorCardProps) {
+function InstructorCard({ instructor, onEdit, onEditFiles, onDelete, onSendInvite, onSendMessage, onResetPassword, isInviteLoading, isResetLoading, isSelected, onToggleSelect }: InstructorCardProps) {
   const hasAccount = !!instructor.userId;
 
   return (
-    <div className="group bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-lg hover:border-gray-200 transition-all duration-200 hover:-translate-y-0.5">
+    <div className={`group bg-white rounded-xl border shadow-sm hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 ${isSelected ? 'border-blue-400 ring-2 ring-blue-100' : 'border-gray-100 hover:border-gray-200'}`}>
       <div className="p-6">
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
+            {/* Selection checkbox */}
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={onToggleSelect}
+              className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+            />
             <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-sm">
               <span className="text-lg font-bold text-white">
                 {instructor.name.charAt(0)}
@@ -280,32 +680,44 @@ function InstructorCard({ instructor, onEdit, onSendInvite, onResetPassword, isI
           </div>
         </div>
 
-        <div className="flex items-center justify-between pt-4 border-t border-gray-100 text-sm">
-          <div className="flex items-center gap-4 text-gray-500">
+        <div className="pt-4 border-t border-gray-100 text-sm space-y-2">
+          {/* Stats row */}
+          <div className="flex items-center gap-3 text-gray-500 flex-wrap">
             <Link 
               to={`/cycles?instructorId=${instructor.id}`}
-              className="flex items-center gap-1.5 hover:text-blue-600 transition-colors group"
+              className="flex items-center gap-1 hover:text-blue-600 transition-colors group"
             >
-              <RefreshCcw size={14} className="group-hover:text-blue-600" />
+              <RefreshCcw size={13} className="group-hover:text-blue-600" />
               <span className="group-hover:underline">{instructor._count?.cycles || 0} מחזורים</span>
             </Link>
             <Link 
               to={`/meetings?instructorId=${instructor.id}`}
-              className="flex items-center gap-1.5 hover:text-blue-600 transition-colors group"
+              className="flex items-center gap-1 hover:text-blue-600 transition-colors group"
             >
-              <Calendar size={14} className="group-hover:text-blue-600" />
+              <Calendar size={13} className="group-hover:text-blue-600" />
               <span className="group-hover:underline">{instructor._count?.meetings || 0} פגישות</span>
             </Link>
+            {(instructor._count as any)?.files > 0 && (
+              <button
+                onClick={onEditFiles}
+                className="flex items-center gap-1 text-blue-600 hover:text-blue-800 transition-colors font-medium bg-blue-50 px-2 py-0.5 rounded-full"
+                title="פתח מסמכים מצורפים"
+              >
+                <Paperclip size={12} />
+                <span>{(instructor._count as any).files} מסמכים</span>
+              </button>
+            )}
           </div>
-          <div className="flex items-center gap-3">
+          {/* Actions row */}
+          <div className="flex items-center gap-2 flex-wrap">
             {!hasAccount && (
               <button
                 onClick={onSendInvite}
                 disabled={isInviteLoading}
-                className="text-green-600 hover:text-green-700 flex items-center gap-1.5 font-medium transition-colors"
+                className="text-green-600 hover:text-green-700 flex items-center gap-1 font-medium transition-colors"
                 title="שלח הזמנה"
               >
-                <Send size={14} />
+                <Send size={13} />
                 הזמנה
               </button>
             )}
@@ -313,18 +725,33 @@ function InstructorCard({ instructor, onEdit, onSendInvite, onResetPassword, isI
               <button
                 onClick={onResetPassword}
                 disabled={isResetLoading}
-                className="text-orange-600 hover:text-orange-700 flex items-center gap-1.5 font-medium transition-colors"
+                className="text-orange-500 hover:text-orange-700 flex items-center gap-1 transition-colors"
                 title="איפוס סיסמה"
               >
-                <KeyRound size={14} />
+                <KeyRound size={13} />
                 איפוס
               </button>
             )}
+            <button
+              onClick={onSendMessage}
+              className="text-green-600 hover:text-green-700 flex items-center gap-1 transition-colors"
+              title="שלח הודעה"
+            >
+              <MessageCircle size={13} />
+              הודעה
+            </button>
             <button
               onClick={onEdit}
               className="text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors"
             >
               עריכה
+            </button>
+            <button
+              onClick={onDelete}
+              className="text-red-500 hover:text-red-700 transition-colors mr-auto"
+              title="מחק מדריך"
+            >
+              <Trash2 size={13} />
             </button>
           </div>
         </div>
@@ -537,12 +964,19 @@ function ResetPasswordModalContent({ instructor, resetUrl, onClose }: ResetPassw
 // Instructor Form
 interface InstructorFormProps {
   instructor?: Instructor;
+  initialTab?: 'details' | 'files';
   onSubmit: (data: Partial<Instructor>) => void;
   onCancel: () => void;
   isLoading?: boolean;
 }
 
-function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: InstructorFormProps) {
+function InstructorForm({ instructor, initialTab = 'details', onSubmit, onCancel, isLoading }: InstructorFormProps) {
+  const [activeTab, setActiveTab] = useState<'details' | 'files'>(instructor?.id ? initialTab : 'details');
+
+  // Sync with initialTab when modal is reopened with different tab
+  useEffect(() => {
+    if (instructor?.id) setActiveTab(initialTab);
+  }, [instructor?.id, initialTab]);
   const [formData, setFormData] = useState({
     name: instructor?.name || '',
     phone: instructor?.phone || '',
@@ -551,6 +985,7 @@ function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: Instructo
     rateOnline: instructor?.rateOnline || 120,
     ratePrivate: instructor?.ratePrivate || 150,
     ratePreparation: instructor?.ratePreparation || 50,
+    employmentType: instructor?.employmentType || 'freelancer',
     notes: instructor?.notes || '',
     isActive: instructor?.isActive ?? true,
   });
@@ -563,11 +998,46 @@ function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: Instructo
       rateOnline: Number(formData.rateOnline),
       ratePrivate: Number(formData.ratePrivate),
       ratePreparation: Number(formData.ratePreparation),
+      employmentType: formData.employmentType,
     });
   };
 
   return (
-    <form onSubmit={handleSubmit} className="p-6 space-y-4">
+    <div className="flex flex-col">
+      {/* Tabs — only in edit mode */}
+      {instructor?.id && (
+        <div className="flex border-b border-gray-200 px-6 pt-4">
+          <button
+            type="button"
+            onClick={() => setActiveTab('details')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${activeTab === 'details' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            פרטים
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('files')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px flex items-center gap-1 ${activeTab === 'files' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <Paperclip size={14} />
+            מסמכים
+          </button>
+        </div>
+      )}
+
+      {/* Files Tab */}
+      {instructor?.id && activeTab === 'files' && (
+        <div className="p-6">
+          <FileAttachments entityType="instructor" entityId={instructor.id} canDelete={true} />
+          <div className="flex justify-end pt-4 border-t mt-4">
+            <button type="button" onClick={onCancel} className="btn btn-secondary">סגור</button>
+          </div>
+        </div>
+      )}
+
+      {/* Details Tab (or default when creating) */}
+      {(activeTab === 'details' || !instructor?.id) && (
+      <form onSubmit={handleSubmit} className="p-6 space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2">
           <label className="form-label">שם מלא *</label>
@@ -667,6 +1137,32 @@ function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: Instructo
       </div>
 
       <div>
+        <label className="form-label">סוג העסקה</label>
+        <div className="flex gap-4">
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name="employmentType"
+              checked={formData.employmentType === 'freelancer'}
+              onChange={() => setFormData({ ...formData, employmentType: 'freelancer' })}
+              className="text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm">פרילנסר</span>
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name="employmentType"
+              checked={formData.employmentType === 'employee'}
+              onChange={() => setFormData({ ...formData, employmentType: 'employee' })}
+              className="text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm">שכיר (×1.3 עלות מעסיק)</span>
+          </label>
+        </div>
+      </div>
+
+      <div>
         <label className="form-label">הערות</label>
         <textarea
           value={formData.notes}
@@ -698,5 +1194,7 @@ function InstructorForm({ instructor, onSubmit, onCancel, isLoading }: Instructo
         </button>
       </div>
     </form>
+      )}
+    </div>
   );
 }

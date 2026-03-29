@@ -62,7 +62,7 @@ jobs:
         working-directory: ./e2e
 
       - name: Setup database
-        run: npx prisma db push --skip-generate
+        run: npx prisma generate && npx prisma db push --skip-generate
         working-directory: ./backend
         env:
           DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
@@ -110,6 +110,13 @@ jobs:
           API_KEY: test_api_key
           CORS_ORIGINS: http://localhost:3001
           NODE_ENV: test
+          OPENAI_API_KEY: sk-test-placeholder
+          GREEN_API_INSTANCE_ID: test
+          GREEN_API_TOKEN: test
+          WA_CLOUD_ACCESS_TOKEN: test
+          WA_CLOUD_PHONE_NUMBER_ID: test
+          GMAIL_USER: test@test.com
+          GMAIL_PASS: test
 
       - name: Serve frontend
         run: npx serve -s dist -l 3001 &
@@ -159,6 +166,7 @@ jobs:
         working-directory: ./e2e
         env:
           BASE_URL: http://localhost:3001
+          API_URL: http://localhost:3000
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
@@ -221,7 +229,7 @@ jobs:
         working-directory: ./e2e
 
       - name: Setup database
-        run: npx prisma db push --skip-generate
+        run: npx prisma generate && npx prisma db push --skip-generate
         working-directory: ./backend
         env:
           DATABASE_URL: postgresql://haitech:haitech_pass@localhost:5432/haitech_crm
@@ -253,6 +261,13 @@ jobs:
           API_KEY: test_api_key
           CORS_ORIGINS: http://localhost:3001
           NODE_ENV: test
+          OPENAI_API_KEY: sk-test-placeholder
+          GREEN_API_INSTANCE_ID: test
+          GREEN_API_TOKEN: test
+          WA_CLOUD_ACCESS_TOKEN: test
+          WA_CLOUD_PHONE_NUMBER_ID: test
+          GMAIL_USER: test@test.com
+          GMAIL_PASS: test
 
       - name: Serve frontend
         run: npx serve -s dist -l 3001 &
@@ -285,6 +300,7 @@ jobs:
         working-directory: ./e2e
         env:
           BASE_URL: http://localhost:3001
+          API_URL: http://localhost:3000
 
       - name: Upload test results
         uses: actions/upload-artifact@v4

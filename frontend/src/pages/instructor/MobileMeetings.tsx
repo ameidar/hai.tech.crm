@@ -1,0 +1,360 @@
+import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { 
+  Calendar, 
+  Clock, 
+  MapPin, 
+  CheckCircle2, 
+  XCircle, 
+  AlertCircle,
+  ChevronLeft,
+  Users,
+  Video,
+  Building2,
+  Filter
+} from 'lucide-react';
+import { useMeetings, useCycles } from '../../hooks/useApi';
+import Loading from '../../components/ui/Loading';
+import { meetingStatusHebrew } from '../../types';
+import type { Meeting, MeetingStatus } from '../../types';
+
+/**
+ * Mobile-optimized meetings list for instructors
+ * Focus on today's meetings with easy access to actions
+ */
+export default function MobileMeetings() {
+  const navigate = useNavigate();
+  const [viewMode, setViewMode] = useState<'today' | 'week' | 'past' | 'cycle'>('today');
+  const [selectedCycleId, setSelectedCycleId] = useState<string>('');
+
+  // Fetch instructor's cycles for the filter
+  const { data: cycles } = useCycles({ status: 'active', limit: 100 });
+
+  // Get date range based on view mode
+  const dateRange = useMemo(() => {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    
+    if (viewMode === 'cycle' && selectedCycleId) {
+      // Show all meetings for cycle (wide date range)
+      return { from: '2020-01-01', to: '2030-12-31' };
+    } else if (viewMode === 'today') {
+      return { date: todayStr };
+    } else if (viewMode === 'past') {
+      // Last 30 days (up to yesterday)
+      const past30 = new Date(today);
+      past30.setDate(past30.getDate() - 30);
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      return { from: past30.toISOString().split('T')[0], to: yesterday.toISOString().split('T')[0] };
+    } else {
+      const nextWeek = new Date(today);
+      nextWeek.setDate(nextWeek.getDate() + 7);
+      return { from: todayStr, to: nextWeek.toISOString().split('T')[0] };
+    }
+  }, [viewMode, selectedCycleId]);
+
+  const { data: allMeetings, isLoading } = useMeetings(dateRange);
+
+  // Filter meetings by cycle if in cycle mode
+  const meetings = useMemo(() => {
+    if (!allMeetings || !Array.isArray(allMeetings)) return [];
+    if (viewMode === 'cycle' && selectedCycleId) {
+      return allMeetings.filter(m => m.cycleId === selectedCycleId);
+    }
+    return allMeetings;
+  }, [allMeetings, viewMode, selectedCycleId]);
+
+  const formatTime = (time: string) => {
+    if (time.includes('T')) {
+      const date = new Date(time);
+      const hours = date.getUTCHours().toString().padStart(2, '0');
+      const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+      return `${hours}:${minutes}`;
+    }
+    return time.substring(0, 5);
+  };
+
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('he-IL', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+    });
+  };
+
+  const isToday = (dateStr: string) => {
+    const today = new Date().toISOString().split('T')[0];
+    return dateStr.split('T')[0] === today;
+  };
+
+  const getStatusConfig = (status: MeetingStatus) => {
+    switch (status) {
+      case 'completed':
+        return { icon: CheckCircle2, color: 'text-green-500', bg: 'bg-green-50', border: 'border-green-200' };
+      case 'cancelled':
+        return { icon: XCircle, color: 'text-red-500', bg: 'bg-red-50', border: 'border-red-200' };
+      case 'postponed':
+        return { icon: AlertCircle, color: 'text-amber-500', bg: 'bg-amber-50', border: 'border-amber-200' };
+      default:
+        return { icon: Clock, color: 'text-blue-500', bg: 'bg-blue-50', border: 'border-blue-200' };
+    }
+  };
+
+  const stats = useMemo(() => {
+    if (!meetings || !Array.isArray(meetings)) return { total: 0, completed: 0, pending: 0 };
+    return {
+      total: meetings.length,
+      completed: meetings.filter(m => m.status === 'completed').length,
+      pending: meetings.filter(m => m.status === 'scheduled').length,
+    };
+  }, [meetings]);
+
+  // Group meetings by date
+  const groupedMeetings = useMemo(() => {
+    if (!meetings || !Array.isArray(meetings)) return {};
+    return meetings.reduce((acc, meeting) => {
+      const date = meeting.scheduledDate.split('T')[0];
+      if (!acc[date]) acc[date] = [];
+      acc[date].push(meeting);
+      return acc;
+    }, {} as Record<string, Meeting[]>);
+  }, [meetings]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Loading size="lg" text="טוען פגישות..." />
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4">
+      {/* View Mode Toggle */}
+      <div className="flex gap-2 mb-4">
+        <button
+          onClick={() => { setViewMode('today'); setSelectedCycleId(''); }}
+          className={`flex-1 py-2.5 rounded-xl font-medium text-sm transition-all ${
+            viewMode === 'today' 
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
+              : 'bg-white text-gray-600 border border-gray-200'
+          }`}
+        >
+          היום
+        </button>
+        <button
+          onClick={() => { setViewMode('week'); setSelectedCycleId(''); }}
+          className={`flex-1 py-2.5 rounded-xl font-medium text-sm transition-all ${
+            viewMode === 'week' 
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
+              : 'bg-white text-gray-600 border border-gray-200'
+          }`}
+        >
+          השבוע
+        </button>
+        <button
+          onClick={() => { setViewMode('past'); setSelectedCycleId(''); }}
+          className={`flex-1 py-2.5 rounded-xl font-medium text-sm transition-all ${
+            viewMode === 'past' 
+              ? 'bg-gray-700 text-white shadow-lg shadow-gray-200' 
+              : 'bg-white text-gray-600 border border-gray-200'
+          }`}
+        >
+          עבר
+        </button>
+        <button
+          onClick={() => setViewMode('cycle')}
+          className={`flex-1 py-2.5 rounded-xl font-medium text-sm transition-all flex items-center justify-center gap-1 ${
+            viewMode === 'cycle' 
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
+              : 'bg-white text-gray-600 border border-gray-200'
+          }`}
+        >
+          <Filter size={14} />
+          מחזור
+        </button>
+      </div>
+
+      {/* Cycle Filter Dropdown */}
+      {viewMode === 'cycle' && (
+        <div className="mb-4">
+          <select
+            value={selectedCycleId}
+            onChange={(e) => setSelectedCycleId(e.target.value)}
+            className="w-full p-3 rounded-xl border border-gray-200 text-gray-700 bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none"
+            dir="rtl"
+          >
+            <option value="">בחר מחזור...</option>
+            {cycles && Array.isArray(cycles) && cycles.map((cycle: any) => (
+              <option key={cycle.id} value={cycle.id}>
+                {cycle.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Quick Stats */}
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
+          <div className="text-2xl font-bold text-gray-800">{stats.total}</div>
+          <div className="text-xs text-gray-500">פגישות</div>
+        </div>
+        <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
+          <div className="text-2xl font-bold text-green-600">{stats.completed}</div>
+          <div className="text-xs text-gray-500">הושלמו</div>
+        </div>
+        <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
+          <div className="text-2xl font-bold text-blue-600">{stats.pending}</div>
+          <div className="text-xs text-gray-500">ממתינות</div>
+        </div>
+      </div>
+
+      {/* Meetings List */}
+      {Object.keys(groupedMeetings).length > 0 ? (
+        <div className="space-y-6">
+          {Object.entries(groupedMeetings).map(([date, dateMeetings]) => (
+            <div key={date}>
+              {/* Date Header */}
+              {(viewMode === 'week' || viewMode === 'cycle' || viewMode === 'past') && (
+                <div className="flex items-center gap-2 mb-3">
+                  <div className={`w-2 h-2 rounded-full ${isToday(date) ? 'bg-blue-500' : 'bg-gray-300'}`} />
+                  <span className={`text-sm font-medium ${isToday(date) ? 'text-blue-600' : 'text-gray-500'}`}>
+                    {isToday(date) ? 'היום' : formatDate(date)}
+                  </span>
+                </div>
+              )}
+              
+              {/* Meetings for this date */}
+              <div className="space-y-3">
+                {dateMeetings.map((meeting) => {
+                  const statusConfig = getStatusConfig(meeting.status);
+                  const StatusIcon = statusConfig.icon;
+                  const isOnline = meeting.cycle?.activityType === 'online';
+                  
+                  return (
+                    <button
+                      key={meeting.id}
+                      onClick={() => navigate(`/instructor/meeting/${meeting.id}`)}
+                      className={`w-full bg-white rounded-2xl p-4 shadow-sm border ${
+                        isToday(meeting.scheduledDate) && meeting.status === 'scheduled'
+                          ? 'border-blue-300 shadow-blue-100'
+                          : 'border-gray-100'
+                      } text-right transition-all active:scale-[0.98]`}
+                    >
+                      {/* Top Row - Time & Status */}
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <Clock size={16} className="text-gray-400" />
+                          <span className="text-lg font-semibold">
+                            {formatTime(meeting.startTime)}
+                          </span>
+                          <span className="text-gray-400">-</span>
+                          <span className="text-gray-500">
+                            {formatTime(meeting.endTime)}
+                          </span>
+                        </div>
+                        <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${statusConfig.bg} ${statusConfig.color}`}>
+                          <StatusIcon size={14} />
+                          {meetingStatusHebrew[meeting.status]}
+                        </div>
+                      </div>
+
+                      {/* Cycle Name */}
+                      <h3 className="font-medium text-gray-800 mb-2">
+                        {meeting.cycle?.name || 'פגישה'}
+                      </h3>
+
+                      {/* Location & Type */}
+                      <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <div className="flex items-center gap-1">
+                          {isOnline ? (
+                            <>
+                              <Video size={14} />
+                              <span>אונליין</span>
+                            </>
+                          ) : (
+                            <>
+                              <Building2 size={14} />
+                              <span>{meeting.cycle?.branch?.name || 'סניף'}</span>
+                            </>
+                          )}
+                        </div>
+                        {meeting.cycle?._count?.registrations !== undefined && (
+                          <div className="flex items-center gap-1">
+                            <Users size={14} />
+                            <span>{meeting.cycle._count.registrations} תלמידים</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Topic (if exists) */}
+                      {meeting.topic && (
+                        <div className="mt-2 pt-2 border-t border-gray-100 text-sm text-gray-600">
+                          📝 {meeting.topic}
+                        </div>
+                      )}
+
+                      {/* Join Zoom Button — only for upcoming/today meetings */}
+                      {viewMode !== 'past' && isOnline && meeting.zoomJoinUrl && meeting.status === 'scheduled' && (
+                        <a
+                          href={meeting.zoomJoinUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-3 w-full py-3 bg-blue-600 text-white rounded-xl font-medium text-sm flex items-center justify-center gap-2 hover:bg-blue-700 active:scale-[0.98] transition-all"
+                        >
+                          <Video size={18} />
+                          הצטרף לזום
+                        </a>
+                      )}
+
+                      {/* Action Hint — only for today's upcoming meetings */}
+                      {viewMode !== 'past' && isToday(meeting.scheduledDate) && meeting.status === 'scheduled' && !(isOnline && meeting.zoomJoinUrl) && (
+                        <div className="mt-3 flex items-center justify-between">
+                          <span className="text-xs text-blue-600 font-medium">
+                            לחץ לעדכון נוכחות וסטטוס
+                          </span>
+                          <ChevronLeft size={16} className="text-blue-400" />
+                        </div>
+                      )}
+
+                      {/* Past meetings — read-only indicator */}
+                      {viewMode === 'past' && (
+                        <div className="mt-2 flex items-center gap-1 text-xs text-gray-400">
+                          <CheckCircle2 size={12} />
+                          <span>צפייה בלבד</span>
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl p-8 text-center">
+          <Calendar size={48} className="mx-auto mb-4 text-gray-300" />
+          <p className="text-gray-500 text-lg">
+            {viewMode === 'cycle' && !selectedCycleId 
+              ? 'בחר מחזור לצפייה בפגישות'
+              : viewMode === 'cycle'
+                ? 'אין פגישות במחזור זה'
+                : viewMode === 'past'
+                  ? 'אין פגישות ב-30 הימים האחרונים'
+                  : `אין פגישות ${viewMode === 'today' ? 'להיום' : 'השבוע'}`
+            }
+          </p>
+          {viewMode !== 'cycle' && viewMode !== 'past' && (
+            <p className="text-gray-400 text-sm mt-1">
+              תהנה מהמנוחה! 🎉
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

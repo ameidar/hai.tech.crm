@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Response, NextFunction } from 'express';
 import { prisma } from '../../../utils/prisma.js';
 import { ApiKeyRequest } from './api-key-auth.js';

@@ -40,6 +40,7 @@ authRouter.post('/login', async (req, res, next) => {
     const payload: JwtPayload = {
       userId: user.id,
       email: user.email,
+      name: user.name,
       role: user.role,
     };
 
@@ -127,6 +128,7 @@ authRouter.post('/refresh', async (req, res, next) => {
     const payload: JwtPayload = {
       userId: user.id,
       email: user.email,
+      name: user.name,
       role: user.role,
     };
 

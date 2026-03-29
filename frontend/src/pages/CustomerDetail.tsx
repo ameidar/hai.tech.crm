@@ -1,22 +1,26 @@
 import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { createPortal } from 'react-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Phone, Mail, MapPin, Plus, Edit, User, Trash2, BookOpen, MessageCircle, Send, ExternalLink, Clock } from 'lucide-react';
-import { useCustomer, useStudents, useCreateStudent, useUpdateCustomer, useUpdateStudent, useDeleteStudent, useCycles, useCreateRegistration, useSendWhatsApp, useSendEmail, useCourses, useBranches, useInstructors, useCreateCycle } from '../hooks/useApi';
+import { ArrowRight, Phone, Mail, MapPin, Plus, Edit, Pencil, User, Trash2, BookOpen, MessageCircle, Send, ExternalLink, Clock, CreditCard, FileText } from 'lucide-react';
+import { useCustomer, useStudents, useCreateStudent, useUpdateCustomer, useUpdateStudent, useDeleteStudent, useDeleteCustomer, useCycles, useCreateRegistration, useSendWhatsApp, useSendEmail, useCourses, useBranches, useInstructors, useCreateCycle } from '../hooks/useApi';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import Modal from '../components/ui/Modal';
 import EmptyState from '../components/ui/EmptyState';
+import WooPayModal from '../components/WooPayModal';
 import type { Customer, Student, Cycle, PaymentStatus, PaymentMethod } from '../types';
 
 export default function CustomerDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [showAddStudentModal, setShowAddStudentModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
+  const [showPayModal, setShowPayModal] = useState(false);
 
   const { data: customer, isLoading } = useCustomer(id!);
   const { data: students } = useStudents(id);
@@ -28,6 +32,20 @@ export default function CustomerDetail() {
   const updateCustomer = useUpdateCustomer();
   const updateStudent = useUpdateStudent();
   const deleteStudent = useDeleteStudent();
+  const deleteCustomer = useDeleteCustomer();
+
+  const handleDeleteCustomer = async () => {
+    if (!customer) return;
+    if (window.confirm(`האם למחוק את הלקוח "${customer.name}"?\n\nפעולה זו תמחק גם את כל התלמידים המשויכים.`)) {
+      try {
+        await deleteCustomer.mutateAsync(id!);
+        navigate('/customers');
+      } catch (error) {
+        console.error('Failed to delete customer:', error);
+        alert('שגיאה במחיקת הלקוח');
+      }
+    }
+  };
 
   const handleDeleteStudent = async (studentId: string, studentName: string) => {
     if (window.confirm(`האם למחוק את התלמיד "${studentName}"?`)) {
@@ -102,12 +120,25 @@ export default function CustomerDetail() {
     }
   };
 
+  const [updateCustomerError, setUpdateCustomerError] = useState<string | null>(null);
+
   const handleUpdateCustomer = async (data: Partial<Customer>) => {
+    setUpdateCustomerError(null);
     try {
       await updateCustomer.mutateAsync({ id: id!, data });
       setShowEditModal(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to update customer:', error);
+      const msg = error?.response?.data?.message || error?.response?.data?.error || 'שגיאה בעדכון הלקוח';
+      setUpdateCustomerError(msg);
+    }
+  };
+
+  const handleLeadStatusChange = async (status: string) => {
+    try {
+      await updateCustomer.mutateAsync({ id: id!, data: { leadStatus: status } });
+    } catch (error) {
+      console.error('Failed to update lead status:', error);
     }
   };
 
@@ -142,6 +173,10 @@ export default function CustomerDetail() {
             <button onClick={() => setShowEditModal(true)} className="btn btn-primary">
               <Edit size={18} />
               עריכה
+            </button>
+            <button onClick={handleDeleteCustomer} className="btn btn-danger">
+              <Trash2 size={18} />
+              מחיקה
             </button>
           </div>
         }
@@ -179,6 +214,13 @@ export default function CustomerDetail() {
                     title="שלח הודעת וואטסאפ"
                   >
                     <MessageCircle size={16} className="text-green-600" />
+                  </button>
+                  <button
+                    onClick={() => setShowPayModal(true)}
+                    className="p-2 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
+                    title="שלח לינק תשלום"
+                  >
+                    <CreditCard size={16} className="text-purple-600" />
                   </button>
                 </div>
               </div>
@@ -221,6 +263,59 @@ export default function CustomerDetail() {
                 <div className="pt-4 border-t">
                   <p className="text-sm text-gray-500 mb-1">הערות</p>
                   <p className="text-gray-700">{customer.notes}</p>
+                </div>
+              )}
+
+              {/* Lead Status — inline quick updater */}
+              <div className="pt-2">
+                <p className="text-sm text-gray-500 mb-1">סטטוס ליד</p>
+                <select
+                  value={customer.leadStatus || 'new'}
+                  onChange={(e) => handleLeadStatusChange(e.target.value)}
+                  className={`text-xs px-2 py-1 rounded-full font-medium border-0 cursor-pointer focus:ring-1 focus:ring-offset-1 ${
+                    {
+                      new: 'bg-blue-50 text-blue-700 focus:ring-blue-400',
+                      contacted: 'bg-yellow-50 text-yellow-700 focus:ring-yellow-400',
+                      in_progress: 'bg-orange-50 text-orange-700 focus:ring-orange-400',
+                      converted: 'bg-green-50 text-green-700 focus:ring-green-400',
+                      closed: 'bg-gray-100 text-gray-500 focus:ring-gray-400',
+                    }[customer.leadStatus || 'new'] ?? 'bg-blue-50 text-blue-700 focus:ring-blue-400'
+                  }`}
+                >
+                  <option value="new">🆕 חדש</option>
+                  <option value="contacted">📞 נוצר קשר</option>
+                  <option value="in_progress">⏳ בטיפול</option>
+                  <option value="converted">✅ הומר</option>
+                  <option value="closed">❌ נסגר</option>
+                </select>
+              </div>
+
+              {customer.source && (
+                <div className="pt-2">
+                  <p className="text-sm text-gray-500 mb-1">מקור הגעה</p>
+                  <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-700 font-medium">
+                    {({'whatsapp':'💬 WhatsApp','facebook':'👍 Facebook','instagram':'📸 Instagram','website':'🌐 אתר','phone':'📞 טלפון','upsell':'⬆️ Upsell','manual':'✏️ ידני','fireberry':'🔥 Fireberry','woocommerce':'🛒 WooCommerce'} as any)[customer.source] || customer.source}
+                  </span>
+                </div>
+              )}
+
+              {(customer.lmsUsername || customer.lmsPassword) && (
+                <div className="pt-4 border-t">
+                  <p className="text-sm font-semibold text-indigo-600 mb-2">🎓 פרטי כניסה לקורסים דיגיטליים</p>
+                  <div className="bg-indigo-50 rounded-lg p-3 space-y-1 text-sm" dir="ltr">
+                    {customer.lmsUsername && (
+                      <div className="flex gap-2">
+                        <span className="text-gray-500">User:</span>
+                        <span className="font-mono font-medium">{customer.lmsUsername}</span>
+                      </div>
+                    )}
+                    {customer.lmsPassword && (
+                      <div className="flex gap-2">
+                        <span className="text-gray-500">Pass:</span>
+                        <span className="font-mono font-medium">{customer.lmsPassword}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -313,6 +408,9 @@ export default function CustomerDetail() {
 
           {/* Communication History */}
           <CommunicationHistory customerId={customer.id} />
+
+          {/* Payment History */}
+          <PaymentHistory customerId={customer.id} />
         </div>
       </div>
 
@@ -335,14 +433,15 @@ export default function CustomerDetail() {
       {/* Edit Customer Modal */}
       <Modal
         isOpen={showEditModal}
-        onClose={() => setShowEditModal(false)}
+        onClose={() => { setShowEditModal(false); setUpdateCustomerError(null); }}
         title="עריכת לקוח"
       >
         <CustomerEditForm
           customer={customer}
           onSubmit={handleUpdateCustomer}
-          onCancel={() => setShowEditModal(false)}
+          onCancel={() => { setShowEditModal(false); setUpdateCustomerError(null); }}
           isLoading={updateCustomer.isPending}
+          error={updateCustomerError}
         />
       </Modal>
 
@@ -423,6 +522,16 @@ export default function CustomerDetail() {
           isLoading={sendEmail.isPending}
         />
       </Modal>
+
+      {showPayModal && (
+        <WooPayModal
+          onClose={() => setShowPayModal(false)}
+          customerId={customer.id}
+          customerName={customer.name}
+          customerPhone={customer.phone}
+          customerEmail={customer.email || undefined}
+        />
+      )}
     </>
   );
 }
@@ -686,6 +795,7 @@ function StudentForm({ cycles, onSubmit, onCancel, isLoading, onCycleCreated }: 
                     <option value="credit">אשראי</option>
                     <option value="transfer">העברה</option>
                     <option value="cash">מזומן</option>
+                    <option value="standing_order">הוראת קבע</option>
                   </select>
                 </div>
               </div>
@@ -724,9 +834,10 @@ interface CustomerEditFormProps {
   onSubmit: (data: Partial<Customer>) => void;
   onCancel: () => void;
   isLoading?: boolean;
+  error?: string | null;
 }
 
-function CustomerEditForm({ customer, onSubmit, onCancel, isLoading }: CustomerEditFormProps) {
+function CustomerEditForm({ customer, onSubmit, onCancel, isLoading, error }: CustomerEditFormProps) {
   const [formData, setFormData] = useState({
     name: customer.name,
     email: customer.email,
@@ -734,6 +845,10 @@ function CustomerEditForm({ customer, onSubmit, onCancel, isLoading }: CustomerE
     address: customer.address || '',
     city: customer.city || '',
     notes: customer.notes || '',
+    lmsUsername: customer.lmsUsername || '',
+    lmsPassword: customer.lmsPassword || '',
+    source: customer.source || '',
+    leadStatus: customer.leadStatus || 'new',
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -743,6 +858,11 @@ function CustomerEditForm({ customer, onSubmit, onCancel, isLoading }: CustomerE
 
   return (
     <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm">
+          {error}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2">
           <label className="form-label">שם *</label>
@@ -768,14 +888,13 @@ function CustomerEditForm({ customer, onSubmit, onCancel, isLoading }: CustomerE
         </div>
 
         <div>
-          <label className="form-label">אימייל *</label>
+          <label className="form-label">אימייל</label>
           <input
             type="email"
             value={formData.email}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             className="form-input"
             dir="ltr"
-            required
           />
         </div>
 
@@ -807,6 +926,72 @@ function CustomerEditForm({ customer, onSubmit, onCancel, isLoading }: CustomerE
             className="form-input"
             rows={3}
           />
+        </div>
+
+        {/* Source */}
+        <div>
+          <label className="form-label">מקור הגעה</label>
+          <select
+            value={formData.source}
+            onChange={(e) => setFormData({ ...formData, source: e.target.value })}
+            className="form-input"
+          >
+            <option value="">-- לא ידוע --</option>
+            <option value="whatsapp">💬 WhatsApp</option>
+            <option value="facebook">👍 Facebook</option>
+            <option value="instagram">📸 Instagram</option>
+            <option value="website">🌐 אתר</option>
+            <option value="phone">📞 טלפון</option>
+            <option value="upsell">⬆️ Upsell</option>
+            <option value="manual">✏️ ידני</option>
+            <option value="fireberry">🔥 Fireberry</option>
+            <option value="woocommerce">🛒 WooCommerce</option>
+          </select>
+        </div>
+
+        {/* Lead Status */}
+        <div>
+          <label className="form-label">סטטוס ליד</label>
+          <select
+            value={formData.leadStatus}
+            onChange={(e) => setFormData({ ...formData, leadStatus: e.target.value })}
+            className="form-input"
+          >
+            <option value="new">🆕 חדש</option>
+            <option value="contacted">📞 נוצר קשר</option>
+            <option value="in_progress">⏳ בטיפול</option>
+            <option value="converted">✅ הומר</option>
+            <option value="closed">❌ נסגר</option>
+          </select>
+        </div>
+
+        {/* LMS Credentials */}
+        <div className="col-span-2 border-t pt-3">
+          <p className="text-sm font-semibold text-gray-600 mb-2">🎓 פרטי כניסה לקורסים דיגיטליים</p>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">שם משתמש (LMS)</label>
+              <input
+                type="text"
+                value={formData.lmsUsername}
+                onChange={(e) => setFormData({ ...formData, lmsUsername: e.target.value })}
+                className="form-input"
+                dir="ltr"
+                placeholder="username"
+              />
+            </div>
+            <div>
+              <label className="form-label">סיסמה (LMS)</label>
+              <input
+                type="text"
+                value={formData.lmsPassword}
+                onChange={(e) => setFormData({ ...formData, lmsPassword: e.target.value })}
+                className="form-input"
+                dir="ltr"
+                placeholder="password"
+              />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1080,6 +1265,7 @@ function StudentEditForm({ student, cycles, onSubmit, onCancel, isLoading, onCyc
                     <option value="credit">אשראי</option>
                     <option value="transfer">העברה</option>
                     <option value="cash">מזומן</option>
+                    <option value="standing_order">הוראת קבע</option>
                   </select>
                 </div>
               </div>
@@ -1327,6 +1513,288 @@ function CommunicationHistory({ customerId }: { customerId: string }) {
           <p className="text-gray-500">אין היסטוריית תקשורת</p>
           <p className="text-sm text-gray-400 mt-1">הודעות וואטסאפ ואימיילים יופיעו כאן</p>
         </div>
+      )}
+    </div>
+  );
+}
+
+// Payment History Component
+function PaymentHistory({ customerId }: { customerId: string }) {
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['payment-history', customerId],
+    queryFn: async () => {
+      const res = await api.get(`/payments/customer/${customerId}`);
+      return res.data as any[];
+    },
+    refetchInterval: 30000,
+  });
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editUrl, setEditUrl] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  // Manual payment modal
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addForm, setAddForm] = useState({ amount: '', description: '', paidAt: new Date().toISOString().slice(0, 10), paymentMethod: '' });
+  const [addSaving, setAddSaving] = useState(false);
+
+  const addManualPayment = async () => {
+    if (!addForm.amount || isNaN(Number(addForm.amount)) || Number(addForm.amount) <= 0) {
+      alert('נא להזין סכום תקין'); return;
+    }
+    if (!addForm.description.trim()) { alert('נא להזין תיאור'); return; }
+    setAddSaving(true);
+    try {
+      await api.post('/payments/manual', {
+        customerId,
+        amount: Number(addForm.amount),
+        description: addForm.description.trim(),
+        paidAt: addForm.paidAt ? new Date(addForm.paidAt).toISOString() : undefined,
+        paymentMethod: addForm.paymentMethod || undefined,
+      });
+      setShowAddModal(false);
+      setAddForm({ amount: '', description: '', paidAt: new Date().toISOString().slice(0, 10), paymentMethod: '' });
+      refetch();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'שגיאה בשמירה');
+    } finally {
+      setAddSaving(false);
+    }
+  };
+
+  const deletePayment = async (paymentId: string, description: string) => {
+    if (!window.confirm(`למחוק את ההצעה "${description}"?\n\nלא ניתן לבטל פעולה זו.`)) return;
+    setDeleting(paymentId);
+    try {
+      await api.delete(`/payments/${paymentId}`);
+      refetch();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'שגיאה במחיקה');
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const payments = data || [];
+  const formatDate = (d: string) => new Date(d).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+  const statusLabel = (s: string) => {
+    if (s === 'paid') return { label: 'שולם ✅', cls: 'bg-green-100 text-green-700' };
+    if (s === 'cancelled') return { label: 'בוטל ❌', cls: 'bg-red-100 text-red-700' };
+    return { label: 'ממתין ⏳', cls: 'bg-yellow-100 text-yellow-700' };
+  };
+
+  const startEdit = (p: any) => {
+    setEditingId(p.id);
+    setEditUrl(p.invoiceUrl || '');
+  };
+
+  const saveInvoiceUrl = async (paymentId: string) => {
+    setSaving(true);
+    try {
+      await api.patch(`/payments/${paymentId}`, { invoiceUrl: editUrl || null });
+      setEditingId(null);
+      refetch();
+    } catch (e) {
+      alert('שגיאה בשמירה');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Always render (even if empty) so the "Add manual payment" button is visible
+
+  return (
+    <div className="lg:col-span-3 card">
+      <div className="card-header flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <CreditCard size={18} className="text-purple-600" />
+          <h2 className="font-semibold">היסטוריית תשלומים ({payments.length})</h2>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="text-xs bg-purple-600 text-white px-3 py-1.5 rounded-lg hover:bg-purple-700 flex items-center gap-1.5 font-medium"
+          >
+            <Plus size={13} />
+            הוסף תשלום ידני
+          </button>
+          <button onClick={() => refetch()} className="text-xs text-gray-400 hover:text-gray-600">רענן</button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="p-4 text-center text-gray-500">טוען...</div>
+      ) : (
+        <div className="divide-y divide-gray-100">
+          {payments.map((p: any) => {
+            const st = statusLabel(p.status);
+            const purchaseDate = p.paidAt || p.createdAt;
+            const isDigital = !!p.wooOrderId;
+            const isEditing = editingId === p.id;
+            return (
+              <div key={p.id}>
+                <div className="px-5 py-3 flex items-center gap-4 hover:bg-gray-50">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      {isDigital && <span className="text-xs bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded font-medium shrink-0">🎓 דיגיטלי</span>}
+                      <p className="font-medium text-sm truncate">{p.description}</p>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      נרכש: {formatDate(purchaseDate)}
+                      {p.wooOrderId && <span className="mr-2 text-gray-300">הזמנה #{p.wooOrderId}</span>}
+                    </p>
+                  </div>
+                  <span className="text-base font-bold text-purple-700 shrink-0">
+                    ₪{Number(p.amount).toLocaleString()}
+                  </span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${st.cls}`}>
+                    {st.label}
+                  </span>
+                  {p.invoiceUrl ? (
+                    <a href={p.invoiceUrl} target="_blank" rel="noreferrer"
+                      title="פתח חשבונית"
+                      className="shrink-0 text-green-600 hover:text-green-800">
+                      <FileText size={16} />
+                    </a>
+                  ) : p.wooOrderId ? (
+                    <a href={`https://app.greeninvoice.co.il/documents?search=${p.customerName}`}
+                      target="_blank" rel="noreferrer"
+                      title="חפש חשבונית במורנינג"
+                      className="shrink-0 text-orange-400 hover:text-orange-600">
+                      <FileText size={16} />
+                    </a>
+                  ) : null}
+                  {/* Edit invoice URL button */}
+                  <button
+                    onClick={() => isEditing ? setEditingId(null) : startEdit(p)}
+                    title="ערוך לינק חשבונית"
+                    className={`shrink-0 p-1 rounded hover:bg-gray-100 transition-colors ${isEditing ? 'text-blue-600' : 'text-gray-300 hover:text-gray-500'}`}
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  {/* Delete button — only for non-paid payments */}
+                  {p.status !== 'paid' && (
+                    <button
+                      onClick={() => deletePayment(p.id, p.description)}
+                      disabled={deleting === p.id}
+                      title="מחק הצעה"
+                      className="shrink-0 p-1 rounded hover:bg-red-50 text-gray-300 hover:text-red-500 transition-colors disabled:opacity-40"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
+                {/* Inline edit row */}
+                {isEditing && (
+                  <div className="px-5 pb-3 flex items-center gap-2 bg-blue-50">
+                    <input
+                      type="url"
+                      value={editUrl}
+                      onChange={e => setEditUrl(e.target.value)}
+                      placeholder="https://app.greeninvoice.co.il/..."
+                      className="flex-1 text-sm border border-blue-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      dir="ltr"
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => saveInvoiceUrl(p.id)}
+                      disabled={saving}
+                      className="text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {saving ? '...' : 'שמור'}
+                    </button>
+                    <button
+                      onClick={() => setEditingId(null)}
+                      className="text-sm text-gray-500 hover:text-gray-700 px-2 py-1.5"
+                    >
+                      ביטול
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Manual Payment Modal — rendered via portal to avoid z-index/stacking context issues */}
+      {showAddModal && createPortal(
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]" onClick={() => setShowAddModal(false)}>
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <CreditCard size={18} className="text-purple-600" />
+              הוספת תשלום ידני
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">סכום (₪) *</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={addForm.amount}
+                  onChange={e => setAddForm(f => ({ ...f, amount: e.target.value }))}
+                  placeholder="0"
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  dir="ltr"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">תיאור *</label>
+                <input
+                  type="text"
+                  value={addForm.description}
+                  onChange={e => setAddForm(f => ({ ...f, description: e.target.value }))}
+                  placeholder="למשל: קורס דיגיטלי — Roblox"
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">תאריך תשלום</label>
+                <input
+                  type="date"
+                  value={addForm.paidAt}
+                  onChange={e => setAddForm(f => ({ ...f, paidAt: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  dir="ltr"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">אמצעי תשלום</label>
+                <select
+                  value={addForm.paymentMethod}
+                  onChange={e => setAddForm(f => ({ ...f, paymentMethod: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                >
+                  <option value="">— לא צוין —</option>
+                  <option value="creditcard">כרטיס אשראי</option>
+                  <option value="bit">ביט</option>
+                  <option value="bank_transfer">העברה בנקאית</option>
+                  <option value="cash">מזומן</option>
+                  <option value="other">אחר</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={addManualPayment}
+                disabled={addSaving}
+                className="flex-1 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50 font-medium text-sm"
+              >
+                {addSaving ? 'שומר...' : 'שמור תשלום'}
+              </button>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border rounded-lg hover:bg-gray-50"
+              >
+                ביטול
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

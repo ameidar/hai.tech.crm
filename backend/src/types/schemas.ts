@@ -5,7 +5,7 @@ export const uuidSchema = z.string().min(1);
 
 export const paginationSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
-  limit: z.coerce.number().int().min(1).max(500).default(50),
+  limit: z.coerce.number().int().min(1).max(5000).default(50),
 });
 
 // Auth schemas
@@ -25,11 +25,15 @@ export const registerSchema = z.object({
 // Customer schemas
 export const createCustomerSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
-  email: z.string().email().optional().nullable(),
+  email: z.union([z.string().email(), z.literal('').transform(() => null), z.null()]).optional().nullable(),
   phone: z.string().min(9, 'Phone must be at least 9 characters'),
   address: z.string().optional().nullable(),
   city: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  lmsUsername: z.string().optional().nullable(),
+  lmsPassword: z.string().optional().nullable(),
+  source: z.enum(['whatsapp', 'facebook', 'instagram', 'website', 'phone', 'upsell', 'manual', 'fireberry', 'woocommerce']).optional().nullable(),
+  leadStatus: z.enum(['new', 'contacted', 'in_progress', 'converted', 'closed']).optional().nullable(),
 });
 
 export const updateCustomerSchema = createCustomerSchema.partial();
@@ -52,6 +56,7 @@ export const createCourseSchema = z.object({
   targetAudience: z.string().optional().nullable(),
   category: z.enum(['programming', 'ai', 'robotics', 'printing_3d']),
   isActive: z.boolean().default(true),
+  materialsFolderId: z.string().optional().nullable(),
 });
 
 export const updateCourseSchema = createCourseSchema.partial();
@@ -64,7 +69,7 @@ export const createBranchSchema = z.object({
   city: z.string().optional().nullable(),
   contactName: z.string().optional().nullable(),
   contactPhone: z.string().optional().nullable(),
-  contactEmail: z.string().email().optional().nullable(),
+  contactEmail: z.string().email().optional().nullable().or(z.literal('')).transform(v => v || null),
   isActive: z.boolean().default(true),
 });
 
@@ -79,6 +84,7 @@ export const createInstructorSchema = z.object({
   rateOnline: z.number().nonnegative().optional().nullable(),
   ratePrivate: z.number().nonnegative().optional().nullable(),
   ratePreparation: z.number().nonnegative().optional().nullable(),
+  employmentType: z.enum(['freelancer', 'employee']).default('freelancer'),
   userId: z.string().uuid().optional().nullable(),
   isActive: z.boolean().default(true),
   notes: z.string().optional().nullable(),
@@ -123,15 +129,22 @@ export const createCycleSchema = z.object({
   totalMeetings: z.number().int().positive(),
   pricePerStudent: z.number().nonnegative().optional().nullable(),
   meetingRevenue: z.number().nonnegative().optional().nullable(),
+  revenueIncludesVat: z.boolean().optional().nullable(),
   studentCount: z.number().int().nonnegative().optional().nullable(),
   maxStudents: z.number().int().nonnegative().optional().nullable(),
   sendParentReminders: z.boolean().default(false),
   isOnline: z.boolean().default(false),
   activityType: z.enum(['online', 'frontal', 'private_lesson']).default('frontal'),
   zoomHostId: z.string().optional().nullable(),
+  zoomHostEmail: z.string().optional().nullable(),
+  zoomMeetingId: z.string().optional().nullable(),
+  zoomJoinUrl: z.string().optional().nullable(),
+  zoomHostKey: z.string().optional().nullable(),
+  zoomPassword: z.string().optional().nullable(),
 });
 
 export const updateCycleSchema = createCycleSchema.partial().extend({
+  status: z.enum(['active', 'completed', 'cancelled', 'frozen', 'retainer']).optional(),
   completedMeetings: z.number().int().nonnegative().optional(),
   remainingMeetings: z.number().int().nonnegative().optional(),
 });
@@ -141,15 +154,19 @@ export const createRegistrationSchema = z.object({
   studentId: z.string().uuid('Invalid student ID'),
   cycleId: z.string().uuid('Invalid cycle ID'),
   registrationDate: z.string().optional(),
-  status: z.enum(['registered', 'active', 'completed', 'cancelled']).default('registered'),
+  status: z.enum(['registered', 'active', 'completed', 'pending_cancellation', 'cancelled']).default('registered'),
   amount: z.number().positive().optional().nullable(),
   paymentStatus: z.enum(['unpaid', 'partial', 'paid']).optional().nullable(),
-  paymentMethod: z.enum(['credit', 'transfer', 'cash']).optional().nullable(),
+  paymentMethod: z.enum(['credit', 'transfer', 'cash', 'institutional', 'standing_order']).optional().nullable(),
   invoiceLink: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
 });
 
-export const updateRegistrationSchema = createRegistrationSchema.partial().omit({ studentId: true, cycleId: true });
+export const updateRegistrationSchema = createRegistrationSchema.partial().omit({ studentId: true, cycleId: true }).extend({
+  refundAmount: z.number().nonnegative().optional().nullable(),
+  refundDate: z.string().optional().nullable(),
+  creditInvoiceLink: z.string().url().optional().nullable(),
+});
 
 // Meeting schemas
 export const createMeetingSchema = z.object({
@@ -179,6 +196,13 @@ export const updateMeetingSchema = z.object({
   scheduledDate: z.string().optional(),
   startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format').optional(),
   endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format').optional(),
+  // Zoom fields
+  zoomMeetingId: z.string().optional().nullable(),
+  zoomJoinUrl: z.string().url().optional().nullable(),
+  zoomStartUrl: z.string().url().optional().nullable(),
+  zoomPassword: z.string().optional().nullable(),
+  zoomHostKey: z.string().optional().nullable(),
+  zoomHostEmail: z.string().email().optional().nullable(),
 });
 
 export const postponeMeetingSchema = z.object({
@@ -213,11 +237,12 @@ export const bulkAttendanceSchema = z.object({
 export const bulkUpdateCyclesSchema = z.object({
   ids: z.array(z.string().min(1)).min(1, 'At least one cycle ID is required'),
   data: z.object({
-    status: z.enum(['active', 'completed', 'cancelled']).optional(),
+    status: z.enum(['active', 'completed', 'cancelled', 'frozen', 'retainer']).optional(),
     instructorId: z.string().min(1).optional(),
     courseId: z.string().min(1).optional(),
     branchId: z.string().min(1).optional(),
     meetingRevenue: z.number().positive().optional().nullable(),
+    revenueIncludesVat: z.boolean().optional().nullable(),
     pricePerStudent: z.number().positive().optional().nullable(),
     studentCount: z.number().int().positive().optional().nullable(),
     sendParentReminders: z.boolean().optional(),

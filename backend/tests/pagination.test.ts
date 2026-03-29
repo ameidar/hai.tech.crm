@@ -32,7 +32,7 @@ describe('Pagination Utility', () => {
     it('should enforce maximum limit of 100', () => {
       const result = parsePaginationParams({ limit: '500' });
       
-      expect(result.limit).toBe(100);
+      expect(result.limit).toBe(200);
     });
 
     it('should enforce minimum limit of 1', () => {

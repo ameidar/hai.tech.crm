@@ -27,7 +27,7 @@ npm-debug.log*
 coverage/
 
 # Prisma
-prisma/migrations/
+# prisma/migrations/ — migrations must be tracked in git
 
 # Misc
 *.tmp

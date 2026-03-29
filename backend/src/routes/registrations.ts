@@ -1,10 +1,93 @@
 import { Router } from 'express';
+import { randomUUID, randomBytes } from 'crypto';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
 import { updateRegistrationSchema, uuidSchema } from '../types/schemas.js';
 import { z } from 'zod';
 import { parsePaginationParams, paginatedResponse } from '../utils/pagination.js';
+import { sendEmail, sendWhatsAppMessage } from '../services/notifications.js';
+import { deleteMeeting as deleteZoomMeeting } from '../services/zoom.js';
+import { logAudit, logUpdateAudit } from '../utils/audit.js';
+
+/**
+ * Check if a cycle has no active registrations left after a cancellation.
+ * If so: cancel the cycle, cancel future meetings, delete their Zoom links.
+ */
+async function handleCycleCascadeOnCancellation(cycleId: string): Promise<void> {
+  const activeCount = await prisma.registration.count({
+    where: {
+      cycleId,
+      status: { in: ['registered', 'active'] },
+    },
+  });
+
+  if (activeCount > 0) return;
+
+  console.log(`[CANCEL CASCADE] Cycle ${cycleId} has 0 active registrations — cancelling cycle`);
+
+  // Cancel the cycle and clear its Zoom data
+  const cycle = await prisma.cycle.findUnique({ where: { id: cycleId }, select: { zoomMeetingId: true } });
+  await prisma.cycle.update({
+    where: { id: cycleId },
+    data: {
+      status: 'cancelled',
+      zoomMeetingId: null,
+      zoomJoinUrl: null,
+      zoomHostEmail: null,
+      zoomHostKey: null,
+      zoomPassword: null,
+    },
+  });
+
+  // Delete cycle-level Zoom meeting
+  if (cycle?.zoomMeetingId) {
+    try {
+      await deleteZoomMeeting(cycle.zoomMeetingId);
+      console.log(`[CANCEL CASCADE] Deleted cycle Zoom meeting ${cycle.zoomMeetingId}`);
+    } catch (err) {
+      console.error(`[CANCEL CASCADE] Failed to delete cycle Zoom:`, err);
+    }
+  }
+
+  // Get future scheduled meetings
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const futureMeetings = await prisma.meeting.findMany({
+    where: {
+      cycleId,
+      status: 'scheduled',
+      scheduledDate: { gte: today },
+    },
+  });
+
+  // Cancel future meetings and delete their Zoom
+  for (const meeting of futureMeetings) {
+    await prisma.meeting.update({
+      where: { id: meeting.id },
+      data: {
+        status: 'cancelled',
+        zoomMeetingId: null,
+        zoomJoinUrl: null,
+        zoomStartUrl: null,
+      },
+    });
+
+    // Delete Zoom meeting if exists
+    if (meeting.zoomMeetingId) {
+      try {
+        await deleteZoomMeeting(meeting.zoomMeetingId);
+        console.log(`[CANCEL CASCADE] Deleted Zoom meeting ${meeting.zoomMeetingId}`);
+      } catch (err) {
+        console.error(`[CANCEL CASCADE] Failed to delete Zoom ${meeting.zoomMeetingId}:`, err);
+      }
+    }
+  }
+
+  console.log(`[CANCEL CASCADE] Cancelled ${futureMeetings.length} future meetings for cycle ${cycleId}`);
+}
 
 export const registrationsRouter = Router();
 
@@ -102,12 +185,25 @@ registrationsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     const id = uuidSchema.parse(req.params.id);
     const data = updateRegistrationSchema.parse(req.body);
 
+    const oldRegistration = await prisma.registration.findUnique({ where: { id } });
+
+    const { refundAmount, refundDate, creditInvoiceLink, ...coreData } = data;
+    const updateData: any = {
+      ...coreData,
+      cancellationDate: data.status === 'cancelled' || data.status === 'pending_cancellation' ? new Date() : undefined,
+    };
+
+    // Auto-set paymentStatus = 'paid' when payment method is institutional
+    if (updateData.paymentMethod === 'institutional') {
+      updateData.paymentStatus = 'paid';
+    }
+    if (refundAmount !== undefined) updateData.refundAmount = refundAmount;
+    if (refundDate !== undefined) updateData.refundDate = refundDate ? new Date(refundDate) : null;
+    if (creditInvoiceLink !== undefined) updateData.creditInvoiceLink = creditInvoiceLink;
+
     const registration = await prisma.registration.update({
       where: { id },
-      data: {
-        ...data,
-        cancellationDate: data.status === 'cancelled' ? new Date() : undefined,
-      },
+      data: updateData,
       include: {
         student: {
           include: {
@@ -120,6 +216,22 @@ registrationsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
       },
     });
 
+    // Audit log
+    if (oldRegistration) {
+      await logUpdateAudit({ entity: 'Registration', entityId: id, oldRecord: oldRegistration, newRecord: registration, req });
+    }
+
+    // Cascade: if cancelled/pending_cancellation and no active students left, cancel cycle
+    if (data.status === 'cancelled' || data.status === 'pending_cancellation') {
+      handleCycleCascadeOnCancellation(registration.cycle.id).catch(err =>
+        console.error('[CANCEL CASCADE] Error:', err)
+      );
+      // Recalculate future meeting revenues based on new student count
+      recalcMeetingRevenue(registration.cycle.id).catch(err =>
+        console.error('[RECALC REVENUE] Error:', err)
+      );
+    }
+
     res.json(registration);
   } catch (error) {
     next(error);
@@ -131,9 +243,18 @@ registrationsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
+    const oldRegistration = await prisma.registration.findUnique({ where: { id } });
+
+    // Delete related CancellationRequests first (no cascade defined)
+    await prisma.cancellationRequest.deleteMany({ where: { registrationId: id } });
+
     await prisma.registration.delete({
       where: { id },
     });
+
+    if (oldRegistration) {
+      await logAudit({ action: 'DELETE', entity: 'Registration', entityId: id, oldValue: { status: oldRegistration.status, studentId: oldRegistration.studentId, cycleId: oldRegistration.cycleId }, req });
+    }
 
     res.status(204).send();
   } catch (error) {
@@ -147,6 +268,8 @@ registrationsRouter.post('/:id/cancel', managerOrAdmin, async (req, res, next) =
     const id = uuidSchema.parse(req.params.id);
     const { reason } = z.object({ reason: z.string().optional() }).parse(req.body);
 
+    const oldRegistration = await prisma.registration.findUnique({ where: { id } });
+
     const registration = await prisma.registration.update({
       where: { id },
       data: {
@@ -156,11 +279,164 @@ registrationsRouter.post('/:id/cancel', managerOrAdmin, async (req, res, next) =
       },
       include: {
         student: { select: { name: true } },
-        cycle: { select: { name: true } },
+        cycle: { select: { id: true, name: true } },
       },
     });
 
+    // Audit log
+    if (oldRegistration) {
+      await logUpdateAudit({ entity: 'Registration', entityId: id, oldRecord: oldRegistration, newRecord: registration, req });
+    }
+
+    // Cascade: check if cycle should be cancelled
+    handleCycleCascadeOnCancellation(registration.cycle.id).catch(err =>
+      console.error('[CANCEL CASCADE] Error:', err)
+    );
+
     res.json(registration);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Send cancellation form to customer
+registrationsRouter.post('/:id/send-cancellation-form', managerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+
+    const registration = await prisma.registration.findUnique({
+      where: { id },
+      include: {
+        student: {
+          include: {
+            customer: { select: { id: true, name: true, phone: true, email: true } },
+          },
+        },
+        cycle: {
+          include: {
+            course: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+
+    if (!registration) {
+      throw new AppError(404, 'Registration not found');
+    }
+
+    const customer = registration.student.customer;
+    if (!customer) {
+      throw new AppError(400, 'לא נמצא לקוח להרשמה זו');
+    }
+
+    const courseName = registration.cycle.course?.name || registration.cycle.name;
+
+    // Find existing pending request or create a new one
+    let cancellationRequest = await prisma.cancellationRequest.findFirst({
+      where: { registrationId: id, status: 'pending' },
+    });
+
+    let token: string;
+    if (cancellationRequest) {
+      token = cancellationRequest.token;
+    } else {
+      token = randomBytes(32).toString('hex');
+      cancellationRequest = await prisma.cancellationRequest.create({
+        data: {
+          registrationId: id,
+          customerName: customer.name,
+          studentName: registration.student.name,
+          token,
+          status: 'pending',
+        },
+      });
+    }
+
+    // Mark registration as pending_cancellation so UI shows the indicator
+    if (registration.status !== 'pending_cancellation' && registration.status !== 'cancelled') {
+      await prisma.registration.update({
+        where: { id },
+        data: { status: 'pending_cancellation' },
+      });
+    }
+
+    const formUrl = `https://crm.orma-ai.com/public/cancel/${token}`;
+
+    // Optional overrides from request body
+    const {
+      overrideEmail,
+      overridePhone,
+      sendEmail: doSendEmail = true,
+      sendWhatsApp: doSendWhatsApp = true,
+    } = req.body as { overrideEmail?: string; overridePhone?: string; sendEmail?: boolean; sendWhatsApp?: boolean };
+
+    const targetEmail = overrideEmail || customer.email;
+    const targetPhone = overridePhone || customer.phone;
+
+    // Send email
+    if (doSendEmail && targetEmail) {
+      const emailHtml = `
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5;">
+  <table role="presentation" style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 40px 0;">
+        <table role="presentation" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+          <tr>
+            <td style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); padding: 40px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 28px;">🎯 Hai.Tech</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 40px;">
+              <h2 style="color: #1f2937;">שלום ${customer.name},</h2>
+              <p style="color: #4b5563; font-size: 16px; line-height: 1.6;">
+                קיבלנו את פנייתך בנוגע לביטול הקורס <strong>${courseName}</strong> עבור ${registration.student.name}.
+              </p>
+              <p style="color: #4b5563; font-size: 16px; line-height: 1.6;">
+                על מנת להשלים את תהליך הביטול, נא למלא את הטופס הבא:
+              </p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${formUrl}" style="display: inline-block; background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 8px; font-size: 16px; font-weight: 600;">
+                  מילוי טופס ביטול →
+                </a>
+              </div>
+              <p style="color: #9ca3af; font-size: 14px;">אם לא ביקשת ביטול, ניתן להתעלם מהודעה זו.</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #f9fafb; padding: 30px; text-align: center; border-top: 1px solid #e5e7eb;">
+              <p style="color: #9ca3af; font-size: 12px; margin: 0;">📧 info@hai.tech | 🌐 hai.tech</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+      // Non-blocking — respond immediately, send in background
+      sendEmail(targetEmail, `טופס ביטול - ${courseName} - Hai.Tech`, emailHtml)
+        .catch((err: unknown) => console.error('[CancelForm] Failed to send email:', err));
+    }
+
+    // Send WhatsApp — non-blocking
+    if (doSendWhatsApp && targetPhone) {
+      const whatsappMessage = `שלום ${customer.name},
+
+קיבלנו את פנייתך בנוגע לביטול הקורס ${courseName} עבור ${registration.student.name}.
+
+למילוי טופס הביטול:
+${formUrl}
+
+צוות Hai.Tech 💙`;
+      sendWhatsAppMessage(targetPhone, whatsappMessage)
+        .catch((err: unknown) => console.error('[CancelForm] Failed to send WhatsApp:', err));
+    }
+
+    res.json({ success: true, token, link: formUrl, message: 'טופס ביטול נשלח ללקוח' });
   } catch (error) {
     next(error);
   }
@@ -172,10 +448,12 @@ registrationsRouter.post('/:id/payment', managerOrAdmin, async (req, res, next) 
     const id = uuidSchema.parse(req.params.id);
     const data = z.object({
       paymentStatus: z.enum(['unpaid', 'partial', 'paid']),
-      paymentMethod: z.enum(['credit', 'transfer', 'cash']).optional(),
+      paymentMethod: z.enum(['credit', 'transfer', 'cash', 'institutional', 'standing_order']).optional(),
       amount: z.number().positive().optional(),
       invoiceLink: z.string().optional(),
     }).parse(req.body);
+
+    const oldRegistration = await prisma.registration.findUnique({ where: { id } });
 
     const registration = await prisma.registration.update({
       where: { id },
@@ -185,6 +463,11 @@ registrationsRouter.post('/:id/payment', managerOrAdmin, async (req, res, next) 
         cycle: { select: { name: true } },
       },
     });
+
+    // Audit log
+    if (oldRegistration) {
+      await logUpdateAudit({ entity: 'Registration', entityId: id, oldRecord: oldRegistration, newRecord: registration, req });
+    }
 
     res.json(registration);
   } catch (error) {

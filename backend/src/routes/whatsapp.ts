@@ -1,0 +1,1202 @@
+/**
+ * WhatsApp Cloud API Integration
+ * Inbox management for HaiTech CRM
+ */
+
+import { Router, Request, Response } from 'express';
+import { prisma } from '../utils/prisma.js';
+import { authenticate } from '../middleware/auth.js';
+import { findOrCreateCustomer } from '../utils/lead-customer.js';
+import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
+import { config } from '../config.js';
+import jwt from 'jsonwebtoken';
+import OpenAI from 'openai';
+import axios from 'axios';
+import * as fs from 'fs';
+import * as path from 'path';
+import { sendEmail } from '../services/email/sender.js';
+
+const router = Router();
+
+// ============================================================
+// Config
+// ============================================================
+const WA_API_URL = 'https://graph.facebook.com/v19.0';
+const PHONE_NUMBER_ID = process.env.WA_PHONE_NUMBER_ID!;
+const ACCESS_TOKEN = process.env.WA_ACCESS_TOKEN!;
+const VERIFY_TOKEN = process.env.WA_VERIFY_TOKEN || 'haitech-wa-verify-2026';
+const AI_IDLE_MS = 10 * 60 * 1000; // 10 min after last message → extract lead summary
+
+// Multi-number support: phoneNumberId → wabaId mapping
+const PHONE_WABA_MAP: Record<string, string> = {
+  [process.env.WA_PHONE_NUMBER_ID || '']: process.env.WA_WABA_ID || process.env.WA_CLOUD_WABA_ID || '',
+  [process.env.WA_PHONE_NUMBER_ID_2 || '']: process.env.WA_WABA_ID_2 || '',
+};
+function getWabaId(phoneNumberId?: string | null): string {
+  if (phoneNumberId && PHONE_WABA_MAP[phoneNumberId]) return PHONE_WABA_MAP[phoneNumberId];
+  return process.env.WA_WABA_ID || process.env.WA_CLOUD_WABA_ID || '';
+}
+// All active phone numbers (for new conversation picker)
+const ACTIVE_PHONES: { phoneNumberId: string; businessPhone: string; label: string }[] = [
+  { phoneNumberId: process.env.WA_PHONE_NUMBER_ID || '', businessPhone: '+972533027763', label: 'Bot Hai.tech (+972 53 302 7763)' },
+  ...(process.env.WA_PHONE_NUMBER_ID_2 ? [{ phoneNumberId: process.env.WA_PHONE_NUMBER_ID_2, businessPhone: '+972533009742', label: 'Bot Hai.Tech (+972 53 300 9742)' }] : []),
+];
+
+// OpenAI
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Load bot data — files as defaults, DB overrides at startup
+const DATA_DIR = path.join(__dirname, '../data');
+let systemPrompt = '';
+let knowledgeBase: any = {};
+let knowledgeBaseRaw = '{}'; // raw JSON string for editing
+
+// 1. Load from files (sync, always as fallback)
+try {
+  systemPrompt = fs.readFileSync(path.join(DATA_DIR, 'wa_system_prompt.md'), 'utf8');
+  knowledgeBaseRaw = fs.readFileSync(path.join(DATA_DIR, 'wa_knowledge_base.json'), 'utf8');
+  knowledgeBase = JSON.parse(knowledgeBaseRaw);
+  console.log('[WA] System prompt and knowledge base loaded from files');
+} catch (e) {
+  console.warn('[WA] Could not load system prompt / knowledge base from files:', e);
+}
+
+// 2. Override from DB if admin has saved custom values
+async function initBotConfigFromDB() {
+  try {
+    const rows = await prisma.$queryRaw<{ key: string; value: string }[]>`
+      SELECT key, value FROM bot_config WHERE key IN ('system_prompt', 'knowledge_base')
+    `;
+    for (const row of rows) {
+      if (row.key === 'system_prompt') {
+        systemPrompt = row.value;
+        console.log('[WA] System prompt loaded from DB');
+      }
+      if (row.key === 'knowledge_base') {
+        knowledgeBaseRaw = row.value;
+        try { knowledgeBase = JSON.parse(row.value); } catch {}
+        console.log('[WA] Knowledge base loaded from DB');
+      }
+    }
+  } catch (e) {
+    console.warn('[WA] Could not load bot config from DB:', e);
+  }
+}
+// Fire-and-forget at startup
+initBotConfigFromDB();
+
+// SSE clients for real-time updates
+const sseClients = new Set<Response>();
+
+function broadcastSSE(event: string, data: any) {
+  const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  sseClients.forEach(client => {
+    try { client.write(msg); } catch {}
+  });
+}
+
+// ============================================================
+// Meta WhatsApp Cloud API helper
+// ============================================================
+async function sendWhatsAppMessage(phone: string, text: string, phoneNumberId?: string | null): Promise<string | null> {
+  const fromId = phoneNumberId || PHONE_NUMBER_ID;
+  try {
+    const res = await axios.post(
+      `${WA_API_URL}/${fromId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        to: phone,
+        type: 'text',
+        text: { body: text }
+      },
+      { headers: { Authorization: `Bearer ${ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
+    );
+    return res.data?.messages?.[0]?.id || null;
+  } catch (err: any) {
+    console.error('[WA] Send error:', err.response?.data || err.message);
+    return null;
+  }
+}
+
+// ============================================================
+// AI Response generation (mirrors bot logic)
+// ============================================================
+async function generateAIReply(conversationId: string): Promise<string | null> {
+  const messages = await prisma.waMessage.findMany({
+    where: { conversationId },
+    orderBy: { createdAt: 'desc' },
+    take: 15
+  });
+  messages.reverse(); // Now newest 15 messages in chronological order
+
+  const conv = await prisma.waConversation.findUnique({ where: { id: conversationId } });
+  if (!conv) return null;
+
+  const fullSystemPrompt = `${systemPrompt}
+
+---
+## Knowledge Base (מידע על דרך ההייטק)
+
+${JSON.stringify(knowledgeBase, null, 2)}
+
+---
+## הקשר שיחה
+
+מספר טלפון: ${conv.phone}
+${conv.contactName ? `שם: ${conv.contactName}` : ''}
+${conv.childName ? `שם הילד: ${conv.childName}` : ''}
+${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}
+
+---
+## כלל אנטי-לופ (חובה!)
+אל תחזור על תשובה שכבר נתת בשיחה הזו. אם שאלתם אותך משהו שכבר ענית עליו — ענה אחרת או הפנה לנציג. אם הלקוח אמר שלא שאל על נושא מסוים — אל תחזור לאותו נושא. הסתכל על ההיסטוריה ותן תשובה שלא כבר נאמרה.
+`;
+
+  // Messages to exclude from GPT history to prevent looping
+  const BOT_SKIP_PHRASES = [
+    'אני יכול לעזור רק עם מידע על קורסים ושירותי דרך ההייטק',
+    'קיבלנו את בקשתך 😊 נציג מדרך ההייטק יחזור'
+  ];
+
+  const chatMessages: any[] = [{ role: 'system', content: fullSystemPrompt }];
+  const seenOutboundContents = new Set<string>();
+
+  for (const m of messages) {
+    // Skip certain outbound messages from history — prevents GPT from looping
+    if (m.direction === 'outbound' && BOT_SKIP_PHRASES.some(p => m.content.includes(p))) continue;
+
+    // Deduplicate outbound messages — skip if identical content appeared before in this history window
+    // This prevents GPT from repeating the same response when it sees its own pattern in context
+    if (m.direction === 'outbound') {
+      const normalized = m.content.trim().slice(0, 80); // compare first 80 chars
+      if (seenOutboundContents.has(normalized)) continue;
+      seenOutboundContents.add(normalized);
+    }
+
+    chatMessages.push({
+      role: m.direction === 'inbound' ? 'user' : 'assistant',
+      content: m.content
+    });
+  }
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: chatMessages,
+    max_tokens: 500,
+    temperature: 0.7
+  });
+
+  return completion.choices[0].message.content || null;
+}
+
+// ============================================================
+// Lead extraction (runs after idle)
+// ============================================================
+async function extractLeadData(conversationId: string) {
+  // Only look at messages from the last 24 hours (current session)
+  // This prevents acting on old promises from previous days
+  const SESSION_WINDOW_HOURS = 24;
+  const sessionCutoff = new Date(Date.now() - SESSION_WINDOW_HOURS * 60 * 60 * 1000);
+
+  const messages = await prisma.waMessage.findMany({
+    where: {
+      conversationId,
+      createdAt: { gte: sessionCutoff },
+    },
+    orderBy: { createdAt: 'asc' },
+    take: 30
+  });
+
+  if (messages.length === 0) return;
+
+  const conv = await prisma.waConversation.findUnique({ where: { id: conversationId } });
+  if (!conv) return;
+
+  const text = messages.map(m =>
+    `${m.direction === 'inbound' ? 'לקוח' : 'נציג'}: ${m.content}`
+  ).join('\n');
+
+  try {
+    const res = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: `נתח שיחת וואטסאפ וחלץ מידע. החזר JSON בלבד:
+{
+  "lead_name": "שם מלא או null",
+  "lead_email": "מייל או null",
+  "child_name": "שם הילד או null",
+  "child_age": null,
+  "interests": ["..."],
+  "lead_type": "parent/institution/teacher/other",
+  "summary": "סיכום בשורה אחת",
+  "course_recommended": "שם הקורס שהומלץ/הוזכר בשיחה, או null אם לא הוזכר קורס ספציפי",
+  "email_promised": true/false
+}`
+        },
+        { role: 'user', content: text }
+      ],
+      response_format: { type: 'json_object' }
+    });
+
+    const data = JSON.parse(res.choices[0].message.content || '{}');
+
+    // 1. Update conversation record
+    await prisma.waConversation.update({
+      where: { id: conversationId },
+      data: {
+        leadName: data.lead_name,
+        leadEmail: data.lead_email,
+        childName: data.child_name,
+        childAge: data.child_age,
+        interests: data.interests ? JSON.stringify(data.interests) : undefined,
+        leadType: data.lead_type,
+        summary: data.summary
+      }
+    });
+
+    // 2. Update matching leadAppointment with email (if extracted)
+    if (data.lead_email) {
+      try {
+        const digitsOnly = (p: string) => p.replace(/\D/g, '');
+        const last9 = (p: string) => digitsOnly(p).slice(-9);
+        const phoneLast9 = last9(conv.phone);
+
+        // Find lead with matching phone (last 9 digits)
+        const leads = await prisma.$queryRaw<{ id: string; customer_email: string | null }[]>`
+          SELECT id, customer_email FROM lead_appointments
+          WHERE deleted_at IS NULL
+          AND RIGHT(REPLACE(REPLACE(REPLACE(customer_phone, '+', ''), '-', ''), ' ', ''), 9) = ${phoneLast9}
+          ORDER BY created_at DESC
+          LIMIT 1
+        `;
+
+        if (leads.length > 0 && !leads[0].customer_email) {
+          await prisma.$executeRaw`
+            UPDATE lead_appointments SET customer_email = ${data.lead_email}
+            WHERE id = ${leads[0].id}
+          `;
+          console.log(`[WA] Updated lead ${leads[0].id} with email ${data.lead_email}`);
+        }
+      } catch (e) {
+        console.error('[WA] Lead email update failed:', e);
+      }
+    }
+
+    // 3. Send email if bot promised one and we have the email
+    if (data.email_promised && data.lead_email) {
+      try {
+        const courseTitle: string | null = data.course_recommended || null;
+        const leadName: string = data.lead_name || 'שלום';
+
+        // Find course details in knowledge base
+        let courseHtml = '';
+        if (courseTitle && knowledgeBase.courses) {
+          const allCourses: any[] = [
+            ...(knowledgeBase.courses.digital_self_paced || []),
+          ];
+          const course = allCourses.find((c: any) =>
+            c.title && c.title.includes(courseTitle.slice(0, 10))
+          );
+          if (course) {
+            courseHtml = `
+              <div style="background:#f0f7ff;border-radius:8px;padding:20px;margin:20px 0;">
+                <h2 style="color:#1a56db;margin:0 0 8px 0;">📚 ${course.title}</h2>
+                <p style="color:#374151;margin:4px 0;">${course.short_description || ''}</p>
+                <p style="color:#374151;margin:4px 0;">👶 גילאים מתאימים: ${course.age_range || ''}</p>
+                <p style="color:#374151;margin:4px 0;">📝 מספר שיעורים: ${course.lessons_count || ''}</p>
+                <p style="color:#374151;margin:4px 0;">💰 מחיר: <strong>${course.price ? course.price + '₪' : ''}</strong> — גישה לנצח</p>
+              </div>
+              <div style="text-align:center;margin:24px 0;">
+                <a href="https://www.hai.tech" style="background:#1a56db;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-size:16px;display:inline-block;">
+                  🛒 לרכישת הקורס
+                </a>
+              </div>`;
+          }
+        }
+
+        if (!courseHtml) {
+          // No specific course info — do NOT send generic email to lead.
+          // Instead, send internal alert to team so they can follow up manually.
+          const convPhone = conv.phone || 'לא ידוע';
+          const convSummary = data.summary || 'אין סיכום';
+          await sendEmail({
+            to: 'info@hai.tech',
+            subject: `⚠️ ליד ממתין לתשובה — אין מידע מדויק | ${leadName}`,
+            html: `
+              <div dir="rtl" style="font-family:Arial,sans-serif;font-size:15px;line-height:1.8;color:#222;">
+                <h2 style="color:#b45309;">⚠️ ליד ממתין לתשובה ידנית</h2>
+                <p>הבוט הבטיח לשלוח מייל ללקוח, אך <strong>אין לו מידע מדויק</strong> לגבי הנושא שנשאל.</p>
+                <table style="border-collapse:collapse;margin:12px 0;">
+                  <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">שם:</td><td style="font-weight:bold;">${leadName}</td></tr>
+                  <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">מייל:</td><td><a href="mailto:${data.lead_email}">${data.lead_email}</a></td></tr>
+                  <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">טלפון:</td><td>${convPhone}</td></tr>
+                  <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">נושא:</td><td>${courseTitle || 'לא זוהה'}</td></tr>
+                  <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">סיכום שיחה:</td><td>${convSummary}</td></tr>
+                </table>
+                <p style="color:#dc2626;font-weight:bold;">יש לחזור ללקוח ולשלוח מייל ידני עם המידע הרלוונטי.</p>
+              </div>`
+          });
+          console.log(`[WA] No course match — internal alert sent to info@hai.tech for conv ${conversationId}`);
+        } else {
+          // Course found — send details email to lead
+          const html = `
+            <!DOCTYPE html>
+            <html dir="rtl" lang="he">
+            <body style="font-family:Arial,sans-serif;direction:rtl;background:#f9fafb;padding:32px;">
+              <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+                <div style="text-align:center;margin-bottom:24px;">
+                  <img src="https://www.hai.tech/wp-content/uploads/2023/02/hai-tech-logo.png" alt="דרך ההייטק" style="height:50px;" onerror="this.style.display='none'"/>
+                </div>
+                <h1 style="color:#111827;font-size:22px;">היי ${leadName}! 👋</h1>
+                <p style="color:#374151;font-size:16px;line-height:1.6;">
+                  תודה שדיברת איתנו! כאמור, הכנסנו לך את הפרטים על הקורס שדיברנו עליו:
+                </p>
+                ${courseHtml}
+                <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;"/>
+                <p style="color:#6b7280;font-size:14px;">
+                  יש שאלות? ניתן לחזור לשיחת הוואטסאפ או ליצור קשר: <a href="mailto:info@hai.tech">info@hai.tech</a>
+                </p>
+                <p style="color:#6b7280;font-size:12px;">דרך ההייטק — ללמד ילדים טכנולוגיה בדרך מהנה 🚀</p>
+              </div>
+            </body>
+            </html>`;
+
+          await sendEmail({
+            to: data.lead_email,
+            subject: `פרטים על ${courseTitle} - דרך ההייטק`,
+            html
+          });
+          console.log(`[WA] Course email sent to ${data.lead_email} for conv ${conversationId}`);
+        }
+      } catch (e) {
+        console.error('[WA] Email send failed:', e);
+      }
+    }
+
+    console.log(`[WA] Lead extracted for ${conversationId}`);
+  } catch (e) {
+    console.error('[WA] Lead extraction failed:', e);
+  }
+}
+
+// Track idle timers per conversation
+const idleTimers = new Map<string, NodeJS.Timeout>();
+
+// Reply lock per conversation — prevents parallel AI replies causing duplicate/stale responses
+const replyLocks = new Map<string, Promise<void>>();
+
+function scheduleLeadExtraction(conversationId: string) {
+  const existing = idleTimers.get(conversationId);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    extractLeadData(conversationId);
+    idleTimers.delete(conversationId);
+  }, AI_IDLE_MS);
+  idleTimers.set(conversationId, timer);
+}
+
+// ============================================================
+// Callback Request Detection
+// ============================================================
+
+const CALLBACK_KEYWORDS = [
+  // Hebrew
+  'שיחזרו אליי', 'שיחזרו אלי', 'לחזור אליי', 'לחזור אלי',
+  'חזרו אליי', 'חזרו אלי', 'להתקשר אליי', 'להתקשר אלי',
+  'שמישהו יחזור', 'שנציג יחזור', 'שיתקשרו אליי', 'שיתקשרו אלי',
+  'רוצה שיחזרו', 'רוצה שיתקשרו', 'אפשר שיחזרו', 'אפשר לחזור',
+  'לדבר עם נציג', 'לדבר עם אדם', 'לדבר עם מישהו',
+  'נציג אנושי', 'שיחה טלפונית', 'שיחת טלפון',
+  // English fallback
+  'call me back', 'call me', 'callback', 'call back',
+  'speak to someone', 'talk to someone', 'human agent'
+];
+
+function detectCallbackIntent(text: string): boolean {
+  const lower = text.toLowerCase();
+  return CALLBACK_KEYWORDS.some(kw => lower.includes(kw));
+}
+
+async function handleCallbackRequest(conv: any, messageText: string): Promise<void> {
+  try {
+    // Check if there's already a pending callback request for this conversation in the last 24h
+    const recent = await (prisma as any).waCallbackRequest.findFirst({
+      where: {
+        conversationId: conv.id,
+        status: 'pending',
+        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+      }
+    });
+    if (recent) return; // Already registered, skip
+
+    // Save callback request
+    await (prisma as any).waCallbackRequest.create({
+      data: {
+        conversationId: conv.id,
+        phone: conv.phone,
+        contactName: conv.contactName || null,
+        message: messageText,
+        status: 'pending'
+      }
+    });
+
+    // Send email to info@hai.tech
+    const convLink = `https://crm.orma-ai.com/whatsapp?conv=${conv.id}`;
+    const customerLabel = conv.contactName
+      ? `${conv.contactName} (${conv.phone})`
+      : conv.phone;
+
+    await sendEmail({
+      to: 'info@hai.tech',
+      subject: `📞 בקשת חזרה מ-WhatsApp — ${customerLabel}`,
+      html: `
+        <div dir="rtl" style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+          <div style="background:#1a56db;padding:20px;border-radius:8px 8px 0 0;">
+            <h2 style="color:#fff;margin:0;">📞 בקשת חזרה — WhatsApp</h2>
+          </div>
+          <div style="background:#f9fafb;padding:24px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px;">
+            <p style="font-size:16px;color:#111827;margin:0 0 16px 0;">
+              לקוח ביקש שנחזור אליו דרך הבוט:
+            </p>
+            <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:16px;margin-bottom:20px;">
+              <p style="margin:4px 0;color:#374151;"><strong>שם:</strong> ${conv.contactName || '—'}</p>
+              <p style="margin:4px 0;color:#374151;"><strong>טלפון:</strong> <a href="tel:${conv.phone}" style="color:#1a56db;">${conv.phone}</a></p>
+              <p style="margin:4px 0;color:#374151;"><strong>הודעה:</strong></p>
+              <blockquote style="background:#f3f4f6;border-right:4px solid #1a56db;padding:10px 14px;margin:8px 0;border-radius:4px;color:#1f2937;">
+                ${messageText}
+              </blockquote>
+            </div>
+            <div style="text-align:center;">
+              <a href="${convLink}" style="background:#1a56db;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-size:15px;display:inline-block;">
+                פתח שיחה ב-CRM →
+              </a>
+            </div>
+          </div>
+          <p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:12px;">
+            HaiTech CRM · דרך ההייטק
+          </p>
+        </div>
+      `
+    });
+
+    console.log(`[WA] Callback request registered for ${conv.phone}`);
+    broadcastSSE('callback_request', { conversationId: conv.id, phone: conv.phone, contactName: conv.contactName });
+  } catch (err) {
+    console.error('[WA] Callback request handling error:', err);
+  }
+}
+
+// ============================================================
+// Routes
+// ============================================================
+
+// ── GET /api/wa/webhook — Meta verification
+router.get('/webhook', (req: Request, res: Response) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+    console.log('[WA] Webhook verified by Meta');
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
+  }
+});
+
+// ── POST /api/wa/webhook — Incoming messages from Meta
+router.post('/webhook', async (req: Request, res: Response) => {
+  res.sendStatus(200); // Respond immediately to Meta
+
+  try {
+    const body = req.body;
+    if (body.object !== 'whatsapp_business_account') return;
+
+    for (const entry of body.entry || []) {
+      for (const change of entry.changes || []) {
+        const value = change.value;
+
+        // Status updates (delivered/read)
+        for (const status of value.statuses || []) {
+          await prisma.waMessage.updateMany({
+            where: { waMessageId: status.id },
+            data: { status: status.status }
+          });
+          broadcastSSE('message_status', { waMessageId: status.id, status: status.status });
+        }
+
+        // Incoming messages
+        const businessPhone = value.metadata?.display_phone_number ? '+' + value.metadata.display_phone_number.replace(/\D/g, '') : undefined;
+        const bizPhoneNumberId = value.metadata?.phone_number_id;
+
+        for (const msg of value.messages || []) {
+          if (msg.type !== 'text') continue; // Only text for now
+
+          const phone = msg.from;
+          const text = msg.text?.body || '';
+          const waMessageId = msg.id;
+          const contactName = value.contacts?.[0]?.profile?.name;
+
+          // Dedup
+          const existing = await prisma.waMessage.findUnique({ where: { waMessageId } });
+          if (existing) continue;
+
+          // Get or create conversation (unique per sender+businessPhone combo)
+          let conv = await prisma.waConversation.findFirst({ where: { phone, phoneNumberId: bizPhoneNumberId || undefined } });
+          if (!conv) {
+            // fallback: find by phone only if no bizPhoneNumberId
+            conv = await prisma.waConversation.findFirst({ where: { phone, phoneNumberId: null } }) || null;
+          }
+          let isNewConversation = false;
+          if (!conv) {
+            conv = await prisma.waConversation.create({
+              data: { phone, contactName, businessPhone, phoneNumberId: bizPhoneNumberId }
+            });
+            isNewConversation = true;
+          } else if (!conv.businessPhone && businessPhone) {
+            conv = await prisma.waConversation.update({
+              where: { id: conv.id },
+              data: { businessPhone, phoneNumberId: bizPhoneNumberId }
+            });
+          }
+
+          // Auto-create lead if new conversation from unknown customer
+          if (isNewConversation) {
+            try {
+              const waLink = `https://crm.orma-ai.com/whatsapp?conv=${conv.id}`;
+
+              // Find or create customer + add to communication history
+              const { customerId: waCustomerId, isNew } = await findOrCreateCustomer({
+                name: contactName || undefined,
+                phone,
+                source: 'whatsapp',
+                notes: `שיחת וואטסאפ. קישור: ${waLink}`,
+              });
+
+              await findOrCreateLeadAppointment({
+                customerId: waCustomerId || null,
+                customerName: contactName || phone,
+                customerPhone: phone,
+                source: 'whatsapp',
+                appointmentNotes: isNew
+                  ? `ליד חדש מוואטסאפ. לשיחה: ${waLink}`
+                  : `לקוח קיים פנה שוב בוואטסאפ. לשיחה: ${waLink}`,
+                appointmentStatus: 'pending',
+              });
+              console.log(`[WA] Lead upserted for ${isNew ? 'new' : 'existing'} customer ${phone}`);
+            } catch (e) {
+              console.error('[WA] Lead creation error:', e);
+            }
+          }
+
+          // Store message
+          const newMsg = await prisma.waMessage.create({
+            data: {
+              conversationId: conv.id,
+              direction: 'inbound',
+              content: text,
+              waMessageId,
+              status: 'received'
+            }
+          });
+
+          // Update conversation
+          await prisma.waConversation.update({
+            where: { id: conv.id },
+            data: {
+              unreadCount: { increment: 1 },
+              lastMessageAt: new Date(),
+              lastMessagePreview: text.slice(0, 100),
+              contactName: contactName || conv.contactName,
+              updatedAt: new Date()
+            }
+          });
+
+          broadcastSSE('new_message', {
+            conversationId: conv.id,
+            message: { ...newMsg, direction: 'inbound' },
+            phone,
+            contactName
+          });
+
+          // Callback request detection — takes priority over AI reply
+          const isCallbackRequest = detectCallbackIntent(text);
+
+          if (isCallbackRequest) {
+            handleCallbackRequest(conv, text); // save to DB + email info@hai.tech
+
+            // Send confirmation to customer instead of generic AI reply
+            if (conv.aiEnabled) {
+              try {
+                const confirmMsg = 'תודה! קיבלנו את בקשתך 😊 נציג מדרך ההייטק יחזור אליך בהקדם האפשרי.';
+                const waId = await sendWhatsAppMessage(phone, confirmMsg, conv.phoneNumberId);
+                const botMsg = await prisma.waMessage.create({
+                  data: {
+                    conversationId: conv.id,
+                    direction: 'outbound',
+                    content: confirmMsg,
+                    waMessageId: waId || undefined,
+                    status: 'sent',
+                    isAiGenerated: true
+                  }
+                });
+                await prisma.waConversation.update({
+                  where: { id: conv.id },
+                  data: { lastMessageAt: new Date(), lastMessagePreview: confirmMsg.slice(0, 100), updatedAt: new Date() }
+                });
+                broadcastSSE('new_message', { conversationId: conv.id, message: botMsg });
+              } catch (e) {
+                console.error('[WA] Callback confirmation send error:', e);
+              }
+            }
+          } else if (conv.aiEnabled) {
+            // Regular AI auto-reply — queued per conversation to prevent parallel/duplicate replies
+            const prevLock = replyLocks.get(conv.id) || Promise.resolve();
+            const currentLock = prevLock.then(async () => {
+              try {
+                const reply = await generateAIReply(conv.id);
+                if (reply) {
+                  const waId = await sendWhatsAppMessage(phone, reply, conv.phoneNumberId);
+                  const botMsg = await prisma.waMessage.create({
+                    data: {
+                      conversationId: conv.id,
+                      direction: 'outbound',
+                      content: reply,
+                      waMessageId: waId || undefined,
+                      status: 'sent',
+                      isAiGenerated: true
+                    }
+                  });
+                  await prisma.waConversation.update({
+                    where: { id: conv.id },
+                    data: {
+                      lastMessageAt: new Date(),
+                      lastMessagePreview: reply.slice(0, 100),
+                      updatedAt: new Date()
+                    }
+                  });
+                  broadcastSSE('new_message', { conversationId: conv.id, message: botMsg });
+                }
+              } catch (e) {
+                console.error('[WA] AI reply error:', e);
+              }
+            });
+            replyLocks.set(conv.id, currentLock);
+            // Clean up lock reference after completion to prevent memory leak
+            currentLock.finally(() => {
+              if (replyLocks.get(conv.id) === currentLock) {
+                replyLocks.delete(conv.id);
+              }
+            });
+          }
+
+          scheduleLeadExtraction(conv.id);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[WA] Webhook error:', err);
+  }
+});
+
+// ── GET /api/wa/callbacks — List callback requests
+router.get('/callbacks', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { status } = req.query;
+    const where: any = {};
+    if (status) where.status = status;
+
+    const rows = await (prisma as any).waCallbackRequest.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 100
+    });
+    res.json(rows);
+  } catch (err) {
+    console.error('[WA] Callbacks list error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── PATCH /api/wa/callbacks/:id — Mark callback as done/pending
+router.patch('/callbacks/:id', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    if (!['pending', 'done'].includes(status)) {
+      res.status(400).json({ error: 'Invalid status' });
+      return;
+    }
+    const updated = await (prisma as any).waCallbackRequest.update({
+      where: { id },
+      data: {
+        status,
+        resolvedAt: status === 'done' ? new Date() : null,
+        resolvedBy: status === 'done' ? (req as any).user?.email : null
+      }
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error('[WA] Callbacks update error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── GET /api/wa/callbacks/count — Pending count for badge
+router.get('/callbacks/count', authenticate, async (req: Request, res: Response) => {
+  try {
+    const count = await (prisma as any).waCallbackRequest.count({
+      where: { status: 'pending' }
+    });
+    res.json({ count });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── GET /api/wa/bot-config — Get current system prompt + knowledge base (admin)
+router.get('/bot-config', authenticate, async (req: Request, res: Response) => {
+  const user = (req as any).user;
+  if (!['admin', 'manager'].includes(user?.role)) { res.status(403).json({ error: 'Forbidden' }); return; }
+  res.json({ systemPrompt, knowledgeBase: knowledgeBaseRaw });
+});
+
+// ── PUT /api/wa/bot-config — Save system prompt and/or knowledge base (admin)
+router.put('/bot-config', authenticate, async (req: Request, res: Response) => {
+  const user = (req as any).user;
+  if (!['admin', 'manager'].includes(user?.role)) { res.status(403).json({ error: 'Forbidden' }); return; }
+
+  const { systemPrompt: newPrompt, knowledgeBase: newKB } = req.body;
+
+  try {
+    if (typeof newPrompt === 'string') {
+      systemPrompt = newPrompt;
+      await prisma.$executeRaw`
+        INSERT INTO bot_config (key, value, updated_at, updated_by)
+        VALUES ('system_prompt', ${newPrompt}, NOW(), ${user.email})
+        ON CONFLICT (key) DO UPDATE SET value = ${newPrompt}, updated_at = NOW(), updated_by = ${user.email}
+      `;
+    }
+
+    if (typeof newKB === 'string') {
+      // Validate JSON
+      try { JSON.parse(newKB); } catch { res.status(400).json({ error: 'Knowledge base must be valid JSON' }); return; }
+      knowledgeBaseRaw = newKB;
+      knowledgeBase = JSON.parse(newKB);
+      await prisma.$executeRaw`
+        INSERT INTO bot_config (key, value, updated_at, updated_by)
+        VALUES ('knowledge_base', ${newKB}, NOW(), ${user.email})
+        ON CONFLICT (key) DO UPDATE SET value = ${newKB}, updated_at = NOW(), updated_by = ${user.email}
+      `;
+    }
+
+    console.log(`[WA] Bot config updated by ${user.email}`);
+    res.json({ ok: true, message: 'Bot configuration saved successfully' });
+  } catch (err) {
+    console.error('[WA] Bot config save error:', err);
+    res.status(500).json({ error: 'Failed to save configuration' });
+  }
+});
+
+// ── SSE — Real-time updates (token via query param for EventSource)
+router.get('/events', (req: Request, res: Response) => {
+  // EventSource can't send headers, so we accept token as query param
+  const token = req.query.token as string || req.headers.authorization?.replace('Bearer ', '');
+  if (!token) { res.status(401).end(); return; }
+  try {
+    jwt.verify(token, config.jwt.secret);
+  } catch { res.status(401).end(); return; }
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  sseClients.add(res);
+  res.write('event: connected\ndata: {}\n\n');
+
+  req.on('close', () => sseClients.delete(res));
+});
+
+// ── POST /api/wa/templates — Create a new template in Meta
+router.post('/templates', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { name, category, language, headerText, bodyText, footerText, buttons, examples, phoneNumberId: reqPhoneId } = req.body;
+    if (!name || !bodyText) return res.status(400).json({ error: 'Missing name or bodyText' });
+
+    const wabaId = getWabaId(reqPhoneId);
+
+    // Count variables in text ({{1}}, {{2}}, ...)
+    const countVars = (text: string) => [...new Set(text.match(/\{\{\d+\}\}/g) || [])].length;
+
+    const components: any[] = [];
+    if (headerText) {
+      const headerVars = countVars(headerText);
+      components.push({
+        type: 'HEADER',
+        format: 'TEXT',
+        text: headerText,
+        ...(headerVars > 0 && {
+          example: { header_text: Array(headerVars).fill('ערך') }
+        })
+      });
+    }
+
+    const bodyVarCount = countVars(bodyText);
+    const bodyExamples = examples && examples.length > 0
+      ? examples
+      : Array(bodyVarCount).fill('דוגמה');
+
+    components.push({
+      type: 'BODY',
+      text: bodyText,
+      ...(bodyVarCount > 0 && {
+        example: { body_text: [bodyExamples] }
+      })
+    });
+
+    if (footerText) components.push({ type: 'FOOTER', text: footerText });
+    if (buttons && buttons.length > 0) {
+      components.push({
+        type: 'BUTTONS',
+        buttons: buttons.map((b: any) => ({ type: b.type || 'QUICK_REPLY', text: b.text }))
+      });
+    }
+
+    const resp = await axios.post(
+      `${WA_API_URL}/${wabaId}/message_templates`,
+      {
+        name: name.toLowerCase().replace(/[^a-z0-9_]/g, '_'),
+        language: language || 'he',
+        category: category || 'MARKETING',
+        components
+      },
+      { headers: { Authorization: `Bearer ${ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
+    );
+
+    res.json({ id: resp.data.id, status: resp.data.status, name: resp.data.name });
+  } catch (err: any) {
+    console.error('[WA] Create template error:', err.response?.data || err.message);
+    res.status(500).json({ error: 'Failed to create template', details: err.response?.data });
+  }
+});
+
+// ── GET /api/wa/templates — Fetch approved templates from Meta
+router.get('/templates', authenticate, async (req: Request, res: Response) => {
+  try {
+    const phoneNumberId = req.query.phoneNumberId as string | undefined;
+    const wabaId = getWabaId(phoneNumberId);
+    const resp = await axios.get(
+      `${WA_API_URL}/${wabaId}/message_templates`,
+      {
+        params: { fields: 'name,status,language,components', limit: 100 },
+        headers: { Authorization: `Bearer ${ACCESS_TOKEN}` }
+      }
+    );
+    // Sort: APPROVED first, then PENDING, then others
+    const all = (resp.data.data || []).sort((a: any, b: any) => {
+      const order: Record<string, number> = { APPROVED: 0, PENDING: 1, REJECTED: 2 };
+      return (order[a.status] ?? 3) - (order[b.status] ?? 3);
+    });
+    res.json(all);
+  } catch (err: any) {
+    console.error('[WA] Templates fetch error:', err.response?.data || err.message);
+    res.status(500).json({ error: 'Failed to fetch templates' });
+  }
+});
+
+// ── POST /api/wa/send-template — Send a template message
+router.post('/send-template', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { conversationId, phone: phoneParam, contactName, templateName, language, variables, previewText, fromPhoneNumberId } = req.body;
+    if (!templateName) return res.status(400).json({ error: 'Missing templateName' });
+    if (!conversationId && !phoneParam) return res.status(400).json({ error: 'Missing conversationId or phone' });
+
+    let conv;
+    if (conversationId) {
+      conv = await prisma.waConversation.findUnique({ where: { id: conversationId } });
+    } else {
+      // Normalize phone (052... → 97252...)
+      const phone = phoneParam.replace(/\D/g, '').replace(/^0/, '972');
+      conv = await prisma.waConversation.findFirst({ where: { phone } });
+      if (!conv) {
+        const usePhoneId = fromPhoneNumberId || PHONE_NUMBER_ID;
+        const activePh = ACTIVE_PHONES.find(p => p.phoneNumberId === usePhoneId);
+        conv = await prisma.waConversation.create({
+          data: { phone, contactName: contactName || phone, phoneNumberId: usePhoneId, businessPhone: activePh?.businessPhone || '+972533027763' }
+        });
+      }
+    }
+    if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+
+    // Build template components with variables
+    const components: any[] = [];
+    if (variables && variables.length > 0) {
+      components.push({
+        type: 'body',
+        parameters: variables.map((v: string) => ({ type: 'text', text: v }))
+      });
+    }
+
+    // Send via Meta API (use conversation's phone number ID if available)
+    const sendFromPhoneId = (fromPhoneNumberId as string | undefined) || conv.phoneNumberId || PHONE_NUMBER_ID;
+    let waId: string | null = null;
+    try {
+      const resp = await axios.post(
+        `${WA_API_URL}/${sendFromPhoneId}/messages`,
+        {
+          messaging_product: 'whatsapp',
+          to: conv.phone,
+          type: 'template',
+          template: {
+            name: templateName,
+            language: { code: language || 'he' },
+            ...(components.length > 0 && { components })
+          }
+        },
+        { headers: { Authorization: `Bearer ${ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
+      );
+      waId = resp.data?.messages?.[0]?.id || null;
+    } catch (err: any) {
+      console.error('[WA] Template send error:', err.response?.data || err.message);
+      return res.status(500).json({ error: 'Failed to send template via Meta', details: err.response?.data });
+    }
+
+    // Store message in DB
+    const content = previewText || `[תבנית: ${templateName}]`;
+    const msg = await prisma.waMessage.create({
+      data: {
+        conversationId,
+        direction: 'outbound',
+        content,
+        waMessageId: waId || undefined,
+        status: 'sent',
+        isAiGenerated: false
+      }
+    });
+
+    await prisma.waConversation.update({
+      where: { id: conversationId },
+      data: {
+        lastMessageAt: new Date(),
+        lastMessagePreview: content.slice(0, 100),
+        updatedAt: new Date()
+      }
+    });
+
+    broadcastSSE('new_message', { conversationId, message: msg });
+    res.json(msg);
+  } catch (err) {
+    console.error('[WA] send-template error:', err);
+    res.status(500).json({ error: 'Failed to send template' });
+  }
+});
+
+// ── POST /api/wa/broadcast — Send template to multiple recipients + log in CRM
+router.post('/broadcast', authenticate, async (req: Request, res: Response) => {
+  try {
+    const {
+      templateName,
+      language = 'he',
+      components = [],
+      phoneNumberId: reqPhoneNumberId,
+      recipients,   // [{ phone: '972XXXXXXXXX', name?: string }]
+      delayMs = 4000,
+      previewText
+    } = req.body;
+
+    if (!templateName || !Array.isArray(recipients) || recipients.length === 0) {
+      return res.status(400).json({ error: 'templateName and recipients[] are required' });
+    }
+
+    const phoneNumId = reqPhoneNumberId || PHONE_NUMBER_ID;
+    const bizPhone = ACTIVE_PHONES.find(p => p.phoneNumberId === phoneNumId)?.businessPhone || null;
+    const token = ACCESS_TOKEN;
+
+    const results: { phone: string; name?: string; status: 'sent' | 'failed'; waMessageId?: string; error?: string }[] = [];
+
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+    for (let i = 0; i < recipients.length; i++) {
+      const { phone, name } = recipients[i];
+      if (i > 0) await sleep(delayMs);
+
+      let waId: string | null = null;
+      try {
+        // Send template via Meta API
+        const resp = await axios.post(
+          `${WA_API_URL}/${phoneNumId}/messages`,
+          {
+            messaging_product: 'whatsapp',
+            to: phone,
+            type: 'template',
+            template: {
+              name: templateName,
+              language: { code: language },
+              ...(components.length > 0 && { components })
+            }
+          },
+          { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+        );
+        waId = resp.data?.messages?.[0]?.id || null;
+      } catch (err: any) {
+        const errMsg = err.response?.data?.error?.message || err.message;
+        console.error(`[WA Broadcast] Failed to send to ${phone}:`, errMsg);
+        results.push({ phone, name, status: 'failed', error: errMsg });
+        continue;
+      }
+
+      // Find or create conversation
+      let conv = await prisma.waConversation.findFirst({
+        where: { phone, phoneNumberId: phoneNumId }
+      });
+      if (!conv) {
+        conv = await prisma.waConversation.create({
+          data: {
+            phone,
+            contactName: name || null,
+            status: 'open',
+            businessPhone: bizPhone,
+            phoneNumberId: phoneNumId,
+            lastMessageAt: new Date(),
+            lastMessagePreview: previewText?.slice(0, 100) || `[תבנית: ${templateName}]`
+          }
+        });
+      }
+
+      // Log message
+      const content = previewText || `[תבנית: ${templateName}]`;
+      await prisma.waMessage.create({
+        data: {
+          conversationId: conv.id,
+          direction: 'outbound',
+          content,
+          waMessageId: waId || undefined,
+          status: 'sent',
+          isAiGenerated: false
+        }
+      });
+
+      await prisma.waConversation.update({
+        where: { id: conv.id },
+        data: {
+          lastMessageAt: new Date(),
+          lastMessagePreview: content.slice(0, 100),
+          updatedAt: new Date()
+        }
+      });
+
+      results.push({ phone, name, status: 'sent', waMessageId: waId || undefined });
+    }
+
+    const sent = results.filter(r => r.status === 'sent').length;
+    const failed = results.filter(r => r.status === 'failed').length;
+    console.log(`[WA Broadcast] Done — sent: ${sent}, failed: ${failed}`);
+    res.json({ sent, failed, results });
+  } catch (err) {
+    console.error('[WA] broadcast error:', err);
+    res.status(500).json({ error: 'Broadcast failed' });
+  }
+});
+
+// ── GET /api/wa/phones — List active WhatsApp phone numbers
+router.get('/phones', authenticate, (_req: Request, res: Response) => {
+  res.json(ACTIVE_PHONES.filter(p => p.phoneNumberId));
+});
+
+// ── GET /api/wa/conversations — List all conversations
+router.get('/conversations', authenticate, async (req: Request, res: Response) => {
+  try {
+    const conversations = await prisma.waConversation.findMany({
+      orderBy: { lastMessageAt: 'desc' },
+      include: {
+        _count: { select: { messages: true } }
+      }
+    });
+    res.json(conversations);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch conversations' });
+  }
+});
+
+// ── GET /api/wa/conversations/:id/messages
+router.get('/conversations/:id/messages', authenticate, async (req: Request, res: Response) => {
+  try {
+    const messages = await prisma.waMessage.findMany({
+      where: { conversationId: req.params.id },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    // Mark as read
+    await prisma.waConversation.update({
+      where: { id: req.params.id },
+      data: { unreadCount: 0 }
+    });
+
+    res.json(messages);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch messages' });
+  }
+});
+
+// ── PATCH /api/wa/conversations/:id — Update conversation (status, aiEnabled, etc.)
+router.patch('/conversations/:id', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { status, aiEnabled, contactName } = req.body;
+    const conv = await prisma.waConversation.update({
+      where: { id: req.params.id },
+      data: {
+        ...(status !== undefined && { status }),
+        ...(aiEnabled !== undefined && { aiEnabled }),
+        ...(contactName !== undefined && { contactName })
+      }
+    });
+    broadcastSSE('conversation_updated', conv);
+    res.json(conv);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update conversation' });
+  }
+});
+
+// ── POST /api/wa/send — Send manual message
+router.post('/send', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { conversationId, text } = req.body;
+    if (!conversationId || !text) {
+      return res.status(400).json({ error: 'Missing conversationId or text' });
+    }
+
+    const conv = await prisma.waConversation.findUnique({ where: { id: conversationId } });
+    if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+
+    const waId = await sendWhatsAppMessage(conv.phone, text, conv.phoneNumberId);
+    const msg = await prisma.waMessage.create({
+      data: {
+        conversationId,
+        direction: 'outbound',
+        content: text,
+        waMessageId: waId || undefined,
+        status: 'sent',
+        isAiGenerated: false
+      }
+    });
+
+    await prisma.waConversation.update({
+      where: { id: conversationId },
+      data: {
+        lastMessageAt: new Date(),
+        lastMessagePreview: text.slice(0, 100),
+        updatedAt: new Date()
+      }
+    });
+
+    broadcastSSE('new_message', { conversationId, message: msg });
+    scheduleLeadExtraction(conversationId);
+    res.json(msg);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+export default router;

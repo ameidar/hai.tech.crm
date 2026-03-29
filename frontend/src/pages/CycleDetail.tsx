@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useState, useMemo } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   ArrowRight,
@@ -27,7 +27,11 @@ import {
   Link as LinkIcon,
   Key,
   Lock,
+  Receipt,
+  CalendarX,
+  FileText,
 } from 'lucide-react';
+import MeetingExpenses from '../components/MeetingExpenses';
 import {
   useCycle,
   useCycleMeetings,
@@ -50,12 +54,17 @@ import {
   useGenerateMeetings,
   useSyncCycleProgress,
   useCreateMeeting,
+  useInstitutionalOrders,
+  api,
 } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import AttendanceModal from '../components/AttendanceModal';
+import CycleExpenses from '../components/CycleExpenses';
+import { useCycleExpenses } from '../hooks/useExpenses';
+import type { CycleExpense } from '../hooks/useExpenses';
 import {
   cycleStatusHebrew,
   cycleTypeHebrew,
@@ -65,8 +74,235 @@ import {
 import type { Meeting, MeetingStatus, Registration, RegistrationStatus, PaymentStatus, PaymentMethod, ActivityType, Cycle, Course, Branch, Instructor, CycleStatus, CycleType, DayOfWeek } from '../types';
 import { paymentStatusHebrew, activityTypeHebrew } from '../types';
 
+// Add Student Modal with search + create new
+function AddStudentModal({
+  isOpen,
+  onClose,
+  availableStudents,
+  onSelectStudent,
+  isLoading,
+  cycleId,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  availableStudents: any[];
+  onSelectStudent: (studentId: string) => void;
+  isLoading: boolean;
+  cycleId: string;
+}) {
+  const [search, setSearch] = useState('');
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newCustomerName, setNewCustomerName] = useState('');
+  const [newCustomerPhone, setNewCustomerPhone] = useState('');
+  const [newCustomerEmail, setNewCustomerEmail] = useState('');
+  const [newStudentName, setNewStudentName] = useState('');
+  const [newStudentGrade, setNewStudentGrade] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return availableStudents;
+    const q = search.trim().toLowerCase();
+    return availableStudents.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.customer?.name?.toLowerCase().includes(q) ||
+        s.customer?.phone?.includes(q)
+    );
+  }, [search, availableStudents]);
+
+  const handleCreate = async () => {
+    if (!newStudentName.trim() || !newCustomerName.trim()) return;
+    setCreating(true);
+    try {
+      // Create customer — if phone/email already exists, reuse the existing one
+      let customerId: string;
+      try {
+        const customer = await api.post('/customers', {
+          name: newCustomerName,
+          phone: newCustomerPhone || undefined,
+          email: newCustomerEmail || undefined,
+        });
+        customerId = customer.data.id;
+      } catch (err: any) {
+        const existing = err?.response?.data?.existingCustomer;
+        if (err?.response?.status === 409 && existing) {
+          const useExisting = window.confirm(
+            `לקוח "${existing.name}" (${existing.phone || existing.email}) כבר קיים במערכת.\nהאם להוסיף את התלמיד תחת הלקוח הקיים?`
+          );
+          if (!useExisting) { setCreating(false); return; }
+          customerId = existing.id;
+        } else {
+          throw err;
+        }
+      }
+      // Create student under customer
+      const student = await api.post(`/customers/${customerId}/students`, {
+        name: newStudentName,
+        grade: newStudentGrade || undefined,
+      });
+      // Add to cycle
+      onSelectStudent(student.data.id);
+      // Reset form
+      setShowCreateForm(false);
+      setNewCustomerName('');
+      setNewCustomerPhone('');
+      setNewCustomerEmail('');
+      setNewStudentName('');
+      setNewStudentGrade('');
+    } catch (err: any) {
+      alert(err?.response?.data?.message || 'שגיאה ביצירת תלמיד');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleClose = () => {
+    setSearch('');
+    setShowCreateForm(false);
+    onClose();
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={handleClose} title="הוסף תלמיד למחזור">
+      <div className="p-6">
+        {!showCreateForm ? (
+          <>
+            {/* Search */}
+            <div className="mb-4">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="חיפוש לפי שם תלמיד, הורה או טלפון..."
+                className="w-full p-3 border rounded-lg text-right focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                autoFocus
+              />
+            </div>
+
+            {/* Student list */}
+            {filtered.length > 0 ? (
+              <div className="space-y-2 max-h-72 overflow-y-auto">
+                {filtered.map((student) => (
+                  <button
+                    key={student.id}
+                    onClick={() => onSelectStudent(student.id)}
+                    disabled={isLoading}
+                    className="w-full p-3 text-right border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors disabled:opacity-50"
+                  >
+                    <p className="font-medium">{student.name}</p>
+                    <p className="text-sm text-gray-500">
+                      {student.customer?.name} • {student.grade || 'לא צוין כיתה'}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-6">
+                <p className="text-gray-500 mb-2">
+                  {search ? 'לא נמצאו תלמידים תואמים' : 'כל התלמידים כבר רשומים למחזור'}
+                </p>
+              </div>
+            )}
+
+            {/* Create new button */}
+            <div className="mt-4 pt-4 border-t flex justify-between items-center">
+              <button
+                onClick={() => setShowCreateForm(true)}
+                className="btn btn-primary flex items-center gap-2"
+              >
+                <Plus size={16} />
+                תלמיד + לקוח חדש
+              </button>
+              <button onClick={handleClose} className="btn btn-secondary">
+                סגור
+              </button>
+            </div>
+          </>
+        ) : (
+          /* Create new student + customer form */
+          <div className="space-y-4">
+            <h3 className="font-bold text-lg mb-2">לקוח חדש</h3>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">שם הורה *</label>
+              <input
+                type="text"
+                value={newCustomerName}
+                onChange={(e) => setNewCustomerName(e.target.value)}
+                className="w-full p-2 border rounded-lg text-right"
+                autoFocus
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">טלפון</label>
+                <input
+                  type="tel"
+                  value={newCustomerPhone}
+                  onChange={(e) => setNewCustomerPhone(e.target.value)}
+                  className="w-full p-2 border rounded-lg text-right"
+                  dir="ltr"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">אימייל</label>
+                <input
+                  type="email"
+                  value={newCustomerEmail}
+                  onChange={(e) => setNewCustomerEmail(e.target.value)}
+                  className="w-full p-2 border rounded-lg text-right"
+                  dir="ltr"
+                />
+              </div>
+            </div>
+
+            <h3 className="font-bold text-lg mt-4 mb-2">תלמיד/ה</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">שם תלמיד/ה *</label>
+                <input
+                  type="text"
+                  value={newStudentName}
+                  onChange={(e) => setNewStudentName(e.target.value)}
+                  className="w-full p-2 border rounded-lg text-right"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">כיתה</label>
+                <input
+                  type="text"
+                  value={newStudentGrade}
+                  onChange={(e) => setNewStudentGrade(e.target.value)}
+                  className="w-full p-2 border rounded-lg text-right"
+                  placeholder="לדוגמא: ד׳"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 pt-4 border-t flex justify-between items-center">
+              <button
+                onClick={handleCreate}
+                disabled={creating || !newStudentName.trim() || !newCustomerName.trim()}
+                className="btn btn-primary disabled:opacity-50"
+              >
+                {creating ? 'יוצר...' : 'צור והוסף למחזור'}
+              </button>
+              <button
+                onClick={() => setShowCreateForm(false)}
+                className="btn btn-secondary"
+              >
+                חזרה לחיפוש
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 export default function CycleDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'manager';
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
@@ -80,10 +316,12 @@ export default function CycleDetail() {
   const [attendanceMeeting, setAttendanceMeeting] = useState<Meeting | null>(null);
   const [showEditCycleModal, setShowEditCycleModal] = useState(false);
   const [showCreateMeetingModal, setShowCreateMeetingModal] = useState(false);
+  const [sendCancellationReg, setSendCancellationReg] = useState<Registration | null>(null);
 
   const { data: cycle, isLoading } = useCycle(id!);
   const { data: meetings } = useCycleMeetings(id!);
   const { data: registrations } = useCycleRegistrations(id!);
+  const { data: cycleExpenses } = useCycleExpenses(id!);
   const { data: allStudents } = useStudents();
   const { data: instructors } = useInstructors();
   const { data: courses } = useCourses();
@@ -104,6 +342,37 @@ export default function CycleDetail() {
   const createMeeting = useCreateMeeting();
 
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [showFreezeModal, setShowFreezeModal] = useState(false);
+  const [showResumeModal, setShowResumeModal] = useState(false);
+  const [freezeReason, setFreezeReason] = useState('');
+  const [freezeResumeDate, setFreezeResumeDate] = useState('');
+  const [resumeNewStartDate, setResumeNewStartDate] = useState('');
+  const [freezeLoading, setFreezeLoading] = useState(false);
+
+  // Calculate total cycle expenses and expense per meeting
+  const calculateCycleExpensePerMeeting = () => {
+    if (!cycleExpenses || !cycle?.totalMeetings) return 0;
+    const meetingRevenue = Number(cycle.meetingRevenue) || 0;
+    const totalRevenue = meetingRevenue * cycle.totalMeetings;
+    
+    const totalExpenses = cycleExpenses.reduce((sum: number, expense: CycleExpense) => {
+      if (expense.isPercentage && expense.percentage) {
+        // Calculate percentage of total revenue
+        return sum + (totalRevenue * Number(expense.percentage) / 100);
+      }
+      return sum + Number(expense.amount || 0);
+    }, 0);
+    
+    return totalExpenses / cycle.totalMeetings;
+  };
+
+  const cycleExpensePerMeeting = calculateCycleExpensePerMeeting();
+
+  // Calculate adjusted profit for a meeting (including cycle expenses)
+  const getAdjustedProfit = (meeting: Meeting) => {
+    const baseProfit = Number(meeting.profit || 0);
+    return baseProfit - cycleExpensePerMeeting;
+  };
 
   const copyToClipboard = (text: string, field: string) => {
     navigator.clipboard.writeText(text);
@@ -187,6 +456,44 @@ export default function CycleDetail() {
     }
   };
 
+  const handleFreeze = async () => {
+    if (!id) return;
+    setFreezeLoading(true);
+    try {
+      await api.post(`/cycles/${id}/freeze`, {
+        reason: freezeReason.trim() || undefined,
+        resumeDate: freezeResumeDate || undefined,
+      });
+      setShowFreezeModal(false);
+      setFreezeReason('');
+      setFreezeResumeDate('');
+      window.location.reload();
+    } catch (error) {
+      console.error('Failed to freeze cycle:', error);
+      alert('שגיאה בהקפאת המחזור');
+    } finally {
+      setFreezeLoading(false);
+    }
+  };
+
+  const handleResume = async () => {
+    if (!id) return;
+    setFreezeLoading(true);
+    try {
+      await api.post(`/cycles/${id}/resume`, {
+        newStartDate: resumeNewStartDate || undefined,
+      });
+      setShowResumeModal(false);
+      setResumeNewStartDate('');
+      window.location.reload();
+    } catch (error) {
+      console.error('Failed to resume cycle:', error);
+      alert('שגיאה בחידוש המחזור');
+    } finally {
+      setFreezeLoading(false);
+    }
+  };
+
   const handleChangeCycleInstructor = async (newInstructorId: string) => {
     try {
       await updateCycle.mutateAsync({
@@ -259,7 +566,7 @@ export default function CycleDetail() {
 
   const handleBulkRecalculate = async () => {
     try {
-      const result = await bulkRecalculateMeetings.mutateAsync(Array.from(selectedMeetingIds));
+      const result = await bulkRecalculateMeetings.mutateAsync({ ids: Array.from(selectedMeetingIds), force: true });
       alert(`חושבו מחדש ${result.recalculated} פגישות`);
       setSelectedMeetingIds(new Set());
       setShowBulkEditModal(false);
@@ -353,11 +660,11 @@ export default function CycleDetail() {
     }
   };
 
-  const handleUpdateMeetingData = async (meetingId: string, data: { status?: MeetingStatus; instructorId?: string; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; activityType?: ActivityType }) => {
+  const handleUpdateMeetingData = async (meetingId: string, data: { status?: MeetingStatus; instructorId?: string; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; activityType?: ActivityType; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => {
     try {
       await updateMeeting.mutateAsync({
         id: meetingId,
-        data,
+        data: data as any,
       });
       setSelectedMeeting(null);
     } catch (error) {
@@ -389,10 +696,10 @@ export default function CycleDetail() {
       <PageHeader
         title={cycle.name}
         actions={
-          <Link to="/cycles" className="btn btn-secondary">
+          <button onClick={() => navigate(-1)} className="btn btn-secondary">
             <ArrowRight size={18} />
             חזרה
-          </Link>
+          </button>
         }
       />
 
@@ -433,6 +740,23 @@ export default function CycleDetail() {
                   </div>
                 </div>
 
+                {cycle.institutionalOrderId && (
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-purple-50 rounded-lg">
+                      <FileText size={18} className="text-purple-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">הזמנה מוסדית</p>
+                      <a
+                        href={`/institutional-orders?open=${cycle.institutionalOrderId}`}
+                        className="font-medium text-purple-700 hover:text-purple-900 underline"
+                      >
+                        {cycle.institutionalOrder?.orderName || cycle.institutionalOrder?.orderNumber || cycle.institutionalOrderId}
+                      </a>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-blue-50 rounded-lg">
@@ -470,13 +794,49 @@ export default function CycleDetail() {
                   }`}>
                     {cycleTypeHebrew[cycle.type]}
                   </span>
-                  <span className={`badge ${
-                    cycle.status === 'active' ? 'badge-success' :
-                    cycle.status === 'completed' ? 'badge-info' : 'badge-danger'
-                  }`}>
-                    {cycleStatusHebrew[cycle.status]}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`badge ${
+                      cycle.status === 'active' ? 'badge-success' :
+                      cycle.status === 'completed' ? 'badge-info' :
+                      cycle.status === 'frozen' ? 'badge-secondary' :
+                      cycle.status === 'retainer' ? 'badge-warning' : 'badge-danger'
+                    }`}>
+                      {cycleStatusHebrew[cycle.status]}
+                    </span>
+                    {isAdmin && cycle.status === 'active' && (
+                      <button
+                        onClick={() => setShowFreezeModal(true)}
+                        className="btn btn-sm text-xs px-2 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 rounded-lg"
+                        title="הקפא מחזור"
+                      >
+                        ❄️ הקפא
+                      </button>
+                    )}
+                    {isAdmin && cycle.status === 'frozen' && (
+                      <button
+                        onClick={() => setShowResumeModal(true)}
+                        className="btn btn-sm text-xs px-2 py-1 bg-green-50 text-green-600 hover:bg-green-100 border border-green-200 rounded-lg"
+                        title="חדש מחזור"
+                      >
+                        ▶️ חדש
+                      </button>
+                    )}
+                  </div>
                 </div>
+                {/* Frozen info */}
+                {cycle.status === 'frozen' && (
+                  <div className="mt-3 p-3 bg-blue-50 rounded-lg text-sm space-y-1">
+                    {cycle.frozenReason && (
+                      <div className="text-blue-700"><span className="font-medium">סיבה:</span> {cycle.frozenReason}</div>
+                    )}
+                    {cycle.resumeDate && (
+                      <div className="text-blue-700"><span className="font-medium">תאריך חזרה מתוכנן:</span> {new Date(cycle.resumeDate).toLocaleDateString('he-IL')}</div>
+                    )}
+                    {cycle.frozenAt && (
+                      <div className="text-blue-500 text-xs">הוקפא: {new Date(cycle.frozenAt).toLocaleDateString('he-IL')}</div>
+                    )}
+                  </div>
+                )}
 
                 {/* Revenue per meeting */}
                 {(cycle.type === 'institutional_fixed' || cycle.type === 'institutional_per_child') && (
@@ -493,14 +853,22 @@ export default function CycleDetail() {
                   </div>
                 )}
 
-                {cycle.type === 'private' && cycle.pricePerStudent && (
-                  <div className="pt-3 mt-3 border-t">
+                {cycle.type === 'private' && (
+                  <div className="pt-3 mt-3 border-t space-y-1">
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-500">מחיר לתלמיד:</span>
+                      <span className="text-gray-500">מחיר לפגישה:</span>
                       <span className="font-semibold text-green-600">
-                        ₪{Number(cycle.pricePerStudent).toLocaleString()}
+                        ₪{Number(cycle.revenuePerMeeting ?? cycle.meetingRevenue ?? 0).toLocaleString()}
                       </span>
                     </div>
+                    {!!cycle.pricePerStudent && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-500">מחיר לתלמיד:</span>
+                        <span className="font-semibold text-gray-500 text-xs">
+                          ₪{Number(cycle.pricePerStudent).toLocaleString()}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -523,10 +891,11 @@ export default function CycleDetail() {
               </div>
               <div className="card-body">
                 {(() => {
-                  // Use cycle fields (totalMeetings - completedMeetings = remainingMeetings)
-                  const completedCount = cycle.completedMeetings || 0;
-                  const totalCount = cycle.totalMeetings;
-                  const remainingCount = cycle.remainingMeetings || (totalCount - completedCount);
+                  // Live calculation: completed = meetings with status='completed'
+                  // Total = cycle settings (totalMeetings), NOT actual meetings in table
+                  const completedCount = meetings?.filter(m => m.status === 'completed').length ?? 0;
+                  const totalCount = cycle.totalMeetings || 0;
+                  const remainingCount = Math.max(0, totalCount - completedCount);
                   
                   return (
                     <>
@@ -567,8 +936,8 @@ export default function CycleDetail() {
               </div>
             </div>
 
-            {/* Zoom Card - Only for online cycles */}
-            {cycle.activityType === 'online' && (
+            {/* Zoom Card - For online or private cycles */}
+            {(cycle.activityType === 'online' || cycle.activityType === 'private_lesson' || cycle.type === 'private') && (
               <div className="card" data-testid="zoom-section">
                 <div className="card-header flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -737,10 +1106,22 @@ export default function CycleDetail() {
                           {reg.status === 'cancelled' && (
                             <span className="badge badge-danger text-xs">בוטל</span>
                           )}
+                          {reg.status === 'pending_cancellation' && (
+                            <span className="badge badge-warning text-xs">ממתין לביטול</span>
+                          )}
                         </div>
                         <p className="text-sm text-gray-500">
                           {reg.student?.customer?.name}
                         </p>
+                        {reg.status === 'cancelled' && (reg.cancellationDate || reg.refundAmount || reg.creditInvoiceLink) && (
+                          <div className="text-xs text-gray-500 mt-1 space-y-0.5">
+                            {reg.cancellationDate && <div>📅 בוטל: {new Date(reg.cancellationDate).toLocaleDateString('he-IL')}</div>}
+                            {reg.cancellationReason && <div>💬 סיבה: {reg.cancellationReason}</div>}
+                            {reg.refundAmount && <div>💰 זוכה: ₪{reg.refundAmount}</div>}
+                            {reg.refundDate && <div>📅 תאריך זיכוי: {new Date(reg.refundDate).toLocaleDateString('he-IL')}</div>}
+                            {reg.creditInvoiceLink && <div>🧾 <a href={reg.creditInvoiceLink} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">חשבונית זיכוי</a></div>}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="text-left">
@@ -751,9 +1132,18 @@ export default function CycleDetail() {
                             reg.paymentStatus === 'paid' ? 'badge-success' :
                             reg.paymentStatus === 'partial' ? 'badge-warning' : 'badge-danger'
                           }`}>
-                            {paymentStatusHebrew[reg.paymentStatus || 'unpaid']}
+                            {reg.paymentMethod === 'institutional' ? 'שולם (מוסדי)' : paymentStatusHebrew[reg.paymentStatus || 'unpaid']}
                           </span>
                         </div>
+                        {['active', 'registered'].includes(reg.status) && isAdmin && (
+                          <button
+                            onClick={() => setSendCancellationReg(reg)}
+                            className="p-1.5 text-orange-500 hover:bg-orange-50 rounded-lg transition-colors"
+                            title="שלח טופס ביטול"
+                          >
+                            <Mail size={18} />
+                          </button>
+                        )}
                         <button
                           onClick={() => setEditingRegistration(reg)}
                           className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
@@ -778,6 +1168,21 @@ export default function CycleDetail() {
                   <p>אין תלמידים רשומים</p>
                 </div>
               )}
+            </div>
+
+            {/* Cycle Expenses */}
+            <div className="card mt-4" data-testid="cycle-expenses">
+              <div className="card-header">
+                <h2 className="font-semibold">הוצאות מחזור</h2>
+              </div>
+              <div className="p-4">
+                <CycleExpenses 
+                  cycleId={id!} 
+                  totalMeetings={cycle?.totalMeetings || 0}
+                  meetingRevenue={Number(cycle?.meetingRevenue) || 0}
+                  isAdmin={isAdmin}
+                />
+              </div>
             </div>
           </div>
 
@@ -897,9 +1302,21 @@ export default function CycleDetail() {
                             </td>
                             <td>{meeting.instructor?.name || cycle.instructor?.name}</td>
                             <td>
-                              <span className={`badge ${getStatusBadgeClass(meeting.status)}`}>
-                                {meetingStatusHebrew[meeting.status]}
-                              </span>
+                              <div className="flex flex-col gap-1">
+                                <span className={`badge ${getStatusBadgeClass(meeting.status)}`}>
+                                  {meetingStatusHebrew[meeting.status]}
+                                </span>
+                                {(meeting as any).changeRequests?.length > 0 && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-medium">
+                                  ⚠️ {(meeting as any).changeRequests[0].type === 'cancel' ? 'בקשת ביטול' : (meeting as any).changeRequests[0].type === 'postpone' ? 'בקשת דחייה' : 'בקשת החלפה'}
+                                </span>
+                                )}
+                                {meeting.status === 'postponed' && !meeting.rescheduledToId && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-800 text-xs font-medium" title="הפגישה נדחתה אך לא נוצרה פגישה חלופית">
+                                    🚨 אין חילופית
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="text-gray-500 truncate max-w-[200px]">
                               {meeting.topic || '-'}
@@ -1107,10 +1524,15 @@ export default function CycleDetail() {
                     <p className="text-2xl font-bold text-red-600">₪{Number(viewingMeeting.instructorPayment || 0).toLocaleString()}</p>
                   </div>
                   <div className="p-4 bg-blue-50 rounded-lg">
-                    <p className="text-sm text-gray-500">רווח</p>
-                    <p className={`text-2xl font-bold ${Number(viewingMeeting.profit || 0) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
-                      ₪{Number(viewingMeeting.profit || 0).toLocaleString()}
+                    <p className="text-sm text-gray-500">רווח (כולל הוצאות מחזור)</p>
+                    <p className={`text-2xl font-bold ${getAdjustedProfit(viewingMeeting) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                      ₪{getAdjustedProfit(viewingMeeting).toLocaleString()}
                     </p>
+                    {cycleExpensePerMeeting > 0 && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        (לפני הוצאות: ₪{Number(viewingMeeting.profit || 0).toLocaleString()}, הוצאות מחזור: ₪{cycleExpensePerMeeting.toFixed(0)})
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1242,48 +1664,14 @@ export default function CycleDetail() {
       </Modal>
 
       {/* Add Student Modal */}
-      <Modal
+      <AddStudentModal
         isOpen={showAddStudentModal}
         onClose={() => setShowAddStudentModal(false)}
-        title="הוסף תלמיד למחזור"
-      >
-        <div className="p-6">
-          {availableStudents.length > 0 ? (
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {availableStudents.map((student) => (
-                <button
-                  key={student.id}
-                  onClick={() => handleAddStudent(student.id)}
-                  disabled={createRegistration.isPending}
-                  className="w-full p-3 text-right border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors disabled:opacity-50"
-                >
-                  <p className="font-medium">{student.name}</p>
-                  <p className="text-sm text-gray-500">
-                    {student.customer?.name} • {student.grade || 'לא צוין כיתה'}
-                  </p>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8">
-              <Users size={48} className="mx-auto mb-4 text-gray-300" />
-              <p className="text-gray-500">
-                {allStudents?.length === 0
-                  ? 'אין תלמידים במערכת. הוסף תלמידים דרך דף הלקוחות.'
-                  : 'כל התלמידים כבר רשומים למחזור זה.'}
-              </p>
-            </div>
-          )}
-          <div className="mt-4 pt-4 border-t flex justify-end">
-            <button
-              onClick={() => setShowAddStudentModal(false)}
-              className="btn btn-secondary"
-            >
-              סגור
-            </button>
-          </div>
-        </div>
-      </Modal>
+        availableStudents={availableStudents}
+        onSelectStudent={handleAddStudent}
+        isLoading={createRegistration.isPending}
+        cycleId={id!}
+      />
 
       {/* Payment Edit Modal */}
       <Modal
@@ -1427,9 +1815,11 @@ export default function CycleDetail() {
                   <p className="text-gray-500">סטטוס</p>
                   <span className={`badge ${
                     viewingRegistration.status === 'active' ? 'badge-success' :
+                    viewingRegistration.status === 'pending_cancellation' ? 'badge-warning' :
                     viewingRegistration.status === 'cancelled' ? 'badge-danger' : 'badge-secondary'
                   }`}>
                     {viewingRegistration.status === 'active' ? 'פעיל' :
+                     viewingRegistration.status === 'pending_cancellation' ? 'ממתין לביטול' :
                      viewingRegistration.status === 'cancelled' ? 'בוטל' :
                      viewingRegistration.status === 'registered' ? 'נרשם' : viewingRegistration.status}
                   </span>
@@ -1531,7 +1921,156 @@ export default function CycleDetail() {
           />
         )}
       </Modal>
+
+      {/* ── Freeze Modal ───────────────────────────── */}
+      <Modal
+        isOpen={showFreezeModal}
+        onClose={() => setShowFreezeModal(false)}
+        title="❄️ הקפאת מחזור"
+      >
+        <div className="space-y-4 p-1" dir="rtl">
+          <p className="text-sm text-gray-600">
+            הקפאת המחזור תעביר את {cycle?.remainingMeetings || 0} הפגישות הקרובות לסטטוס "נדחה". ניתן לחדש בכל עת.
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">סיבה להקפאה *</label>
+            <textarea
+              value={freezeReason}
+              onChange={e => setFreezeReason(e.target.value)}
+              placeholder="לדוגמה: בקשת הלקוח, חגי בית ספר, מחלה..."
+              className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              rows={3}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">תאריך חזרה מתוכנן (אופציונלי)</label>
+            <input
+              type="date"
+              value={freezeResumeDate}
+              onChange={e => setFreezeResumeDate(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-xs text-gray-400 mt-1">תקבל תזכורת ביום זה לחדש את המחזור</p>
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button
+              onClick={handleFreeze}
+              disabled={freezeLoading || !freezeReason.trim()}
+              className="btn btn-primary flex-1 disabled:opacity-50"
+            >
+              {freezeLoading ? 'מקפיא...' : '❄️ הקפא מחזור'}
+            </button>
+            <button onClick={() => setShowFreezeModal(false)} className="btn btn-secondary">
+              ביטול
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Resume Modal ───────────────────────────── */}
+      <Modal
+        isOpen={showResumeModal}
+        onClose={() => setShowResumeModal(false)}
+        title="▶️ חידוש מחזור"
+      >
+        <div className="space-y-4 p-1" dir="rtl">
+          {cycle?.frozenReason && (
+            <div className="p-3 bg-blue-50 rounded-lg text-sm text-blue-700">
+              <span className="font-medium">סיבת הקפאה:</span> {cycle.frozenReason}
+            </div>
+          )}
+          <p className="text-sm text-gray-600">
+            בחר תאריך לפגישה הראשונה — הפגישות הנותרות ייקבעו בהמשך (שבועי, לפי יום המחזור).
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">תאריך פגישה ראשונה</label>
+            <input
+              type="date"
+              value={resumeNewStartDate}
+              onChange={e => setResumeNewStartDate(e.target.value)}
+              min={new Date().toISOString().split('T')[0]}
+              className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-green-500"
+            />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button
+              onClick={handleResume}
+              disabled={freezeLoading}
+              className="btn flex-1 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              {freezeLoading ? 'מחדש...' : '▶️ חדש מחזור'}
+            </button>
+            <button onClick={() => setShowResumeModal(false)} className="btn btn-secondary">
+              ביטול
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Send Cancellation Form Modal */}
+      {sendCancellationReg && (
+        <SendCancellationModal
+          registration={sendCancellationReg}
+          onClose={() => setSendCancellationReg(null)}
+        />
+      )}
     </>
+  );
+}
+
+// Send Cancellation Modal
+function SendCancellationModal({ registration, onClose }: { registration: Registration; onClose: () => void }) {
+  const customer = (registration.student as any)?.customer;
+  const [email, setEmail] = useState(customer?.email || '');
+  const [phone, setPhone] = useState(customer?.phone || '');
+  const [sendEmailChk, setSendEmailChk] = useState(!!customer?.email);
+  const [sendWaChk, setSendWaChk] = useState(!!customer?.phone);
+  const [loading, setLoading] = useState(false);
+
+  const handleSend = async () => {
+    if (!sendEmailChk && !sendWaChk) { alert('בחר לפחות ערוץ שליחה אחד'); return; }
+    setLoading(true);
+    try {
+      await api.post(`/registrations/${registration.id}/send-cancellation-form`, {
+        overrideEmail: sendEmailChk ? email || undefined : undefined,
+        overridePhone: sendWaChk ? phone || undefined : undefined,
+        sendEmail: sendEmailChk,
+        sendWhatsApp: sendWaChk,
+      });
+      alert('טופס ביטול נשלח בהצלחה ✅');
+      onClose();
+    } catch (err: any) {
+      alert(err?.response?.data?.message || 'שגיאה בשליחת טופס ביטול');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal isOpen={true} onClose={onClose} title={`שלח טופס ביטול — ${registration.student?.name}`}>
+      <div className="p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <input type="checkbox" id="chk-email" checked={sendEmailChk} onChange={e => setSendEmailChk(e.target.checked)} className="w-4 h-4" />
+          <label htmlFor="chk-email" className="font-medium text-sm">שלח למייל</label>
+          {sendEmailChk && (
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="כתובת מייל" className="form-input flex-1 text-sm" dir="ltr" />
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <input type="checkbox" id="chk-wa" checked={sendWaChk} onChange={e => setSendWaChk(e.target.checked)} className="w-4 h-4" />
+          <label htmlFor="chk-wa" className="font-medium text-sm">שלח ל-WhatsApp</label>
+          {sendWaChk && (
+            <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="מספר טלפון" className="form-input flex-1 text-sm" dir="ltr" />
+          )}
+        </div>
+        <div className="flex justify-end gap-3 pt-4 border-t">
+          <button onClick={onClose} className="btn btn-secondary">ביטול</button>
+          <button onClick={handleSend} disabled={loading} className="btn btn-primary">
+            {loading ? 'שולח...' : '📤 שלח טופס'}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -1551,6 +2090,11 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
     paymentMethod: string;
     invoiceLink: string;
     notes: string;
+    cancellationDate: string;
+    cancellationReason: string;
+    refundAmount: string;
+    refundDate: string;
+    creditInvoiceLink: string;
   }>({
     status: registration.status || 'active' as RegistrationStatus,
     amount: registration.amount || 0,
@@ -1558,18 +2102,31 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
     paymentMethod: registration.paymentMethod || '',
     invoiceLink: registration.invoiceLink || '',
     notes: registration.notes || '',
+    cancellationDate: registration.cancellationDate ? registration.cancellationDate.split('T')[0] : '',
+    cancellationReason: registration.cancellationReason || '',
+    refundAmount: registration.refundAmount ? String(registration.refundAmount) : '',
+    refundDate: registration.refundDate ? registration.refundDate.split('T')[0] : '',
+    creditInvoiceLink: registration.creditInvoiceLink || '',
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({
+    const payload: Partial<Registration> = {
       status: formData.status as RegistrationStatus,
       amount: formData.amount ? Number(formData.amount) : undefined,
       paymentStatus: formData.paymentStatus as PaymentStatus,
       paymentMethod: formData.paymentMethod as PaymentMethod || undefined,
       invoiceLink: formData.invoiceLink || undefined,
       notes: formData.notes || undefined,
-    });
+    };
+    if (formData.status === 'cancelled') {
+      payload.cancellationDate = formData.cancellationDate || undefined;
+      payload.cancellationReason = formData.cancellationReason || undefined;
+      payload.refundAmount = formData.refundAmount ? Number(formData.refundAmount) : undefined;
+      payload.refundDate = formData.refundDate || undefined;
+      payload.creditInvoiceLink = formData.creditInvoiceLink || undefined;
+    }
+    onSubmit(payload);
   };
 
   return (
@@ -1585,6 +2142,7 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
           <option value="registered">נרשם</option>
           <option value="active">פעיל</option>
           <option value="completed">הושלם</option>
+          <option value="pending_cancellation">ממתין לביטול</option>
           <option value="cancelled">בוטל</option>
         </select>
       </div>
@@ -1625,19 +2183,34 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
             <option value="credit">אשראי</option>
             <option value="transfer">העברה בנקאית</option>
             <option value="cash">מזומן</option>
+            <option value="standing_order">הוראת קבע</option>
+            <option value="institutional">מוסד</option>
           </select>
         </div>
 
         <div>
           <label className="form-label">קישור לחשבונית</label>
-          <input
-            type="url"
-            value={formData.invoiceLink}
-            onChange={(e) => setFormData({ ...formData, invoiceLink: e.target.value })}
-            className="form-input"
-            dir="ltr"
-            placeholder="https://..."
-          />
+          <div className="flex gap-2 items-center">
+            <input
+              type="url"
+              value={formData.invoiceLink}
+              onChange={(e) => setFormData({ ...formData, invoiceLink: e.target.value })}
+              className="form-input flex-1"
+              dir="ltr"
+              placeholder="https://..."
+            />
+            {formData.invoiceLink && (
+              <a
+                href={formData.invoiceLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-shrink-0 px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-sm font-medium transition-colors border border-blue-200"
+                title="פתח חשבונית"
+              >
+                🔗 פתח
+              </a>
+            )}
+          </div>
         </div>
 
         <div className="col-span-2">
@@ -1650,6 +2223,34 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
           />
         </div>
       </div>
+
+      {formData.status === 'cancelled' && (
+        <div className="border-t pt-4 space-y-3">
+          <h4 className="text-sm font-semibold text-red-600">פרטי ביטול</h4>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">תאריך ביטול</label>
+              <input type="date" className="form-input" value={formData.cancellationDate} onChange={(e) => setFormData({...formData, cancellationDate: e.target.value})} />
+            </div>
+            <div>
+              <label className="form-label">סכום זיכוי (₪)</label>
+              <input type="number" className="form-input" value={formData.refundAmount} onChange={(e) => setFormData({...formData, refundAmount: e.target.value})} min="0" />
+            </div>
+            <div className="col-span-2">
+              <label className="form-label">סיבת ביטול</label>
+              <textarea className="form-input" value={formData.cancellationReason} onChange={(e) => setFormData({...formData, cancellationReason: e.target.value})} rows={2} />
+            </div>
+            <div>
+              <label className="form-label">תאריך זיכוי</label>
+              <input type="date" className="form-input" value={formData.refundDate} onChange={(e) => setFormData({...formData, refundDate: e.target.value})} />
+            </div>
+            <div>
+              <label className="form-label">לינק חשבונית זיכוי</label>
+              <input type="url" className="form-input" placeholder="https://..." value={formData.creditInvoiceLink} onChange={(e) => setFormData({...formData, creditInvoiceLink: e.target.value})} dir="ltr" />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex justify-end gap-3 pt-4 border-t">
         <button type="button" onClick={onCancel} className="btn btn-secondary">
@@ -1669,7 +2270,7 @@ interface MeetingUpdateFormProps {
   instructors: { id: string; name: string; isActive: boolean }[];
   defaultInstructorId?: string;
   defaultActivityType?: ActivityType;
-  onUpdate: (data: { status?: MeetingStatus; instructorId?: string; activityType?: ActivityType; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string }) => void;
+  onUpdate: (data: { status?: MeetingStatus; instructorId?: string; activityType?: ActivityType; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => void;
   onCancel: () => void;
   isLoading?: boolean;
   isAdmin?: boolean;
@@ -1702,6 +2303,9 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
   const [scheduledDate, setScheduledDate] = useState(formatDateForInput(meeting.scheduledDate));
   const [startTime, setStartTime] = useState(formatTimeForInput(meeting.startTime));
   const [endTime, setEndTime] = useState(formatTimeForInput(meeting.endTime));
+  const [zoomJoinUrl, setZoomJoinUrl] = useState((meeting as any).zoomJoinUrl || '');
+  const [zoomMeetingId, setZoomMeetingId] = useState((meeting as any).zoomMeetingId || '');
+  const [zoomHostKey, setZoomHostKey] = useState((meeting as any).zoomHostKey || '');
 
   const formatDateDisplay = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('he-IL', {
@@ -1725,6 +2329,9 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
       scheduledDate: scheduledDate !== originalDate ? scheduledDate : undefined,
       startTime: startTime !== originalStart ? startTime : undefined,
       endTime: endTime !== originalEnd ? endTime : undefined,
+      zoomJoinUrl: zoomJoinUrl !== ((meeting as any).zoomJoinUrl || '') ? (zoomJoinUrl || null) : undefined,
+      zoomMeetingId: zoomMeetingId !== ((meeting as any).zoomMeetingId || '') ? (zoomMeetingId || null) : undefined,
+      zoomHostKey: zoomHostKey !== ((meeting as any).zoomHostKey || '') ? (zoomHostKey || null) : undefined,
     });
   };
 
@@ -1791,7 +2398,7 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
 
       <div>
         <label className="form-label">סטטוס</label>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <button
             type="button"
             onClick={() => setStatus('scheduled')}
@@ -1827,6 +2434,18 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
           >
             <XCircle size={20} />
             <span>בוטל</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatus('postponed')}
+            className={`p-3 rounded-lg border-2 flex items-center gap-2 transition-colors ${
+              status === 'postponed'
+                ? 'border-orange-500 bg-orange-50 text-orange-700'
+                : 'border-gray-200 hover:border-gray-300'
+            }`}
+          >
+            <CalendarX size={20} />
+            <span>נדחה</span>
           </button>
         </div>
       </div>
@@ -1864,6 +2483,66 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
           className="form-input"
           rows={3}
           placeholder="הערות נוספות..."
+        />
+      </div>
+
+      {/* Zoom Fields - Admin only */}
+      {isAdmin && (
+        <div className="border-t pt-4">
+          <h4 className="font-medium text-gray-900 flex items-center gap-2 mb-3">
+            <Video size={18} className="text-blue-600" />
+            פרטי Zoom
+          </h4>
+          <div className="space-y-3">
+            <div>
+              <label className="form-label">לינק לכניסה (Join URL)</label>
+              <input
+                type="url"
+                value={zoomJoinUrl}
+                onChange={(e) => setZoomJoinUrl(e.target.value)}
+                className="form-input"
+                placeholder="https://zoom.us/j/..."
+                dir="ltr"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="form-label">Meeting ID</label>
+                <input
+                  type="text"
+                  value={zoomMeetingId}
+                  onChange={(e) => setZoomMeetingId(e.target.value)}
+                  className="form-input"
+                  placeholder="123 456 7890"
+                  dir="ltr"
+                />
+              </div>
+              <div>
+                <label className="form-label">קוד מארח (Host Key)</label>
+                <input
+                  type="text"
+                  value={zoomHostKey}
+                  onChange={(e) => setZoomHostKey(e.target.value)}
+                  className="form-input"
+                  placeholder="123456"
+                  dir="ltr"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Meeting Expenses */}
+      <div className="border-t pt-4">
+        <h4 className="font-medium text-gray-900 flex items-center gap-2 mb-3">
+          <Receipt size={18} />
+          הוצאות נלוות
+        </h4>
+        <MeetingExpenses 
+          meetingId={meeting.id} 
+          isAdmin={isAdmin}
+          canSubmit={true}
         />
       </div>
 
@@ -1961,7 +2640,7 @@ function BulkEditForm({ instructors, onSubmit, onRecalculate, onCancel, isLoadin
           <span className="font-medium">שנה סטטוס</span>
         </label>
         {updateStatus && (
-          <div className="mt-4 grid grid-cols-3 gap-3">
+          <div className="mt-4 grid grid-cols-2 gap-3">
             <button
               type="button"
               onClick={() => setStatus('scheduled')}
@@ -1997,6 +2676,18 @@ function BulkEditForm({ instructors, onSubmit, onRecalculate, onCancel, isLoadin
             >
               <XCircle size={20} />
               <span>בוטל</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatus('postponed')}
+              className={`p-3 rounded-lg border-2 flex items-center gap-2 transition-colors ${
+                status === 'postponed'
+                  ? 'border-orange-500 bg-orange-50 text-orange-700'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <CalendarX size={20} />
+              <span>נדחה</span>
             </button>
           </div>
         )}
@@ -2051,11 +2742,15 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     return d.toISOString().split('T')[0];
   };
 
+  const { data: instOrdersData } = useInstitutionalOrders({ limit: 500 });
+  const institutionalOrders: any[] = (instOrdersData as any)?.data || [];
+
   const [formData, setFormData] = useState({
     name: cycle.name,
     courseId: cycle.courseId || cycle.course?.id || '',
     branchId: cycle.branchId || cycle.branch?.id || '',
     instructorId: cycle.instructorId || cycle.instructor?.id || '',
+    institutionalOrderId: cycle.institutionalOrderId || '',
     type: cycle.type,
     status: cycle.status,
     startDate: formatDateForInput(cycle.startDate),
@@ -2065,6 +2760,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     totalMeetings: cycle.totalMeetings,
     pricePerStudent: cycle.pricePerStudent || 0,
     meetingRevenue: cycle.meetingRevenue || 0,
+    includesVat: cycle.revenueIncludesVat ?? null,
     studentCount: cycle.studentCount || 0,
     maxStudents: cycle.maxStudents || 15,
     activityType: cycle.activityType || 'frontal',
@@ -2098,6 +2794,12 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Validate VAT selection for institutional_fixed
+    if (formData.type === 'institutional_fixed' && formData.includesVat === null) {
+      alert('יש לבחור האם הסכום כולל מע״מ או לא');
+      return;
+    }
+    
     // Calculate duration from times
     const [startHour, startMin] = formData.startTime.split(':').map(Number);
     const [endHour, endMin] = formData.endTime.split(':').map(Number);
@@ -2111,6 +2813,12 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
 
     // If schedule changed, regenerate meetings
     const shouldRegenerate = scheduleChanged && regenerateMeetings;
+    
+    // Calculate meeting revenue - if includes VAT, divide by 1.18
+    let meetingRevenueValue = Number(formData.meetingRevenue);
+    if (formData.type === 'institutional_fixed' && formData.includesVat === true && meetingRevenueValue > 0) {
+      meetingRevenueValue = Math.round((meetingRevenueValue / 1.18) * 100) / 100;
+    }
 
     onSubmit({
       name: formData.name,
@@ -2126,10 +2834,12 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
       durationMinutes: durationMinutes > 0 ? durationMinutes : 60,
       totalMeetings: Number(formData.totalMeetings),
       pricePerStudent: (formData.type === 'private' || formData.type === 'institutional_per_child') ? Number(formData.pricePerStudent) : undefined,
-      meetingRevenue: formData.type === 'institutional_fixed' ? Number(formData.meetingRevenue) : undefined,
+      meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'private') ? meetingRevenueValue : undefined,
+      revenueIncludesVat: formData.type === 'institutional_fixed' ? formData.includesVat : undefined,
       studentCount: formData.type === 'institutional_per_child' ? Number(formData.studentCount) : undefined,
       maxStudents: Number(formData.maxStudents),
       activityType: formData.activityType as ActivityType,
+      institutionalOrderId: formData.institutionalOrderId || null,
       regenerateMeetings: shouldRegenerate,
     } as any);
   };
@@ -2186,6 +2896,23 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
             <option value="">בחר מדריך</option>
             {instructors.filter(i => i.isActive).map((instructor) => (
               <option key={instructor.id} value={instructor.id}>{instructor.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="col-span-2">
+          <label className="form-label">הזמנה מוסדית (אופציונלי)</label>
+          <select
+            value={formData.institutionalOrderId}
+            onChange={(e) => setFormData({ ...formData, institutionalOrderId: e.target.value })}
+            className="form-input"
+          >
+            <option value="">ללא הזמנה מוסדית</option>
+            {institutionalOrders.map((order: any) => (
+              <option key={order.id} value={order.id}>
+                {order.orderName || order.orderNumber || order.id}
+                {order.branch?.name ? ` — ${order.branch.name}` : ''}
+              </option>
             ))}
           </select>
         </div>
@@ -2317,6 +3044,20 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
           </div>
         )}
 
+        {formData.type === 'private' && (
+          <div>
+            <label className="form-label">מחיר לפגישה (₪)</label>
+            <input
+              type="number"
+              value={formData.meetingRevenue}
+              onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
+              className="form-input"
+              min="0"
+              placeholder="0"
+            />
+          </div>
+        )}
+
         {formData.type === 'institutional_per_child' && (
           <div>
             <label className="form-label">מספר נרשמים</label>
@@ -2331,16 +3072,48 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
         )}
 
         {formData.type === 'institutional_fixed' && (
-          <div>
-            <label className="form-label">הכנסה לפגישה (₪)</label>
-            <input
-              type="number"
-              value={formData.meetingRevenue}
-              onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
-              className="form-input"
-              min="0"
-            />
-          </div>
+          <>
+            <div>
+              <label className="form-label">הכנסה לפגישה (₪) *</label>
+              <input
+                type="number"
+                value={formData.meetingRevenue}
+                onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
+                className="form-input"
+                min="0"
+              />
+            </div>
+            <div>
+              <label className="form-label">מע״מ *</label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="detailIncludesVat"
+                    checked={formData.includesVat === false}
+                    onChange={() => setFormData({ ...formData, includesVat: false })}
+                    className="text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm">לפני מע״מ</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="detailIncludesVat"
+                    checked={formData.includesVat === true}
+                    onChange={() => setFormData({ ...formData, includesVat: true })}
+                    className="text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm">כולל מע״מ</span>
+                </label>
+              </div>
+              {formData.includesVat === true && formData.meetingRevenue > 0 && (
+                <p className="text-xs text-gray-500 mt-1">
+                  הכנסה לפני מע״מ: ₪{(formData.meetingRevenue / 1.18).toFixed(2)}
+                </p>
+              )}
+            </div>
+          </>
         )}
 
         <div>

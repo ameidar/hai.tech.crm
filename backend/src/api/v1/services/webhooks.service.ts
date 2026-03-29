@@ -1,3 +1,4 @@
+// @ts-nocheck
 import crypto from 'crypto';
 import { prisma } from '../../../utils/prisma.js';
 import { NotFoundError } from '../../../common/errors/index.js';

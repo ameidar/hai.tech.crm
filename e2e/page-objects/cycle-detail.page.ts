@@ -14,6 +14,8 @@ export class CycleDetailPage extends BasePage {
   readonly registrationsList: Locator;
   readonly addStudentButton: Locator;
   readonly progressSection: Locator;
+  readonly expensesSection: Locator;
+  readonly addExpenseButton: Locator;
 
   constructor(page: Page) {
     super(page);
@@ -29,6 +31,8 @@ export class CycleDetailPage extends BasePage {
     this.registrationsList = page.getByTestId('registrations-list').or(page.locator('.card').filter({ hasText: /תלמידים/i }));
     this.addStudentButton = page.getByTestId('add-student-btn').or(page.getByRole('button', { name: /הוסף תלמיד/i }));
     this.progressSection = page.getByTestId('progress-section').or(page.locator('.card').filter({ hasText: /התקדמות/i }));
+    this.expensesSection = page.getByTestId('cycle-expenses').or(page.locator('.card').filter({ hasText: /הוצאות מחזור/i }));
+    this.addExpenseButton = page.getByRole('button', { name: /הוסף הוצאה/i });
   }
 
   /**
@@ -115,5 +119,69 @@ export class CycleDetailPage extends BasePage {
   async isOnCycleDetailPage(): Promise<boolean> {
     const path = await this.getCurrentPath();
     return /^\/cycles\/[a-zA-Z0-9-]+$/.test(path);
+  }
+
+  /**
+   * Check if expenses section is visible
+   */
+  async hasExpensesSection(): Promise<boolean> {
+    return await this.expensesSection.isVisible();
+  }
+
+  /**
+   * Add a cycle expense
+   */
+  async addExpense(type: string, amount: string, description?: string) {
+    await this.addExpenseButton.click();
+    
+    // Wait for form to appear
+    await this.page.locator('select').last().waitFor();
+    
+    // Select type
+    await this.page.locator('select').last().selectOption(type);
+    
+    // Enter description if provided
+    if (description) {
+      await this.page.locator('input[placeholder*="תיאור"]').fill(description);
+    }
+    
+    // Enter amount
+    await this.page.locator('input[placeholder*="סכום"]').fill(amount);
+    
+    // Click add button
+    await this.page.getByRole('button', { name: /הוסף$/i }).click();
+    
+    // Wait for the form to close
+    await this.page.waitForTimeout(500);
+  }
+
+  /**
+   * Get expense count
+   */
+  async getExpenseCount(): Promise<number> {
+    const expenses = this.expensesSection.locator('.border.rounded-lg');
+    return await expenses.count();
+  }
+
+  /**
+   * Get total expenses amount from the summary
+   */
+  async getTotalExpenses(): Promise<string> {
+    const summary = this.expensesSection.locator('.bg-gray-50').first();
+    const text = await summary.innerText();
+    const match = text.match(/₪([\d,]+)/);
+    return match ? match[1] : '0';
+  }
+
+  /**
+   * Delete first expense
+   */
+  async deleteFirstExpense() {
+    const deleteButton = this.expensesSection.locator('button[title="מחק"], .text-red-600').first();
+    await deleteButton.click();
+    
+    // Confirm deletion
+    this.page.on('dialog', dialog => dialog.accept());
+    await this.page.waitForTimeout(500);
   }
 }

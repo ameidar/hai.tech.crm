@@ -10,6 +10,7 @@ import { authRouter } from './routes/auth.js';
 import { customersRouter } from './routes/customers.js';
 import { studentsRouter } from './routes/students.js';
 import { coursesRouter } from './routes/courses.js';
+import { lessonAiRouter } from './routes/lesson-ai.js';
 import { branchesRouter } from './routes/branches.js';
 import { instructorsRouter } from './routes/instructors.js';
 import { inviteRouter } from './routes/invite.js';
@@ -24,30 +25,73 @@ import { viewsRouter } from './routes/views.js';
 import { communicationRouter } from './routes/communication.js';
 import zoomRouter from './routes/zoom.js';
 import zoomWebhookRouter from './routes/zoom-webhook.js';
+import { instructorMagicRouter } from './routes/instructor-magic.js';
+import { parentAppRouter } from './routes/parent-app.js';
+import { messagingRouter } from './routes/messaging.js';
+import expensesRouter from './routes/expenses.js';
+import { emailRouter } from './routes/email.js';
+import { initEmailQueue } from './services/email/queue.js';
+import { initEmailScheduler } from './services/email/scheduler.js';
+import { initCancellationScheduler } from './services/cancellation-scheduler.js';
+import { forecastRouter } from './routes/forecast.js';
+import { quotesRouter } from './routes/quotes.js';
+import { publicQuoteRouter } from './routes/public-quote.js';
+import { publicCancelRouter } from './routes/public-cancel.js';
+import { vapiWebhookRouter } from './routes/vapi-webhook.js';
+import { morningWebhookRouter } from './routes/morning-webhook.js';
+import { vapiToolsRouter } from './routes/vapi-tools.js';
+import { updateVapiAssistantDate, processPendingVapiCalls } from './services/vapi.js';
+import cron from 'node-cron';
+import { upsellLeadsRouter } from './routes/upsell-leads.js';
+import { reportsRouter } from './routes/reports.js';
+import { leadAppointmentsRouter } from './routes/lead-appointments.js';
+import { institutionalOrdersRouter } from './routes/institutional-orders.js';
+import { meetingRequestsRouter } from './routes/meeting-requests.js';
+import { filesRouter } from './routes/files.js';
+import { systemUsersRouter } from './routes/system-users.js';
+import waRouter from './routes/whatsapp.js';
+import { messengerRouter } from './routes/messenger.js';
+import { instagramRouter } from './routes/instagram.js';
+import { paymentsRouter } from './routes/payments.js';
+import { campaignsRouter } from './routes/campaigns.js';
+import { campaignLeadsRouter } from './routes/campaign-leads.js';
+import { facebookLeadsRouter } from './routes/facebook-leads.js';
+import analyticsRouter from './routes/analytics.js';
+import linkedinRouter from './routes/linkedin.js';
+import socialRouter from './routes/social.js';
+import { googleAdsRouter } from './routes/google-ads.js';
+import { devReadOnly } from './middleware/devReadOnly.js';
 
 // API v1 Router
 import { apiV1Router } from './api/v1/index.js';
 
+// API v1 Router
+
 const app = express();
 
-// Security middleware with proper CSP
+// Security middleware - disabled for HTTP dev access
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"], // Required for Vite build
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"], // Required for styled components + Google Fonts
-      imgSrc: ["'self'", "data:", "https:"],
-      fontSrc: ["'self'", "https:", "data:"],
-      connectSrc: ["'self'", "https:"],
-      frameSrc: ["'none'"],
-      objectSrc: ["'none'"],
-      baseUri: ["'self'"],
-      formAction: ["'self'"],
-      upgradeInsecureRequests: [],
-    },
-  },
+  contentSecurityPolicy: false,
+  strictTransportSecurity: false,
+  crossOriginOpenerPolicy: false,
+  crossOriginResourcePolicy: false,
 }));
+// Permissive CORS for Vapi webhook (no auth)
+app.use('/api/vapi-webhook', cors({
+  origin: '*',
+  credentials: false,
+  allowedHeaders: ['Content-Type'],
+  methods: ['POST', 'OPTIONS'],
+}));
+
+// Permissive CORS for Vapi tools (no auth)
+app.use('/api/vapi-tools', cors({
+  origin: '*',
+  credentials: false,
+  allowedHeaders: ['Content-Type'],
+  methods: ['POST', 'OPTIONS'],
+}));
+
 // Permissive CORS for webhook routes (API key protected)
 app.use('/api/webhook', cors({
   origin: '*',
@@ -67,7 +111,7 @@ app.use(cors({
 // Rate limiting with per-user tracking when authenticated
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // limit each IP/user to 1000 requests per windowMs
+  max: 10000, // limit each IP/user to 1000 requests per windowMs
   message: { error: 'Too many requests, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -93,8 +137,12 @@ const limiter = rateLimit({
 app.use('/api', limiter);
 
 // Body parsing
-app.use(express.json());
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// Dev read-only protection: non-admin users cannot write in non-production environments
+app.use(devReadOnly);
 
 // =============================================================================
 // API v1 Routes (new versioned API layer)
@@ -140,8 +188,10 @@ app.use('/api/meeting-status', publicMeetingRouter); // Public meeting status up
 app.use('/api/customers', customersRouter);
 app.use('/api/students', studentsRouter);
 app.use('/api/courses', coursesRouter);
+app.use('/api/lesson-ai', lessonAiRouter);
 app.use('/api/branches', branchesRouter);
 app.use('/api/instructors', instructorsRouter);
+app.use('/api/messaging', messagingRouter);
 app.use('/api/cycles', cyclesRouter);
 app.use('/api/meetings', meetingsRouter);
 app.use('/api/registrations', registrationsRouter);
@@ -152,16 +202,70 @@ app.use('/api/webhook', webhookRouter);
 app.use('/api/communication', communicationRouter);
 app.use('/api/zoom', zoomRouter);
 app.use('/api/zoom-webhook', zoomWebhookRouter);
+app.use('/api/instructor-magic', instructorMagicRouter);
+app.use('/api/parent', parentAppRouter); // Parent mobile app API
+app.use('/api/expenses', expensesRouter); // Expense tracking
+app.use('/api/email', emailRouter); // Email service
+app.use('/api/forecast', forecastRouter); // Financial forecasting
+app.use('/api/public/quotes', publicQuoteRouter); // Public quote view (no auth)
+app.use('/api/public/cancel', publicCancelRouter); // Public cancellation form (no auth)
+app.use('/api/quotes', quotesRouter); // Quote management
+app.use('/api/vapi-webhook', vapiWebhookRouter); // Vapi AI webhook (no auth)
+app.use('/api/vapi-tools', vapiToolsRouter); // Vapi AI tool calls - Google Calendar (no auth)
+app.use('/api/morning-webhook', morningWebhookRouter); // Morning (GreenInvoice) payment webhook (no auth)
+app.use('/api/messenger/webhook', cors({ origin: '*', credentials: false, methods: ['GET', 'POST', 'OPTIONS'] }));
+app.use('/api/instagram/webhook', cors({ origin: '*', credentials: false, methods: ['GET', 'POST', 'OPTIONS'] }));
+app.use('/api/lead-appointments', leadAppointmentsRouter); // Lead appointment management
+app.use('/api/institutional-orders', institutionalOrdersRouter); // Institutional orders
+app.use('/api/meeting-requests', meetingRequestsRouter); // Meeting change requests
+app.use('/api/files', filesRouter); // File attachments (instructors, quotes)
+app.use('/api/wa', waRouter); // WhatsApp Cloud API inbox
+app.use('/api/messenger', messengerRouter); // Facebook Messenger inbox
+app.use('/api/instagram', instagramRouter); // Instagram DM inbox
+app.use('/api/payments', paymentsRouter); // WooCommerce payment links
+app.use('/api/system-users', systemUsersRouter); // System users management (admin/manager)
+app.use('/api/upsell-leads', upsellLeadsRouter); // Upsell leads from completed cycles
+app.use('/api/reports', reportsRouter); // Instructor activity reports
+app.use('/api/campaigns', campaignsRouter); // Marketing campaigns
+app.use('/api/campaign-leads', campaignLeadsRouter); // Public campaign lead form submissions
+app.use('/api/facebook', facebookLeadsRouter);     // Facebook Lead Ads
+app.use('/api/analytics', analyticsRouter);       // Google Analytics Data API
+app.use('/api/linkedin', linkedinRouter);         // LinkedIn integration
+app.use('/api/social', socialRouter);             // Social media AI generator + publisher
+app.use('/api/google-ads', googleAdsRouter);      // Google Ads campaigns
 
 // Error handling for API routes
 app.use('/api', errorHandler);
 
 // Serve static frontend files
 const frontendPath = path.join(process.cwd(), 'frontend-dist');
-app.use(express.static(frontendPath));
+app.use(express.static(frontendPath, {
+  index: false, // Disable auto index.html serving, we handle it in SPA fallback
+  setHeaders: (res, filePath) => {
+    // Don't cache HTML files
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, private');
+      res.setHeader('CDN-Cache-Control', 'no-store');
+      res.setHeader('Cloudflare-CDN-Cache-Control', 'no-store');
+      res.setHeader('Surrogate-Control', 'no-store');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  }
+}));
 
-// SPA fallback - serve index.html for all non-API routes
+// SPA fallback - serve index.html for all non-API routes (no cache!)
+// Generate unique ETag based on server start time to force cache invalidation
+const serverStartTime = Date.now().toString(36);
 app.get('*', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, private');
+  res.setHeader('CDN-Cache-Control', 'no-store');
+  res.setHeader('Cloudflare-CDN-Cache-Control', 'no-store');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+  res.setHeader('ETag', `"${serverStartTime}"`);
+  res.setHeader('Last-Modified', new Date().toUTCString());
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
@@ -172,8 +276,29 @@ const start = async () => {
     await prisma.$connect();
     console.log('✅ Database connected');
 
+    // Initialize email services
+    initEmailQueue();
+    if (process.env.DISABLE_CRON === 'true') {
+      console.log('⚠️  DISABLE_CRON=true — schedulers disabled (dev mode)');
+    } else {
+      initEmailScheduler();
+      initCancellationScheduler();
+      // Update VAPI assistant date on startup + daily cron handles ongoing updates
+      updateVapiAssistantDate().catch((err: any) =>
+        console.error('[VAPI] Startup date update failed:', err)
+      );
+      // Process pending VAPI calls at 08:00 Israel time (06:00 UTC)
+      cron.schedule('0 6 * * *', () => {
+        console.log('[VAPI] Running morning pending calls cron...');
+        processPendingVapiCalls().catch((err: any) =>
+          console.error('[VAPI] processPendingVapiCalls failed:', err)
+        );
+      });
+    }
+
     app.listen(config.port, () => {
       console.log(`🚀 HaiTech CRM API running on port ${config.port}`);
+      console.log(`🌿 Branch: dev | build: ${new Date().toISOString().slice(0,10)}`);
       console.log(`📍 Health check: http://localhost:${config.port}/api/health`);
     });
   } catch (error) {

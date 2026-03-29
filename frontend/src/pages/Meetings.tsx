@@ -7,42 +7,148 @@ import {
   CheckSquare,
   Square,
   X,
+  Edit,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Calculator,
+  Filter,
+  Columns,
+  Plus,
+  Trash2,
 } from 'lucide-react';
-import { useMeetings, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus } from '../hooks/useApi';
+import { useMeetings, useMeeting, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus, useUpdateMeeting, useBulkUpdateMeetings, useBulkRecalculateMeetings, useBranches, useInstructors, useDeleteMeeting, useCreateMeeting, useCycles } from '../hooks/useApi';
+import type { CreateMeetingData } from '../hooks/useApi';
 import { useAuth } from '../context/AuthContext';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import MeetingDetailModal from '../components/MeetingDetailModal';
+import MeetingEditModal from '../components/MeetingEditModal';
+import Modal from '../components/ui/Modal';
+import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal';
+import BulkMeetingEditModal, { type BulkMeetingUpdateData } from '../components/BulkMeetingEditModal';
 import ViewSelector from '../components/ViewSelector';
+import PendingMeetingRequests from '../components/PendingMeetingRequests';
 import { meetingStatusHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
 export default function Meetings() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'manager';
-  const [searchParams] = useSearchParams();
-  const [selectedDate, setSelectedDate] = useState(() => {
-    return new Date().toISOString().split('T')[0];
-  });
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
+  const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);
+  const [deleteConfirmMeeting, setDeleteConfirmMeeting] = useState<Meeting | null>(null);
+  const [showAddMeetingModal, setShowAddMeetingModal] = useState(false);
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'date' | 'view'>('date');
   const [viewColumns, setViewColumns] = useState<string[]>([]);
-  const [instructorFilter, setInstructorFilter] = useState('');
+  const [showColumnPicker, setShowColumnPicker] = useState(false);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
   
   // Bulk selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkStatus, setBulkStatus] = useState<string>('');
+  const [showBulkEditModal, setShowBulkEditModal] = useState(false);
 
-  // Initialize filter from URL params
+  // Auto-open meeting from URL param
+  const openMeetingId = searchParams.get('openMeeting');
+  const { data: autoOpenMeeting } = useMeeting(openMeetingId || undefined);
   useEffect(() => {
-    const instructorId = searchParams.get('instructorId');
-    if (instructorId) {
-      setInstructorFilter(instructorId);
+    if (autoOpenMeeting && openMeetingId) {
+      setSelectedMeeting(autoOpenMeeting);
+      // Clear the param
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('openMeeting');
+      setSearchParams(newParams, { replace: true });
     }
-  }, [searchParams]);
+  }, [autoOpenMeeting, openMeetingId]);
+
+  // Read filters from URL
+  const selectedDate = searchParams.get('date') || new Date().toISOString().split('T')[0];
+  const dateFrom = searchParams.get('from') || '';
+  const dateTo = searchParams.get('to') || '';
+  const rangeMode = !!(dateFrom || dateTo) || searchParams.get('rangeMode') === '1';
+  const instructorFilter = searchParams.get('instructorId') || '';
+  const statusFilter = searchParams.get('status') || '';
+  const branchFilter = searchParams.get('branchId') || '';
+  const sortColumn = searchParams.get('sort') || 'startTime';
+  const sortDirection = (searchParams.get('dir') as 'asc' | 'desc') || 'asc';
+
+  // Helper to update URL params
+  const updateFilter = (key: string, value: string) => {
+    const newParams = new URLSearchParams(searchParams);
+    if (value) {
+      newParams.set(key, value);
+    } else {
+      newParams.delete(key);
+    }
+    setSearchParams(newParams, { replace: true });
+  };
+
+  const setSelectedDate = (v: string) => updateFilter('date', v);
+  const setDateFrom = (v: string) => updateFilter('from', v);
+  const setDateTo = (v: string) => updateFilter('to', v);
+  const setInstructorFilter = (v: string) => updateFilter('instructorId', v);
+  const setStatusFilter = (v: string) => updateFilter('status', v);
+  const setBranchFilter = (v: string) => updateFilter('branchId', v);
+  const setSortColumn = (v: string) => updateFilter('sort', v);
+  const setSortDirection = (v: 'asc' | 'desc') => updateFilter('dir', v);
+
+  const enableRangeMode = () => {
+    const newParams = new URLSearchParams(searchParams);
+    // Default range: this month
+    const today = new Date();
+    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+    newParams.set('from', firstDay);
+    newParams.set('to', lastDay);
+    newParams.set('rangeMode', '1');
+    newParams.delete('date');
+    setSearchParams(newParams, { replace: true });
+  };
+
+  const disableRangeMode = () => {
+    const newParams = new URLSearchParams(searchParams);
+    newParams.delete('from');
+    newParams.delete('to');
+    newParams.delete('rangeMode');
+    newParams.set('date', new Date().toISOString().split('T')[0]);
+    setSearchParams(newParams, { replace: true });
+  };
+
+  const clearFilters = () => {
+    const newParams = new URLSearchParams();
+    if (rangeMode) {
+      if (dateFrom) newParams.set('from', dateFrom);
+      if (dateTo) newParams.set('to', dateTo);
+      newParams.set('rangeMode', '1');
+    } else {
+      if (searchParams.get('date')) newParams.set('date', searchParams.get('date')!);
+    }
+    setSearchParams(newParams, { replace: true });
+  };
+  const hasActiveFilters = statusFilter || branchFilter || instructorFilter;
   
+  // Column visibility (localStorage persisted)
+  const ALL_COLUMN_KEYS = ['scheduledDate', 'startTime', 'cycle.name', 'cycle.course.name', 'cycle.branch.name', 'instructor.name', 'status', 'revenue', 'instructorPayment', 'profit', 'attendance', 'activityType', 'topic', 'notes', 'zoomLink', 'zoomHostKey', 'duration', 'meetingNumber'];
+  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('meetings-column-visibility');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    // Default: show core columns only
+    return Object.fromEntries(ALL_COLUMN_KEYS.map(k => [k, ['scheduledDate', 'startTime', 'cycle.name', 'cycle.course.name', 'cycle.branch.name', 'instructor.name', 'status', 'revenue', 'instructorPayment', 'profit'].includes(k)]));
+  });
+
+  useEffect(() => {
+    localStorage.setItem('meetings-column-visibility', JSON.stringify(columnVisibility));
+  }, [columnVisibility]);
+
+  const toggleColumn = (key: string) => setColumnVisibility(prev => ({ ...prev, [key]: !prev[key] }));
+  const isColVisible = (key: string) => columnVisibility[key] !== false;
+
   // Column definitions for meetings
   const allColumns: Record<string, { label: string; render: (m: Meeting) => React.ReactNode }> = {
     scheduledDate: {
@@ -71,14 +177,29 @@ export default function Meetings() {
     },
     'instructor.name': {
       label: 'מדריך',
-      render: (m) => m.instructor?.name || '-'
+      render: (m) => m.instructor ? (
+        <Link
+          to={`/instructors?search=${encodeURIComponent(m.instructor.name)}`}
+          className="text-blue-600 hover:underline"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {m.instructor.name}
+        </Link>
+      ) : '-'
     },
     status: {
       label: 'סטטוס',
       render: (m) => (
-        <span className={`badge ${getStatusBadgeClass(m.status)}`}>
-          {meetingStatusHebrew[m.status]}
-        </span>
+        <div className="flex flex-col gap-1">
+          <span className={`badge ${getStatusBadgeClass(m.status)}`}>
+            {meetingStatusHebrew[m.status]}
+          </span>
+          {(m as any).changeRequests?.length > 0 && (
+            <span className="badge bg-amber-100 text-amber-800 text-xs">
+              ⚠️ {(m as any).changeRequests[0].type === 'cancel' ? 'בקשת ביטול' : (m as any).changeRequests[0].type === 'postpone' ? 'בקשת דחייה' : 'בקשת החלפה'}
+            </span>
+          )}
+        </div>
       )
     },
     revenue: {
@@ -95,29 +216,89 @@ export default function Meetings() {
     },
     profit: {
       label: 'רווח',
-      render: (m) => m.status === 'completed'
-        ? <span className={m.profit >= 0 ? 'text-green-600' : 'text-red-600'}>{(m.profit || 0).toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}</span>
-        : '-'
+      render: (m) => {
+        if (m.status !== 'completed') return '-';
+        // Use adjustedProfit (includes cycle expenses share) if available, otherwise fall back to profit
+        const profitValue = (m as any).adjustedProfit !== undefined ? (m as any).adjustedProfit : (m.profit || 0);
+        const cycleExpenseShare = (m as any).cycleExpenseShare;
+        return (
+          <span 
+            className={profitValue >= 0 ? 'text-green-600' : 'text-red-600'}
+            title={cycleExpenseShare ? `לפני הוצאות מחזור: ₪${(m.profit || 0).toLocaleString()}, הוצאות מחזור: ₪${cycleExpenseShare.toLocaleString()}` : undefined}
+          >
+            {profitValue.toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}
+          </span>
+        );
+      }
     },
-    subject: {
+    topic: {
       label: 'נושא',
-      render: (m) => (m as any).subject || '-'
+      render: (m) => (m as any).topic || (m as any).subject || '-'
     },
     notes: {
       label: 'הערות',
-      render: (m) => (m as any).notes || '-'
-    }
+      render: (m) => (m as any).notes ? <span className="text-xs text-gray-500 max-w-[150px] truncate block" title={(m as any).notes}>{(m as any).notes}</span> : '-'
+    },
+    attendance: {
+      label: 'נוכחות',
+      render: (m) => {
+        const count = (m as any)._count?.attendance ?? (m.attendance?.length ?? null);
+        return count !== null ? <span className="text-sm">{count} תלמידים</span> : '-';
+      }
+    },
+    activityType: {
+      label: 'סוג פעילות',
+      render: (m) => {
+        const map: Record<string, string> = { frontal: 'פרונטלי', online: 'אונליין', private_lesson: 'פרטי' };
+        return (m as any).activityType ? map[(m as any).activityType] || (m as any).activityType : '-';
+      }
+    },
+    duration: {
+      label: 'משך (דק׳)',
+      render: (m) => {
+        if (!m.startTime || !m.endTime) return '-';
+        const parse = (t: string) => {
+          if (t.includes('T')) { const d = new Date(t); return d.getUTCHours() * 60 + d.getUTCMinutes(); }
+          const [h, min] = t.split(':').map(Number); return h * 60 + min;
+        };
+        const mins = parse(m.endTime) - parse(m.startTime);
+        return mins > 0 ? `${mins}` : '-';
+      }
+    },
+    zoomLink: {
+      label: 'זום קישור',
+      render: (m) => m.zoomJoinUrl ? (
+        <a href={m.zoomJoinUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-xs" onClick={(e) => e.stopPropagation()}>🔗 קישור</a>
+      ) : '-'
+    },
+    zoomHostKey: {
+      label: 'קוד מנהל זום',
+      render: (m) => m.zoomHostKey ? (
+        <span className="font-mono text-sm bg-gray-100 px-2 py-0.5 rounded select-all">{m.zoomHostKey}</span>
+      ) : '-'
+    },
+    meetingNumber: {
+      label: 'מס׳ מפגש',
+      render: (m) => (m as any).meetingNumber ?? '-'
+    },
   };
   
-  // Default columns when no view is selected
-  const defaultColumns = ['scheduledDate', 'startTime', 'cycle.name', 'cycle.course.name', 'cycle.branch.name', 'instructor.name', 'status', 'revenue', 'instructorPayment', 'profit'];
-  
-  // Get active columns (from view or default)
-  const activeColumns = viewMode === 'view' && viewColumns.length > 0 ? viewColumns : defaultColumns;
+  // Get active columns (from view or column picker)
+  const activeColumns = viewMode === 'view' && viewColumns.length > 0
+    ? viewColumns
+    : ALL_COLUMN_KEYS.filter(k => isColVisible(k));
 
-  const { data: meetings, isLoading, refetch } = useMeetings({ 
-    date: instructorFilter ? undefined : selectedDate,  // When filtering by instructor, show all dates
+  const { data: branches } = useBranches();
+  const { data: instructors } = useInstructors();
+
+  const { data: meetings, isLoading, refetch } = useMeetings({
+    // Range mode: use from/to; single date mode: use date (unless instructor filter which shows all dates)
+    ...(rangeMode
+      ? { from: dateFrom || undefined, to: dateTo || undefined, limit: 500 }
+      : { date: instructorFilter ? undefined : selectedDate }),
     instructorId: instructorFilter || undefined,
+    status: statusFilter || undefined,
+    branchId: branchFilter || undefined,
   });
   
   // Build date filter for view data - filter by selectedDate
@@ -136,11 +317,118 @@ export default function Meetings() {
   const { data: viewData, isLoading: viewLoading } = useViewData(activeViewId, dateFilter);
   const recalculateMeeting = useRecalculateMeeting();
   const bulkUpdateStatus = useBulkUpdateMeetingStatus();
+  const updateMeeting = useUpdateMeeting();
+  const bulkUpdateMeetings = useBulkUpdateMeetings();
+  const bulkRecalculate = useBulkRecalculateMeetings();
+  const deleteMeeting = useDeleteMeeting();
+  const createMeeting = useCreateMeeting();
+  const { data: cycles } = useCycles();
+
+  // Sort handler
+  const handleSort = (column: string) => {
+    const newParams = new URLSearchParams(searchParams);
+    if (sortColumn === column) {
+      newParams.set('dir', sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      newParams.set('sort', column);
+      newParams.set('dir', 'asc');
+    }
+    setSearchParams(newParams, { replace: true });
+  };
+
+  // Get nested value from object
+  const getNestedValue = (obj: any, path: string): any => {
+    return path.split('.').reduce((current, key) => current?.[key], obj);
+  };
 
   // Determine which data to display based on view mode
-  const displayMeetings = viewMode === 'view' && viewData?.data 
+  const rawMeetings = viewMode === 'view' && viewData?.data 
     ? viewData.data as Meeting[]
     : meetings || [];
+
+  // Sort meetings
+  const displayMeetings = useMemo(() => {
+    const sorted = [...rawMeetings].sort((a, b) => {
+      let aVal = getNestedValue(a, sortColumn);
+      let bVal = getNestedValue(b, sortColumn);
+      
+      // Handle nulls
+      if (aVal == null) return 1;
+      if (bVal == null) return -1;
+      
+      // Handle dates
+      if (sortColumn === 'scheduledDate') {
+        aVal = new Date(aVal).getTime();
+        bVal = new Date(bVal).getTime();
+      }
+      
+      // Handle numbers
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+      
+      // Handle strings
+      const comparison = String(aVal).localeCompare(String(bVal), 'he');
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+    return sorted;
+  }, [rawMeetings, sortColumn, sortDirection]);
+
+  // Handle edit meeting save
+  const handleEditSave = async (id: string, data: Partial<Meeting>) => {
+    await updateMeeting.mutateAsync({ id, data });
+    setEditingMeeting(null);
+    refetch();
+  };
+
+  // Handle delete meeting
+  const handleDeleteMeeting = async () => {
+    if (!deleteConfirmMeeting) return;
+    try {
+      await deleteMeeting.mutateAsync(deleteConfirmMeeting.id);
+      setDeleteConfirmMeeting(null);
+      setSelectedIds(prev => { const s = new Set(prev); s.delete(deleteConfirmMeeting.id); return s; });
+      refetch();
+    } catch (error: any) {
+      alert(error?.response?.data?.message || 'שגיאה במחיקת הפגישה');
+    }
+  };
+
+  // Handle create meeting
+  const handleCreateMeeting = async (data: CreateMeetingData) => {
+    try {
+      await createMeeting.mutateAsync(data);
+      setShowAddMeetingModal(false);
+      refetch();
+    } catch (error: any) {
+      alert(error?.response?.data?.message || 'שגיאה ביצירת הפגישה');
+    }
+  };
+
+  // Handle bulk edit save
+  const handleBulkEditSave = async (data: BulkMeetingUpdateData) => {
+    if (selectedIds.size === 0) return;
+
+    try {
+      const result = await bulkUpdateMeetings.mutateAsync({
+        ids: Array.from(selectedIds),
+        data,
+      });
+
+      if (result.errors && result.errors.length > 0) {
+        alert(`עודכנו ${result.updated} פגישות. שגיאות: ${result.errors.join(', ')}`);
+      } else {
+        alert(`עודכנו ${result.updated} פגישות בהצלחה`);
+      }
+
+      setShowBulkEditModal(false);
+      setSelectedIds(new Set());
+      refetch();
+    } catch (error) {
+      console.error('Failed to bulk update:', error);
+      alert('שגיאה בעדכון גורף');
+    }
+  };
   const displayLoading = viewMode === 'view' ? viewLoading : isLoading;
 
   const handleApplyView = (filters: any[], columns: string[], sortBy?: string, sortOrder?: string) => {
@@ -202,6 +490,9 @@ export default function Meetings() {
       case 'cancelled':
         return 'badge-danger';
       case 'postponed':
+        return 'badge-warning';
+      case 'pending_cancellation':
+      case 'pending_postponement':
         return 'badge-warning';
       default:
         return 'badge-info';
@@ -273,6 +564,29 @@ export default function Meetings() {
     }
   };
 
+  const handleBulkRecalculate = async () => {
+    const idsToRecalculate = selectedIds.size > 0 
+      ? Array.from(selectedIds) 
+      : displayMeetings.map(m => m.id);
+    
+    if (idsToRecalculate.length === 0) return;
+    
+    const message = selectedIds.size > 0 
+      ? `לחשב מחדש ${selectedIds.size} פגישות נבחרות?`
+      : `לחשב מחדש את כל ${displayMeetings.length} הפגישות בתצוגה?`;
+    
+    if (!confirm(message)) return;
+
+    try {
+      const result = await bulkRecalculate.mutateAsync({ ids: idsToRecalculate, force: true });
+      alert(`חושבו מחדש ${result.recalculated} פגישות בהצלחה!`);
+      refetch();
+    } catch (error) {
+      console.error('Failed to bulk recalculate:', error);
+      alert('שגיאה בחישוב מחדש');
+    }
+  };
+
   const stats = displayMeetings.length > 0
     ? {
         total: displayMeetings.length,
@@ -289,10 +603,20 @@ export default function Meetings() {
     <>
       <PageHeader
         title="פגישות"
-        subtitle={formatDate(selectedDate)}
+        subtitle={rangeMode
+          ? `${dateFrom ? new Date(dateFrom).toLocaleDateString('he-IL') : '?'} — ${dateTo ? new Date(dateTo).toLocaleDateString('he-IL') : '?'}`
+          : formatDate(selectedDate)}
+        actions={isAdmin ? (
+          <button onClick={() => setShowAddMeetingModal(true)} className="btn btn-primary">
+            <Plus size={18} /> פגישה חדשה
+          </button>
+        ) : undefined}
       />
 
       <div className="flex-1 p-6 overflow-auto">
+        {/* Pending requests banner - Admin only */}
+        {isAdmin && <PendingMeetingRequests />}
+
         {/* Bulk Actions Bar - Admin only */}
         {someSelected && isAdmin && (
           <div className="mb-4 p-4 bg-blue-600 text-white rounded-lg flex items-center gap-4 flex-wrap animate-in slide-in-from-top">
@@ -319,6 +643,23 @@ export default function Meetings() {
             >
               {bulkUpdateStatus.isPending ? 'מעדכן...' : '🔄 עדכן סטטוס'}
             </button>
+
+            <button
+              onClick={() => setShowBulkEditModal(true)}
+              className="px-4 py-2 bg-blue-500 hover:bg-blue-600 rounded-lg font-medium transition-colors flex items-center gap-1"
+            >
+              <Edit size={16} />
+              עריכה גורפת
+            </button>
+
+            <button
+              onClick={handleBulkRecalculate}
+              disabled={bulkRecalculate.isPending}
+              className="px-4 py-2 bg-purple-500 hover:bg-purple-600 disabled:opacity-50 rounded-lg font-medium transition-colors flex items-center gap-1"
+            >
+              <Calculator size={16} />
+              {bulkRecalculate.isPending ? 'מחשב...' : 'חישוב מחדש'}
+            </button>
             
             <button
               onClick={clearSelection}
@@ -331,43 +672,136 @@ export default function Meetings() {
         )}
 
         {/* Date Navigation */}
-        <div className="mb-6 flex items-center gap-4">
-          <div className="flex items-center gap-2 bg-white rounded-lg border p-1">
-            <button
-              onClick={() => changeDate(-1)}
-              className="p-2 rounded hover:bg-gray-100 transition-colors"
-            >
-              <ChevronRight size={20} />
-            </button>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => {
-                setSelectedDate(e.target.value);
-                setSelectedIds(new Set());
-              }}
-              className="px-3 py-2 border-0 focus:ring-0"
-            />
-            <button
-              onClick={() => changeDate(1)}
-              className="p-2 rounded hover:bg-gray-100 transition-colors"
-            >
-              <ChevronLeft size={20} />
-            </button>
+        <div className="mb-6 flex flex-wrap items-center gap-3">
+          {!rangeMode ? (
+            /* Single date mode */
+            <>
+              <div className="flex items-center gap-1 md:gap-2 bg-white rounded-lg border p-1">
+                <button onClick={() => changeDate(-1)} className="p-2 rounded hover:bg-gray-100 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center">
+                  <ChevronRight size={20} />
+                </button>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => { setSelectedDate(e.target.value); setSelectedIds(new Set()); }}
+                  className="px-2 md:px-3 py-2 border-0 focus:ring-0 text-sm md:text-base"
+                />
+                <button onClick={() => changeDate(1)} className="p-2 rounded hover:bg-gray-100 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center">
+                  <ChevronLeft size={20} />
+                </button>
+              </div>
+              <button onClick={() => { setSelectedDate(new Date().toISOString().split('T')[0]); setSelectedIds(new Set()); }} className="btn btn-secondary min-h-[44px]">
+                היום
+              </button>
+              <button onClick={enableRangeMode} className="btn btn-secondary min-h-[44px] flex items-center gap-1.5 text-sm text-blue-600 border-blue-300 hover:bg-blue-50">
+                📅 טווח תאריכים
+              </button>
+            </>
+          ) : (
+            /* Date range mode */
+            <div className="flex flex-wrap items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2">
+              <span className="text-sm font-medium text-blue-700">טווח:</span>
+              <div className="flex items-center gap-1">
+                <label className="text-xs text-blue-600">מ-</label>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => { setDateFrom(e.target.value); setSelectedIds(new Set()); }}
+                  className="px-2 py-1.5 border border-blue-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-300 focus:outline-none"
+                />
+              </div>
+              <div className="flex items-center gap-1">
+                <label className="text-xs text-blue-600">עד-</label>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => { setDateTo(e.target.value); setSelectedIds(new Set()); }}
+                  className="px-2 py-1.5 border border-blue-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-300 focus:outline-none"
+                />
+              </div>
+              {meetings && <span className="text-xs text-blue-600 font-medium">{meetings.length} פגישות</span>}
+              <button onClick={disableRangeMode} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-white transition-colors flex items-center gap-1">
+                <X size={12} /> חזור לתאריך יחיד
+              </button>
+            </div>
+          )}
+
+          {/* Filter Button (minimalistic) */}
+          <div className="hidden md:flex items-center gap-2">
+            <div className="relative">
+              <button
+                onClick={() => { setShowFilterPanel(p => !p); setShowColumnPicker(false); }}
+                className={`btn btn-secondary flex items-center gap-1.5 text-sm ${hasActiveFilters ? 'ring-2 ring-blue-400' : ''}`}
+              >
+                <Filter size={15} />
+                סינון
+                {hasActiveFilters && (
+                  <span className="bg-blue-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center leading-none">
+                    {[statusFilter, branchFilter, instructorFilter].filter(Boolean).length}
+                  </span>
+                )}
+              </button>
+              {showFilterPanel && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setShowFilterPanel(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-40 bg-white border border-gray-200 rounded-xl shadow-xl p-4 min-w-[220px] space-y-3">
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 mb-1 block">סטטוס</label>
+                      <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="form-input w-full text-sm">
+                        <option value="">הכל</option>
+                        <option value="scheduled">מתוכננת</option>
+                        <option value="completed">התקיימה</option>
+                        <option value="cancelled">בוטלה</option>
+                        <option value="postponed">נדחתה</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 mb-1 block">סניף</label>
+                      <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="form-input w-full text-sm">
+                        <option value="">הכל</option>
+                        {branches?.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 mb-1 block">מדריך</label>
+                      <select value={instructorFilter} onChange={(e) => setInstructorFilter(e.target.value)} className="form-input w-full text-sm">
+                        <option value="">הכל</option>
+                        {instructors?.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                      </select>
+                    </div>
+                    {hasActiveFilters && (
+                      <button onClick={() => { clearFilters(); setShowFilterPanel(false); }} className="w-full btn btn-secondary text-sm flex items-center justify-center gap-1">
+                        <X size={13} /> נקה הכל
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Column Picker */}
+            <div className="relative">
+              <button onClick={() => { setShowColumnPicker(p => !p); setShowFilterPanel(false); }} className="btn btn-secondary flex items-center gap-1.5 text-sm">
+                <Columns size={15} /> עמודות
+              </button>
+              {showColumnPicker && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setShowColumnPicker(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-40 bg-white border border-gray-200 rounded-xl shadow-xl py-2 min-w-[190px]">
+                    {ALL_COLUMN_KEYS.map(key => (
+                      <label key={key} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm">
+                        <input type="checkbox" checked={isColVisible(key)} onChange={() => toggleColumn(key)} className="rounded border-gray-300 text-blue-600" />
+                        {allColumns[key]?.label || key}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
 
-          <button
-            onClick={() => {
-              setSelectedDate(new Date().toISOString().split('T')[0]);
-              setSelectedIds(new Set());
-            }}
-            className="btn btn-secondary"
-          >
-            היום
-          </button>
-
           {/* View Selector */}
-          <div className="me-auto">
+          <div className="hidden md:block me-auto">
             <ViewSelector
               entity="meetings"
               onApplyView={handleApplyView}
@@ -377,7 +811,7 @@ export default function Meetings() {
                   setViewMode('view');
                 } else {
                   setViewMode('date');
-                  setViewColumns([]); // Reset columns when no view selected
+                  setViewColumns([]);
                 }
                 setSelectedIds(new Set());
               }}
@@ -385,7 +819,10 @@ export default function Meetings() {
           </div>
 
           {stats && stats.total > 0 && (
-            <div className="flex items-center gap-4 ms-auto text-sm">
+            <div className="hidden md:flex items-center gap-4 ms-auto text-sm">
+              <span className="flex items-center gap-1 font-semibold text-gray-700 bg-gray-100 px-2 py-1 rounded">
+                📅 {stats.total} פגישות ביום זה
+              </span>
               <span className="flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-green-500" />
                 {stats.completed} הושלמו
@@ -398,6 +835,26 @@ export default function Meetings() {
                 <span className="w-2 h-2 rounded-full bg-red-500" />
                 {stats.cancelled} בוטלו
               </span>
+              {isAdmin && (
+                <button
+                  onClick={handleBulkRecalculate}
+                  disabled={bulkRecalculate.isPending}
+                  className="btn btn-secondary flex items-center gap-1 text-sm"
+                  title="חישוב מחדש לכל הפגישות בתצוגה"
+                >
+                  <Calculator size={14} />
+                  {bulkRecalculate.isPending ? 'מחשב...' : 'חישוב מחדש'}
+                </button>
+              )}
+            </div>
+          )}
+          {/* Mobile stats summary */}
+          {stats && stats.total > 0 && (
+            <div className="md:hidden w-full flex items-center gap-3 text-xs mt-1">
+              <span className="font-semibold text-gray-700">{stats.total} פגישות</span>
+              <span className="text-green-600">{stats.completed} ✓</span>
+              <span className="text-blue-600">{stats.pending} ⏳</span>
+              <span className="text-red-600">{stats.cancelled} ✗</span>
             </div>
           )}
         </div>
@@ -406,7 +863,52 @@ export default function Meetings() {
         {displayLoading ? (
           <Loading size="lg" text="טוען פגישות..." />
         ) : displayMeetings && displayMeetings.length > 0 ? (
-          <div className="card overflow-hidden">
+          <>
+          {/* Mobile card view */}
+          <div className="md:hidden space-y-2">
+            {displayMeetings.map((meeting) => {
+              return (
+                <div
+                  key={meeting.id}
+                  onClick={() => setSelectedMeeting(meeting)}
+                  className="bg-white rounded-lg border border-gray-100 p-4 cursor-pointer active:bg-gray-50 shadow-sm"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-semibold text-gray-900 text-sm">
+                      {meeting.scheduledDate ? new Date(meeting.scheduledDate).toLocaleDateString('he-IL') : ''}{' '}
+                      {formatTime(meeting.startTime)} - {formatTime(meeting.endTime)}
+                    </span>
+                    <span className={`badge ${getStatusBadgeClass(meeting.status)} text-xs`}>
+                      {meetingStatusHebrew[meeting.status]}
+                    </span>
+                    {(meeting as any).changeRequests?.length > 0 && (
+                      <span className="badge bg-amber-100 text-amber-800 text-xs">
+                        ⚠️ בקשת {(meeting as any).changeRequests[0].type === 'cancel' ? 'ביטול' : (meeting as any).changeRequests[0].type === 'postpone' ? 'דחייה' : 'החלפה'}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-blue-600 font-medium">{meeting.cycle?.name || '-'}</p>
+                  <div className="flex items-center justify-between mt-1">
+                    {meeting.instructor ? (
+                      <Link
+                        to={`/instructors?search=${encodeURIComponent(meeting.instructor.name)}`}
+                        className="text-sm text-blue-600 hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {meeting.instructor.name}
+                      </Link>
+                    ) : <span className="text-sm text-gray-600">-</span>}
+                    {meeting.status === 'completed' && (
+                      <span className="text-xs text-green-600">₪{(meeting.revenue || 0).toLocaleString()}</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop table view */}
+          <div className="hidden md:block card overflow-hidden">
             <table>
               <thead>
                 <tr>
@@ -426,14 +928,26 @@ export default function Meetings() {
                     )}
                   </th>
                   {activeColumns.filter(col => allColumns[col]).map(col => (
-                    <th key={col}>{allColumns[col].label}</th>
+                    <th 
+                      key={col} 
+                      className="cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => handleSort(col)}
+                    >
+                      <div className="flex items-center gap-1">
+                        {allColumns[col].label}
+                        {sortColumn === col ? (
+                          sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />
+                        ) : (
+                          <ArrowUpDown size={14} className="text-gray-300" />
+                        )}
+                      </div>
+                    </th>
                   ))}
+                  {isAdmin && <th className="w-16">פעולות</th>}
                 </tr>
               </thead>
               <tbody>
-                {displayMeetings
-                  .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''))
-                  .map((meeting) => {
+                {displayMeetings.map((meeting) => {
                     const isSelected = selectedIds.has(meeting.id);
                     return (
                       <tr 
@@ -463,6 +977,26 @@ export default function Meetings() {
                             {allColumns[col].render(meeting)}
                           </td>
                         ))}
+                        {isAdmin && (
+                          <td onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => setEditingMeeting(meeting)}
+                                className="p-1.5 hover:bg-blue-100 rounded transition-colors text-blue-600"
+                                title="עריכה"
+                              >
+                                <Edit size={16} />
+                              </button>
+                              <button
+                                onClick={() => setDeleteConfirmMeeting(meeting)}
+                                className="p-1.5 hover:bg-red-100 rounded transition-colors text-red-500"
+                                title="מחיקה"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -504,12 +1038,12 @@ export default function Meetings() {
                         );
                       }
                       if (col === 'profit') {
+                        const totalProfit = displayMeetings
+                          .filter((m) => m.status === 'completed')
+                          .reduce((sum, m) => sum + Number((m as any).adjustedProfit !== undefined ? (m as any).adjustedProfit : (m.profit || 0)), 0);
                         return (
-                          <td key={col} className="text-green-600">
-                            {displayMeetings
-                              .filter((m) => m.status === 'completed')
-                              .reduce((sum, m) => sum + Number(m.profit || 0), 0)
-                              .toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}
+                          <td key={col} className={totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}>
+                            {totalProfit.toLocaleString('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0 })}
                           </td>
                         );
                       }
@@ -520,11 +1054,12 @@ export default function Meetings() {
               )}
             </table>
           </div>
+          </>
         ) : (
           <EmptyState
             icon={<Calendar size={64} />}
             title="אין פגישות"
-            description={`אין פגישות מתוכננות ל${formatDate(selectedDate)}`}
+            description={rangeMode ? 'אין פגישות בטווח התאריכים שנבחר' : `אין פגישות מתוכננות ל${formatDate(selectedDate)}`}
           />
         )}
       </div>
@@ -535,7 +1070,117 @@ export default function Meetings() {
         onClose={() => setSelectedMeeting(null)}
         onRecalculate={handleRecalculate}
         isRecalculating={recalculateMeeting.isPending}
+        isAdmin={isAdmin}
       />
+
+      {/* Meeting Edit Modal */}
+      <MeetingEditModal
+        meeting={editingMeeting}
+        onClose={() => setEditingMeeting(null)}
+        onSave={handleEditSave}
+        isSaving={updateMeeting.isPending}
+        isAdmin={isAdmin}
+      />
+
+      {/* Bulk Edit Modal */}
+      <BulkMeetingEditModal
+        isOpen={showBulkEditModal}
+        selectedCount={selectedIds.size}
+        onClose={() => setShowBulkEditModal(false)}
+        onSave={handleBulkEditSave}
+        isSaving={bulkUpdateMeetings.isPending}
+      />
+
+      {/* Delete Confirm Modal */}
+      <ConfirmDeleteModal
+        isOpen={!!deleteConfirmMeeting}
+        onClose={() => setDeleteConfirmMeeting(null)}
+        onConfirm={handleDeleteMeeting}
+        title="מחיקת פגישה"
+        itemName={deleteConfirmMeeting ? `${deleteConfirmMeeting.cycle?.name || ''} — ${deleteConfirmMeeting.scheduledDate ? new Date(deleteConfirmMeeting.scheduledDate).toLocaleDateString('he-IL') : ''}` : undefined}
+        warningText="מחיקת פגישה תשפיע על חישובי שעות מדריך."
+        isLoading={deleteMeeting.isPending}
+      />
+
+      {/* Add Meeting Modal */}
+      <Modal isOpen={showAddMeetingModal} onClose={() => setShowAddMeetingModal(false)} title="פגישה חדשה">
+        <CreateMeetingForm
+          cycles={cycles || []}
+          onSubmit={handleCreateMeeting}
+          onCancel={() => setShowAddMeetingModal(false)}
+          isLoading={createMeeting.isPending}
+        />
+      </Modal>
     </>
+  );
+}
+
+// Create Meeting Form
+function CreateMeetingForm({ cycles, onSubmit, onCancel, isLoading }: {
+  cycles: any[];
+  onSubmit: (data: CreateMeetingData) => void;
+  onCancel: () => void;
+  isLoading?: boolean;
+}) {
+  const { data: instructorsList } = useInstructors();
+  const [formData, setFormData] = useState<CreateMeetingData>({
+    cycleId: '',
+    instructorId: '',
+    scheduledDate: new Date().toISOString().split('T')[0],
+    startTime: '16:00',
+    endTime: '17:00',
+    activityType: 'frontal',
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSubmit(formData);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      <div>
+        <label className="form-label">מחזור *</label>
+        <select value={formData.cycleId} onChange={(e) => setFormData({ ...formData, cycleId: e.target.value })} className="form-input" required>
+          <option value="">בחר מחזור...</option>
+          {cycles.map((c: any) => (
+            <option key={c.id} value={c.id}>{c.name} — {c.course?.name} ({c.branch?.name})</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="form-label">מדריך *</label>
+        <select value={formData.instructorId} onChange={(e) => setFormData({ ...formData, instructorId: e.target.value })} className="form-input" required>
+          <option value="">בחר מדריך...</option>
+          {(instructorsList || []).map((i: any) => (
+            <option key={i.id} value={i.id}>{i.name}</option>
+          ))}
+        </select>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <label className="form-label">תאריך *</label>
+          <input type="date" value={formData.scheduledDate} onChange={(e) => setFormData({ ...formData, scheduledDate: e.target.value })} className="form-input" required />
+        </div>
+        <div>
+          <label className="form-label">שעת התחלה</label>
+          <input type="time" value={formData.startTime} onChange={(e) => setFormData({ ...formData, startTime: e.target.value })} className="form-input" />
+        </div>
+        <div>
+          <label className="form-label">שעת סיום</label>
+          <input type="time" value={formData.endTime} onChange={(e) => setFormData({ ...formData, endTime: e.target.value })} className="form-input" />
+        </div>
+      </div>
+      <div>
+        <label className="form-label">נושא</label>
+        <input type="text" value={formData.topic || ''} onChange={(e) => setFormData({ ...formData, topic: e.target.value })} className="form-input" placeholder="נושא הפגישה" />
+      </div>
+      <div className="flex justify-end gap-3 pt-4 border-t">
+        <button type="button" onClick={onCancel} className="btn btn-secondary">ביטול</button>
+        <button type="submit" className="btn btn-primary" disabled={isLoading || !formData.cycleId || !formData.instructorId}>
+          {isLoading ? 'יוצר...' : 'צור פגישה'}
+        </button>
+      </div>
+    </form>
   );
 }

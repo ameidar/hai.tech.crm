@@ -10,6 +10,7 @@ import {
   paginationSchema, 
   uuidSchema 
 } from '../types/schemas.js';
+import { logAudit, logUpdateAudit } from '../utils/audit.js';
 
 export const branchesRouter = Router();
 
@@ -105,6 +106,8 @@ branchesRouter.post('/', managerOrAdmin, async (req, res, next) => {
       data,
     });
 
+    await logAudit({ action: 'CREATE', entity: 'Branch', entityId: branch.id, newValue: { name: branch.name, city: branch.city, type: branch.type }, req });
+
     res.status(201).json(branch);
   } catch (error) {
     next(error);
@@ -117,10 +120,16 @@ branchesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     const id = uuidSchema.parse(req.params.id);
     const data = updateBranchSchema.parse(req.body);
 
+    const oldBranch = await prisma.branch.findUnique({ where: { id } });
+
     const branch = await prisma.branch.update({
       where: { id },
       data,
     });
+
+    if (oldBranch) {
+      await logUpdateAudit({ entity: 'Branch', entityId: id, oldRecord: oldBranch, newRecord: branch, req });
+    }
 
     res.json(branch);
   } catch (error) {
@@ -141,9 +150,15 @@ branchesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
       throw new AppError(400, 'Cannot delete branch with active cycles');
     }
 
+    const oldBranch = await prisma.branch.findUnique({ where: { id } });
+
     await prisma.branch.delete({
       where: { id },
     });
+
+    if (oldBranch) {
+      await logAudit({ action: 'DELETE', entity: 'Branch', entityId: id, oldValue: { name: oldBranch.name, city: oldBranch.city, type: oldBranch.type }, req });
+    }
 
     res.status(204).send();
   } catch (error) {
@@ -204,6 +219,8 @@ branchesRouter.post('/:id/orders', managerOrAdmin, async (req, res, next) => {
       },
     });
 
+    await logAudit({ action: 'CREATE', entity: 'InstitutionalOrder', entityId: order.id, newValue: { branchId, orderNumber: order.orderNumber, status: order.status }, req });
+
     res.status(201).json(order);
   } catch (error) {
     next(error);
@@ -216,6 +233,8 @@ branchesRouter.put('/:id/orders/:orderId', managerOrAdmin, async (req, res, next
     const orderId = uuidSchema.parse(req.params.orderId);
     const data = updateInstitutionalOrderSchema.parse(req.body);
 
+    const oldOrder = await prisma.institutionalOrder.findUnique({ where: { id: orderId } });
+
     const order = await prisma.institutionalOrder.update({
       where: { id: orderId },
       data: {
@@ -225,6 +244,10 @@ branchesRouter.put('/:id/orders/:orderId', managerOrAdmin, async (req, res, next
         endDate: data.endDate ? new Date(data.endDate) : undefined,
       },
     });
+
+    if (oldOrder) {
+      await logUpdateAudit({ entity: 'InstitutionalOrder', entityId: orderId, oldRecord: oldOrder, newRecord: order, req });
+    }
 
     res.json(order);
   } catch (error) {

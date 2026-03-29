@@ -15,7 +15,7 @@ export const cycleTypeEnum = z.enum(['private', 'institutional_per_child', 'inst
 /**
  * Cycle status enum
  */
-export const cycleStatusEnum = z.enum(['active', 'completed', 'cancelled']);
+export const cycleStatusEnum = z.enum(['active', 'completed', 'cancelled', 'frozen']);
 
 /**
  * Day of week enum
@@ -134,7 +134,7 @@ export const createCycleRegistrationSchema = z.object({
   status: z.enum(['registered', 'active', 'completed', 'cancelled', 'trial']).optional().default('registered'),
   amount: z.number().nonnegative().optional(),
   paymentStatus: z.enum(['unpaid', 'partial', 'paid']).optional(),
-  paymentMethod: z.enum(['credit', 'transfer', 'cash']).optional(),
+  paymentMethod: z.enum(['credit', 'transfer', 'cash', 'institutional']).optional(),
   invoiceLink: z.string().url().optional(),
   notes: z.string().optional(),
 });

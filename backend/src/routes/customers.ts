@@ -16,6 +16,7 @@ customersRouter.get('/', async (req, res, next) => {
     const { page, limit } = paginationSchema.parse(req.query);
     const search = req.query.search as string | undefined;
     const city = req.query.city as string | undefined;
+    const sortBy = req.query.sortBy as string | undefined; // 'lastPayment' | undefined
 
     const where = {
       ...(search && {
@@ -26,20 +27,65 @@ customersRouter.get('/', async (req, res, next) => {
         ],
       }),
       ...(city && { city }),
+      // When sortBy=lastPayment, only return customers who have at least one paid payment
+      ...(sortBy === 'lastPayment' && {
+        payments: { some: { status: 'paid' } },
+      }),
     };
 
-    const [customers, total] = await Promise.all([
-      prisma.customer.findMany({
-        where,
-        include: {
-          _count: { select: { students: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-      prisma.customer.count({ where }),
-    ]);
+    let customers: any[];
+    let total: number;
+
+    if (sortBy === 'lastPayment') {
+      // Sort by most recent paid payment — use raw query for efficiency
+      [customers, total] = await Promise.all([
+        prisma.customer.findMany({
+          where,
+          include: {
+            _count: { select: { students: true } },
+            payments: {
+              where: { status: 'paid' },
+              orderBy: { paidAt: 'desc' },
+              take: 1,
+              select: { id: true, amount: true, description: true, paidAt: true },
+            },
+          },
+          orderBy: {
+            payments: {
+              _count: 'desc', // fallback; actual sort below
+            },
+          },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        prisma.customer.count({ where }),
+      ]);
+
+      // Re-sort by actual latest payment date (Prisma doesn't support orderBy relation field directly)
+      customers = customers.sort((a: any, b: any) => {
+        const aDate = a.payments?.[0]?.paidAt ? new Date(a.payments[0].paidAt).getTime() : 0;
+        const bDate = b.payments?.[0]?.paidAt ? new Date(b.payments[0].paidAt).getTime() : 0;
+        return bDate - aDate;
+      });
+    } else {
+      [customers, total] = await Promise.all([
+        prisma.customer.findMany({
+          where,
+          include: {
+            _count: { select: { students: true } },
+            payments: {
+              where: { wooOrderId: { not: null }, status: 'paid' },
+              select: { id: true },
+              take: 1,
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        prisma.customer.count({ where }),
+      ]);
+    }
 
     const totalPages = Math.ceil(total / limit);
     res.json({
@@ -138,6 +184,7 @@ customersRouter.post('/', managerOrAdmin, async (req, res, next) => {
         address: data.address,
         city: data.city,
         notes: data.notes,
+        source: data.source ?? 'manual',
       },
       include: {
         _count: { select: { students: true } },
@@ -168,6 +215,30 @@ customersRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
 
     // Get old value for audit
     const oldCustomer = await prisma.customer.findUnique({ where: { id } });
+
+    // Check duplicate phone (exclude current customer)
+    if (data.phone) {
+      const phoneConflict = await prisma.customer.findFirst({
+        where: { phone: data.phone, id: { not: id } },
+      });
+      if (phoneConflict) {
+        throw new AppError(409, `לקוח עם מספר טלפון ${data.phone} כבר קיים: ${phoneConflict.name}`, {
+          existingCustomer: phoneConflict,
+        });
+      }
+    }
+
+    // Check duplicate email (exclude current customer)
+    if (data.email) {
+      const emailConflict = await prisma.customer.findFirst({
+        where: { email: data.email, id: { not: id } },
+      });
+      if (emailConflict) {
+        throw new AppError(409, `לקוח עם כתובת מייל ${data.email} כבר קיים: ${emailConflict.name}`, {
+          existingCustomer: emailConflict,
+        });
+      }
+    }
 
     const customer = await prisma.customer.update({
       where: { id },

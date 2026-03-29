@@ -3,10 +3,15 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
 import { AppError } from './errorHandler.js';
 import { UserRole } from '@prisma/client';
+import { prisma } from '../utils/prisma.js';
+
+// Throttle last_active updates: update at most every 60s per user
+const lastActiveUpdated = new Map<string, number>();
 
 export interface JwtPayload {
   userId: string;
   email: string;
+  name: string;
   role: UserRole;
 }
 
@@ -34,6 +39,18 @@ export const authenticate = (
   try {
     const decoded = jwt.verify(token, config.jwt.secret) as JwtPayload;
     req.user = decoded;
+
+    // Update last_active (throttled: once per 60s per user, fire-and-forget)
+    const now = Date.now();
+    const lastUpdate = lastActiveUpdated.get(decoded.userId) || 0;
+    if (now - lastUpdate > 60_000) {
+      lastActiveUpdated.set(decoded.userId, now);
+      prisma.user.update({
+        where: { id: decoded.userId },
+        data: { lastActive: new Date() }
+      }).catch(() => {}); // silent fail
+    }
+
     next();
   } catch (error) {
     return next(new AppError(401, 'Invalid or expired token'));
@@ -59,3 +76,6 @@ export const adminOnly = authorize('admin');
 
 // Middleware for admin or manager routes
 export const managerOrAdmin = authorize('admin', 'manager');
+
+// Middleware for sales + above (all non-instructor roles)
+export const salesOrAbove = authorize('admin', 'manager', 'sales');

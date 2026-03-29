@@ -1,6 +1,10 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { RefreshCw, Info } from 'lucide-react';
+import { RefreshCw, Info, Copy, Check, Receipt, Users, MessageSquare, Mail, Video, ExternalLink } from 'lucide-react';
 import Modal from './ui/Modal';
+import MeetingExpenses from './MeetingExpenses';
+import SendMessageModal from './SendMessageModal';
+import { useMeetingExpenses } from '../hooks/useExpenses';
 import { meetingStatusHebrew, cycleTypeHebrew, activityTypeHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
@@ -9,15 +13,42 @@ interface MeetingDetailModalProps {
   onClose: () => void;
   onRecalculate: (meetingId: string) => Promise<void>;
   isRecalculating: boolean;
+  isAdmin?: boolean;
 }
+
+const rateTypeLabels: Record<string, string> = {
+  preparation: 'תומך/הכנת חומרים',
+  online: 'אונליין',
+  frontal: 'פרונטלי',
+};
 
 export default function MeetingDetailModal({ 
   meeting, 
   onClose, 
   onRecalculate,
   isRecalculating,
+  isAdmin = false,
 }: MeetingDetailModalProps) {
+  const [copied, setCopied] = useState(false);
+  const [showMessageModal, setShowMessageModal] = useState(false);
+  const { data: expenses } = useMeetingExpenses(meeting?.id || '');
+
   if (!meeting) return null;
+  
+  // Find extra instructor expenses
+  const extraInstructorExpenses = (expenses || []).filter(e => e.type === 'extra_instructor' && e.instructor);
+  const totalExpenses = (expenses || []).reduce((sum, e) => e.status !== 'rejected' ? sum + Number(e.amount) : sum, 0);
+  
+  // Get adjusted profit values from meeting (includes cycle expense share)
+  const adjustedProfit = (meeting as any).adjustedProfit;
+  const cycleExpenseShare = (meeting as any).cycleExpenseShare || 0;
+  const displayProfit = adjustedProfit !== undefined ? adjustedProfit : Number(meeting.profit || 0);
+
+  const copyMeetingId = async () => {
+    await navigator.clipboard.writeText(meeting.id);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const formatTime = (time: string) => {
     if (!time) return '--:--';
@@ -99,7 +130,18 @@ export default function MeetingDetailModal({
           </div>
           <div>
             <span className="text-sm text-gray-500">מדריך</span>
-            <p className="font-medium">{meeting.instructor?.name || '-'}</p>
+            <div className="flex items-center gap-2">
+              <p className="font-medium">{meeting.instructor?.name || '-'}</p>
+              {meeting.instructor && (
+                <button
+                  onClick={() => setShowMessageModal(true)}
+                  className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                  title="שלח הודעה למדריך"
+                >
+                  <MessageSquare size={16} />
+                </button>
+              )}
+            </div>
           </div>
           <div>
             <span className="text-sm text-gray-500">סוג מחזור</span>
@@ -123,6 +165,78 @@ export default function MeetingDetailModal({
           )}
         </div>
 
+        {/* Zoom Details */}
+        {meeting.zoomJoinUrl && (
+          <div className="border-t pt-4">
+            <h4 className="font-semibold text-gray-900 flex items-center gap-2 mb-3">
+              <Video size={18} className="text-blue-500" />
+              פרטי זום
+            </h4>
+            <div className="p-4 bg-blue-50 rounded-lg space-y-2">
+              {meeting.zoomMeetingId && (
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-600">מזהה פגישה:</span>
+                  <span className="font-mono font-medium">{meeting.zoomMeetingId}</span>
+                </div>
+              )}
+              {meeting.zoomPassword && (
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-600">סיסמה:</span>
+                  <span className="font-mono font-medium">{meeting.zoomPassword}</span>
+                </div>
+              )}
+              {meeting.zoomHostEmail && (
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-600">מארח:</span>
+                  <span className="font-medium">{meeting.zoomHostEmail}</span>
+                </div>
+              )}
+              {meeting.zoomHostKey && (
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-600">מפתח מארח:</span>
+                  <span className="font-mono font-medium">{meeting.zoomHostKey}</span>
+                </div>
+              )}
+              <div className="flex gap-2 pt-2">
+                <a
+                  href={meeting.zoomJoinUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-primary btn-sm flex items-center gap-1"
+                >
+                  <ExternalLink size={14} />
+                  הצטרף לפגישה
+                </a>
+                {meeting.zoomStartUrl && (
+                  <a
+                    href={meeting.zoomStartUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-secondary btn-sm flex items-center gap-1"
+                  >
+                    <Video size={14} />
+                    התחל כמארח
+                  </a>
+                )}
+              </div>
+              {meeting.zoomRecordingUrl && (
+                <div className="pt-2 border-t border-blue-200">
+                  <a
+                    href={meeting.zoomRecordingUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-blue-600 hover:underline flex items-center gap-1"
+                  >
+                    <ExternalLink size={14} />
+                    צפה בהקלטה
+                    {meeting.zoomRecordingPassword && ` (סיסמה: ${meeting.zoomRecordingPassword})`}
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Financial Details */}
         <div className="border-t pt-4">
           <div className="flex justify-between items-center mb-4">
@@ -143,21 +257,58 @@ export default function MeetingDetailModal({
           </div>
 
           {meeting.status === 'completed' ? (
-            <div className="grid grid-cols-3 gap-4">
-              <div className="p-4 bg-green-50 rounded-lg text-center">
-                <span className="text-sm text-green-700">הכנסה</span>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(meeting.revenue)}</p>
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-4">
+                <div className="p-4 bg-green-50 rounded-lg text-center">
+                  <span className="text-sm text-green-700">הכנסה</span>
+                  <p className="text-2xl font-bold text-green-600">{formatCurrency(meeting.revenue)}</p>
+                </div>
+                <div className="p-4 bg-red-50 rounded-lg text-center">
+                  <span className="text-sm text-red-700">עלות מדריך</span>
+                  <p className="text-2xl font-bold text-red-600">{formatCurrency(meeting.instructorPayment)}</p>
+                </div>
+                <div className={`p-4 rounded-lg text-center ${displayProfit >= 0 ? 'bg-blue-50' : 'bg-red-50'}`}>
+                  <span className={`text-sm ${displayProfit >= 0 ? 'text-blue-700' : 'text-red-700'}`}>
+                    רווח {cycleExpenseShare > 0 ? '(כולל הוצאות מחזור)' : ''}
+                  </span>
+                  <p className={`text-2xl font-bold ${displayProfit >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                    {formatCurrency(displayProfit)}
+                  </p>
+                  {cycleExpenseShare > 0 && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      (לפני: {formatCurrency(meeting.profit)}, הוצ' מחזור: {formatCurrency(cycleExpenseShare)})
+                    </p>
+                  )}
+                </div>
               </div>
-              <div className="p-4 bg-red-50 rounded-lg text-center">
-                <span className="text-sm text-red-700">עלות מדריך</span>
-                <p className="text-2xl font-bold text-red-600">{formatCurrency(meeting.instructorPayment)}</p>
-              </div>
-              <div className={`p-4 rounded-lg text-center ${(meeting.profit || 0) >= 0 ? 'bg-blue-50' : 'bg-red-50'}`}>
-                <span className={`text-sm ${(meeting.profit || 0) >= 0 ? 'text-blue-700' : 'text-red-700'}`}>רווח</span>
-                <p className={`text-2xl font-bold ${(meeting.profit || 0) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
-                  {formatCurrency(meeting.profit)}
-                </p>
-              </div>
+              
+              {/* Extra Instructors Summary */}
+              {extraInstructorExpenses.length > 0 && (
+                <div className="p-3 bg-orange-50 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Users size={16} className="text-orange-600" />
+                    <span className="font-medium text-orange-800">מדריכים נוספים</span>
+                  </div>
+                  <div className="space-y-1">
+                    {extraInstructorExpenses.map(expense => (
+                      <div key={expense.id} className="flex justify-between text-sm">
+                        <span className="text-orange-700">
+                          {expense.instructor?.name} ({rateTypeLabels[expense.rateType || 'preparation']})
+                        </span>
+                        <span className="font-medium text-orange-800">{formatCurrency(Number(expense.amount))}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Total Expenses Summary */}
+              {totalExpenses > 0 && (
+                <div className="p-3 bg-gray-100 rounded-lg flex justify-between items-center">
+                  <span className="text-gray-600">סה"כ הוצאות נלוות:</span>
+                  <span className="font-bold text-gray-800">{formatCurrency(totalExpenses)}</span>
+                </div>
+              )}
             </div>
           ) : (
             <div className="text-center py-8 text-gray-500">
@@ -191,11 +342,58 @@ export default function MeetingDetailModal({
                   </>
                 )}
                 <p className="border-t pt-1 mt-2">
-                  • עלות מדריך: לפי תעריף {meeting.activityType === 'online' ? 'אונליין' : meeting.activityType === 'private_lesson' ? 'פרטי' : 'פרונטלי'}
+                  • עלות מדריך ראשי ({meeting.instructor?.name}): לפי תעריף {meeting.activityType === 'online' ? 'אונליין' : meeting.activityType === 'private_lesson' ? 'פרטי' : 'פרונטלי'}
                 </p>
+                {extraInstructorExpenses.length > 0 && (
+                  <>
+                    {extraInstructorExpenses.map(expense => (
+                      <p key={expense.id}>
+                        • מדריך נוסף ({expense.instructor?.name}): {expense.hours} שעות × תעריף {rateTypeLabels[expense.rateType || 'preparation']}
+                        {expense.instructor?.employmentType === 'employee' && ' × 1.3 (עלות מעסיק)'}
+                        {' = '}{formatCurrency(Number(expense.amount))}
+                      </p>
+                    ))}
+                  </>
+                )}
+                {totalExpenses > 0 && (
+                  <p className="border-t pt-1 mt-2 font-medium">
+                    • סה"כ הוצאות נלוות: {formatCurrency(totalExpenses)}
+                  </p>
+                )}
               </div>
             </div>
           )}
+        </div>
+
+        {/* Meeting Expenses */}
+        <div className="border-t pt-4">
+          <h4 className="font-semibold text-gray-900 flex items-center gap-2 mb-4">
+            <Receipt size={18} />
+            הוצאות נלוות
+          </h4>
+          <MeetingExpenses 
+            meetingId={meeting.id} 
+            isAdmin={isAdmin}
+            canSubmit={true}
+          />
+        </div>
+
+        {/* Meeting ID */}
+        <div className="border-t pt-4">
+          <div className="flex items-center justify-between p-3 bg-gray-100 rounded-lg">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500">Meeting ID:</span>
+              <code className="text-xs bg-white px-2 py-1 rounded border font-mono">{meeting.id}</code>
+            </div>
+            <button
+              onClick={copyMeetingId}
+              className="btn btn-secondary btn-sm flex items-center gap-1"
+              title="העתק ID"
+            >
+              {copied ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+              {copied ? 'הועתק!' : 'העתק'}
+            </button>
+          </div>
         </div>
 
         {/* Cycle Link */}
@@ -209,6 +407,14 @@ export default function MeetingDetailModal({
           </Link>
         </div>
       </div>
+
+      {/* Send Message Modal */}
+      {showMessageModal && meeting.instructor && (
+        <SendMessageModal
+          instructor={meeting.instructor}
+          onClose={() => setShowMessageModal(false)}
+        />
+      )}
     </Modal>
   );
 }

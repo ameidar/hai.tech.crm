@@ -31,15 +31,20 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       DATABASE_URL: postgresql://haitech:haitech_password@db:5432/haitech_crm?schema=public
       PORT: 3001
       NODE_ENV: production
+      TZ: Asia/Jerusalem
       JWT_SECRET: ${JWT_SECRET:-change-this-in-production}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-this-refresh-secret}
       JWT_EXPIRES_IN: 1d
       JWT_REFRESH_EXPIRES_IN: 7d
-      FRONTEND_URL: https://18f95599f0b7.ngrok-free.app
+      FRONTEND_URL: https://crm.orma-ai.com
       API_KEY: ${API_KEY:-haitech-crm-api-key-2026}
       ZOOM_WEBHOOK_URL: https://hook.eu1.make.com/feok703p7eao5btbutcrwpnoyihdlrmg
       GREEN_API_INSTANCE_ID: ${GREEN_API_INSTANCE_ID}
@@ -51,8 +56,47 @@ services:
       ZOOM_CLIENT_SECRET: ${ZOOM_CLIENT_SECRET}
       ZOOM_SECRET_TOKEN: ${ZOOM_SECRET_TOKEN}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      VIMEO_ACCESS_TOKEN: ${VIMEO_ACCESS_TOKEN}
+      WA_PHONE_NUMBER_ID: ${WA_PHONE_NUMBER_ID:-171389679383708}
+      WA_WABA_ID: ${WA_WABA_ID:-164031336788066}
+      WA_ACCESS_TOKEN: ${WA_ACCESS_TOKEN}
+      WA_VERIFY_TOKEN: ${WA_VERIFY_TOKEN:-haitech-wa-verify-2026}
+      WA_PHONE_NUMBER_ID_2: ${WA_PHONE_NUMBER_ID_2:-228042450389470}
+      WA_WABA_ID_2: ${WA_WABA_ID_2:-188758740996373}
+      WOO_SITE_URL: ${WOO_SITE_URL:-https://haitechdigitalcourses.hai.tech}
+      WOO_CONSUMER_KEY: ${WOO_CONSUMER_KEY}
+      WOO_CONSUMER_SECRET: ${WOO_CONSUMER_SECRET}
+      VAPI_API_KEY: ${VAPI_API_KEY}
+      VAPI_ASSISTANT_ID: ${VAPI_ASSISTANT_ID}
+      VAPI_PHONE_NUMBER_ID: ${VAPI_PHONE_NUMBER_ID}
+      MESSENGER_PAGE_ACCESS_TOKEN: ${MESSENGER_PAGE_ACCESS_TOKEN}
+      MESSENGER_VERIFY_TOKEN: ${MESSENGER_VERIFY_TOKEN:-haitech-messenger-verify-2026}
+      FB_PAGE_ID: ${FB_PAGE_ID:-124822734055754}
+      FB_AD_ACCOUNT_ID: ${FB_AD_ACCOUNT_ID:-act_1347423159481997}
+      FB_PAGE_ACCESS_TOKEN: ${FB_PAGE_ACCESS_TOKEN}
+      FB_WEBHOOK_VERIFY_TOKEN: ${FB_WEBHOOK_VERIFY_TOKEN:-haitech-fb-verify-2026}
+      INSTAGRAM_USER_ID: ${INSTAGRAM_USER_ID:-17841413820029937}
+      INSTAGRAM_PAGE_ACCESS_TOKEN: ${INSTAGRAM_PAGE_ACCESS_TOKEN}
+      INSTAGRAM_VERIFY_TOKEN: ${INSTAGRAM_VERIFY_TOKEN:-haitech-ig-verify-2026}
+      GA_PROPERTY_ID: ${GA_PROPERTY_ID:-399485645}
+      GA_SERVICE_ACCOUNT_JSON: ${GA_SERVICE_ACCOUNT_JSON}
+      LINKEDIN_CLIENT_ID: ${LINKEDIN_CLIENT_ID}
+      LINKEDIN_CLIENT_SECRET: ${LINKEDIN_CLIENT_SECRET}
+      GOOGLE_AI_API_KEY: ${GOOGLE_AI_API_KEY}
+      LINKEDIN_COMPANY_ID: ${LINKEDIN_COMPANY_ID:-hai-tech-way}
+      LINKEDIN_REDIRECT_URI: ${LINKEDIN_REDIRECT_URI:-https://crm.orma-ai.com/api/linkedin/callback}
+      GOOGLE_ADS_CUSTOMER_ID: ${GOOGLE_ADS_CUSTOMER_ID}
+      GOOGLE_ADS_DEVELOPER_TOKEN: ${GOOGLE_ADS_DEVELOPER_TOKEN}
+      GOOGLE_ADS_CLIENT_ID: ${GOOGLE_ADS_CLIENT_ID}
+      GOOGLE_ADS_CLIENT_SECRET: ${GOOGLE_ADS_CLIENT_SECRET}
+      GOOGLE_ADS_REFRESH_TOKEN: ${GOOGLE_ADS_REFRESH_TOKEN}
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend/credentials:/app/credentials:ro
     ports:
       - "3001:3001"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/api/health"]
       interval: 30s
@@ -64,6 +108,7 @@ services:
     image: redis:7-alpine
     container_name: haitech-redis
     restart: unless-stopped
+    command: redis-server --save 60 1 --replicaof no one
     ports:
       - "6379:6379"
     volumes:

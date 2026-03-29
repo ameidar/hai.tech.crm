@@ -1,0 +1,1723 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp, Search, PenSquare, Plus, CheckCircle, AlertCircle, CreditCard, Settings, Save } from 'lucide-react';
+import WaSendModal from '../components/WaSendModal';
+import WooPayModal from '../components/WooPayModal';
+import { useAuth } from '../context/AuthContext';
+
+// ─── Notification sound — singleton AudioContext ──────────────────────────────
+let _audioCtx: AudioContext | null = null;
+let _audioUnlocked = false;
+
+function getAudioCtx(): AudioContext {
+  if (!_audioCtx) {
+    _audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  }
+  return _audioCtx;
+}
+
+/** Call this inside a user-gesture handler (click/touchend) to unlock audio */
+function unlockAudio(): Promise<void> {
+  const ctx = getAudioCtx();
+  return ctx.resume().then(() => { _audioUnlocked = true; });
+}
+
+function isAudioUnlocked(): boolean {
+  return _audioUnlocked && !!_audioCtx && _audioCtx.state === 'running';
+}
+
+function _playDing(frequency: number, duration: number, volume: number) {
+  const ctx = getAudioCtx();
+  const osc  = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(frequency, ctx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(frequency * 0.5, ctx.currentTime + duration);
+  gain.gain.setValueAtTime(volume, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+  osc.start(ctx.currentTime);
+  osc.stop(ctx.currentTime + duration);
+}
+
+function playWaNotification() {
+  if (!isAudioUnlocked()) return; // silently skip — context not yet unlocked
+  try {
+    _playDing(830,  0.15, 0.4);
+    setTimeout(() => _playDing(1046, 0.15, 0.35), 160);
+    setTimeout(() => _playDing(1318, 0.25, 0.3),  320);
+  } catch {}
+}
+
+// ─── Types ──────────────────────────────────────────────────────────────────
+interface WaConversation {
+  id: string;
+  phone: string;
+  contactName?: string;
+  status: 'open' | 'pending' | 'closed';
+  unreadCount: number;
+  lastMessageAt?: string;
+  lastMessagePreview?: string;
+  leadName?: string;
+  leadEmail?: string;
+  childName?: string;
+  childAge?: number;
+  interests?: string;
+  leadType?: string;
+  summary?: string;
+  aiEnabled: boolean;
+  businessPhone?: string;
+  phoneNumberId?: string;
+  createdAt: string;
+}
+
+interface WaMessage {
+  id: string;
+  conversationId: string;
+  direction: 'inbound' | 'outbound';
+  content: string;
+  waMessageId?: string;
+  status: string;
+  tokensUsed?: number;
+  isAiGenerated: boolean;
+  createdAt: string;
+}
+
+interface WaTemplateComponent {
+  type: 'HEADER' | 'BODY' | 'FOOTER' | 'BUTTONS';
+  text?: string;
+}
+interface WaTemplate {
+  id?: string;
+  name: string;
+  status: string;
+  language: string;
+  components: WaTemplateComponent[];
+}
+
+// ─── API helpers ─────────────────────────────────────────────────────────────
+const BASE = '/api/wa';
+function authHeaders() {
+  const token = localStorage.getItem('accessToken');
+  return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+}
+async function api(path: string, opts?: RequestInit) {
+  const res = await fetch(`${BASE}${path}`, { headers: authHeaders(), ...opts });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+// ─── Format helpers ───────────────────────────────────────────────────────────
+function formatTime(iso: string) {
+  const d = new Date(iso);
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  if (isToday) return d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' });
+}
+
+function formatPhone(phone: string) {
+  return phone.replace(/^972/, '0').replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3');
+}
+
+// ─── Message status icon ──────────────────────────────────────────────────────
+function StatusIcon({ status }: { status: string }) {
+  if (status === 'read') return <CheckCheck size={14} className="text-blue-400" />;
+  if (status === 'delivered') return <CheckCheck size={14} className="text-gray-400" />;
+  if (status === 'sent') return <Check size={14} className="text-gray-400" />;
+  return <Clock size={14} className="text-gray-300" />;
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+export default function WhatsAppInbox() {
+  const [searchParams] = useSearchParams();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+  const [conversations, setConversations] = useState<WaConversation[]>([]);
+  const [selected, setSelected] = useState<WaConversation | null>(null);
+  const [messages, setMessages] = useState<WaMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [templates, setTemplates] = useState<WaTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<WaTemplate | null>(null);
+  const [templateVars, setTemplateVars] = useState<string[]>([]);
+  const [expandedTemplate, setExpandedTemplate] = useState<string | null>(null);
+  // Top-level view mode
+  const [viewMode, setViewMode] = useState<'inbox' | 'templates' | 'callbacks' | 'bot-settings' | 'broadcast'>('inbox');
+  // Broadcast state
+  const [broadcastTemplate, setBroadcastTemplate] = useState<WaTemplate | null>(null);
+  const [broadcastTemplates, setBroadcastTemplates] = useState<WaTemplate[]>([]);
+  const [broadcastRecipients, setBroadcastRecipients] = useState<{phone: string; name: string; cycleId?: string; cycleName?: string}[]>([]);
+  const [broadcastSelected, setBroadcastSelected] = useState<Set<string>>(new Set());
+  const [broadcastLoading, setBroadcastLoading] = useState(false);
+  const [broadcastSending, setBroadcastSending] = useState(false);
+  const [broadcastResults, setBroadcastResults] = useState<{sent: number; failed: number; results: any[]} | null>(null);
+  const [broadcastPhoneId, setBroadcastPhoneId] = useState<string>('');
+  const [broadcastSegment, setBroadcastSegment] = useState<'active-cycle' | 'all-customers' | 'leads'>('active-cycle');
+  // Bot settings
+  const [botSystemPrompt, setBotSystemPrompt] = useState('');
+  const [botKnowledgeBase, setBotKnowledgeBase] = useState('');
+  const [loadingBotConfig, setLoadingBotConfig] = useState(false);
+  const [savingBotConfig, setSavingBotConfig] = useState(false);
+  const [botConfigMsg, setBotConfigMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [botActiveTab, setBotActiveTab] = useState<'prompt' | 'kb'>('prompt');
+  // Template Manager state (top-level)
+  const [tmplMgrTab, setTmplMgrTab] = useState<'list' | 'create'>('list');
+  // Callback requests
+  const [callbackRequests, setCallbackRequests] = useState<any[]>([]);
+  const [callbackPending, setCallbackPending] = useState(0);
+  const [loadingCallbacks, setLoadingCallbacks] = useState(false);
+  // Audio unlock state
+  const [audioReady, setAudioReady] = useState(false);
+  // Create template (inside template modal)
+  const [showCreateTemplate, setShowCreateTemplate] = useState(false);
+  const [createForm, setCreateForm] = useState({ name: '', category: 'MARKETING', headerText: '', bodyText: '', footerText: '' });
+  const [exampleValues, setExampleValues] = useState<string[]>([]);
+  // Auto-sync example values count to variable count in body
+  const getVarCount = (text: string) => [...new Set(text.match(/\{\{\d+\}\}/g) || [])].length;
+  const [creating, setCreating] = useState(false);
+  const [createResult, setCreateResult] = useState<{ success: boolean; message: string } | null>(null);
+  // New conversation
+  const [showNewConv, setShowNewConv] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerResults, setCustomerResults] = useState<any[]>([]);
+  const [searchingCustomers, setSearchingCustomers] = useState(false);
+  const [newConvTarget, setNewConvTarget] = useState<{ phone: string; name: string } | null>(null);
+  const [templateSearch, setTemplateSearch] = useState('');
+  const [templatePhoneId, setTemplatePhoneId] = useState<string>('');
+  const [showPayModal, setShowPayModal] = useState(false);
+  const [activePhones, setActivePhones] = useState<{ phoneNumberId: string; businessPhone: string; label: string }[]>([]);
+  const [selectedFromPhone, setSelectedFromPhone] = useState<string>('');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  // Check if audio was already unlocked (e.g. from a previous interaction)
+  useEffect(() => {
+    if (isAudioUnlocked()) setAudioReady(true);
+  }, []);
+
+  // Load conversations
+  const loadConversations = useCallback(async () => {
+    try {
+      const data = await api('/conversations');
+      setConversations(data);
+    } catch (e) {
+      console.error('Failed to load conversations', e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Load messages for selected conversation
+  const loadMessages = useCallback(async (convId: string) => {
+    try {
+      const data = await api(`/conversations/${convId}/messages`);
+      setMessages(data);
+      // Mark as read locally
+      setConversations(prev => prev.map(c =>
+        c.id === convId ? { ...c, unreadCount: 0 } : c
+      ));
+    } catch (e) {
+      console.error('Failed to load messages', e);
+    }
+  }, []);
+
+  // SSE real-time updates
+  useEffect(() => {
+    const token = localStorage.getItem('accessToken');
+    const es = new EventSource(`/api/wa/events?token=${token}`);
+    eventSourceRef.current = es;
+
+    es.addEventListener('new_message', (e: MessageEvent) => {
+      const { conversationId, message } = JSON.parse(e.data);
+      // Play sound for inbound messages
+      if (message.direction === 'inbound') {
+        playWaNotification();
+      }
+      // Update messages if in active conversation
+      setSelected(prev => {
+        if (prev?.id === conversationId) {
+          setMessages(msgs => [...msgs, message]);
+        }
+        return prev;
+      });
+      // Update conversation preview — or fetch full list if conversation is new
+      setConversations(prev => {
+        const exists = prev.some(c => c.id === conversationId);
+        if (!exists) {
+          // New conversation arrived — reload full list
+          loadConversations();
+          return prev;
+        }
+        const updated = prev.map(c => {
+          if (c.id !== conversationId) return c;
+          return {
+            ...c,
+            lastMessagePreview: message.content.slice(0, 80),
+            lastMessageAt: message.createdAt,
+            unreadCount: message.direction === 'inbound' ? c.unreadCount + 1 : c.unreadCount
+          };
+        });
+        // Re-sort: most recent lastMessageAt first (like WhatsApp)
+        return [...updated].sort((a, b) => {
+          const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+          const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+          return tb - ta;
+        });
+      });
+    });
+
+    es.addEventListener('conversation_updated', (e: MessageEvent) => {
+      const updated = JSON.parse(e.data);
+      setConversations(prev => {
+        const mapped = prev.map(c => c.id === updated.id ? { ...c, ...updated } : c);
+        return [...mapped].sort((a, b) => {
+          const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+          const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+          return tb - ta;
+        });
+      });
+      setSelected(prev => prev?.id === updated.id ? { ...prev, ...updated } : prev);
+    });
+
+    es.addEventListener('message_status', (e: MessageEvent) => {
+      const { waMessageId, status } = JSON.parse(e.data);
+      setMessages(prev => prev.map(m => m.waMessageId === waMessageId ? { ...m, status } : m));
+    });
+
+    es.addEventListener('callback_request', () => {
+      setCallbackPending(prev => prev + 1);
+    });
+
+    return () => es.close();
+  }, []);
+
+  // Load callback requests
+  const loadCallbacks = useCallback(async (statusFilter?: string) => {
+    setLoadingCallbacks(true);
+    try {
+      const qs = statusFilter ? `?status=${statusFilter}` : '';
+      const data = await api(`/callbacks${qs}`);
+      setCallbackRequests(data);
+      const pending = data.filter((r: any) => r.status === 'pending').length;
+      setCallbackPending(pending);
+    } catch (e) {
+      console.error('Failed to load callbacks', e);
+    } finally {
+      setLoadingCallbacks(false);
+    }
+  }, []);
+
+  const resolveCallback = async (id: string) => {
+    await api(`/callbacks/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'done' }) });
+    setCallbackRequests(prev => prev.map(r => r.id === id ? { ...r, status: 'done' } : r));
+    setCallbackPending(prev => Math.max(0, prev - 1));
+  };
+
+  const loadBroadcastTemplates = useCallback(async (phoneNumberId?: string) => {
+    try {
+      const pid = phoneNumberId || broadcastPhoneId || activePhones[0]?.phoneNumberId || '';
+      const qs = pid ? `?phoneNumberId=${pid}` : '';
+      const data = await api(`/templates${qs}`);
+      setBroadcastTemplates(Array.isArray(data) ? data : []);
+      setBroadcastTemplate(null); // reset selection when phone changes
+    } catch (e) {
+      console.error('Failed to load broadcast templates', e);
+    }
+  }, [broadcastPhoneId, activePhones]);
+
+  // Reload templates when phone selector changes in broadcast tab
+  const handleBroadcastPhoneChange = (phoneId: string) => {
+    setBroadcastPhoneId(phoneId);
+    loadBroadcastTemplates(phoneId);
+  };
+
+  const loadBroadcastRecipients = useCallback(async (segment?: 'active-cycle' | 'all-customers' | 'leads') => {
+    setBroadcastLoading(true);
+    const seg = segment || broadcastSegment;
+    try {
+      const fetchApi = async (path: string) => {
+        const res = await fetch(`/api${path}`, { headers: authHeaders() });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      };
+
+      const normalize = (raw: string) => {
+        const d = raw.replace(/[^0-9]/g, '');
+        return d.startsWith('0') ? '972' + d.slice(1) : d;
+      };
+
+      const recipients: {phone: string; name: string; cycleName?: string}[] = [];
+      const seen = new Set<string>();
+
+      if (seg === 'active-cycle') {
+        const [r1, r2] = await Promise.all([
+          fetchApi('/registrations?limit=2000&status=active'),
+          fetchApi('/registrations?limit=2000&status=registered'),
+        ]);
+        for (const reg of [...(r1?.data || []), ...(r2?.data || [])]) {
+          const cust = reg.student?.customer;
+          if (!cust?.phone || !cust?.id || reg.cycle?.status !== 'active') continue;
+          if (seen.has(cust.id)) continue;
+          seen.add(cust.id);
+          recipients.push({ phone: normalize(cust.phone), name: cust.name || '', cycleName: reg.cycle?.name });
+        }
+      } else if (seg === 'all-customers') {
+        // Load all customers with phone, paginated
+        let page = 1;
+        while (true) {
+          const data = await fetchApi(`/customers?limit=5000&page=${page}`);
+          const items = data?.data || [];
+          for (const c of items) {
+            if (!c.phone || seen.has(c.id)) continue;
+            seen.add(c.id);
+            recipients.push({ phone: normalize(c.phone), name: c.name || '' });
+          }
+          if (!data?.pagination?.hasNext || recipients.length >= 5000) break;
+          page++;
+        }
+      } else if (seg === 'leads') {
+        let page = 1;
+        while (true) {
+          const data = await fetchApi(`/customers?limit=5000&page=${page}`);
+          const items = data?.data || [];
+          for (const c of items) {
+            if (!c.phone || seen.has(c.id)) continue;
+            if (c.leadStatus !== 'new' && c.leadStatus !== 'contacted') continue;
+            seen.add(c.id);
+            recipients.push({ phone: normalize(c.phone), name: c.name || '', cycleName: c.source || '' });
+          }
+          if (!data?.pagination?.hasNext || recipients.length >= 2000) break;
+          page++;
+        }
+      }
+
+      setBroadcastRecipients(recipients);
+      setBroadcastSelected(new Set(recipients.map(r => r.phone)));
+    } catch (e) {
+      console.error('Failed to load broadcast recipients', e);
+    } finally {
+      setBroadcastLoading(false);
+    }
+  }, [broadcastSegment]);
+
+  const sendBroadcast = async () => {
+    if (!broadcastTemplate || broadcastSelected.size === 0) return;
+    setBroadcastSending(true);
+    setBroadcastResults(null);
+    try {
+      const recipients = broadcastRecipients
+        .filter(r => broadcastSelected.has(r.phone))
+        .map(r => ({ phone: r.phone, name: r.name }));
+
+      // Build components for image header if applicable
+      const headerComp = (broadcastTemplate.components as any[])?.find((c) => c.type === 'HEADER' && c.format === 'IMAGE');
+      const components = headerComp ? [{
+        type: 'header',
+        parameters: [{ type: 'image', image: { link: (headerComp.example?.header_handle?.[0]) || '' } }]
+      }] : [];
+
+      const data = await api('/broadcast', {
+        method: 'POST',
+        body: JSON.stringify({
+          templateName: broadcastTemplate.name,
+          language: broadcastTemplate.language || 'he',
+          components,
+          phoneNumberId: broadcastPhoneId || activePhones[0]?.phoneNumberId,
+          recipients,
+          delayMs: 4000,
+          previewText: (broadcastTemplate.components as any[])?.find((c: any) => c.type === 'BODY')?.text?.slice(0, 100)
+        })
+      });
+      setBroadcastResults(data);
+    } catch (e) {
+      console.error('Broadcast failed', e);
+    } finally {
+      setBroadcastSending(false);
+    }
+  };
+
+  const loadBotConfig = useCallback(async () => {
+    setLoadingBotConfig(true);
+    try {
+      const data = await api('/bot-config');
+      setBotSystemPrompt(data.systemPrompt || '');
+      setBotKnowledgeBase(data.knowledgeBase || '{}');
+    } catch (e) {
+      console.error('Failed to load bot config', e);
+    } finally {
+      setLoadingBotConfig(false);
+    }
+  }, []);
+
+  const saveBotConfig = async () => {
+    setSavingBotConfig(true);
+    setBotConfigMsg(null);
+    try {
+      await api('/bot-config', {
+        method: 'PUT',
+        body: JSON.stringify({ systemPrompt: botSystemPrompt, knowledgeBase: botKnowledgeBase })
+      });
+      setBotConfigMsg({ ok: true, text: '✅ הגדרות נשמרו בהצלחה! הבוט יעשה שימוש בהן מיד.' });
+    } catch (e: any) {
+      setBotConfigMsg({ ok: false, text: '❌ שגיאה בשמירה: ' + (e.message || 'Unknown error') });
+    } finally {
+      setSavingBotConfig(false);
+    }
+  };
+
+  useEffect(() => { loadConversations(); loadCallbacks(); }, [loadConversations, loadCallbacks]);
+
+  // Auto-select conversation from URL param (?conv=<id>)
+  useEffect(() => {
+    const convId = searchParams.get('conv');
+    if (convId && conversations.length > 0) {
+      const target = conversations.find(c => c.id === convId);
+      if (target) setSelected(target);
+    }
+  }, [searchParams, conversations]);
+
+  // Load active phones for multi-number support
+  useEffect(() => {
+    api('/phones').then(data => {
+      setActivePhones(data);
+      if (data.length > 0) { setSelectedFromPhone(data[0].phoneNumberId); setTemplatePhoneId(data[0].phoneNumberId); }
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (selected) loadMessages(selected.id);
+  }, [selected, loadMessages]);
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (container) container.scrollTop = container.scrollHeight;
+  }, [messages]);
+
+  const selectConversation = (conv: WaConversation) => {
+    setSelected(conv);
+    setMessages([]);
+  };
+
+  const sendMessage = async () => {
+    if (!selected || !input.trim() || sending) return;
+    const text = input.trim();
+    setInput('');
+    setSending(true);
+    try {
+      await api('/send', {
+        method: 'POST',
+        body: JSON.stringify({ conversationId: selected.id, text })
+      });
+    } catch (e) {
+      alert('שגיאה בשליחת הודעה');
+      setInput(text);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const toggleAI = async (conv: WaConversation) => {
+    const updated = await api(`/conversations/${conv.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ aiEnabled: !conv.aiEnabled })
+    });
+    setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, ...updated } : c));
+    if (selected?.id === conv.id) setSelected(s => s ? { ...s, aiEnabled: !s.aiEnabled } : s);
+  };
+
+  const closeConversation = async (conv: WaConversation) => {
+    await api(`/conversations/${conv.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: conv.status === 'closed' ? 'open' : 'closed' })
+    });
+    loadConversations();
+  };
+
+  // Customer search for new conversation
+  const searchCustomers = useCallback(async (q: string) => {
+    if (!q.trim()) { setCustomerResults([]); return; }
+    setSearchingCustomers(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const res = await fetch(`/api/customers?search=${encodeURIComponent(q)}&limit=10`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      setCustomerResults(Array.isArray(data) ? data : (data.data || []));
+    } catch { setCustomerResults([]); }
+    finally { setSearchingCustomers(false); }
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => searchCustomers(customerSearch), 300);
+    return () => clearTimeout(timer);
+  }, [customerSearch, searchCustomers]);
+
+  const loadTemplates = async (forceReload = false, phoneNumberId?: string) => {
+    if (templates.length > 0 && !forceReload) { setShowTemplateModal(true); return; }
+    setLoadingTemplates(true);
+    try {
+      const pid = phoneNumberId || templatePhoneId || selected?.phoneNumberId || selectedFromPhone || '';
+      const qs = pid ? `?phoneNumberId=${pid}` : '';
+      const data = await api(`/templates${qs}`);
+      setTemplates(data);
+      setShowTemplateModal(true);
+    } catch (e) {
+      alert('שגיאה בטעינת תבניות');
+    } finally {
+      setLoadingTemplates(false);
+    }
+  };
+
+  const submitCreateTemplate = async () => {
+    if (!createForm.name.trim() || !createForm.bodyText.trim()) {
+      setCreateResult({ success: false, message: 'שם ותוכן הגוף הם שדות חובה' });
+      return;
+    }
+    setCreating(true);
+    setCreateResult(null);
+    try {
+      const resp = await api('/templates', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: createForm.name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_'),
+          category: createForm.category,
+          headerText: createForm.headerText.trim() || undefined,
+          bodyText: createForm.bodyText.trim(),
+          footerText: createForm.footerText.trim() || undefined,
+          examples: exampleValues.filter(Boolean).length > 0 ? exampleValues : undefined,
+          phoneNumberId: selectedFromPhone || undefined,
+        })
+      });
+      setCreateResult({ success: true, message: `נוצר! סטטוס: ${resp.status || 'PENDING'}. Meta תאשר עד 24 שעות.` });
+      setCreateForm({ name: '', category: 'MARKETING', headerText: '', bodyText: '', footerText: '' });
+      setExampleValues([]);
+      setTimeout(() => { setShowCreateTemplate(false); setCreateResult(null); loadTemplates(true); }, 2500);
+    } catch (e: any) {
+      let msg = 'שגיאה ביצירת תבנית';
+      try { const p = JSON.parse(e.message); msg = p?.details?.error?.message || p?.error || msg; } catch {}
+      setCreateResult({ success: false, message: msg });
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const getBodyText = (tmpl: WaTemplate) =>
+    tmpl.components.find(c => c.type === 'BODY')?.text || '';
+
+  const countVars = (text: string) => {
+    const matches = text.match(/\{\{\d+\}\}/g) || [];
+    return [...new Set(matches)].length;
+  };
+
+  const selectTemplate = (tmpl: WaTemplate) => {
+    setSelectedTemplate(tmpl);
+    const body = getBodyText(tmpl);
+    const varCount = countVars(body);
+    setTemplateVars(Array(varCount).fill(''));
+  };
+
+  const renderPreview = () => {
+    if (!selectedTemplate) return '';
+    let text = getBodyText(selectedTemplate);
+    templateVars.forEach((v, i) => {
+      text = text.replace(new RegExp(`\\{\\{${i + 1}\\}\\}`, 'g'), v || `{{${i + 1}}}`);
+    });
+    return text;
+  };
+
+  const sendTemplate = async () => {
+    if (!selected || !selectedTemplate) return;
+    setSending(true);
+    try {
+      await api('/send-template', {
+        method: 'POST',
+        body: JSON.stringify({
+          conversationId: selected.id,
+          templateName: selectedTemplate.name,
+          language: selectedTemplate.language,
+          variables: templateVars,
+          previewText: renderPreview()
+        })
+      });
+      setShowTemplateModal(false);
+      setSelectedTemplate(null);
+      setTemplateVars([]);
+    } catch (e) {
+      alert('שגיאה בשליחת תבנית');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const totalUnread = conversations.reduce((s, c) => s + c.unreadCount, 0);
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-50 overflow-hidden" dir="rtl">
+
+      {/* ── Top Tab Bar ── */}
+      <div className="bg-white border-b border-gray-200 flex items-center gap-1 px-4 flex-shrink-0">
+        <button
+          onClick={() => setViewMode('inbox')}
+          className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'inbox' ? 'border-green-500 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          <MessageCircle size={16} />
+          שיחות
+          {totalUnread > 0 && (
+            <span className="bg-green-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">{totalUnread}</span>
+          )}
+        </button>
+        <button
+          onClick={() => { setViewMode('templates'); setTmplMgrTab('list'); if (templates.length === 0) loadTemplates(); }}
+          className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'templates' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          <FileText size={16} />
+          ניהול תבניות
+        </button>
+        <button
+          onClick={() => { setViewMode('callbacks'); loadCallbacks(); }}
+          className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'callbacks' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          📞 בקשות חזרה
+          {callbackPending > 0 && (
+            <span className="bg-orange-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">{callbackPending}</span>
+          )}
+        </button>
+
+        {/* Broadcast tab */}
+        <button
+          onClick={() => { setViewMode('broadcast'); if (broadcastRecipients.length === 0) loadBroadcastRecipients(); if (broadcastTemplates.length === 0) loadBroadcastTemplates(); }}
+          className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'broadcast' ? 'border-red-500 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          📢 Broadcast
+        </button>
+
+        {/* Bot Settings tab — admin only */}
+        {isAdmin && (
+          <button
+            onClick={() => { setViewMode('bot-settings'); if (!botSystemPrompt) loadBotConfig(); }}
+            className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'bot-settings' ? 'border-purple-500 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <Settings size={16} />
+            הגדרות בוט
+          </button>
+        )}
+
+        {/* Audio unlock button — shown until user enables sound */}
+        <div className="mr-auto pr-2">
+          {!audioReady ? (
+            <button
+              onClick={() => unlockAudio().then(() => { setAudioReady(true); playWaNotification(); })}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-300 text-amber-700 rounded-lg text-xs font-medium hover:bg-amber-100 transition-colors animate-pulse"
+              title="לחץ להפעלת צליל התראות"
+            >
+              🔔 הפעל צליל
+            </button>
+          ) : (
+            <span className="text-xs text-green-600 flex items-center gap-1">🔔 צליל פעיל</span>
+          )}
+        </div>
+      </div>
+
+      {/* ── Template Manager View ── */}
+      {viewMode === 'templates' && (
+        <div className="flex flex-1 overflow-hidden">
+          {/* Template list */}
+          <div className="w-72 bg-white border-l border-gray-200 flex flex-col flex-shrink-0">
+            <div className="p-3 border-b border-gray-100 flex items-center justify-between">
+              <span className="text-xs font-medium text-gray-500">{templates.length} תבניות ({templates.filter(t => t.status === 'APPROVED').length} מאושרות)</span>
+              <button
+                onClick={() => setTmplMgrTab('create')}
+                className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 font-medium"
+              >
+                <Plus size={14} /> חדשה
+              </button>
+            </div>
+            {activePhones.length > 1 && (
+              <div className="px-3 py-2 border-b border-gray-100">
+                <select
+                  value={templatePhoneId}
+                  onChange={e => { setTemplatePhoneId(e.target.value); loadTemplates(true, e.target.value); }}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  dir="rtl"
+                >
+                  {activePhones.map(p => (
+                    <option key={p.phoneNumberId} value={p.phoneNumberId}>{p.label} ({p.businessPhone})</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="px-3 py-2 border-b border-gray-100">
+              <input
+                type="text"
+                value={templateSearch}
+                onChange={e => setTemplateSearch(e.target.value)}
+                placeholder="חיפוש תבנית..."
+                dir="rtl"
+                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+              />
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {loadingTemplates ? (
+                <div className="flex items-center justify-center p-6 text-gray-400 gap-2">
+                  <RefreshCw size={16} className="animate-spin" /> טוען...
+                </div>
+              ) : templates.filter(t => !templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase())).map(tmpl => {
+                const body = getBodyText(tmpl);
+                const varCount = countVars(body);
+                return (
+                  <div key={tmpl.name}
+                    onClick={() => { setSelectedTemplate(tmpl); setTmplMgrTab('list'); }}
+                    className={`border-b border-gray-100 cursor-pointer px-3 py-3 hover:bg-gray-50 transition-colors ${selectedTemplate?.name === tmpl.name && tmplMgrTab === 'list' ? 'bg-blue-50 border-r-2 border-r-blue-400' : ''}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-gray-800 truncate flex-1">{tmpl.name.replace(/_/g, ' ')}</p>
+                      {tmpl.status !== 'APPROVED' && (
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${tmpl.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-600'}`}>
+                          {tmpl.status === 'PENDING' ? '⏳ ממתין' : '❌ נדחה'}
+                        </span>
+                      )}
+                    </div>
+                    {varCount > 0 && <span className="text-xs text-orange-400">{varCount} משתנים</span>}
+                    {body && <p className="text-xs text-gray-400 truncate mt-0.5">{body.slice(0, 60)}</p>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Template preview / create form */}
+          <div className="flex-1 bg-white overflow-y-auto p-6">
+            {tmplMgrTab === 'create' ? (
+              <div className="max-w-lg">
+                <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2">
+                  <Plus size={20} className="text-blue-500" /> תבנית חדשה
+                </h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-600 block mb-1">שם תבנית <span className="text-gray-400 text-xs">(אנגלית + קווים תחתיים)</span></label>
+                    <input type="text" value={createForm.name} dir="ltr"
+                      onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
+                      placeholder="example_template_name"
+                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                    {createForm.name && <p className="text-xs text-gray-400 mt-1">→ {createForm.name.toLowerCase().replace(/[^a-z0-9_]/g,'_')}</p>}
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600 block mb-1">קטגוריה</label>
+                    <select value={createForm.category}
+                      onChange={e => setCreateForm(f => ({ ...f, category: e.target.value }))}
+                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+                      <option value="MARKETING">MARKETING — שיווקי</option>
+                      <option value="UTILITY">UTILITY — שירותי / עסקי</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600 block mb-1">כותרת עליונה <span className="text-gray-400 text-xs">(אופציונלי)</span></label>
+                    <input type="text" value={createForm.headerText}
+                      onChange={e => setCreateForm(f => ({ ...f, headerText: e.target.value }))}
+                      placeholder="דרך ההייטק"
+                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-sm font-medium text-gray-600">גוף ההודעה *</label>
+                      <div className="flex gap-1">
+                        {[1,2,3].map(n => (
+                          <button key={n} onClick={() => setCreateForm(f => ({...f, bodyText: f.bodyText + `{{${n}}}`}))}
+                            className="text-xs bg-orange-50 text-orange-600 border border-orange-200 rounded px-2 py-1 hover:bg-orange-100">
+                            +{`{{${n}}}`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <textarea value={createForm.bodyText}
+                      onChange={e => setCreateForm(f => ({ ...f, bodyText: e.target.value }))}
+                      placeholder={`היי {{1}},\n\nכאן {{2}} מדרך ההייטק...\n\nהודעתך כאן.`}
+                      rows={6}
+                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none" />
+                    <p className="text-xs text-gray-400 mt-1">השתמש ב-{'{{1}}'}, {'{{2}}'} עבור ערכים דינמיים</p>
+                  </div>
+
+                  {/* Example values — required by Meta when using variables */}
+                  {getVarCount(createForm.bodyText) > 0 && (
+                    <div className="bg-orange-50 border border-orange-100 rounded-xl p-4">
+                      <p className="text-sm font-medium text-orange-700 mb-1">⚠️ ערכי דוגמה — חובה ל-Meta</p>
+                      <p className="text-xs text-orange-600 mb-3">מלא ערך לדוגמה לכל משתנה כדי שMeta תאשר את התבנית</p>
+                      {Array.from({ length: getVarCount(createForm.bodyText) }, (_, i) => (
+                        <div key={i} className="mb-2">
+                          <label className="text-xs text-orange-600 block mb-1">{'{{' + (i + 1) + '}}'} — ערך לדוגמה</label>
+                          <input
+                            type="text"
+                            value={exampleValues[i] || ''}
+                            onChange={e => {
+                              const newEx = [...exampleValues];
+                              newEx[i] = e.target.value;
+                              setExampleValues(newEx);
+                            }}
+                            placeholder={`לדוגמה: ${i === 0 ? 'יוסי' : i === 1 ? 'רחל' : 'ערך'}`}
+                            className="w-full border border-orange-200 bg-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-sm font-medium text-gray-600 block mb-1">כותרת תחתונה <span className="text-gray-400 text-xs">(אופציונלי)</span></label>
+                    <input type="text" value={createForm.footerText} dir="ltr"
+                      onChange={e => setCreateForm(f => ({ ...f, footerText: e.target.value }))}
+                      placeholder="www.hai.tech"
+                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                  </div>
+                  {createResult && (
+                    <div className={`flex items-start gap-2 p-4 rounded-xl text-sm ${createResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                      {createResult.success ? <CheckCircle size={18} className="flex-shrink-0 mt-0.5" /> : <AlertCircle size={18} className="flex-shrink-0 mt-0.5" />}
+                      <span>{createResult.message}</span>
+                    </div>
+                  )}
+                  <button onClick={submitCreateTemplate}
+                    disabled={creating || !createForm.name.trim() || !createForm.bodyText.trim()}
+                    className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-gray-200 text-white rounded-xl py-3 font-medium flex items-center justify-center gap-2 transition-colors">
+                    {creating ? <RefreshCw size={16} className="animate-spin" /> : <Plus size={16} />}
+                    {creating ? 'שולח לאישור...' : 'שלח לאישור Meta'}
+                  </button>
+                  <p className="text-xs text-gray-400 text-center">⏳ Meta מאשרת תבניות תוך כמה שעות עד יום עסקים</p>
+                </div>
+              </div>
+            ) : selectedTemplate && tmplMgrTab === 'list' ? (
+              <div className="max-w-lg">
+                <h3 className="font-bold text-gray-800 mb-2">{selectedTemplate.name.replace(/_/g, ' ')}</h3>
+                <span className="inline-block bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full mb-4">מאושר ✓</span>
+                {selectedTemplate.components.map((c, i) => c.text ? (
+                  <div key={i} className="mb-4">
+                    <p className="text-xs font-medium text-gray-400 mb-1">{c.type}</p>
+                    <div className={`rounded-xl p-4 text-sm whitespace-pre-wrap leading-relaxed ${c.type === 'BODY' ? 'bg-green-50 border border-green-100 text-gray-800' : 'bg-gray-50 text-gray-600'}`}>
+                      {c.text}
+                    </div>
+                  </div>
+                ) : null)}
+                <button onClick={() => { loadTemplates(true); }}
+                  className="mt-4 flex items-center gap-1.5 text-sm text-blue-500 hover:text-blue-700">
+                  <RefreshCw size={14} /> רענן רשימה
+                </button>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-gray-400 h-full">
+                <FileText size={40} className="mb-3 text-gray-300" />
+                <p className="font-medium">בחר תבנית לתצוגה מקדימה</p>
+                <p className="text-sm mt-1">או צור תבנית חדשה</p>
+                <button onClick={() => setTmplMgrTab('create')}
+                  className="mt-4 flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-blue-600">
+                  <Plus size={16} /> תבנית חדשה
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Callback Requests View ── */}
+      {viewMode === 'callbacks' && (
+        <div className="flex-1 overflow-y-auto p-6" dir="rtl">
+          <div className="max-w-3xl mx-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-800">📞 בקשות חזרה מלקוחות</h2>
+              <div className="flex gap-2">
+                <button onClick={() => loadCallbacks('pending')} className="text-xs px-3 py-1.5 rounded-lg bg-orange-100 text-orange-700 hover:bg-orange-200 font-medium">ממתינות</button>
+                <button onClick={() => loadCallbacks()} className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium">הכל</button>
+              </div>
+            </div>
+
+            {loadingCallbacks ? (
+              <div className="text-center text-gray-400 py-12">טוען...</div>
+            ) : callbackRequests.length === 0 ? (
+              <div className="text-center text-gray-400 py-12">אין בקשות חזרה</div>
+            ) : (
+              <div className="space-y-3">
+                {callbackRequests.map(r => (
+                  <div key={r.id} className={`bg-white rounded-xl border p-4 flex gap-4 items-start ${r.status === 'done' ? 'opacity-60' : 'border-orange-200 shadow-sm'}`}>
+                    <div className="text-2xl">{r.status === 'done' ? '✅' : '📞'}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-gray-800">{r.contactName || r.phone}</span>
+                        <span className="text-gray-400 text-sm">{r.phone}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${r.status === 'done' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                          {r.status === 'done' ? 'טופל' : 'ממתין'}
+                        </span>
+                      </div>
+                      <p className="text-gray-600 text-sm mt-1 bg-gray-50 rounded-lg px-3 py-2 border-r-4 border-orange-300">
+                        {r.message}
+                      </p>
+                      <div className="flex items-center gap-3 mt-2 flex-wrap">
+                        <span className="text-xs text-gray-400">{new Date(r.createdAt).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' })}</span>
+                        <button
+                          onClick={() => { setViewMode('inbox'); const conv = conversations.find(c => c.id === r.conversationId); if (conv) setSelected(conv); }}
+                          className="text-xs text-blue-600 hover:underline"
+                        >פתח שיחה →</button>
+                      </div>
+                    </div>
+                    {r.status === 'pending' && (
+                      <button
+                        onClick={() => resolveCallback(r.id)}
+                        className="flex-shrink-0 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-lg text-xs font-medium"
+                      >
+                        סמן כטופל ✓
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Bot Settings View ── */}
+      {viewMode === 'bot-settings' && isAdmin && (
+        <div className="flex-1 overflow-hidden flex flex-col" dir="rtl">
+          {/* Sub-tabs */}
+          <div className="bg-white border-b border-gray-200 flex items-center gap-2 px-6 flex-shrink-0">
+            <button onClick={() => setBotActiveTab('prompt')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${botActiveTab === 'prompt' ? 'border-purple-500 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+              📝 System Prompt
+            </button>
+            <button onClick={() => setBotActiveTab('kb')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${botActiveTab === 'kb' ? 'border-purple-500 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+              📚 Knowledge Base (JSON)
+            </button>
+          </div>
+
+          {loadingBotConfig ? (
+            <div className="flex-1 flex items-center justify-center text-gray-400">טוען הגדרות...</div>
+          ) : (
+            <div className="flex-1 flex flex-col overflow-hidden p-4 gap-3">
+              {botActiveTab === 'prompt' ? (
+                <div className="flex-1 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold text-gray-800">System Prompt</h3>
+                      <p className="text-xs text-gray-500">ההוראות לבוט — אופי, כללי התנהגות, תסריט שיחה</p>
+                    </div>
+                    <span className="text-xs text-gray-400">{botSystemPrompt.length.toLocaleString()} תווים</span>
+                  </div>
+                  <textarea
+                    value={botSystemPrompt}
+                    onChange={e => setBotSystemPrompt(e.target.value)}
+                    className="flex-1 border border-gray-300 rounded-xl p-4 font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-purple-400 bg-gray-50 text-gray-800 leading-relaxed"
+                    placeholder="הכנס כאן את ה-system prompt..."
+                    dir="rtl"
+                    style={{ minHeight: '400px' }}
+                  />
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold text-gray-800">Knowledge Base</h3>
+                      <p className="text-xs text-gray-500">המידע שהבוט מכיר — קורסים, מחירים, שאלות נפוצות (פורמט JSON)</p>
+                    </div>
+                    <span className="text-xs text-gray-400">{botKnowledgeBase.length.toLocaleString()} תווים</span>
+                  </div>
+                  <textarea
+                    value={botKnowledgeBase}
+                    onChange={e => setBotKnowledgeBase(e.target.value)}
+                    className="flex-1 border border-gray-300 rounded-xl p-4 font-mono text-xs resize-none focus:outline-none focus:ring-2 focus:ring-purple-400 bg-gray-50 text-gray-800 leading-relaxed"
+                    placeholder='{"courses": [...], "faq": [...]}'
+                    dir="ltr"
+                    style={{ minHeight: '400px' }}
+                  />
+                  <p className="text-xs text-amber-600">⚠️ חייב להיות JSON תקין. שגיאה תמנע שמירה.</p>
+                </div>
+              )}
+
+              {/* Save button + status */}
+              <div className="flex items-center gap-3 flex-shrink-0">
+                <button
+                  onClick={saveBotConfig}
+                  disabled={savingBotConfig}
+                  className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-5 py-2.5 rounded-xl font-medium text-sm disabled:opacity-50 transition-colors"
+                >
+                  <Save size={16} />
+                  {savingBotConfig ? 'שומר...' : 'שמור הגדרות'}
+                </button>
+                <button
+                  onClick={loadBotConfig}
+                  className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-100"
+                >
+                  ↺ טען מחדש
+                </button>
+                {botConfigMsg && (
+                  <span className={`text-sm ${botConfigMsg.ok ? 'text-green-600' : 'text-red-600'}`}>
+                    {botConfigMsg.text}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Broadcast View ── */}
+      {viewMode === 'broadcast' && (
+        <div className="flex-1 overflow-y-auto p-6" dir="rtl">
+          <div className="max-w-3xl mx-auto space-y-6">
+            <h2 className="text-xl font-bold text-gray-800">📢 Broadcast — שליחה מרובה</h2>
+
+            {/* Step 1: Choose template */}
+            <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
+              <h3 className="font-semibold text-gray-700 text-sm">1. בחר תבנית</h3>
+              <div className="flex gap-3 items-center flex-wrap">
+                {activePhones.length > 1 && (
+                  <select
+                    value={broadcastPhoneId || activePhones[0]?.phoneNumberId || ''}
+                    onChange={e => handleBroadcastPhoneChange(e.target.value)}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+                    dir="ltr"
+                  >
+                    {activePhones.map(p => (
+                      <option key={p.phoneNumberId} value={p.phoneNumberId}>{p.label}</option>
+                    ))}
+                  </select>
+                )}
+                <select
+                  value={broadcastTemplate?.name || ''}
+                  onChange={e => setBroadcastTemplate(broadcastTemplates.find(t => t.name === e.target.value) || null)}
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300 min-w-[240px]"
+                >
+                  <option value="">-- בחר תבנית --</option>
+                  {broadcastTemplates.filter(t => t.status === 'APPROVED').map(t => (
+                    <option key={t.name} value={t.name}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+              {broadcastTemplate && (
+                <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700 whitespace-pre-wrap">
+                  {broadcastTemplate.components?.find((c: any) => c.type === 'BODY')?.text || '—'}
+                </div>
+              )}
+            </div>
+
+            {/* Step 2: Recipients */}
+            <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h3 className="font-semibold text-gray-700 text-sm">2. נמענים</h3>
+                <div className="flex gap-2 items-center flex-wrap">
+                  <select
+                    value={broadcastSegment}
+                    onChange={e => {
+                      const seg = e.target.value as typeof broadcastSegment;
+                      setBroadcastSegment(seg);
+                      loadBroadcastRecipients(seg);
+                    }}
+                    className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-red-300"
+                  >
+                    <option value="active-cycle">🟢 מחזור פעיל בלבד</option>
+                    <option value="all-customers">👥 כל הלקוחות</option>
+                    <option value="leads">🎯 לידים בלבד</option>
+                  </select>
+                  <span className="text-xs text-gray-500">נבחרו {broadcastSelected.size} מתוך {broadcastRecipients.length}</span>
+                  <button onClick={() => setBroadcastSelected(new Set(broadcastRecipients.map(r => r.phone)))} className="text-xs text-blue-500 hover:underline">בחר הכל</button>
+                  <button onClick={() => setBroadcastSelected(new Set())} className="text-xs text-gray-400 hover:underline">נקה</button>
+                  <button onClick={() => loadBroadcastRecipients()} disabled={broadcastLoading} className="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded-lg">
+                    {broadcastLoading ? '...' : '🔄 טען'}
+                  </button>
+                </div>
+              </div>
+              {broadcastLoading ? (
+                <div className="text-sm text-gray-400 text-center py-4">טוען נמענים...</div>
+              ) : (
+                <div className="max-h-64 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-50">
+                  {broadcastRecipients.map(r => (
+                    <label key={r.phone} className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm">
+                      <input
+                        type="checkbox"
+                        checked={broadcastSelected.has(r.phone)}
+                        onChange={e => {
+                          const next = new Set(broadcastSelected);
+                          e.target.checked ? next.add(r.phone) : next.delete(r.phone);
+                          setBroadcastSelected(next);
+                        }}
+                        className="accent-red-500"
+                      />
+                      <span className="flex-1 font-medium text-gray-800">{r.name || '—'}</span>
+                      <span className="text-gray-400 font-mono text-xs" dir="ltr">{r.phone}</span>
+                      {r.cycleName && <span className="text-xs text-gray-400 truncate max-w-[160px]">{r.cycleName}</span>}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Step 3: Send */}
+            <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
+              <h3 className="font-semibold text-gray-700 text-sm">3. שלח</h3>
+              <p className="text-xs text-gray-500">ישלחו {broadcastSelected.size} הודעות בפרש 4 שניות בין כל שליחה. ההודעות יתועדו בשיחות CRM.</p>
+              <button
+                onClick={sendBroadcast}
+                disabled={broadcastSending || !broadcastTemplate || broadcastSelected.size === 0}
+                className="flex items-center gap-2 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white px-6 py-2.5 rounded-xl font-medium text-sm transition-colors"
+              >
+                {broadcastSending ? '⏳ שולח...' : `📢 שלח ל-${broadcastSelected.size} אנשים`}
+              </button>
+
+              {/* Results */}
+              {broadcastResults && (
+                <div className={`p-3 rounded-lg text-sm ${broadcastResults.failed === 0 ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'}`}>
+                  ✅ הצליח: {broadcastResults.sent} &nbsp;|&nbsp; ❌ נכשל: {broadcastResults.failed}
+                  {broadcastResults.failed > 0 && (
+                    <div className="mt-2 text-xs space-y-1">
+                      {broadcastResults.results.filter((r: any) => r.status === 'failed').map((r: any) => (
+                        <div key={r.phone}>{r.phone}: {r.error}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Inbox View ── */}
+      <div className={`flex flex-1 overflow-hidden ${viewMode !== 'inbox' ? 'hidden' : ''}`} dir="rtl">
+
+      {/* ── New Conversation — Customer Search Modal ── */}
+      {showNewConv && !newConvTarget && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" dir="rtl">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col" style={{ maxHeight: '70vh' }}>
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+              <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                <PenSquare size={18} className="text-green-500" />
+                שיחה חדשה
+              </h3>
+              <button onClick={() => setShowNewConv(false)} className="p-1.5 hover:bg-gray-100 rounded-full">
+                <X size={18} className="text-gray-500" />
+              </button>
+            </div>
+            {activePhones.length > 1 && (
+              <div className="px-3 py-2 border-b border-gray-100 flex items-center gap-2">
+                <span className="text-xs text-gray-500 whitespace-nowrap">שלח מ-</span>
+                <select
+                  value={selectedFromPhone}
+                  onChange={e => setSelectedFromPhone(e.target.value)}
+                  className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-300"
+                  dir="ltr"
+                >
+                  {activePhones.map(p => (
+                    <option key={p.phoneNumberId} value={p.phoneNumberId}>{p.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="p-3 border-b border-gray-100">
+              <div className="relative">
+                <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  autoFocus
+                  type="text"
+                  value={customerSearch}
+                  onChange={e => setCustomerSearch(e.target.value)}
+                  placeholder="חפש לפי שם, טלפון או אימייל..."
+                  className="w-full border border-gray-200 rounded-xl pr-9 pl-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {searchingCustomers && (
+                <div className="flex items-center justify-center p-6 text-gray-400 gap-2">
+                  <RefreshCw size={16} className="animate-spin" /> טוען...
+                </div>
+              )}
+              {!searchingCustomers && customerSearch && customerResults.length === 0 && (
+                <div className="text-center text-gray-400 p-6 text-sm">לא נמצאו לקוחות</div>
+              )}
+              {!customerSearch && (
+                <div className="text-center text-gray-400 p-6 text-sm">הקלד שם או מספר טלפון לחיפוש</div>
+              )}
+              {customerResults.map((c: any) => (
+                <button
+                  key={c.id}
+                  onClick={() => {
+                    setNewConvTarget({ phone: c.phone, name: c.name });
+                    setShowNewConv(false);
+                  }}
+                  className="w-full text-right px-4 py-3 border-b border-gray-100 hover:bg-green-50 transition-colors flex items-center gap-3"
+                >
+                  <div className="w-9 h-9 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                    <span className="text-sm font-bold text-green-700">{c.name?.charAt(0)}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-800 text-sm">{c.name}</p>
+                    <p className="text-xs text-gray-500 dir-ltr">{c.phone}</p>
+                  </div>
+                  <MessageCircle size={16} className="text-green-400 flex-shrink-0" />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WaSendModal for new conversation */}
+      {newConvTarget && (
+        <WaSendModal
+          phone={newConvTarget.phone}
+          contactName={newConvTarget.name}
+          fromPhoneNumberId={selectedFromPhone || undefined}
+          onClose={() => setNewConvTarget(null)}
+          onSent={() => { setNewConvTarget(null); loadConversations(); }}
+        />
+      )}
+
+      {/* ── Conversations List ── */}
+      <div className="w-80 bg-white border-l border-gray-200 flex flex-col flex-shrink-0">
+        {/* Header */}
+        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <MessageCircle size={20} className="text-green-500" />
+            <h2 className="font-bold text-gray-800">WhatsApp Inbox</h2>
+            {totalUnread > 0 && (
+              <span className="bg-green-500 text-white text-xs rounded-full px-2 py-0.5">
+                {totalUnread}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => { setShowNewConv(true); setCustomerSearch(''); setCustomerResults([]); }}
+              className="p-1.5 hover:bg-green-50 rounded-full text-green-600"
+              title="שיחה חדשה"
+            >
+              <PenSquare size={16} />
+            </button>
+            <button onClick={loadConversations} className="p-1.5 hover:bg-gray-100 rounded-full">
+              <RefreshCw size={16} className="text-gray-500" />
+            </button>
+          </div>
+        </div>
+
+        {/* List */}
+        <div className="flex-1 overflow-y-auto">
+          {loading ? (
+            <div className="flex items-center justify-center h-32 text-gray-400">טוען...</div>
+          ) : conversations.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 text-gray-400 gap-2">
+              <MessageCircle size={32} />
+              <p className="text-sm">אין שיחות עדיין</p>
+            </div>
+          ) : (
+            conversations.map(conv => (
+              <button
+                key={conv.id}
+                onClick={() => selectConversation(conv)}
+                className={`w-full text-right px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors ${
+                  selected?.id === conv.id ? 'bg-green-50 border-r-2 border-r-green-500' : ''
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-medium text-sm text-gray-800 truncate">
+                        {conv.contactName || conv.leadName || formatPhone(conv.phone)}
+                      </span>
+                      {conv.aiEnabled && (
+                        <Bot size={12} className="text-purple-400 flex-shrink-0" />
+                      )}
+                    </div>
+                    {conv.businessPhone && (
+                      <p className="text-xs text-green-600 font-mono mt-0.5">
+                        → {formatPhone(conv.businessPhone.replace('+', ''))}
+                      </p>
+                    )}
+                    <p className="text-xs text-gray-500 truncate mt-0.5">
+                      {conv.lastMessagePreview || 'שיחה חדשה'}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                    {conv.lastMessageAt && (
+                      <span className="text-xs text-gray-400">{formatTime(conv.lastMessageAt)}</span>
+                    )}
+                    {conv.unreadCount > 0 && (
+                      <span className="bg-green-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                        {conv.unreadCount}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* ── Chat Area ── */}
+      {selected ? (
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Chat Header */}
+          <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                <User size={20} className="text-green-600" />
+              </div>
+              <div>
+                <p className="font-semibold text-gray-800">
+                  {selected.contactName || selected.leadName || formatPhone(selected.phone)}
+                </p>
+                <p className="text-xs text-gray-500">
+                  {selected.phone}
+                  {selected.businessPhone && (
+                    <span className="mr-2 text-green-600">→ {formatPhone(selected.businessPhone.replace('+', ''))}</span>
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {/* AI toggle */}
+              <button
+                onClick={() => toggleAI(selected)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  selected.aiEnabled
+                    ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                }`}
+              >
+                <Bot size={14} />
+                {selected.aiEnabled ? 'AI פעיל' : 'AI כבוי'}
+              </button>
+              {/* Close/reopen */}
+              <button
+                onClick={() => closeConversation(selected)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  selected.status === 'closed'
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-gray-100 text-gray-500'
+                }`}
+              >
+                {selected.status === 'closed' ? 'פתח מחדש' : <><X size={12} /> סגור שיחה</>}
+              </button>
+            </div>
+          </div>
+
+          {/* Lead info strip */}
+          {(selected.leadName || selected.childName || selected.summary) && (
+            <div className="bg-yellow-50 border-b border-yellow-200 px-4 py-2 text-xs text-yellow-800 flex flex-wrap gap-3">
+              {selected.leadName && <span>👤 {selected.leadName}</span>}
+              {selected.leadEmail && <span>✉️ {selected.leadEmail}</span>}
+              {selected.childName && <span>👦 {selected.childName}{selected.childAge ? `, גיל ${selected.childAge}` : ''}</span>}
+              {selected.summary && <span className="text-yellow-700">💬 {selected.summary}</span>}
+            </div>
+          )}
+
+          {/* Messages */}
+          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-2">
+            {messages.length === 0 && (
+              <div className="text-center text-gray-400 text-sm mt-8">טוען הודעות...</div>
+            )}
+            {messages.map(msg => (
+              <div
+                key={msg.id}
+                className={`flex ${msg.direction === 'outbound' ? 'justify-start' : 'justify-end'}`}
+              >
+                <div
+                  className={`max-w-[70%] px-3 py-2 rounded-2xl text-sm shadow-sm ${
+                    msg.direction === 'outbound'
+                      ? msg.isAiGenerated
+                        ? 'bg-purple-100 text-purple-900 rounded-br-sm'
+                        : 'bg-green-500 text-white rounded-br-sm'
+                      : 'bg-white text-gray-800 rounded-bl-sm border border-gray-100'
+                  }`}
+                >
+                  {msg.isAiGenerated && (
+                    <div className="flex items-center gap-1 mb-1 text-purple-500 text-xs">
+                      <Bot size={10} /> AI
+                    </div>
+                  )}
+                  <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                  <div className={`flex items-center justify-end gap-1 mt-1 ${
+                    msg.direction === 'outbound' && !msg.isAiGenerated ? 'text-green-100' : 'text-gray-400'
+                  }`}>
+                    <span className="text-xs">{formatTime(msg.createdAt)}</span>
+                    {msg.direction === 'outbound' && <StatusIcon status={msg.status} />}
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input */}
+          <div className="bg-white border-t border-gray-200 p-3">
+            {selected.aiEnabled && (
+              <p className="text-xs text-purple-500 mb-2 flex items-center gap-1">
+                <Bot size={12} /> AI מגיב אוטומטית — שלח הודעה ידנית לדרוס
+              </p>
+            )}
+            <div className="flex items-end gap-2">
+              {/* Template picker button */}
+              <button
+                onClick={() => loadTemplates()}
+                disabled={loadingTemplates}
+                title="שלח תבנית"
+                className="w-10 h-10 bg-blue-50 hover:bg-blue-100 text-blue-500 rounded-full flex items-center justify-center transition-colors flex-shrink-0"
+              >
+                {loadingTemplates ? <RefreshCw size={16} className="animate-spin" /> : <FileText size={18} />}
+              </button>
+              {/* Payment link button */}
+              <button
+                onClick={() => setShowPayModal(true)}
+                title="שלח לינק תשלום"
+                className="w-10 h-10 bg-purple-50 hover:bg-purple-100 text-purple-500 rounded-full flex items-center justify-center transition-colors flex-shrink-0"
+              >
+                <CreditCard size={18} />
+              </button>
+              <textarea
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+                }}
+                placeholder="כתוב הודעה..."
+                rows={1}
+                className="flex-1 resize-none border border-gray-300 rounded-2xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 max-h-32"
+                style={{ minHeight: '44px' }}
+                disabled={sending}
+              />
+              <button
+                onClick={sendMessage}
+                disabled={!input.trim() || sending}
+                className="w-10 h-10 bg-green-500 hover:bg-green-600 disabled:bg-gray-200 text-white rounded-full flex items-center justify-center transition-colors flex-shrink-0"
+              >
+                <Send size={18} />
+              </button>
+            </div>
+          </div>
+
+          {/* Template Modal */}
+          {showTemplateModal && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" dir="rtl">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+                {/* Modal Header */}
+                <div className="flex items-center justify-between p-4 border-b border-gray-200">
+                  <div className="flex items-center gap-2">
+                    <FileText size={20} className="text-blue-500" />
+                    <h3 className="font-bold text-gray-800">שליחת תבנית WhatsApp</h3>
+                    <span className="text-xs text-gray-400">({templates.length} תבניות)</span>
+                  </div>
+                  <button onClick={() => { setShowTemplateModal(false); setSelectedTemplate(null); setTemplateVars([]); setShowCreateTemplate(false); setCreateResult(null); }}
+                    className="p-1.5 hover:bg-gray-100 rounded-full">
+                    <X size={18} className="text-gray-500" />
+                  </button>
+                </div>
+
+                <div className="flex flex-1 overflow-hidden">
+                  {/* Template list */}
+                  <div className="w-1/2 border-l border-gray-100 flex flex-col overflow-hidden">
+                    {/* Create new button */}
+                    <button
+                      onClick={() => { setShowCreateTemplate(true); setSelectedTemplate(null); setCreateResult(null); }}
+                      className={`flex items-center gap-2 px-3 py-2.5 border-b border-gray-100 text-sm font-medium transition-colors flex-shrink-0 ${showCreateTemplate ? 'bg-blue-50 text-blue-600' : 'text-blue-500 hover:bg-blue-50'}`}
+                    >
+                      <Plus size={15} />
+                      תבנית חדשה
+                    </button>
+                    <div className="flex-1 overflow-y-auto">
+                      <div className="px-3 py-2 border-b border-gray-100">
+                        <input
+                          type="text"
+                          value={templateSearch}
+                          onChange={e => setTemplateSearch(e.target.value)}
+                          placeholder="חיפוש תבנית..."
+                          dir="rtl"
+                          className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                        />
+                      </div>
+                      <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100">
+                        <p className="text-xs text-gray-400 font-medium">תבניות מאושרות ({templates.filter(t => t.status === 'APPROVED' && (!templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase()))).length})</p>
+                      </div>
+                    {templates.filter(t => t.status === 'APPROVED' && (!templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase()))).map(tmpl => {
+                      const body = getBodyText(tmpl);
+                      const varCount = countVars(body);
+                      const isSelected = !showCreateTemplate && selectedTemplate?.name === tmpl.name;
+                      const isExpanded = expandedTemplate === tmpl.name;
+                      return (
+                        <div key={tmpl.name}
+                          className={`border-b border-gray-100 cursor-pointer transition-colors ${isSelected ? 'bg-blue-50 border-r-2 border-r-blue-400' : 'hover:bg-gray-50'}`}
+                          onClick={() => { selectTemplate(tmpl); setShowCreateTemplate(false); }}
+                        >
+                          <div className="px-3 py-2.5 flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-800 truncate">{tmpl.name.replace(/_/g, ' ')}</p>
+                              {varCount > 0 && (
+                                <span className="text-xs text-orange-500">{varCount} משתנים</span>
+                              )}
+                            </div>
+                            <button
+                              onClick={e => { e.stopPropagation(); setExpandedTemplate(isExpanded ? null : tmpl.name); }}
+                              className="p-0.5 text-gray-400 hover:text-gray-600 flex-shrink-0">
+                              {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                            </button>
+                          </div>
+                          {isExpanded && body && (
+                            <div className="px-3 pb-2.5">
+                              <p className="text-xs text-gray-500 whitespace-pre-wrap bg-gray-50 rounded p-2 leading-relaxed">{body.slice(0, 200)}{body.length > 200 ? '...' : ''}</p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    </div>
+                  </div>
+
+                  {/* Right panel — variables + preview OR create form */}
+                  <div className="w-1/2 flex flex-col overflow-y-auto">
+                    {showCreateTemplate ? (
+                      <div className="flex flex-col p-4 gap-3 h-full">
+                        <h4 className="font-semibold text-gray-700 flex items-center gap-2">
+                          <Plus size={16} className="text-blue-500" /> תבנית חדשה
+                        </h4>
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">שם תבנית (אנגלית, קווים תחתיים)</label>
+                          <input type="text" value={createForm.name} dir="ltr"
+                            onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
+                            placeholder="first_message"
+                            className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                          {createForm.name && <p className="text-xs text-gray-400 mt-0.5">→ {createForm.name.toLowerCase().replace(/[^a-z0-9_]/g,'_')}</p>}
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">קטגוריה</label>
+                          <select value={createForm.category}
+                            onChange={e => setCreateForm(f => ({ ...f, category: e.target.value }))}
+                            className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+                            <option value="MARKETING">MARKETING — שיווקי</option>
+                            <option value="UTILITY">UTILITY — שירותי</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">כותרת עליונה <span className="text-gray-300">(אופציונלי)</span></label>
+                          <input type="text" value={createForm.headerText}
+                            onChange={e => setCreateForm(f => ({ ...f, headerText: e.target.value }))}
+                            placeholder="דרך ההייטק"
+                            className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-xs text-gray-500">גוף ההודעה *</label>
+                            <div className="flex gap-1">
+                              {[1,2,3].map(n => (
+                                <button key={n} onClick={() => setCreateForm(f => ({...f, bodyText: f.bodyText + `{{${n}}}`}))}
+                                  className="text-xs bg-orange-50 text-orange-600 border border-orange-200 rounded px-1.5 py-0.5 hover:bg-orange-100">
+                                  +{`{{${n}}}`}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <textarea value={createForm.bodyText}
+                            onChange={e => setCreateForm(f => ({ ...f, bodyText: e.target.value }))}
+                            placeholder={`היי {{1}},\nתוכן ההודעה...`}
+                            rows={4}
+                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">כותרת תחתונה <span className="text-gray-300">(אופציונלי)</span></label>
+                          <input type="text" value={createForm.footerText} dir="ltr"
+                            onChange={e => setCreateForm(f => ({ ...f, footerText: e.target.value }))}
+                            placeholder="www.hai.tech"
+                            className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                        </div>
+                        {createResult && (
+                          <div className={`flex items-start gap-2 p-3 rounded-lg text-sm ${createResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                            {createResult.success ? <CheckCircle size={16} className="flex-shrink-0 mt-0.5" /> : <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />}
+                            <span>{createResult.message}</span>
+                          </div>
+                        )}
+                        <button onClick={submitCreateTemplate} disabled={creating || !createForm.name.trim() || !createForm.bodyText.trim()}
+                          className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-gray-200 text-white rounded-xl py-2.5 font-medium flex items-center justify-center gap-2 transition-colors">
+                          {creating ? <RefreshCw size={16} className="animate-spin" /> : <Plus size={16} />}
+                          {creating ? 'יוצר...' : 'שלח לאישור Meta'}
+                        </button>
+                        <p className="text-xs text-gray-400 text-center">⏳ אישור Meta לוקח עד 24 שעות</p>
+                      </div>
+                    ) : selectedTemplate ? (
+                      <div className="flex flex-col p-4">
+                        <h4 className="font-semibold text-gray-700 mb-3">{selectedTemplate.name.replace(/_/g, ' ')}</h4>
+
+                        {/* Variables */}
+                        {templateVars.length > 0 && (
+                          <div className="mb-4">
+                            <p className="text-xs font-medium text-gray-500 mb-2">מלא את המשתנים:</p>
+                            {templateVars.map((v, i) => (
+                              <div key={i} className="mb-2">
+                                <label className="text-xs text-gray-500 block mb-1">{'{{' + (i + 1) + '}}'}</label>
+                                <input
+                                  type="text"
+                                  value={v}
+                                  onChange={e => {
+                                    const newVars = [...templateVars];
+                                    newVars[i] = e.target.value;
+                                    setTemplateVars(newVars);
+                                  }}
+                                  className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                                  placeholder={`ערך ${i + 1}`}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Preview */}
+                        <div className="flex-1">
+                          <p className="text-xs font-medium text-gray-500 mb-2">תצוגה מקדימה:</p>
+                          <div className="bg-green-50 border border-green-100 rounded-xl p-3 text-sm text-gray-800 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
+                            {renderPreview() || <span className="text-gray-400">בחר תבנית...</span>}
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={sendTemplate}
+                          disabled={sending}
+                          className="mt-4 w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-200 text-white rounded-xl py-2.5 font-medium flex items-center justify-center gap-2 transition-colors"
+                        >
+                          <Send size={16} />
+                          שלח תבנית
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex items-center justify-center text-gray-400">
+                        <div className="text-center">
+                          <FileText size={32} className="mx-auto mb-2 text-gray-300" />
+                          <p className="text-sm">בחר תבנית מהרשימה</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
+          <MessageCircle size={48} className="mb-3 text-gray-300" />
+          <p className="text-lg font-medium">בחר שיחה</p>
+          <p className="text-sm">בחר שיחה מהרשימה כדי להתחיל</p>
+        </div>
+      )}
+    </div>
+    {/* close inbox view wrapper */}
+
+    {/* Payment link modal */}
+    {showPayModal && selected && (
+      <WooPayModal
+        onClose={() => setShowPayModal(false)}
+        customerName={selected.contactName || selected.leadName || ''}
+        customerPhone={selected.phone}
+        waConversationId={selected.id}
+      />
+    )}
+    </div>
+  );
+}

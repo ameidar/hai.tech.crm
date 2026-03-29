@@ -547,50 +547,59 @@ Rate Limit:   למניעת spam
 
 ---
 
-## שלבי פיתוח
+## שלבי פיתוח - סטטוס מימוש
 
-### Phase 1: Foundation (2-3 שבועות)
-- [ ] הגדרת DB schema
-- [ ] הקמת Backend בסיסי + API
-- [ ] Auth system
-- [ ] CRUD לישויות עיקריות
+### Phase 1: Foundation ✅ COMPLETED
+- [x] הגדרת DB schema (Prisma - 18 מודלים)
+- [x] הקמת Backend בסיסי + API (Express + TypeScript)
+- [x] Auth system (JWT + refresh tokens)
+- [x] CRUD לישויות עיקריות (25 routes)
 
-### Phase 2: Core Features (3-4 שבועות)
-- [ ] ממשק ניהול בסיסי
-- [ ] ניהול מחזורים ויצירת פגישות אוטומטית
-- [ ] מנגנון דיווח פגישה (מדריכים)
-- [ ] מנגנון נוכחות
+### Phase 2: Core Features ✅ COMPLETED
+- [x] ממשק ניהול בסיסי (21 עמודים ב-React)
+- [x] ניהול מחזורים ויצירת פגישות אוטומטית
+- [x] מנגנון דיווח פגישה (מדריכים)
+- [x] מנגנון נוכחות
 
-### Phase 3: Automation (2-3 שבועות)
-- [ ] אינטגרציית Green API
-- [ ] תזכורות אוטומטיות
-- [ ] חישוב כספים אוטומטי
-- [ ] דוחות גבייה מוסדית
+### Phase 3: Automation ✅ COMPLETED
+- [x] אינטגרציית Green API (WhatsApp)
+- [x] תזכורות אוטומטיות למדריכים
+- [x] חישוב כספים אוטומטי (הכנסות, הוצאות, רווח)
+- [x] דוחות גבייה מוסדית
+- [x] **אינטגרציית Zoom** (יצירה אוטומטית למחזורים אונליין)
 
-### Phase 4: Polish (2 שבועות)
-- [ ] לוח שנה
-- [ ] דוחות מתקדמים
-- [ ] ממשק מדריכים
-- [ ] מיגרציה מפיירברי
+### Phase 4: Polish ✅ COMPLETED
+- [x] דוחות מתקדמים + תחזיות (ForecastChart)
+- [x] ממשק מדריכים (Desktop + Mobile)
+- [x] מיגרציה מפיירברי (~127 מחזורים)
+- [x] **מערכת הוצאות** (CycleExpense, MeetingExpense)
+- [x] **Custom Views** (תצוגות מותאמות)
+- [x] **Audit Log** (מעקב שינויים)
+
+### Phase 5: Testing 🔄 IN PROGRESS
+- [x] E2E tests setup (Playwright)
+- [x] Smoke tests
+- [x] Auth, Cycles, Expenses, Meetings, Reports tests
+- [ ] Full coverage for all entities
 
 ---
 
-## מיגרציה מפיירברי
+## מיגרציה מפיירברי ✅ COMPLETED
 
-### ישויות למיגרציה:
-1. לקוחות (accounts) → Customers
-2. הרשמות (33) → Registrations + Students
-3. מחזורים (1000) → Cycles
-4. מדריכים (1002) → Instructors
-5. פגישות (6) → Meetings
-6. סניפים → Branches
+### ישויות שהועברו:
+1. ✅ לקוחות (accounts) → Customers (חלקי - למחזורים פרטיים)
+2. ✅ הרשמות (33) → Registrations + Students (חלקי)
+3. ✅ מחזורים (1000) → Cycles (~127 מחזורים פעילים)
+4. ✅ מדריכים (1002) → Instructors (~12 מדריכים)
+5. ✅ פגישות (6) → Meetings (נוצרו אוטומטית)
+6. ✅ סניפים → Branches (~40 סניפים)
 
-### תהליך:
-1. מיפוי שדות Fireberry → שדות חדשים
-2. סקריפט export מ-Fireberry API
-3. סקריפט import ל-PostgreSQL
-4. validation והשוואה
-5. הרצה מקבילה לתקופת מעבר
+### תהליך שבוצע:
+1. ✅ מיפוי שדות Fireberry → שדות חדשים
+2. ✅ סקריפט export מ-Fireberry API
+3. ✅ סקריפט import ל-PostgreSQL
+4. ✅ validation והשוואה
+5. ✅ המערכת בפרודקשן
 
 ---
 
@@ -600,3 +609,35 @@ Rate Limit:   למניעת spam
 2. **Admin vs Manager:** Admin יכול לשנות, Manager רק צופה
 3. **מדריך מחליף:** אריאל מטפלת - משנה פגישה ספציפית או יוצרת מחזור חדש
 4. **שם המערכת:** HaiTech CRM
+5. **Zoom:** יצירה אוטומטית למחזורים אונליין עם webhook לתמלולים
+
+---
+
+## תוספות שלא היו בתכנון המקורי
+
+### מערכת הוצאות (Expenses)
+- **CycleExpense**: הוצאות חוזרות ברמת מחזור (חומרים, שעות מעטפת, ציוד)
+- **MeetingExpense**: הוצאות חד-פעמיות ברמת פגישה (נסיעות, מונית, מדריך נוסף)
+
+### תחזיות פיננסיות (Forecast)
+- גרף תחזית הכנסות והוצאות
+- חישוב צפי רווח
+- ניתוח לפי חודשים
+
+### Custom Views
+- שמירת תצוגות מותאמות אישית
+- סינונים מתקדמים
+- בחירת עמודות
+
+### Audit Log
+- מעקב אחר כל השינויים במערכת
+- מי עשה, מתי, מה השתנה
+
+### Mobile Instructor UI
+- ממשק מותאם למובייל למדריכים
+- דיווח נוכחות מהשטח
+- צפייה במפגשים
+
+---
+
+*עודכן לאחרונה: 2025-02-13*

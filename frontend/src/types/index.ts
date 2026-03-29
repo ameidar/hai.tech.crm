@@ -3,14 +3,14 @@ export type CourseCategory = 'programming' | 'ai' | 'robotics' | 'printing_3d';
 export type BranchType = 'school' | 'community_center' | 'frontal' | 'online';
 export type OrderStatus = 'draft' | 'active' | 'completed' | 'cancelled';
 export type CycleType = 'private' | 'institutional_per_child' | 'institutional_fixed';
-export type CycleStatus = 'active' | 'completed' | 'cancelled';
+export type CycleStatus = 'active' | 'completed' | 'cancelled' | 'frozen' | 'retainer';
 export type DayOfWeek = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday';
-export type MeetingStatus = 'scheduled' | 'completed' | 'cancelled' | 'postponed';
-export type RegistrationStatus = 'registered' | 'active' | 'completed' | 'cancelled';
+export type MeetingStatus = 'scheduled' | 'completed' | 'cancelled' | 'postponed' | 'pending_cancellation' | 'pending_postponement';
+export type RegistrationStatus = 'registered' | 'active' | 'completed' | 'pending_cancellation' | 'cancelled';
 export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
-export type PaymentMethod = 'credit' | 'transfer' | 'cash';
+export type PaymentMethod = 'credit' | 'transfer' | 'cash' | 'standing_order' | 'institutional';
 export type AttendanceStatus = 'present' | 'absent' | 'late';
-export type UserRole = 'admin' | 'manager' | 'instructor';
+export type UserRole = 'admin' | 'manager' | 'instructor' | 'sales';
 export type ActivityType = 'online' | 'frontal' | 'private_lesson';
 
 // Entities
@@ -33,8 +33,13 @@ export interface Customer {
   address?: string;
   city?: string;
   notes?: string;
+  lmsUsername?: string;
+  lmsPassword?: string;
+  source?: string;
+  leadStatus?: string;
   createdAt: string;
   students?: Student[];
+  payments?: { id: string; amount?: number; description?: string; paidAt?: string }[];
   _count?: {
     students: number;
   };
@@ -58,6 +63,7 @@ export interface Course {
   targetAudience?: string;
   category: CourseCategory;
   isActive: boolean;
+  materialsFolderId?: string | null;
   createdAt: string;
   _count?: {
     cycles: number;
@@ -83,23 +89,33 @@ export interface Branch {
 
 export interface InstitutionalOrder {
   id: string;
-  branchId: string;
+  branchId?: string;
+  orderName?: string;
   orderNumber?: string;
-  orderDate: string;
-  startDate: string;
-  endDate: string;
-  pricePerMeeting: number;
-  estimatedMeetings: number;
-  estimatedTotal: number;
-  contactName: string;
-  contactPhone: string;
+  orderDate?: string;
+  startDate?: string;
+  endDate?: string;
+  pricePerMeeting?: number;
+  estimatedMeetings?: number;
+  estimatedTotal?: number;
+  contactName?: string;
+  contactPhone?: string;
   contactEmail?: string;
   contractFile?: string;
   status: OrderStatus;
+  fireberryStatus?: string;
   notes?: string;
+  totalAmount?: number;
+  payingBody?: string;
+  followUpDate?: string;
+  salesperson?: string;
+  orderType?: string;
+  createdBy?: string;
   createdAt: string;
   branch?: Branch;
 }
+
+export type EmploymentType = 'freelancer' | 'employee';
 
 export interface Instructor {
   id: string;
@@ -110,6 +126,7 @@ export interface Instructor {
   rateOnline: number;
   ratePrivate: number;
   ratePreparation: number;
+  employmentType: EmploymentType;
   userId?: string;
   isActive: boolean;
   notes?: string;
@@ -137,18 +154,29 @@ export interface Cycle {
   totalMeetings: number;
   pricePerStudent?: number;
   meetingRevenue?: number;
+  revenuePerMeeting?: number;
+  revenueIncludesVat?: boolean | null;
   studentCount?: number;
   maxStudents?: number;
   sendParentReminders: boolean;
   isOnline: boolean;
   activityType: ActivityType;
+  zoomJoinUrl?: string;
+  zoomMeetingId?: string;
+  zoomPassword?: string;
+  zoomHostKey?: string;
+  zoomHostEmail?: string;
   completedMeetings: number;
   remainingMeetings: number;
   status: CycleStatus;
+  frozenAt?: string | null;
+  frozenReason?: string | null;
+  resumeDate?: string | null;
   createdAt: string;
   course?: Course;
   branch?: Branch;
   instructor?: Instructor;
+  institutionalOrder?: InstitutionalOrder;
   meetings?: Meeting[];
   registrations?: Registration[];
   _count?: {
@@ -205,6 +233,9 @@ export interface Registration {
   invoiceLink?: string;
   cancellationDate?: string;
   cancellationReason?: string;
+  refundAmount?: number;
+  refundDate?: string;
+  creditInvoiceLink?: string;
   notes?: string;
   createdAt: string;
   student?: Student;
@@ -266,12 +297,16 @@ export const meetingStatusHebrew: Record<MeetingStatus, string> = {
   completed: 'הושלם',
   cancelled: 'בוטל',
   postponed: 'נדחה',
+  pending_cancellation: 'בקשת ביטול',
+  pending_postponement: 'בקשת דחיה',
 };
 
 export const cycleStatusHebrew: Record<CycleStatus, string> = {
   active: 'פעיל',
   completed: 'הושלם',
   cancelled: 'בוטל',
+  frozen: '❄️ מוקפא',
+  retainer: '💼 ריטיינר',
 };
 
 export const cycleTypeHebrew: Record<CycleType, string> = {

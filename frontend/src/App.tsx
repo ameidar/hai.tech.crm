@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
+import MobileInstructorLayout from './components/MobileInstructorLayout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Customers from './pages/Customers';
@@ -19,6 +20,38 @@ import InviteSetup from './pages/InviteSetup';
 import ResetPassword from './pages/ResetPassword';
 import MeetingStatus from './pages/MeetingStatus';
 import AuditLog from './pages/AuditLog';
+import Quotes from './pages/Quotes';
+import QuoteWizard from './pages/QuoteWizard';
+import QuoteDetail from './pages/QuoteDetail';
+import QuoteEdit from './pages/QuoteEdit';
+import PublicQuoteView from './pages/PublicQuoteView';
+import PublicCancelForm from './pages/PublicCancelForm';
+import LeadAppointments from './pages/LeadAppointments';
+import InstitutionalOrders from './pages/InstitutionalOrders';
+import SystemUsers from './pages/SystemUsers';
+import WhatsAppInbox from './pages/WhatsAppInbox';
+import MessengerInbox from './pages/MessengerInbox';
+import InstagramInbox from './pages/InstagramInbox';
+import Campaigns from './pages/Campaigns';
+import FacebookLeads from './pages/FacebookLeads';
+import Analytics from './pages/Analytics';
+import GoogleAdsCampaigns from './pages/GoogleAdsCampaigns';
+import LinkedIn from './pages/LinkedIn';
+import FacebookPage from './pages/Facebook';
+import InstagramPage from './pages/Instagram';
+import TikTokPage from './pages/TikTok';
+import YouTubePage from './pages/YouTube';
+import CampaignLanding from './pages/CampaignLanding';
+import PayPage from './pages/PayPage';
+
+// Mobile instructor pages
+import MobileMeetings from './pages/instructor/MobileMeetings';
+import MobileMeetingDetail from './pages/instructor/MobileMeetingDetail';
+import MobileAttendanceOverview from './pages/instructor/MobileAttendanceOverview';
+import MobileProfile from './pages/instructor/MobileProfile';
+import MobileCourseLibrary from './pages/instructor/MobileCourseLibrary';
+import MobileAiAssistant from './pages/instructor/MobileAiAssistant';
+import InstructorMagicMeeting from './pages/InstructorMagicMeeting';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -28,6 +61,14 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+/**
+ * Detect if user is on a mobile device
+ */
+function useIsMobile() {
+  if (typeof window === 'undefined') return false;
+  return window.innerWidth < 768 || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -47,12 +88,23 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Blocks access for 'sales' role — redirects to WhatsApp inbox
+function NonSalesRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (user?.role === 'sales') return <Navigate to="/whatsapp" replace />;
+  return <>{children}</>;
+}
+
 function AppRoutes() {
   const { isAuthenticated, user } = useAuth();
+  const isMobile = useIsMobile();
+  const isInstructor = user?.role === 'instructor';
+  const isSales = user?.role === 'sales';
 
   // Redirect based on role
   const getDefaultRoute = () => {
-    if (user?.role === 'instructor') return '/instructor';
+    if (isInstructor) return '/instructor';
+    if (isSales) return '/whatsapp';
     return '/';
   };
 
@@ -64,7 +116,34 @@ function AppRoutes() {
       />
       <Route path="/invite/:token" element={<InviteSetup />} />
       <Route path="/reset-password/:token" element={<ResetPassword />} />
+      <Route path="/public/quote/:id" element={<PublicQuoteView />} />
+      <Route path="/cancel/:token" element={<PublicCancelForm />} />
+      <Route path="/public/cancel/:token" element={<PublicCancelForm />} />
+      <Route path="/campaign/:campaignId" element={<CampaignLanding />} />
+      <Route path="/pay/:token" element={<PayPage />} />
       <Route path="/m/:meetingId/:token" element={<MeetingStatus />} />
+      <Route path="/i/:meetingId/:token" element={<InstructorMagicMeeting />} />
+      
+      {/* Mobile Instructor Routes */}
+      {isInstructor && isMobile ? (
+        <Route
+          path="/instructor"
+          element={
+            <ProtectedRoute>
+              <MobileInstructorLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<MobileMeetings />} />
+          <Route path="meeting/:id" element={<MobileMeetingDetail />} />
+          <Route path="attendance" element={<MobileAttendanceOverview />} />
+          <Route path="library" element={<MobileCourseLibrary />} />
+          <Route path="ai" element={<MobileAiAssistant />} />
+          <Route path="profile" element={<MobileProfile />} />
+        </Route>
+      ) : null}
+
+      {/* Desktop Routes */}
       <Route
         path="/"
         element={
@@ -73,19 +152,52 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route index element={user?.role === 'instructor' ? <Navigate to="/instructor" replace /> : <Dashboard />} />
-        <Route path="customers" element={<Customers />} />
-        <Route path="customers/:id" element={<CustomerDetail />} />
-        <Route path="students" element={<Students />} />
-        <Route path="courses" element={<Courses />} />
-        <Route path="branches" element={<Branches />} />
-        <Route path="instructors" element={<Instructors />} />
-        <Route path="cycles" element={<Cycles />} />
-        <Route path="cycles/:id" element={<CycleDetail />} />
-        <Route path="meetings" element={<Meetings />} />
-        <Route path="reports" element={<Reports />} />
-        <Route path="audit" element={<AuditLog />} />
+        <Route index element={isInstructor ? <Navigate to="/instructor" replace /> : isSales ? <Navigate to="/whatsapp" replace /> : <Dashboard />} />
+        {!isInstructor && (
+          <>
+            {/* Sales-accessible routes */}
+            <Route path="customers" element={<Customers />} />
+            <Route path="customers/:id" element={<CustomerDetail />} />
+            <Route path="whatsapp" element={<WhatsAppInbox />} />
+            <Route path="messenger" element={<MessengerInbox />} />
+            <Route path="instagram" element={<InstagramInbox />} />
+
+            {/* Admin/Manager only routes — sales gets redirected to /whatsapp */}
+            <Route path="students" element={<NonSalesRoute><Students /></NonSalesRoute>} />
+            <Route path="courses" element={<NonSalesRoute><Courses /></NonSalesRoute>} />
+            <Route path="branches" element={<NonSalesRoute><Branches /></NonSalesRoute>} />
+            <Route path="instructors" element={<NonSalesRoute><Instructors /></NonSalesRoute>} />
+            <Route path="cycles" element={<NonSalesRoute><Cycles /></NonSalesRoute>} />
+            <Route path="cycles/:id" element={<NonSalesRoute><CycleDetail /></NonSalesRoute>} />
+            <Route path="meetings" element={<NonSalesRoute><Meetings /></NonSalesRoute>} />
+            <Route path="quotes" element={<NonSalesRoute><Quotes /></NonSalesRoute>} />
+            <Route path="quotes/new" element={<NonSalesRoute><QuoteWizard /></NonSalesRoute>} />
+            <Route path="quotes/:id" element={<NonSalesRoute><QuoteDetail /></NonSalesRoute>} />
+            <Route path="quotes/:id/edit" element={<NonSalesRoute><QuoteEdit /></NonSalesRoute>} />
+            <Route path="institutional-orders" element={<NonSalesRoute><InstitutionalOrders /></NonSalesRoute>} />
+            <Route path="lead-appointments" element={<NonSalesRoute><LeadAppointments /></NonSalesRoute>} />
+            <Route path="system-users" element={<NonSalesRoute><SystemUsers /></NonSalesRoute>} />
+            <Route path="reports" element={<NonSalesRoute><Reports /></NonSalesRoute>} />
+            <Route path="audit" element={<NonSalesRoute><AuditLog /></NonSalesRoute>} />
+            <Route path="campaigns" element={<NonSalesRoute><Campaigns /></NonSalesRoute>} />
+            <Route path="facebook-leads" element={<NonSalesRoute><FacebookLeads /></NonSalesRoute>} />
+            <Route path="analytics" element={<NonSalesRoute><Analytics /></NonSalesRoute>} />
+            <Route path="google-ads" element={<NonSalesRoute><GoogleAdsCampaigns /></NonSalesRoute>} />
+            <Route path="linkedin" element={<NonSalesRoute><LinkedIn /></NonSalesRoute>} />
+            <Route path="facebook" element={<NonSalesRoute><FacebookPage /></NonSalesRoute>} />
+            <Route path="instagram-post" element={<NonSalesRoute><InstagramPage /></NonSalesRoute>} />
+            <Route path="tiktok" element={<NonSalesRoute><TikTokPage /></NonSalesRoute>} />
+            <Route path="youtube" element={<NonSalesRoute><YouTubePage /></NonSalesRoute>} />
+          </>
+        )}
         <Route path="instructor" element={<InstructorDashboard />} />
+        
+        {/* Desktop instructor meeting detail (fallback) */}
+        <Route path="instructor/meeting/:id" element={<MobileMeetingDetail />} />
+        {/* Course library — accessible for all instructors */}
+        <Route path="instructor/library" element={<MobileCourseLibrary />} />
+        {/* AI Assistant — accessible for all instructors */}
+        <Route path="instructor/ai" element={<MobileAiAssistant />} />
       </Route>
     </Routes>
   );

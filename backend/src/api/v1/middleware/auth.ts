@@ -11,6 +11,7 @@ import { apiKeysService, ValidatedApiKey } from '../services/api-keys.service.js
 export interface JwtPayload {
   userId: string;
   email: string;
+  name: string;
   role: UserRole;
   instructorId?: string;
 }
@@ -60,6 +61,7 @@ export const authenticate: RequestHandler = async (
       req.user = {
         userId: validated.createdBy.id,
         email: validated.createdBy.email,
+        name: validated.createdBy.name,
         role: validated.createdBy.role as UserRole,
       };
       res.locals.userId = validated.createdBy.id;
@@ -85,6 +87,7 @@ export const authenticate: RequestHandler = async (
       req.user = {
         userId: validated.createdBy.id,
         email: validated.createdBy.email,
+        name: validated.createdBy.name,
         role: validated.createdBy.role as UserRole,
       };
       res.locals.userId = validated.createdBy.id;
@@ -165,6 +168,7 @@ export const optionalAuth: RequestHandler = async (
       req.user = {
         userId: validated.createdBy.id,
         email: validated.createdBy.email,
+        name: validated.createdBy.name,
         role: validated.createdBy.role as UserRole,
       };
       res.locals.userId = validated.createdBy.id;
@@ -189,6 +193,7 @@ export const optionalAuth: RequestHandler = async (
       req.user = {
         userId: validated.createdBy.id,
         email: validated.createdBy.email,
+        name: validated.createdBy.name,
         role: validated.createdBy.role as UserRole,
       };
       res.locals.userId = validated.createdBy.id;

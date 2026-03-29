@@ -3,6 +3,7 @@ import { prisma } from '../utils/prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { z } from 'zod';
+import { logAudit } from '../utils/audit.js';
 
 export const attendanceRouter = Router();
 
@@ -389,9 +390,15 @@ attendanceRouter.delete('/:id', async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
+    const oldAttendance = await prisma.attendance.findUnique({ where: { id } });
+
     await prisma.attendance.delete({
       where: { id },
     });
+
+    if (oldAttendance) {
+      await logAudit({ action: 'DELETE', entity: 'Attendance', entityId: id, oldValue: { meetingId: oldAttendance.meetingId, registrationId: oldAttendance.registrationId, studentId: oldAttendance.studentId, status: oldAttendance.status }, req });
+    }
 
     res.status(204).send();
   } catch (error) {

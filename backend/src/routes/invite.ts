@@ -10,6 +10,24 @@ inviteRouter.get('/:token', async (req, res, next) => {
   try {
     const token = req.params.token;
 
+    // Check system user reset token first
+    const systemUser = await prisma.user.findUnique({
+      where: { resetToken: token },
+      select: { id: true, name: true, email: true, resetTokenExpiry: true },
+    });
+
+    if (systemUser) {
+      if (systemUser.resetTokenExpiry && new Date() > systemUser.resetTokenExpiry) {
+        throw new AppError(400, 'Link has expired');
+      }
+      return res.json({
+        valid: true,
+        type: 'reset',
+        instructor: { id: systemUser.id, name: systemUser.name, email: systemUser.email },
+      });
+    }
+
+    // Fall back to instructor token
     const instructor = await prisma.instructor.findUnique({
       where: { inviteToken: token },
       select: {
@@ -56,6 +74,24 @@ inviteRouter.post('/:token/reset-password', async (req, res, next) => {
       throw new AppError(400, 'Password must be at least 6 characters');
     }
 
+    // Check system user reset token first
+    const systemUser = await prisma.user.findUnique({
+      where: { resetToken: token },
+    });
+
+    if (systemUser) {
+      if (systemUser.resetTokenExpiry && new Date() > systemUser.resetTokenExpiry) {
+        throw new AppError(400, 'Reset link has expired');
+      }
+      const passwordHash = await bcrypt.hash(password, 10);
+      await prisma.user.update({
+        where: { id: systemUser.id },
+        data: { passwordHash, resetToken: null, resetTokenExpiry: null },
+      });
+      return res.json({ success: true, message: 'Password reset successfully' });
+    }
+
+    // Fall back to instructor token
     const instructor = await prisma.instructor.findUnique({
       where: { inviteToken: token },
       include: { user: true },

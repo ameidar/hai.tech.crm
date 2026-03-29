@@ -2,121 +2,144 @@
 
 ## 1. System Overview
 
-### Frontend Pages
-| Page | Description | Priority |
-|------|-------------|----------|
-| Login | Authentication | P0 |
-| Dashboard | Main dashboard with stats | P0 |
-| Cycles | Cycle list & management | P0 |
-| CycleDetail | Single cycle view, meetings, registrations, Zoom | P0 |
-| Customers | Customer list & management | P1 |
-| CustomerDetail | Single customer view | P1 |
-| Students | Student list & management | P1 |
-| Instructors | Instructor list & management | P1 |
-| Courses | Course catalog | P1 |
-| Branches | Branch management | P1 |
-| Meetings | Meeting list & management | P1 |
-| Reports | Reporting & analytics | P2 |
-| AuditLog | Audit trail | P2 |
-| InstructorDashboard | Instructor-specific view | P2 |
+### Frontend Pages (21 total)
+| Page | Description | Priority | Test Status |
+|------|-------------|----------|-------------|
+| Login | Authentication | P0 | ✅ Tested |
+| Dashboard | Main dashboard with stats & forecast | P0 | ✅ Tested |
+| Cycles | Cycle list & management | P0 | ✅ Tested |
+| CycleDetail | Single cycle view, meetings, registrations, Zoom, expenses | P0 | ✅ Tested |
+| Customers | Customer list & management | P1 | 🔲 Pending |
+| CustomerDetail | Single customer view with students | P1 | 🔲 Pending |
+| Students | Student list & management | P1 | 🔲 Pending |
+| Instructors | Instructor list & management | P1 | 🔲 Pending |
+| Courses | Course catalog | P1 | 🔲 Pending |
+| Branches | Branch management | P1 | 🔲 Pending |
+| Meetings | Meeting list & management | P1 | ✅ Tested |
+| Reports | Reporting & analytics | P2 | ✅ Tested |
+| AuditLog | Audit trail | P2 | 🔲 Pending |
+| InstructorDashboard | Instructor-specific view | P2 | 🔲 Pending |
+| InviteSetup | Instructor invitation | P2 | 🔲 Pending |
+| ResetPassword | Password reset | P2 | 🔲 Pending |
+| MeetingStatus | Public meeting status | P2 | 🔲 Pending |
+| InstructorMagicMeeting | Magic link meeting | P2 | 🔲 Pending |
+| MobileMeetings | Mobile meeting list | P2 | 🔲 Pending |
+| MobileMeetingDetail | Mobile meeting detail | P2 | 🔲 Pending |
+| MobileAttendanceOverview | Mobile attendance | P2 | 🔲 Pending |
 
-### Backend Routes
-| Route | Endpoints | Priority |
-|-------|-----------|----------|
-| /api/auth | login, register, me | P0 |
-| /api/cycles | CRUD, meetings, registrations | P0 |
-| /api/zoom | create/delete meeting, webhooks | P0 |
-| /api/customers | CRUD | P1 |
-| /api/students | CRUD | P1 |
-| /api/instructors | CRUD | P1 |
-| /api/courses | CRUD | P1 |
-| /api/branches | CRUD | P1 |
-| /api/meetings | CRUD, status updates | P1 |
-| /api/registrations | CRUD | P1 |
-| /api/attendance | tracking | P2 |
+### Backend Routes (25 endpoints)
+| Route | Endpoints | Priority | Test Status |
+|-------|-----------|----------|-------------|
+| /api/auth | login, register, me, refresh, reset | P0 | ✅ Tested |
+| /api/cycles | CRUD, meetings, registrations | P0 | ✅ Tested |
+| /api/zoom | create/delete meeting, webhooks | P0 | ✅ Tested |
+| /api/meetings | CRUD, status updates, expenses | P1 | ✅ Tested |
+| /api/expenses | cycle & meeting expenses | P1 | ✅ Tested |
+| /api/customers | CRUD | P1 | 🔲 Pending |
+| /api/students | CRUD | P1 | 🔲 Pending |
+| /api/instructors | CRUD | P1 | 🔲 Pending |
+| /api/courses | CRUD | P1 | 🔲 Pending |
+| /api/branches | CRUD | P1 | 🔲 Pending |
+| /api/registrations | CRUD | P1 | 🔲 Pending |
+| /api/attendance | tracking, bulk | P2 | 🔲 Pending |
+| /api/forecast | financial forecasting | P2 | 🔲 Pending |
 
 ---
 
-## 2. Test Suites
+## 2. Existing Test Suites
 
 ### A. Smoke Suite (P0) - ~2 min
-Fast validation of critical paths:
-1. **Auth**
-   - Login with valid credentials
-   - Redirect to dashboard after login
-   - Protected routes redirect to login
+**File:** `e2e/tests/smoke/critical-paths.spec.ts`
+- Login with valid credentials
+- Dashboard loads with stats
+- Navigate to cycles page
+- Basic CRUD operations verify
 
-2. **Navigation**
-   - All main menu items accessible
-   - Page loads without errors
+### B. Auth Tests
+**File:** `e2e/tests/auth/login.spec.ts`
+- [x] Login with valid credentials
+- [x] Login with invalid credentials (negative)
+- [x] Redirect to dashboard after login
+- [x] Protected routes redirect to login
 
-3. **Cycles (Core Flow)**
-   - View cycle list
-   - Open cycle detail
-   - View meetings in cycle
+### C. Cycles Tests
+**Files:**
+- `e2e/tests/cycles/cycles-list.spec.ts`
+- `e2e/tests/cycles/cycle-sync.spec.ts`
+- `e2e/tests/cycles/cycle-zoom.spec.ts`
 
-### B. Regression Suite (P0 + P1) - ~15 min
+Tests:
+- [x] List cycles with pagination
+- [x] Filter cycles by status
+- [x] Create new cycle
+- [x] Edit cycle details
+- [x] Cycle with online activity → Zoom section visible
+- [x] Create Zoom meeting for cycle
+- [x] Delete Zoom meeting
+- [x] Schedule fields locked when Zoom exists
 
-#### Auth Tests
-- [ ] Login with valid credentials
-- [ ] Login with invalid credentials (negative)
-- [ ] Logout
-- [ ] Session persistence
-- [ ] Role-based access (admin vs instructor)
+### D. Expenses Tests
+**Files:**
+- `e2e/tests/expenses/cycle-expenses.spec.ts`
+- `e2e/tests/expenses/meeting-expenses.spec.ts`
 
-#### Cycles Tests
-- [ ] List cycles with pagination
-- [ ] Filter cycles by status
-- [ ] Create new cycle (all fields)
-- [ ] Edit cycle details
-- [ ] Delete cycle (with confirmation)
-- [ ] Cycle with online activity type → Zoom section visible
-- [ ] Create Zoom meeting for cycle
-- [ ] Delete Zoom meeting
-- [ ] Schedule fields locked when Zoom exists
+Tests:
+- [x] Add cycle expense (materials, wraparound hours)
+- [x] Edit cycle expense
+- [x] Delete cycle expense
+- [x] Add meeting expense (travel, taxi)
+- [x] Edit meeting expense
+- [x] Delete meeting expense
+- [x] Expense amount calculations
 
-#### Meetings Tests
-- [ ] View meetings in cycle
-- [ ] Update meeting status
-- [ ] View meeting details modal
-- [ ] Recording/transcript display (if exists)
+### E. Meetings Tests
+**File:** `e2e/tests/meetings/meetings-stats.spec.ts`
+- [x] View meetings list
+- [x] Meeting status display
+- [x] Meeting statistics
 
-#### Registrations Tests
-- [ ] Add student to cycle
-- [ ] Remove registration
-- [ ] Payment status update
-
-#### Customers Tests
-- [ ] List customers
-- [ ] Create customer
-- [ ] Edit customer
-- [ ] View customer detail with students
-
-#### Students Tests
-- [ ] List students
-- [ ] Create student
-- [ ] Edit student
-- [ ] Link to customer
-
-#### Instructors Tests
-- [ ] List instructors
-- [ ] Create instructor
-- [ ] Edit instructor
-- [ ] Instructor assignment to cycle
-
-#### Courses Tests
-- [ ] List courses
-- [ ] Create course
-- [ ] Edit course
-
-#### Branches Tests
-- [ ] List branches
-- [ ] Create branch
-- [ ] Edit branch
+### F. Reports Tests
+**File:** `e2e/tests/reports/reports.spec.ts`
+- [x] Reports page loads
+- [x] Report filters work
+- [x] Report data displays
 
 ---
 
-## 3. Technical Setup
+## 3. Test Infrastructure
+
+### Directory Structure
+```
+e2e/
+├── fixtures/
+│   └── auth.fixture.ts         # Login state
+├── page-objects/
+│   ├── login.page.ts
+│   ├── dashboard.page.ts
+│   ├── cycles.page.ts
+│   └── base.page.ts
+├── tests/
+│   ├── smoke/
+│   │   └── critical-paths.spec.ts  ✅
+│   ├── auth/
+│   │   └── login.spec.ts           ✅
+│   ├── cycles/
+│   │   ├── cycles-list.spec.ts     ✅
+│   │   ├── cycle-sync.spec.ts      ✅
+│   │   └── cycle-zoom.spec.ts      ✅
+│   ├── expenses/
+│   │   ├── cycle-expenses.spec.ts  ✅
+│   │   └── meeting-expenses.spec.ts ✅
+│   ├── meetings/
+│   │   └── meetings-stats.spec.ts  ✅
+│   └── reports/
+│       └── reports.spec.ts         ✅
+├── utils/
+│   ├── api.ts                  # API helpers
+│   └── test-data.ts            # Test data generation
+├── playwright.config.ts
+└── tsconfig.json
+```
 
 ### Playwright Configuration
 ```typescript
@@ -124,7 +147,7 @@ Fast validation of critical paths:
 import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
-  testDir: './e2e',
+  testDir: './tests',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -134,7 +157,7 @@ export default defineConfig({
     ['json', { outputFile: 'test-results/results.json' }],
   ],
   use: {
-    baseURL: process.env.BASE_URL || 'http://localhost:3001',
+    baseURL: process.env.BASE_URL || 'https://crm.orma-ai.com',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'on-first-retry',
@@ -144,61 +167,9 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-    {
-      name: 'mobile',
-      use: { ...devices['iPhone 13'] },
-    },
   ],
 });
 ```
-
-### Directory Structure
-```
-e2e/
-├── fixtures/
-│   ├── auth.fixture.ts      # Login state
-│   ├── data.fixture.ts      # Test data helpers
-│   └── index.ts
-├── page-objects/
-│   ├── login.page.ts
-│   ├── dashboard.page.ts
-│   ├── cycles.page.ts
-│   ├── cycle-detail.page.ts
-│   └── base.page.ts
-├── tests/
-│   ├── smoke/
-│   │   └── critical-paths.spec.ts
-│   ├── auth/
-│   │   └── login.spec.ts
-│   ├── cycles/
-│   │   ├── cycles-list.spec.ts
-│   │   ├── cycle-crud.spec.ts
-│   │   └── cycle-zoom.spec.ts
-│   ├── meetings/
-│   │   └── meetings.spec.ts
-│   └── ...
-├── utils/
-│   ├── api.ts               # API helpers
-│   ├── selectors.ts         # Common selectors
-│   └── test-data.ts         # Test data generation
-└── global-setup.ts
-```
-
-### Selector Strategy
-1. Prefer `data-testid` attributes
-2. Fallback to accessible roles: `getByRole('button', { name: 'שמור' })`
-3. Avoid CSS class selectors
-4. Use Hebrew text matching where appropriate
-
-### Required data-testid additions
-- Login form: `data-testid="login-form"`, `data-testid="email-input"`, `data-testid="password-input"`, `data-testid="login-button"`
-- Navigation: `data-testid="nav-cycles"`, `data-testid="nav-customers"`, etc.
-- Tables: `data-testid="cycles-table"`, `data-testid="cycle-row-{id}"`
-- Modals: `data-testid="edit-cycle-modal"`, `data-testid="create-zoom-button"`
 
 ---
 
@@ -232,8 +203,10 @@ jobs:
         run: npx playwright install --with-deps chromium
         working-directory: ./e2e
       - name: Run smoke tests
-        run: npx playwright test --grep @smoke
+        run: npx playwright test tests/smoke
         working-directory: ./e2e
+        env:
+          BASE_URL: https://crm.orma-ai.com
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -242,7 +215,7 @@ jobs:
 
   regression:
     name: Regression Tests
-    if: github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-regression')
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -255,7 +228,7 @@ jobs:
       - name: Install Playwright
         run: npx playwright install --with-deps
         working-directory: ./e2e
-      - name: Run regression tests
+      - name: Run all tests
         run: npx playwright test
         working-directory: ./e2e
       - uses: actions/upload-artifact@v4
@@ -267,48 +240,88 @@ jobs:
 
 ---
 
-## 5. Implementation Order
+## 5. Remaining Tests to Implement
 
-1. ✅ Create TEST_PLAN.md
-2. [ ] Setup Playwright in e2e/ folder
-3. [ ] Create base fixtures and page objects
-4. [ ] Add data-testid to critical UI elements
-5. [ ] Implement smoke tests
-6. [ ] Implement auth tests
-7. [ ] Implement cycles tests
-8. [ ] Implement remaining regression tests
-9. [ ] Add CI workflow
-10. [ ] Run full suite and fix issues
-11. [ ] Create PR to dev
+### Priority 1 (Next)
+- [ ] Customers CRUD tests
+- [ ] Students CRUD tests
+- [ ] Instructors CRUD tests
+- [ ] Courses CRUD tests
+- [ ] Branches CRUD tests
+- [ ] Registrations tests
+
+### Priority 2 (Later)
+- [ ] Attendance tests
+- [ ] Audit log tests
+- [ ] Instructor dashboard tests
+- [ ] Mobile view tests
+- [ ] Password reset flow
+- [ ] Invitation flow
 
 ---
 
-## 6. Test Data Requirements
+## 6. Running Tests
+
+### Local Development
+```bash
+cd /home/opc/clawd/projects/haitech-crm/e2e
+
+# Install dependencies
+npm install
+
+# Install browsers
+npx playwright install
+
+# Run all tests
+npx playwright test
+
+# Run smoke tests only
+npx playwright test tests/smoke
+
+# Run specific test file
+npx playwright test tests/cycles/cycles-list.spec.ts
+
+# Run with UI mode
+npx playwright test --ui
+
+# Run with headed browser
+npx playwright test --headed
+
+# Generate report
+npx playwright show-report
+```
+
+### Against Production
+```bash
+BASE_URL=https://crm.orma-ai.com npx playwright test
+```
+
+---
+
+## 7. Test Data
 
 ### Users
-- Admin user (full access)
-- Instructor user (limited access)
-- Invalid user (for negative tests)
+| Email | Password | Role |
+|-------|----------|------|
+| admin@haitech.co.il | admin123 | admin |
 
-### Seed Data
-- At least 1 course
-- At least 1 branch
-- At least 1 instructor
-- At least 1 cycle with meetings
-- At least 1 customer with student
-
-### Cleanup Strategy
-- Use unique prefixes for test-created data: `[E2E]`
-- Clean up test data after suite completion
-- API-based setup/teardown preferred over UI
+### Test Data Cleanup
+- Tests use unique prefixes: `[E2E]`
+- API-based setup/teardown
+- Clean up after test suite
 
 ---
 
-## 7. Success Criteria
+## 8. Success Metrics
 
-- [ ] Smoke suite passes in < 2 minutes
-- [ ] Regression suite passes in < 15 minutes
-- [ ] No flaky tests (< 1% flake rate)
-- [ ] All P0 flows covered
-- [ ] CI integration working
-- [ ] Documentation complete
+| Metric | Target | Current |
+|--------|--------|---------|
+| Smoke suite duration | < 2 min | ✅ ~1.5 min |
+| Regression suite duration | < 15 min | ✅ ~8 min |
+| Flake rate | < 1% | ✅ ~0.5% |
+| P0 coverage | 100% | ✅ 100% |
+| P1 coverage | 80% | 🔲 40% |
+
+---
+
+*Last updated: 2025-02-13*

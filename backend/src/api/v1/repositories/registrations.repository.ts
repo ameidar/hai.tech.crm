@@ -223,7 +223,7 @@ export class RegistrationsRepository {
   async updatePayment(
     id: string,
     paymentStatus: 'unpaid' | 'partial' | 'paid',
-    paymentMethod?: 'credit' | 'transfer' | 'cash',
+    paymentMethod?: 'credit' | 'transfer' | 'cash' | 'institutional' | 'standing_order',
     amount?: number,
     invoiceLink?: string
   ) {

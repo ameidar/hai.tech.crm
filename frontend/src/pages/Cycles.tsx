@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
-import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useBulkGenerateMeetings, useViewData } from '../hooks/useApi';
+import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square, ArrowUpDown, ArrowUp, ArrowDown, Filter, Columns } from 'lucide-react';
+import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useBulkGenerateMeetings, useViewData, useSyncAllCycles } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading, { SkeletonTable } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
@@ -12,33 +12,94 @@ import type { Cycle, CycleType, CycleStatus, DayOfWeek, ActivityType } from '../
 import { activityTypeHebrew } from '../types';
 
 export default function Cycles() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingCycle, setEditingCycle] = useState<Cycle | null>(null);
   const [showBulkEditModal, setShowBulkEditModal] = useState(false);
   const [selectedCycles, setSelectedCycles] = useState<Set<string>>(new Set());
-  const [statusFilter, setStatusFilter] = useState<CycleStatus | ''>('');
-  const [instructorFilter, setInstructorFilter] = useState('');
-  const [branchFilter, setBranchFilter] = useState('');
-  const [courseFilter, setCourseFilter] = useState('');
-  const [dayFilter, setDayFilter] = useState<DayOfWeek | ''>('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'filters' | 'view'>('filters');
-  const [pageSize, setPageSize] = useState<number>(100);
-  const [sortField, setSortField] = useState<string>('name');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [showColumnPicker, setShowColumnPicker] = useState(false);
 
-  // Initialize filters from URL params
+  // Column visibility
+  const COLUMN_KEYS = ['name', 'course', 'branch', 'instructor', 'startDate', 'dayOfWeek', 'type', 'pricePerStudent', 'meetingRevenue', 'progress', 'status', 'zoom'] as const;
+  const COLUMN_LABELS: Record<string, string> = {
+    name: 'שם המחזור',
+    course: 'קורס',
+    branch: 'סניף',
+    instructor: 'מדריך',
+    startDate: 'תאריך התחלה',
+    dayOfWeek: 'יום ושעה',
+    type: 'סוג',
+    pricePerStudent: 'מחיר לתלמיד',
+    meetingRevenue: 'מחיר לפגישה',
+    progress: 'התקדמות',
+    status: 'סטטוס',
+    zoom: 'זום',
+  };
+
+  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('cycles-column-visibility');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return Object.fromEntries(COLUMN_KEYS.map(k => [k, true]));
+  });
+
   useEffect(() => {
-    const branchId = searchParams.get('branchId');
-    const instructorId = searchParams.get('instructorId');
-    const courseId = searchParams.get('courseId');
-    if (branchId) setBranchFilter(branchId);
-    if (instructorId) setInstructorFilter(instructorId);
-    if (courseId) setCourseFilter(courseId);
-  }, [searchParams]);
+    localStorage.setItem('cycles-column-visibility', JSON.stringify(columnVisibility));
+  }, [columnVisibility]);
+
+  // Set default filters on first load (no params in URL)
+  useEffect(() => {
+    if (searchParams.toString() === '') {
+      const defaults = new URLSearchParams();
+      defaults.set('status', 'active');
+      defaults.set('limit', '100');
+      setSearchParams(defaults, { replace: true });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggleColumn = (key: string) => {
+    setColumnVisibility(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const isColVisible = (key: string) => columnVisibility[key] !== false;
+
+  // Read filters from URL
+  const statusFilter = (searchParams.get('status') as CycleStatus) || '';
+  const instructorFilter = searchParams.get('instructorId') || '';
+  const branchFilter = searchParams.get('branchId') || '';
+  const courseFilter = searchParams.get('courseId') || '';
+  const dayFilter = (searchParams.get('day') as DayOfWeek) || '';
+  const searchQuery = searchParams.get('search') || '';
+  const pageSize = parseInt(searchParams.get('limit') || '100');
+  const sortField = searchParams.get('sort') || 'name';
+  const sortDirection = (searchParams.get('dir') as 'asc' | 'desc') || 'asc';
+
+  // Helper to update URL params
+  const updateFilter = (key: string, value: string) => {
+    const newParams = new URLSearchParams(searchParams);
+    if (value) {
+      newParams.set(key, value);
+    } else {
+      newParams.delete(key);
+    }
+    setSearchParams(newParams, { replace: true });
+  };
+
+  // Filter setters that update URL
+  const setStatusFilter = (v: CycleStatus | '') => updateFilter('status', v);
+  const setInstructorFilter = (v: string) => updateFilter('instructorId', v);
+  const setBranchFilter = (v: string) => updateFilter('branchId', v);
+  const setCourseFilter = (v: string) => updateFilter('courseId', v);
+  const setDayFilter = (v: DayOfWeek | '') => updateFilter('day', v);
+  const setSearchQuery = (v: string) => updateFilter('search', v);
+  const setPageSize = (v: number) => updateFilter('limit', v.toString());
+  const setSortField = (v: string) => updateFilter('sort', v);
+  const setSortDirection = (v: 'asc' | 'desc') => updateFilter('dir', v);
 
   // Debounce search
   useMemo(() => {
@@ -63,6 +124,7 @@ export default function Cycles() {
   const deleteCycle = useDeleteCycle();
   const bulkUpdateCycles = useBulkUpdateCycles();
   const bulkGenerateMeetings = useBulkGenerateMeetings();
+  const syncAllCycles = useSyncAllCycles();
   const { data: viewData, isLoading: viewLoading } = useViewData(activeViewId, []);
 
   // Determine which data to display based on view mode
@@ -114,8 +176,8 @@ export default function Cycles() {
           bVal = Number(b.pricePerStudent) || 0;
           break;
         case 'meetingRevenue':
-          aVal = Number(a.meetingRevenue) || 0;
-          bVal = Number(b.meetingRevenue) || 0;
+          aVal = Number(a.revenuePerMeeting ?? a.meetingRevenue) || 0;
+          bVal = Number(b.revenuePerMeeting ?? b.meetingRevenue) || 0;
           break;
         case 'progress':
           aVal = a.totalMeetings > 0 ? a.completedMeetings / a.totalMeetings : 0;
@@ -141,7 +203,7 @@ export default function Cycles() {
   // Toggle sort
   const handleSort = (field: string) => {
     if (sortField === field) {
-      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
       setSortField(field);
       setSortDirection('asc');
@@ -244,19 +306,29 @@ export default function Cycles() {
         title="מחזורים"
         subtitle={`${displayCycles?.length || 0} מחזורים`}
         actions={
-          <button onClick={() => setShowAddModal(true)} className="btn btn-primary" data-testid="add-cycle-btn">
-            <Plus size={18} />
-            מחזור חדש
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => syncAllCycles.mutateAsync(undefined).then(r => alert(`✅ סונכרנו ${(r as any).synced} מחזורים`))}
+              disabled={syncAllCycles.isPending}
+              className="btn btn-secondary flex items-center gap-1"
+              title="סנכרן התקדמות כל המחזורים"
+            >
+              {syncAllCycles.isPending ? '⏳' : '🔄'} סנכרן הכל
+            </button>
+            <button onClick={() => setShowAddModal(true)} className="btn btn-primary" data-testid="add-cycle-btn">
+              <Plus size={18} />
+              מחזור חדש
+            </button>
+          </div>
         }
       />
 
       <div className="flex-1 p-6 overflow-auto">
         {/* Filters */}
         <div className="mb-6 space-y-4">
-          <div className="flex flex-wrap gap-4 items-center">
-            {/* Search by name */}
-            <div className="relative flex-1 min-w-[200px] max-w-md">
+          {/* Search - always visible */}
+          <div className="flex flex-wrap gap-3 items-center">
+            <div className="relative flex-1 min-w-[150px] max-w-md">
               <Search size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
@@ -268,61 +340,82 @@ export default function Cycles() {
               />
             </div>
 
-            {/* Instructor filter */}
-            <div className="w-36">
-              <select
-                value={instructorFilter}
-                onChange={(e) => setInstructorFilter(e.target.value)}
-                className="form-input"
+            {/* Mobile filter toggle */}
+            <button
+              onClick={() => {
+                const el = document.getElementById('cycles-filters');
+                if (el) el.classList.toggle('hidden');
+              }}
+              className="md:hidden btn btn-secondary flex items-center gap-1 min-h-[44px]"
+            >
+              <Filter size={16} />
+              סינון
+              {hasActiveFilters && <span className="w-2 h-2 rounded-full bg-blue-500" />}
+            </button>
+
+            {/* Clear filters button */}
+            {hasActiveFilters && (
+              <button
+                onClick={clearFilters}
+                className="btn btn-secondary flex items-center gap-1 min-h-[44px]"
               >
+                <X size={16} />
+                <span className="hidden md:inline">נקה סינון</span>
+              </button>
+            )}
+
+            {/* Column picker */}
+            <div className="relative hidden md:block">
+              <button
+                onClick={() => setShowColumnPicker(prev => !prev)}
+                className="btn btn-secondary flex items-center gap-1 min-h-[44px]"
+              >
+                <Columns size={16} />
+                עמודות
+              </button>
+              {showColumnPicker && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setShowColumnPicker(false)} />
+                  <div className="absolute left-0 top-full mt-1 z-40 bg-white border border-gray-200 rounded-lg shadow-lg py-2 min-w-[180px]">
+                    {COLUMN_KEYS.map(key => (
+                      <label key={key} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm">
+                        <input
+                          type="checkbox"
+                          checked={isColVisible(key)}
+                          onChange={() => toggleColumn(key)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        {COLUMN_LABELS[key]}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Collapsible filters - hidden on mobile by default */}
+          <div id="cycles-filters" className="hidden md:flex flex-wrap gap-3 items-center">
+            <div className="w-full md:w-36">
+              <select value={instructorFilter} onChange={(e) => setInstructorFilter(e.target.value)} className="form-input w-full">
                 <option value="">כל המדריכים</option>
-                {instructors?.map((instructor) => (
-                  <option key={instructor.id} value={instructor.id}>
-                    {instructor.name}
-                  </option>
-                ))}
+                {instructors?.map((instructor) => (<option key={instructor.id} value={instructor.id}>{instructor.name}</option>))}
               </select>
             </div>
-
-            {/* Branch filter */}
-            <div className="w-36">
-              <select
-                value={branchFilter}
-                onChange={(e) => setBranchFilter(e.target.value)}
-                className="form-input"
-              >
+            <div className="w-full md:w-36">
+              <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="form-input w-full">
                 <option value="">כל הסניפים</option>
-                {branches?.map((branch) => (
-                  <option key={branch.id} value={branch.id}>
-                    {branch.name}
-                  </option>
-                ))}
+                {branches?.map((branch) => (<option key={branch.id} value={branch.id}>{branch.name}</option>))}
               </select>
             </div>
-
-            {/* Course filter */}
-            <div className="w-36">
-              <select
-                value={courseFilter}
-                onChange={(e) => setCourseFilter(e.target.value)}
-                className="form-input"
-              >
+            <div className="w-full md:w-36">
+              <select value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)} className="form-input w-full">
                 <option value="">כל הקורסים</option>
-                {courses?.map((course) => (
-                  <option key={course.id} value={course.id}>
-                    {course.name}
-                  </option>
-                ))}
+                {courses?.map((course) => (<option key={course.id} value={course.id}>{course.name}</option>))}
               </select>
             </div>
-
-            {/* Day filter */}
-            <div className="w-28">
-              <select
-                value={dayFilter}
-                onChange={(e) => setDayFilter(e.target.value as DayOfWeek | '')}
-                className="form-input"
-              >
+            <div className="w-1/2 md:w-28">
+              <select value={dayFilter} onChange={(e) => setDayFilter(e.target.value as DayOfWeek | '')} className="form-input w-full">
                 <option value="">כל הימים</option>
                 <option value="sunday">ראשון</option>
                 <option value="monday">שני</option>
@@ -332,60 +425,29 @@ export default function Cycles() {
                 <option value="friday">שישי</option>
               </select>
             </div>
-
-            {/* Status filter */}
-            <div className="w-32">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as CycleStatus | '')}
-                className="form-input"
-              >
+            <div className="w-1/2 md:w-32">
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as CycleStatus | '')} className="form-input w-full">
                 <option value="">כל הסטטוסים</option>
                 <option value="active">פעיל</option>
                 <option value="completed">הושלם</option>
                 <option value="cancelled">בוטל</option>
+                <option value="frozen">❄️ מוקפא</option>
+                <option value="retainer">💼 ריטיינר</option>
               </select>
             </div>
-
-            {/* Page size selector */}
-            <div className="w-28">
-              <select
-                value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-                className="form-input"
-              >
+            <div className="hidden md:block w-28">
+              <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="form-input">
                 <option value={50}>50</option>
                 <option value={100}>100</option>
                 <option value={200}>200</option>
                 <option value={500}>הכל</option>
               </select>
             </div>
-
-            {/* View Selector */}
-            <ViewSelector
-              entity="cycles"
-              onApplyView={() => {}}
-              onViewSelect={(viewId) => {
-                setActiveViewId(viewId);
-                if (viewId) {
-                  setViewMode('view');
-                } else {
-                  setViewMode('filters');
-                }
-              }}
-            />
-
-            {/* Clear filters button */}
-            {hasActiveFilters && (
-              <button
-                onClick={clearFilters}
-                className="btn btn-secondary flex items-center gap-1"
-              >
-                <X size={16} />
-                נקה סינון
-              </button>
-            )}
+            <div className="hidden md:block">
+              <ViewSelector entity="cycles" onApplyView={() => {}} onViewSelect={(viewId) => { setActiveViewId(viewId); if (viewId) { setViewMode('view'); } else { setViewMode('filters'); } }} />
+            </div>
           </div>
+
         </div>
 
         {/* Bulk Actions Bar */}
@@ -436,7 +498,38 @@ export default function Cycles() {
         {displayLoading ? (
           <SkeletonTable rows={8} columns={11} />
         ) : displayCycles && displayCycles.length > 0 ? (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <>
+          {/* Mobile card view */}
+          <div className="md:hidden space-y-2">
+            {displayCycles.map((cycle) => {
+              const progress = cycle.totalMeetings > 0 ? (cycle.completedMeetings / cycle.totalMeetings) * 100 : 0;
+              return (
+                <Link
+                  key={cycle.id}
+                  to={`/cycles/${cycle.id}`}
+                  className="block bg-white rounded-lg border border-gray-100 p-4 shadow-sm active:bg-gray-50"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-semibold text-blue-600 text-sm">{cycle.name}</span>
+                    <span className={`badge text-xs ${cycle.status === 'active' ? 'badge-success' : cycle.status === 'completed' ? 'badge-info' : cycle.status === 'frozen' ? 'badge-secondary' : cycle.status === 'retainer' ? 'badge-warning' : 'badge-danger'}`}>
+                      {cycleStatusHebrew[cycle.status]}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-600">{cycle.instructor?.name || '-'} • {cycle.branch?.name || '-'}</p>
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="text-xs text-gray-500">{dayOfWeekHebrew[cycle.dayOfWeek]} {formatTime(cycle.startTime)}</span>
+                    <span className="text-xs text-gray-500">{cycle.completedMeetings}/{cycle.totalMeetings} מפגשים</span>
+                  </div>
+                  <div className="mt-2 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full" style={{ width: `${progress}%` }} />
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+
+          {/* Desktop table view */}
+          <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="overflow-x-auto">
               <table data-testid="cycles-table">
                 <thead>
@@ -456,72 +549,14 @@ export default function Cycles() {
                         )}
                       </button>
                     </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('name')}>
-                      <div className="flex items-center gap-1">
-                        שם המחזור
-                        {sortField === 'name' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('course')}>
-                      <div className="flex items-center gap-1">
-                        קורס
-                        {sortField === 'course' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('branch')}>
-                      <div className="flex items-center gap-1">
-                        סניף
-                        {sortField === 'branch' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('instructor')}>
-                      <div className="flex items-center gap-1">
-                        מדריך
-                        {sortField === 'instructor' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('startDate')}>
-                      <div className="flex items-center gap-1">
-                        תאריך התחלה
-                        {sortField === 'startDate' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('dayOfWeek')}>
-                      <div className="flex items-center gap-1">
-                        יום ושעה
-                        {sortField === 'dayOfWeek' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('type')}>
-                      <div className="flex items-center gap-1">
-                        סוג
-                        {sortField === 'type' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('pricePerStudent')}>
-                      <div className="flex items-center gap-1">
-                        מחיר לתלמיד
-                        {sortField === 'pricePerStudent' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('meetingRevenue')}>
-                      <div className="flex items-center gap-1">
-                        הכנסה למפגש
-                        {sortField === 'meetingRevenue' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('progress')}>
-                      <div className="flex items-center gap-1">
-                        התקדמות
-                        {sortField === 'progress' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
-                    <th className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort('status')}>
-                      <div className="flex items-center gap-1">
-                        סטטוס
-                        {sortField === 'status' ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
-                      </div>
-                    </th>
+                    {COLUMN_KEYS.filter(isColVisible).map(col => (
+                      <th key={col} className="cursor-pointer hover:bg-gray-50" onClick={() => handleSort(col)}>
+                        <div className="flex items-center gap-1">
+                          {COLUMN_LABELS[col]}
+                          {sortField === col ? (sortDirection === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="text-gray-300" />}
+                        </div>
+                      </th>
+                    ))}
                     <th>פעולות</th>
                   </tr>
                 </thead>
@@ -546,89 +581,106 @@ export default function Cycles() {
                           )}
                         </button>
                       </td>
-                      <td>
-                        <Link
-                          to={`/cycles/${cycle.id}`}
-                          className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
-                        >
-                          {cycle.name}
-                        </Link>
-                      </td>
-                      <td>
-                        {cycle.course ? (
-                          <Link
-                            to={`/courses?search=${encodeURIComponent(cycle.course.name)}`}
-                            className="text-blue-600 hover:text-blue-800 hover:underline"
-                          >
-                            {cycle.course.name}
+                      {isColVisible('name') && (
+                        <td>
+                          <Link to={`/cycles/${cycle.id}`} className="text-blue-600 hover:text-blue-800 hover:underline font-medium">
+                            {cycle.name}
                           </Link>
-                        ) : <span className="text-gray-400">-</span>}
-                      </td>
-                      <td>
-                        {cycle.branch ? (
-                          <Link
-                            to={`/branches?search=${encodeURIComponent(cycle.branch.name)}`}
-                            className="text-blue-600 hover:text-blue-800 hover:underline"
-                          >
-                            {cycle.branch.name}
-                          </Link>
-                        ) : <span className="text-gray-400">-</span>}
-                      </td>
-                      <td>
-                        {cycle.instructor ? (
-                          <Link
-                            to={`/instructors?search=${encodeURIComponent(cycle.instructor.name)}`}
-                            className="text-blue-600 hover:text-blue-800 hover:underline"
-                          >
-                            {cycle.instructor.name}
-                          </Link>
-                        ) : <span className="text-gray-400">-</span>}
-                      </td>
-                      <td className="text-gray-600">
-                        {new Date(cycle.startDate).toLocaleDateString('he-IL')}
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-1.5 text-gray-700">
-                          <Clock size={14} className="text-gray-400" />
-                          <span>
-                            {dayOfWeekHebrew[cycle.dayOfWeek]} {formatTime(cycle.startTime)}
-                          </span>
-                        </div>
-                      </td>
-                      <td>
-                        <span className={`badge ${cycle.type === 'private' ? 'badge-warning' : 'badge-info'}`}>
-                          {cycleTypeHebrew[cycle.type]}
-                        </span>
-                      </td>
-                      <td className="text-gray-600">
-                        {cycle.pricePerStudent ? `₪${Number(cycle.pricePerStudent).toLocaleString()}` : '-'}
-                      </td>
-                      <td className="text-gray-600">
-                        {cycle.meetingRevenue ? `₪${Number(cycle.meetingRevenue).toLocaleString()}` : '-'}
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-2">
-                          <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300"
-                              style={{
-                                width: `${(cycle.completedMeetings / cycle.totalMeetings) * 100}%`,
-                              }}
-                            />
+                        </td>
+                      )}
+                      {isColVisible('course') && (
+                        <td>
+                          {cycle.course ? (
+                            <Link to={`/courses?search=${encodeURIComponent(cycle.course.name)}`} className="text-blue-600 hover:text-blue-800 hover:underline">
+                              {cycle.course.name}
+                            </Link>
+                          ) : <span className="text-gray-400">-</span>}
+                        </td>
+                      )}
+                      {isColVisible('branch') && (
+                        <td>
+                          {cycle.branch ? (
+                            <Link to={`/branches?search=${encodeURIComponent(cycle.branch.name)}`} className="text-blue-600 hover:text-blue-800 hover:underline">
+                              {cycle.branch.name}
+                            </Link>
+                          ) : <span className="text-gray-400">-</span>}
+                        </td>
+                      )}
+                      {isColVisible('instructor') && (
+                        <td>
+                          {cycle.instructor ? (
+                            <Link to={`/instructors?search=${encodeURIComponent(cycle.instructor.name)}`} className="text-blue-600 hover:text-blue-800 hover:underline">
+                              {cycle.instructor.name}
+                            </Link>
+                          ) : <span className="text-gray-400">-</span>}
+                        </td>
+                      )}
+                      {isColVisible('startDate') && (
+                        <td className="text-gray-600">
+                          {new Date(cycle.startDate).toLocaleDateString('he-IL')}
+                        </td>
+                      )}
+                      {isColVisible('dayOfWeek') && (
+                        <td>
+                          <div className="flex items-center gap-1.5 text-gray-700">
+                            <Clock size={14} className="text-gray-400" />
+                            <span>{dayOfWeekHebrew[cycle.dayOfWeek]} {formatTime(cycle.startTime)}</span>
                           </div>
-                          <span className="text-sm text-gray-500 tabular-nums">
-                            {cycle.completedMeetings}/{cycle.totalMeetings}
+                        </td>
+                      )}
+                      {isColVisible('type') && (
+                        <td>
+                          <span className={`badge ${cycle.type === 'private' ? 'badge-warning' : 'badge-info'}`}>
+                            {cycleTypeHebrew[cycle.type]}
                           </span>
-                        </div>
-                      </td>
-                      <td>
-                        <span className={`badge ${
-                          cycle.status === 'active' ? 'badge-success' :
-                          cycle.status === 'completed' ? 'badge-info' : 'badge-danger'
-                        }`}>
-                          {cycleStatusHebrew[cycle.status]}
-                        </span>
-                      </td>
+                        </td>
+                      )}
+                      {isColVisible('pricePerStudent') && (
+                        <td className="text-gray-600">
+                          {cycle.pricePerStudent ? `₪${Number(cycle.pricePerStudent).toLocaleString()}` : '-'}
+                        </td>
+                      )}
+                      {isColVisible('meetingRevenue') && (
+                        <td className="text-gray-600">
+                          {(cycle.revenuePerMeeting || cycle.meetingRevenue)
+                            ? `₪${Number(cycle.revenuePerMeeting ?? cycle.meetingRevenue).toLocaleString()}`
+                            : '-'}
+                        </td>
+                      )}
+                      {isColVisible('progress') && (
+                        <td>
+                          <div className="flex items-center gap-2">
+                            <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300"
+                                style={{ width: `${(cycle.completedMeetings / cycle.totalMeetings) * 100}%` }}
+                              />
+                            </div>
+                            <span className="text-sm text-gray-500 tabular-nums">
+                              {cycle.completedMeetings}/{cycle.totalMeetings}
+                            </span>
+                          </div>
+                        </td>
+                      )}
+                      {isColVisible('status') && (
+                        <td>
+                          <span className={`badge ${
+                            cycle.status === 'active' ? 'badge-success' :
+                            cycle.status === 'completed' ? 'badge-info' : cycle.status === 'frozen' ? 'badge-secondary' : cycle.status === 'retainer' ? 'badge-warning' : 'badge-danger'
+                          }`}>
+                            {cycleStatusHebrew[cycle.status]}
+                          </span>
+                        </td>
+                      )}
+                      {isColVisible('zoom') && (
+                        <td>
+                          {cycle.zoomJoinUrl ? (
+                            <a href={cycle.zoomJoinUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline text-sm">
+                              🔗 קישור
+                            </a>
+                          ) : <span className="text-gray-400">-</span>}
+                        </td>
+                      )}
                       <td>
                         <div className="flex items-center gap-1">
                           <button
@@ -653,6 +705,7 @@ export default function Cycles() {
               </table>
             </div>
           </div>
+          </>
         ) : (
           <EmptyState
             icon={<RefreshCcw size={40} />}
@@ -752,6 +805,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     totalMeetings: 12,
     pricePerStudent: 0,
     meetingRevenue: 0,
+    includesVat: null as boolean | null,
     studentCount: 0,
     maxStudents: 15,
     sendParentReminders: true,
@@ -761,10 +815,22 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate VAT selection for institutional_fixed
+    if (formData.type === 'institutional_fixed' && formData.includesVat === null) {
+      alert('יש לבחור האם הסכום כולל מע״מ או לא');
+      return;
+    }
+    
     const priceValue = Number(formData.pricePerStudent);
-    const meetingRevenueValue = Number(formData.meetingRevenue);
+    let meetingRevenueValue = Number(formData.meetingRevenue);
     const studentCountValue = Number(formData.studentCount);
     const maxStudentsValue = Number(formData.maxStudents);
+    
+    // If includes VAT, calculate the amount before VAT (divide by 1.18)
+    if (formData.type === 'institutional_fixed' && formData.includesVat === true && meetingRevenueValue > 0) {
+      meetingRevenueValue = Math.round((meetingRevenueValue / 1.18) * 100) / 100;
+    }
     
     // Calculate duration from start/end times
     const [startHour, startMin] = formData.startTime.split(':').map(Number);
@@ -781,6 +847,11 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
       studentCount: formData.type === 'institutional_per_child' && studentCountValue > 0 ? studentCountValue : undefined,
       maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
     };
+    // Send revenueIncludesVat for institutional_fixed
+    if (formData.type === 'institutional_fixed') {
+      submitData.revenueIncludesVat = formData.includesVat;
+    }
+    delete submitData.includesVat;
     // Remove endDate if empty - it will be calculated automatically
     if (!submitData.endDate) {
       delete submitData.endDate;
@@ -994,19 +1065,51 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
           )}
 
           {formData.type === 'institutional_fixed' && (
-            <div>
-              <label className="form-label">הכנסה למפגש</label>
-              <div className="relative">
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
-                <input
-                  type="number"
-                  value={formData.meetingRevenue}
-                  onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
-                  className="form-input pr-8"
-                  min="0"
-                />
+            <>
+              <div>
+                <label className="form-label">הכנסה למפגש *</label>
+                <div className="relative">
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+                  <input
+                    type="number"
+                    value={formData.meetingRevenue}
+                    onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
+                    className="form-input pr-8"
+                    min="0"
+                  />
+                </div>
               </div>
-            </div>
+              <div>
+                <label className="form-label">מע״מ *</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="createIncludesVat"
+                      checked={formData.includesVat === false}
+                      onChange={() => setFormData({ ...formData, includesVat: false })}
+                      className="text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm">לפני מע״מ</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="createIncludesVat"
+                      checked={formData.includesVat === true}
+                      onChange={() => setFormData({ ...formData, includesVat: true })}
+                      className="text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm">כולל מע״מ</span>
+                  </label>
+                </div>
+                {formData.includesVat === true && formData.meetingRevenue > 0 && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    הכנסה לפני מע״מ: ₪{(formData.meetingRevenue / 1.18).toFixed(2)}
+                  </p>
+                )}
+              </div>
+            </>
           )}
         </div>
 
@@ -1088,6 +1191,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     totalMeetings: cycle.totalMeetings,
     pricePerStudent: cycle.pricePerStudent || 0,
     meetingRevenue: cycle.meetingRevenue || 0,
+    includesVat: cycle.revenueIncludesVat ?? null,
     studentCount: cycle.studentCount || 0,
     maxStudents: cycle.maxStudents || 15,
     sendParentReminders: cycle.sendParentReminders,
@@ -1097,10 +1201,22 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate VAT selection for institutional_fixed
+    if (formData.type === 'institutional_fixed' && formData.includesVat === null) {
+      alert('יש לבחור האם הסכום כולל מע״מ או לא');
+      return;
+    }
+    
     const priceValue = Number(formData.pricePerStudent);
-    const meetingRevenueValue = Number(formData.meetingRevenue);
+    let meetingRevenueValue = Number(formData.meetingRevenue);
     const studentCountValue = Number(formData.studentCount);
     const maxStudentsValue = Number(formData.maxStudents);
+    
+    // If includes VAT, calculate the amount before VAT (divide by 1.18)
+    if (formData.type === 'institutional_fixed' && formData.includesVat === true && meetingRevenueValue > 0) {
+      meetingRevenueValue = Math.round((meetingRevenueValue / 1.18) * 100) / 100;
+    }
     
     // Calculate duration from start/end times
     const [startHour, startMin] = formData.startTime.split(':').map(Number);
@@ -1122,6 +1238,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
       totalMeetings: Number(formData.totalMeetings),
       pricePerStudent: (formData.type === 'private' || formData.type === 'institutional_per_child') && priceValue > 0 ? priceValue : undefined,
       meetingRevenue: formData.type === 'institutional_fixed' && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
+      revenueIncludesVat: formData.type === 'institutional_fixed' ? formData.includesVat : undefined,
       studentCount: formData.type === 'institutional_per_child' && studentCountValue > 0 ? studentCountValue : undefined,
       maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
       sendParentReminders: formData.sendParentReminders,
@@ -1218,6 +1335,8 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
             <option value="active">פעיל</option>
             <option value="completed">הושלם</option>
             <option value="cancelled">בוטל</option>
+            <option value="frozen">❄️ מוקפא</option>
+            <option value="retainer">💼 ריטיינר</option>
           </select>
         </div>
       </div>
@@ -1318,19 +1437,51 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
           )}
 
           {formData.type === 'institutional_fixed' && (
-            <div>
-              <label className="form-label">הכנסה למפגש</label>
-              <div className="relative">
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
-                <input
-                  type="number"
-                  value={formData.meetingRevenue}
-                  onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
-                  className="form-input pr-8"
-                  min="0"
-                />
+            <>
+              <div>
+                <label className="form-label">הכנסה למפגש *</label>
+                <div className="relative">
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+                  <input
+                    type="number"
+                    value={formData.meetingRevenue}
+                    onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
+                    className="form-input pr-8"
+                    min="0"
+                  />
+                </div>
               </div>
-            </div>
+              <div>
+                <label className="form-label">מע״מ *</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="editIncludesVat"
+                      checked={formData.includesVat === false}
+                      onChange={() => setFormData({ ...formData, includesVat: false })}
+                      className="text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm">לפני מע״מ</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="editIncludesVat"
+                      checked={formData.includesVat === true}
+                      onChange={() => setFormData({ ...formData, includesVat: true })}
+                      className="text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm">כולל מע״מ</span>
+                  </label>
+                </div>
+                {formData.includesVat === true && formData.meetingRevenue > 0 && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    הכנסה לפני מע״מ: ₪{(formData.meetingRevenue / 1.18).toFixed(2)}
+                  </p>
+                )}
+              </div>
+            </>
           )}
         </div>
 

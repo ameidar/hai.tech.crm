@@ -18,7 +18,7 @@ export const paymentStatusEnum = z.enum(['unpaid', 'partial', 'paid']);
 /**
  * Payment method enum
  */
-export const paymentMethodEnum = z.enum(['credit', 'transfer', 'cash']);
+export const paymentMethodEnum = z.enum(['credit', 'transfer', 'cash', 'institutional', 'standing_order']);
 
 /**
  * Registration query parameters
@@ -61,6 +61,9 @@ export const updateRegistrationSchema = z.object({
   invoiceLink: z.string().url().optional().nullable(),
   cancellationReason: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  refundAmount: z.number().nonnegative().optional().nullable(),
+  refundDate: z.string().optional().nullable(),
+  creditInvoiceLink: z.string().url().optional().nullable(),
 });
 
 /**

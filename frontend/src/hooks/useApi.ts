@@ -10,6 +10,7 @@ import type {
   Meeting,
   Registration,
   DailySummary,
+  User,
 } from '../types';
 
 // Pagination metadata
@@ -17,7 +18,7 @@ interface PaginationMeta {
   page: number;
   limit: number;
   total: number;
-  pages: number;
+  totalPages: number;
   hasNext: boolean;
   hasPrev: boolean;
 }
@@ -32,7 +33,7 @@ interface PaginatedResponse<T> {
 export type { PaginationMeta, PaginatedResponse };
 
 // Generic fetch function - handles both paginated and direct responses
-const fetchData = async <T>(url: string): Promise<T> => {
+export const fetchData = async <T>(url: string): Promise<T> => {
   const response = await api.get<T | PaginatedResponse<T>>(url);
   // If response has data property with pagination, extract the data array
   if (response.data && typeof response.data === 'object' && 'data' in response.data && 'pagination' in response.data) {
@@ -41,18 +42,35 @@ const fetchData = async <T>(url: string): Promise<T> => {
   return response.data as T;
 };
 
+// Fetch with pagination info - returns both data and pagination
+const fetchDataWithPagination = async <T>(url: string): Promise<{ data: T; pagination?: PaginationMeta }> => {
+  const response = await api.get<PaginatedResponse<T>>(url);
+  if (response.data && typeof response.data === 'object' && 'data' in response.data) {
+    return {
+      data: (response.data as PaginatedResponse<T>).data,
+      pagination: (response.data as PaginatedResponse<T>).pagination,
+    };
+  }
+  return { data: response.data as T };
+};
+
 // Generic mutation function
-const mutateData = async <T, D>(url: string, method: 'post' | 'put' | 'delete', data?: D): Promise<T> => {
+export const mutateData = async <T, D>(url: string, method: 'post' | 'put' | 'delete', data?: D): Promise<T> => {
   const response = await api[method]<T>(url, data);
   return response.data;
 };
 
 // ==================== Customers ====================
-export const useCustomers = (params?: { search?: string }) => {
-  const searchParam = params?.search ? `?search=${encodeURIComponent(params.search)}` : '';
+export const useCustomers = (params?: { search?: string; limit?: number; page?: number; sortBy?: string }) => {
+  const queryParams = new URLSearchParams();
+  if (params?.search) queryParams.append('search', params.search);
+  queryParams.append('limit', String(params?.limit || 100));
+  if (params?.page && params.page > 1) queryParams.append('page', String(params.page));
+  if (params?.sortBy) queryParams.append('sortBy', params.sortBy);
+  const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
   return useQuery({
-    queryKey: ['customers', params?.search],
-    queryFn: () => fetchData<Customer[]>(`/customers${searchParam}`),
+    queryKey: ['customers', params?.search, params?.limit, params?.page, params?.sortBy],
+    queryFn: () => fetchDataWithPagination<Customer[]>(`/customers${queryString}`),
   });
 };
 
@@ -97,10 +115,11 @@ export const useDeleteCustomer = () => {
 };
 
 // ==================== Students ====================
-export const useStudents = (customerId?: string) => {
-  const url = customerId ? `/customers/${customerId}/students` : '/students';
+export const useStudents = (customerId?: string, limit: number = 500) => {
+  const baseUrl = customerId ? `/customers/${customerId}/students` : '/students';
+  const url = `${baseUrl}?limit=${limit}`;
   return useQuery({
-    queryKey: ['students', customerId],
+    queryKey: ['students', customerId, limit],
     queryFn: () => fetchData<Student[]>(url),
   });
 };
@@ -181,6 +200,16 @@ export const useUpdateCourse = () => {
   });
 };
 
+export const useDeleteCourse = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/courses/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['courses'] });
+    },
+  });
+};
+
 // ==================== Branches ====================
 export const useBranches = () => {
   return useQuery({
@@ -219,11 +248,25 @@ export const useUpdateBranch = () => {
   });
 };
 
+export const useDeleteBranch = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/branches/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['branches'] });
+    },
+  });
+};
+
 // ==================== Instructors ====================
-export const useInstructors = () => {
+export const useInstructors = (params?: { isActive?: boolean | ''; search?: string }) => {
+  const queryString = new URLSearchParams();
+  queryString.set('limit', '300');
+  if (params?.isActive !== undefined && params.isActive !== '') queryString.set('isActive', String(params.isActive));
+  if (params?.search) queryString.set('search', params.search);
   return useQuery({
-    queryKey: ['instructors'],
-    queryFn: () => fetchData<Instructor[]>('/instructors?limit=100'),
+    queryKey: ['instructors', params],
+    queryFn: () => fetchData<Instructor[]>(`/instructors?${queryString.toString()}`),
   });
 };
 
@@ -271,6 +314,28 @@ export const useResetInstructorPassword = () => {
   });
 };
 
+export const useDeleteInstructor = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (instructorId: string) =>
+      mutateData<void, undefined>(`/instructors/${instructorId}`, 'delete'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['instructors'] });
+    },
+  });
+};
+
+export const useBulkUpdateInstructors = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { instructorIds: string[]; data: { employmentType?: string; isActive?: boolean } }) =>
+      mutateData<{ success: boolean; updated: number; message: string }, typeof params>('/instructors/bulk-update', 'post', params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['instructors'] });
+    },
+  });
+};
+
 // ==================== Cycles ====================
 export const useCycles = (params?: { branchId?: string; instructorId?: string; courseId?: string; status?: string; dayOfWeek?: string; search?: string; limit?: number }) => {
   const searchParams = new URLSearchParams();
@@ -286,6 +351,37 @@ export const useCycles = (params?: { branchId?: string; instructorId?: string; c
   return useQuery({
     queryKey: ['cycles', params],
     queryFn: () => fetchData<Cycle[]>(`/cycles${queryString}`),
+  });
+};
+
+// Returns just the count of cycles
+export const useCyclesCount = (params?: { status?: string; branchId?: string }) => {
+  const searchParams = new URLSearchParams();
+  if (params?.status) searchParams.append('status', params.status);
+  if (params?.branchId) searchParams.append('branchId', params.branchId);
+  const queryString = searchParams.toString() ? `?${searchParams.toString()}` : '';
+
+  return useQuery({
+    queryKey: ['cyclesCount', params],
+    queryFn: () => fetchData<{ total: number }>(`/cycles/count${queryString}`),
+  });
+};
+
+// Returns cycles with total count from pagination
+export const useCyclesWithTotal = (params?: { branchId?: string; instructorId?: string; courseId?: string; status?: string; dayOfWeek?: string; search?: string; limit?: number }) => {
+  const searchParams = new URLSearchParams();
+  if (params?.branchId) searchParams.append('branchId', params.branchId);
+  if (params?.instructorId) searchParams.append('instructorId', params.instructorId);
+  if (params?.courseId) searchParams.append('courseId', params.courseId);
+  if (params?.status) searchParams.append('status', params.status);
+  if (params?.dayOfWeek) searchParams.append('dayOfWeek', params.dayOfWeek);
+  searchParams.append('limit', String(params?.limit || 100));
+  if (params?.search) searchParams.append('search', params.search);
+  const queryString = searchParams.toString() ? `?${searchParams.toString()}` : '';
+
+  return useQuery({
+    queryKey: ['cyclesWithTotal', params],
+    queryFn: () => fetchDataWithPagination<Cycle[]>(`/cycles${queryString}`),
   });
 };
 
@@ -376,6 +472,16 @@ export const useBulkGenerateMeetings = () => {
   });
 };
 
+export const useSyncAllCycles = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => mutateData<{ success: boolean; synced: number }, undefined>('/cycles/sync-all', 'post', undefined),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
+    },
+  });
+};
+
 export const useBulkUpdateCycles = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -447,13 +553,15 @@ export const useDeleteRegistration = () => {
 };
 
 // ==================== Meetings ====================
-export const useMeetings = (params?: { date?: string; from?: string; to?: string; instructorId?: string; branchId?: string }) => {
+export const useMeetings = (params?: { date?: string; from?: string; to?: string; instructorId?: string; branchId?: string; status?: string; limit?: number }) => {
   const searchParams = new URLSearchParams();
   if (params?.date) searchParams.append('date', params.date);
   if (params?.from) searchParams.append('from', params.from);
   if (params?.to) searchParams.append('to', params.to);
   if (params?.instructorId) searchParams.append('instructorId', params.instructorId);
   if (params?.branchId) searchParams.append('branchId', params.branchId);
+  if (params?.status) searchParams.append('status', params.status);
+  if (params?.limit) searchParams.append('limit', String(params.limit));
   const queryString = searchParams.toString() ? `?${searchParams.toString()}` : '';
 
   return useQuery({
@@ -462,7 +570,7 @@ export const useMeetings = (params?: { date?: string; from?: string; to?: string
   });
 };
 
-export const useMeeting = (id: string) => {
+export const useMeeting = (id: string | undefined) => {
   return useQuery({
     queryKey: ['meeting', id],
     queryFn: () => fetchData<Meeting>(`/meetings/${id}`),
@@ -504,6 +612,7 @@ export const useUpdateMeeting = () => {
     onSuccess: (data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['meetings'] });
       queryClient.invalidateQueries({ queryKey: ['meeting', id] });
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
       if (data.cycleId) {
         queryClient.invalidateQueries({ queryKey: ['cycle-meetings', data.cycleId] });
         queryClient.invalidateQueries({ queryKey: ['cycle', data.cycleId] });
@@ -542,7 +651,7 @@ export const useRecalculateMeeting = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      mutateData<Meeting, object>(`/meetings/${id}/recalculate`, 'post', {}),
+      mutateData<Meeting, { force: boolean }>(`/meetings/${id}/recalculate`, 'post', { force: true }),
     onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ['meetings'] });
       queryClient.invalidateQueries({ queryKey: ['meeting', id] });
@@ -554,8 +663,8 @@ export const useRecalculateMeeting = () => {
 export const useBulkRecalculateMeetings = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (ids: string[]) =>
-      mutateData<{ success: boolean; recalculated: number }, { ids: string[] }>('/meetings/bulk-recalculate', 'post', { ids }),
+    mutationFn: ({ ids, force = true }: { ids: string[]; force?: boolean }) =>
+      mutateData<{ success: boolean; recalculated: number }, { ids: string[]; force: boolean }>('/meetings/bulk-recalculate', 'post', { ids, force }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['meetings'] });
       queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
@@ -580,6 +689,24 @@ export const useBulkUpdateMeetingStatus = () => {
       queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
       queryClient.invalidateQueries({ queryKey: ['cycles'] });
       // Invalidate all cycle queries to refresh progress stats
+      queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'cycle' });
+    },
+  });
+};
+
+export const useBulkUpdateMeetings = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, data }: { ids: string[]; data: Record<string, any> }) =>
+      mutateData<{ success: boolean; updated: number; errors?: string[] }, { ids: string[]; data: Record<string, any> }>(
+        '/meetings/bulk-update',
+        'post',
+        { ids, data }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
       queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'cycle' });
     },
   });
@@ -832,6 +959,398 @@ export const useDeleteZoomMeeting = () => {
       queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
       queryClient.invalidateQueries({ queryKey: ['cycle-meetings', cycleId] });
     },
+  });
+};
+
+// ==================== Messaging ====================
+
+export const useMessageTemplates = () => {
+  return useQuery({
+    queryKey: ['message-templates'],
+    queryFn: () => fetchData<any[]>('/messaging/templates'),
+  });
+};
+
+export const useSendMessage = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      instructorId: string;
+      channel: 'whatsapp' | 'email';
+      templateId?: string;
+      customMessage?: string;
+      customSubject?: string;
+      meetingId?: string;
+    }) => mutateData<{ success: boolean; messageId?: string }, typeof data>('/messaging/send', 'post', data),
+    onSuccess: (_, { instructorId }) => {
+      queryClient.invalidateQueries({ queryKey: ['message-logs', instructorId] });
+    },
+  });
+};
+
+export const useBulkSendMessage = () => {
+  return useMutation({
+    mutationFn: (data: {
+      instructorIds: string[];
+      channel: 'whatsapp' | 'email';
+      templateId: string;
+      customMessage?: string;
+    }) => mutateData<{ sent: number; failed: number; errors: string[] }, typeof data>('/messaging/bulk-send', 'post', data),
+  });
+};
+
+export const useMessageLogs = (instructorId?: string) => {
+  return useQuery({
+    queryKey: ['message-logs', instructorId],
+    queryFn: () => fetchData<any[]>(instructorId ? `/messaging/logs/${instructorId}` : '/messaging/logs'),
+    enabled: true,
+  });
+};
+
+export const useInstructorMeetings = (instructorId: string | undefined, date: string) => {
+  return useQuery({
+    queryKey: ['instructor-meetings', instructorId, date],
+    queryFn: () => fetchData<any[]>(`/meetings?instructorId=${instructorId}&date=${date}`),
+    enabled: !!instructorId,
+  });
+};
+
+// ==================== Forecast ====================
+
+interface MonthlyData {
+  month: string;
+  monthName: string;
+  revenue: number;
+  instructorPayments: number;
+  cycleExpenses: number;
+  meetingExpenses: number;
+  totalExpenses: number;
+  profit: number;
+  meetingCount: number;
+  isHistorical: boolean;
+}
+
+interface ExpensePattern {
+  cycleId: string;
+  cycleName: string;
+  type: string;
+  description: string | null;
+  avgAmount: number;
+  frequency: number;
+  months: string[];
+}
+
+interface ForecastSummary {
+  avgMonthlyRevenue: number;
+  avgMonthlyExpenses: number;
+  avgMonthlyProfit: number;
+  revenueStdDev: number;
+  expensesStdDev: number;
+  profitStdDev: number;
+  forecastConfidence: number;
+}
+
+interface ForecastResult {
+  historical: MonthlyData[];
+  forecast: MonthlyData[];
+  patterns: ExpensePattern[];
+  summary: ForecastSummary;
+}
+
+export const useForecast = (historicalMonths = 6, forecastMonths = 3) => {
+  return useQuery({
+    queryKey: ['forecast', historicalMonths, forecastMonths],
+    queryFn: () => fetchData<ForecastResult>(`/forecast?historicalMonths=${historicalMonths}&forecastMonths=${forecastMonths}`),
+  });
+};
+
+export const useCycleForecast = (cycleId: string, forecastMonths = 3) => {
+  return useQuery({
+    queryKey: ['cycle-forecast', cycleId, forecastMonths],
+    queryFn: () => fetchData<any>(`/forecast/cycle/${cycleId}?forecastMonths=${forecastMonths}`),
+    enabled: !!cycleId,
+  });
+};
+
+// ==================== Meeting Change Requests ====================
+export interface MeetingChangeRequest {
+  id: string;
+  meetingId: string;
+  instructorId: string;
+  type: 'cancel' | 'postpone' | 'replacement';
+  reason: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  meeting?: Meeting;
+  instructor?: Instructor;
+}
+
+export const useMeetingChangeRequests = (params?: { meetingId?: string; status?: string }) => {
+  const queryParams = new URLSearchParams();
+  if (params?.meetingId) queryParams.append('meetingId', params.meetingId);
+  if (params?.status) queryParams.append('status', params.status);
+  const qs = queryParams.toString() ? `?${queryParams.toString()}` : '';
+  return useQuery({
+    queryKey: ['meeting-change-requests', params?.meetingId, params?.status],
+    queryFn: () => fetchData<MeetingChangeRequest[]>(`/meeting-requests${qs}`),
+  });
+};
+
+export const useCreateMeetingChangeRequest = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { meetingId: string; type: string; reason: string }) =>
+      mutateData<MeetingChangeRequest, typeof data>('/meeting-requests', 'post', data),
+    onSuccess: (_, { meetingId }) => {
+      queryClient.invalidateQueries({ queryKey: ['meeting-change-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['meeting', meetingId] });
+    },
+  });
+};
+
+export const useApproveMeetingChangeRequest = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      mutateData<MeetingChangeRequest, undefined>(`/meeting-requests/${id}/approve`, 'put'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meeting-change-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['meetings'] });
+    },
+  });
+};
+
+export const useRejectMeetingChangeRequest = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      mutateData<MeetingChangeRequest, undefined>(`/meeting-requests/${id}/reject`, 'put'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meeting-change-requests'] });
+    },
+  });
+};
+
+// ===== System Users (Admin/Manager management) =====
+
+export const useSystemUsers = () => {
+  return useQuery({
+    queryKey: ['system-users'],
+    queryFn: () => fetchData<User[]>('/system-users'),
+  });
+};
+
+export const useCreateSystemUser = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { email: string; name: string; phone?: string; role: 'admin' | 'manager' | 'sales'; password?: string }) =>
+      mutateData<User & { inviteUrl: string }, typeof data>('/system-users', 'post', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['system-users'] });
+    },
+  });
+};
+
+export const useUpdateSystemUser = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { name?: string; phone?: string; role?: 'admin' | 'manager' | 'sales'; isActive?: boolean } }) =>
+      mutateData<User, typeof data>(`/system-users/${id}`, 'put', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['system-users'] });
+    },
+  });
+};
+
+export const useResetSystemUserPassword = () => {
+  return useMutation({
+    mutationFn: (id: string) =>
+      mutateData<{ resetUrl: string; expiresAt: string; user: { id: string; name: string; email: string; phone?: string | null } }, undefined>(
+        `/system-users/${id}/reset-password`,
+        'post'
+      ),
+  });
+};
+
+export const useDeleteSystemUser = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      mutateData<void, undefined>(`/system-users/${id}`, 'delete'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['system-users'] });
+    },
+  });
+};
+
+// ===================
+// FILE ATTACHMENTS
+// ===================
+
+export interface FileAttachment {
+  id: string;
+  entityType: string;
+  entityId: string;
+  fileName: string;
+  originalName: string;
+  mimeType: string;
+  fileSize: number;
+  filePath: string;
+  label?: string | null;
+  uploadedById?: string | null;
+  createdAt: string;
+  uploadedBy?: { id: string; name: string } | null;
+}
+
+export const useFileAttachments = (entityType: string, entityId: string | undefined) => {
+  return useQuery({
+    queryKey: ['files', entityType, entityId],
+    queryFn: () => fetchData<FileAttachment[]>(`/files/${entityType}/${entityId}`),
+    enabled: !!entityId,
+  });
+};
+
+export const useUploadFile = (entityType: string, entityId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ file, label }: { file: File; label?: string }) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      if (label) formData.append('label', label);
+      const res = await api.post<FileAttachment>(`/files/${entityType}/${entityId}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['files', entityType, entityId] });
+    },
+  });
+};
+
+export const useDeleteFile = (entityType: string, entityId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/files/${id}`).then(r => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['files', entityType, entityId] });
+    },
+  });
+};
+
+export const useUpdateFileLabel = (entityType: string, entityId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, label }: { id: string; label: string }) =>
+      api.patch<FileAttachment>(`/files/${id}`, { label }).then(r => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['files', entityType, entityId] });
+    },
+  });
+};
+
+// ==================== Institutional Orders ====================
+export interface InstitutionalOrderData {
+  branchId?: string | null;
+  orderName?: string | null;
+  orderNumber?: string | null;
+  orderDate?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  pricePerMeeting?: number | null;
+  estimatedMeetings?: number | null;
+  estimatedTotal?: number | null;
+  contactName?: string | null;
+  contactPhone?: string | null;
+  contactEmail?: string | null;
+  status?: 'draft' | 'active' | 'completed' | 'cancelled';
+  fireberryStatus?: string | null;
+  notes?: string | null;
+  totalAmount?: number | null;
+  invoiceNumber?: string | null;
+  invoiceLink?: string | null;
+  paymentStatus?: 'unpaid' | 'partial' | 'paid' | null;
+  paidAmount?: number | null;
+  payingBody?: string | null;
+  followUpDate?: string | null;
+  salesperson?: string | null;
+  orderType?: string | null;
+  createdBy?: string | null;
+}
+
+export const useInstitutionalOrders = (params?: { status?: string; page?: number; limit?: number }) => {
+  const queryString = new URLSearchParams();
+  if (params?.status) queryString.set('status', params.status);
+  if (params?.page) queryString.set('page', String(params.page));
+  queryString.set('limit', String(params?.limit || 50));
+  return useQuery({
+    queryKey: ['institutional-orders', params],
+    queryFn: () => fetchDataWithPagination<any[]>(`/institutional-orders?${queryString}`),
+  });
+};
+
+export const useInstitutionalOrderById = (id: string | null) =>
+  useQuery({
+    queryKey: ['institutional-order', id],
+    queryFn: () => fetchData<any>(`/institutional-orders/${id}`),
+    enabled: !!id,
+  });
+
+export const useCreateInstitutionalOrder = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: InstitutionalOrderData) =>
+      mutateData<any, InstitutionalOrderData>('/institutional-orders', 'post', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['institutional-orders'] });
+    },
+  });
+};
+
+export const useUpdateInstitutionalOrder = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<InstitutionalOrderData> }) =>
+      mutateData<any, Partial<InstitutionalOrderData>>(`/institutional-orders/${id}`, 'put', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['institutional-orders'] });
+    },
+  });
+};
+
+export const useDeleteInstitutionalOrder = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/institutional-orders/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['institutional-orders'] });
+    },
+  });
+};
+
+// ==================== Quotes (delete hook) ====================
+export const useDeleteQuote = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/quotes/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['quotes'] });
+    },
+  });
+};
+
+// ==================== Payments ====================
+export const usePaymentsToday = () => {
+  return useQuery({
+    queryKey: ['payments-today'],
+    queryFn: async () => {
+      const res = await api.get('/payments/today');
+      return res.data as { date: string; total: number; count: number; payments: any[] };
+    },
+    refetchInterval: 60000, // refresh every minute
   });
 };
 

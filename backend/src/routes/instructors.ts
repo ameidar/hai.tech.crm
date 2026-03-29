@@ -5,6 +5,7 @@ import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createInstructorSchema, updateInstructorSchema, uuidSchema } from '../types/schemas.js';
 import { parsePaginationParams, paginatedResponse } from '../utils/pagination.js';
+import { logAudit, logUpdateAudit } from '../utils/audit.js';
 
 export const instructorsRouter = Router();
 
@@ -34,8 +35,8 @@ instructorsRouter.get('/', async (req, res, next) => {
         include: {
           _count: { 
             select: { 
-              cycles: { where: { status: 'active' } },
-              meetings: { where: { status: 'scheduled' } },
+              cycles: true,
+              meetings: true,
             } 
           },
         },
@@ -46,7 +47,25 @@ instructorsRouter.get('/', async (req, res, next) => {
       prisma.instructor.count({ where }),
     ]);
 
-    res.json(paginatedResponse(instructors, total, page, limit));
+    // Attach file counts (generic file_attachments table — no Prisma relation)
+    const instructorIds = instructors.map((i) => i.id);
+    let fileCounts: Record<string, number> = {};
+    if (instructorIds.length > 0) {
+      const rows = await prisma.$queryRaw<{ entity_id: string; cnt: bigint }[]>`
+        SELECT entity_id, COUNT(*) AS cnt
+        FROM file_attachments
+        WHERE entity_type = 'instructor' AND entity_id = ANY(${instructorIds})
+        GROUP BY entity_id
+      `;
+      rows.forEach((r) => { fileCounts[r.entity_id] = Number(r.cnt); });
+    }
+
+    const enriched = instructors.map((i) => ({
+      ...i,
+      _count: { ...i._count, files: fileCounts[i.id] || 0 },
+    }));
+
+    res.json(paginatedResponse(enriched, total, page, limit));
   } catch (error) {
     next(error);
   }
@@ -97,10 +116,28 @@ instructorsRouter.post('/', managerOrAdmin, async (req, res, next) => {
         rateFrontal: data.rateFrontal,
         rateOnline: data.rateOnline,
         ratePreparation: data.ratePreparation,
+        employmentType: data.employmentType || 'freelancer',
         userId: data.userId,
         isActive: data.isActive,
         notes: data.notes,
       },
+    });
+
+    // Audit log
+    await logAudit({
+      action: 'CREATE',
+      entity: 'Instructor',
+      entityId: instructor.id,
+      newValue: {
+        name: instructor.name,
+        phone: instructor.phone,
+        email: instructor.email,
+        rateFrontal: Number(instructor.rateFrontal),
+        rateOnline: Number(instructor.rateOnline),
+        employmentType: instructor.employmentType,
+        isActive: instructor.isActive,
+      },
+      req,
     });
 
     res.status(201).json(instructor);
@@ -115,9 +152,42 @@ instructorsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     const id = uuidSchema.parse(req.params.id);
     const data = updateInstructorSchema.parse(req.body);
 
+    // Get existing instructor for audit
+    const existingInstructor = await prisma.instructor.findUnique({ where: { id } });
+    if (!existingInstructor) throw new AppError(404, 'Instructor not found');
+
     const instructor = await prisma.instructor.update({
       where: { id },
       data,
+    });
+
+    // Audit log
+    const oldRecord = {
+      name: existingInstructor.name,
+      phone: existingInstructor.phone,
+      email: existingInstructor.email,
+      rateFrontal: Number(existingInstructor.rateFrontal),
+      rateOnline: Number(existingInstructor.rateOnline),
+      ratePrivate: Number(existingInstructor.ratePrivate),
+      employmentType: existingInstructor.employmentType,
+      isActive: existingInstructor.isActive,
+    };
+    const newRecord = {
+      name: instructor.name,
+      phone: instructor.phone,
+      email: instructor.email,
+      rateFrontal: Number(instructor.rateFrontal),
+      rateOnline: Number(instructor.rateOnline),
+      ratePrivate: Number(instructor.ratePrivate),
+      employmentType: instructor.employmentType,
+      isActive: instructor.isActive,
+    };
+    await logUpdateAudit({
+      entity: 'Instructor',
+      entityId: id,
+      oldRecord,
+      newRecord,
+      req,
     });
 
     res.json(instructor);
@@ -131,19 +201,97 @@ instructorsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
+    // Get instructor for audit
+    const instructor = await prisma.instructor.findUnique({ where: { id } });
+    if (!instructor) throw new AppError(404, 'Instructor not found');
+
+    // Check for active cycles
     const activeCycles = await prisma.cycle.count({
       where: { instructorId: id, status: 'active' },
     });
 
     if (activeCycles > 0) {
-      throw new AppError(400, 'Cannot delete instructor with active cycles');
+      throw new AppError(400, `לא ניתן למחוק מדריך עם ${activeCycles} מחזורים פעילים`);
     }
+
+    // Check for any meetings (completed or scheduled)
+    const meetingsCount = await prisma.meeting.count({
+      where: { instructorId: id },
+    });
+
+    if (meetingsCount > 0) {
+      throw new AppError(400, `לא ניתן למחוק מדריך עם ${meetingsCount} פגישות במערכת. יש להעביר את הפגישות למדריך אחר קודם`);
+    }
+
+    // Check for any cycles (even inactive)
+    const cyclesCount = await prisma.cycle.count({
+      where: { instructorId: id },
+    });
+
+    if (cyclesCount > 0) {
+      throw new AppError(400, `לא ניתן למחוק מדריך עם ${cyclesCount} מחזורים במערכת. יש להעביר את המחזורים למדריך אחר קודם`);
+    }
+
+    // Audit log before delete
+    await logAudit({
+      action: 'DELETE',
+      entity: 'Instructor',
+      entityId: id,
+      oldValue: {
+        name: instructor.name,
+        phone: instructor.phone,
+        email: instructor.email,
+        rateFrontal: Number(instructor.rateFrontal),
+        rateOnline: Number(instructor.rateOnline),
+        employmentType: instructor.employmentType,
+      },
+      req,
+    });
 
     await prisma.instructor.delete({
       where: { id },
     });
 
     res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Bulk update instructors
+instructorsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
+  try {
+    const { instructorIds, data } = req.body;
+    
+    if (!Array.isArray(instructorIds) || instructorIds.length === 0) {
+      throw new AppError(400, 'instructorIds must be a non-empty array');
+    }
+    
+    // Validate data - only allow certain fields for bulk update
+    const allowedFields = ['employmentType', 'isActive'];
+    const updateData: Record<string, any> = {};
+    
+    for (const field of allowedFields) {
+      if (data[field] !== undefined) {
+        updateData[field] = data[field];
+      }
+    }
+    
+    if (Object.keys(updateData).length === 0) {
+      throw new AppError(400, 'No valid fields to update');
+    }
+    
+    // Update all instructors
+    const result = await prisma.instructor.updateMany({
+      where: { id: { in: instructorIds } },
+      data: updateData,
+    });
+    
+    res.json({ 
+      success: true, 
+      updated: result.count,
+      message: `עודכנו ${result.count} מדריכים`
+    });
   } catch (error) {
     next(error);
   }
@@ -266,8 +414,9 @@ instructorsRouter.post('/:id/invite', managerOrAdmin, async (req, res, next) => 
       },
     });
 
-    // Generate invite URL
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
+    // Generate invite URL (don't use "*" which is for CORS)
+    const envUrl = process.env.FRONTEND_URL;
+    const baseUrl = (envUrl && envUrl !== '*') ? envUrl : 'https://crm.orma-ai.com';
     const inviteUrl = `${baseUrl}/invite/${inviteToken}`;
 
     res.json({
@@ -322,8 +471,9 @@ instructorsRouter.post('/:id/reset-password', managerOrAdmin, async (req, res, n
       },
     });
 
-    // Generate reset URL
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
+    // Generate reset URL (don't use "*" which is for CORS)
+    const envUrl = process.env.FRONTEND_URL;
+    const baseUrl = (envUrl && envUrl !== '*') ? envUrl : 'https://crm.orma-ai.com';
     const resetUrl = `${baseUrl}/reset-password/${resetToken}`;
 
     res.json({

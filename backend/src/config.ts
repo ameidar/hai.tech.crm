@@ -28,6 +28,9 @@ export const config = {
   // CORS
   corsOrigins: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:5173'],
   
+  // Frontend URL for links in messages
+  frontendUrl: process.env.FRONTEND_URL || 'https://crm.orma-ai.com',
+  
   // Admin seed
   admin: {
     email: process.env.ADMIN_EMAIL || 'admin@haitech.co.il',
@@ -41,9 +44,22 @@ export const config = {
   
   // Gmail SMTP
   gmailUser: process.env.GMAIL_USER || '',
-  gmailAppPassword: process.env.GMAIL_APP_PASSWORD || '',
+  gmailAppPassword: process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASS || '',
   
   // Green API (WhatsApp)
   greenApiInstanceId: process.env.GREEN_API_INSTANCE_ID || '',
   greenApiToken: process.env.GREEN_API_TOKEN || '',
+
+
+  // Vapi AI Calling
+  vapiApiKey: process.env.VAPI_API_KEY || '',
+  vapiAssistantId: process.env.VAPI_ASSISTANT_ID || '',
+  vapiPhoneNumberId: process.env.VAPI_PHONE_NUMBER_ID || '',
+
+  // WooCommerce payments
+  woo: {
+    siteUrl: process.env.WOO_SITE_URL || 'https://haitechdigitalcourses.hai.tech',
+    consumerKey: process.env.WOO_CONSUMER_KEY || '',
+    consumerSecret: process.env.WOO_CONSUMER_SECRET || '',
+  },
 };

@@ -3,8 +3,11 @@ import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { updateMeetingSchema, postponeMeetingSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
-import { logAudit } from '../utils/audit.js';
+import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
+import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { zoomService } from '../services/zoom.js';
+import { handleCycleCompletion } from '../services/cycle-completion.js';
+import { syncCycleProgress } from '../utils/cycle-sync.js';
 
 // Send WhatsApp alert for negative profit
 async function sendNegativeProfitAlert(meetingData: {
@@ -92,14 +95,21 @@ meetingsRouter.get('/', async (req, res, next) => {
       ...(date && { scheduledDate: new Date(date) }),
       ...(from && to && {
         scheduledDate: {
-          gte: new Date(from),
-          lte: new Date(to),
+          gte: new Date(from + 'T00:00:00.000Z'),
+          lte: new Date(to + 'T23:59:59.999Z'),
         },
+      }),
+      ...(from && !to && {
+        scheduledDate: { gte: new Date(from + 'T00:00:00.000Z') }
       }),
       ...(status && { status: status as any }),
       ...(instructorId && { instructorId }),
       ...(cycleId && { cycleId }),
-      ...(branchId && { cycle: { branchId } }),
+      // Always hide meetings from cancelled cycles
+      cycle: {
+        status: { not: 'cancelled' as any },
+        ...(branchId && { branchId }),
+      },
     };
 
     const [meetings, total] = await Promise.all([
@@ -114,6 +124,10 @@ meetingsRouter.get('/', async (req, res, next) => {
           },
           instructor: { select: { id: true, name: true, phone: true } },
           _count: { select: { attendance: true } },
+          changeRequests: {
+            where: { status: 'pending' },
+            select: { id: true, type: true, reason: true, status: true, createdAt: true },
+          },
         },
         orderBy: [
           { scheduledDate: 'asc' },
@@ -125,9 +139,40 @@ meetingsRouter.get('/', async (req, res, next) => {
       prisma.meeting.count({ where }),
     ]);
 
+    // Get unique cycle IDs from the meetings
+    const cycleIds = [...new Set(meetings.map(m => m.cycleId))];
+    
+    // Fetch cycle expenses for all relevant cycles
+    const cycleExpenses = await prisma.cycleExpense.groupBy({
+      by: ['cycleId'],
+      where: { cycleId: { in: cycleIds } },
+      _sum: { amount: true },
+    });
+    
+    // Create a map of cycle expenses
+    const cycleExpenseMap = new Map<string, number>();
+    for (const ce of cycleExpenses) {
+      cycleExpenseMap.set(ce.cycleId, Number(ce._sum.amount || 0));
+    }
+    
+    // Calculate adjusted profit for each meeting
+    const meetingsWithAdjustedProfit = meetings.map(meeting => {
+      const totalCycleExpenses = cycleExpenseMap.get(meeting.cycleId) || 0;
+      const totalMeetings = meeting.cycle?.totalMeetings || 1;
+      const cycleExpensePerMeeting = totalCycleExpenses / totalMeetings;
+      const baseProfit = Number(meeting.profit || 0);
+      const adjustedProfit = baseProfit - cycleExpensePerMeeting;
+      
+      return {
+        ...meeting,
+        adjustedProfit: Math.round(adjustedProfit * 100) / 100,
+        cycleExpenseShare: Math.round(cycleExpensePerMeeting * 100) / 100,
+      };
+    });
+
     const totalPages = Math.ceil(total / limit);
     res.json({
-      data: meetings,
+      data: meetingsWithAdjustedProfit,
       pagination: {
         page,
         limit,
@@ -238,8 +283,15 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
     } else if (cycle.type === 'institutional_per_child' && cycle.pricePerStudent) {
       const studentCount = cycle.studentCount || cycle.registrations.length;
       revenue = Number(cycle.pricePerStudent) * studentCount;
-    } else if (cycle.type === 'private' && cycle.pricePerStudent) {
-      revenue = Number(cycle.pricePerStudent) * cycle.registrations.length;
+    } else if (cycle.type === 'private') {
+      if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
+        revenue = Number(cycle.meetingRevenue);
+      } else if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
+        revenue = Number(cycle.pricePerStudent) * cycle.registrations.length;
+      } else {
+        const totalRegAmount = cycle.registrations.reduce((s: number, r: any) => s + (r.amount ? Number(r.amount) : 0), 0);
+        revenue = cycle.totalMeetings > 0 ? Math.round(totalRegAmount / cycle.totalMeetings) : 0;
+      }
     }
 
     // Calculate instructor payment based on activity type
@@ -252,7 +304,13 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
     } else {
       hourlyRate = Number(instructor.rateFrontal) || 0;
     }
-    const instructorPayment = Math.round(hourlyRate * (durationMinutes / 60));
+    let instructorPayment = Math.round(hourlyRate * (durationMinutes / 60));
+    
+    // Apply employer cost multiplier (1.3) for employees
+    if (instructor.employmentType === 'employee') {
+      instructorPayment = Math.round(instructorPayment * 1.3);
+    }
+    
     const profit = revenue - instructorPayment;
 
     // Create the meeting
@@ -280,17 +338,32 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
     // Create Zoom meeting if requested
     if (withZoom) {
       try {
-        const meetingDate = new Date(scheduledDate);
-        const [sHour, sMin] = startTime.split(':').map(Number);
-        meetingDate.setUTCHours(sHour, sMin, 0, 0);
+        // startTime is in Israel local time (HH:MM), build datetime with Israel timezone offset
+        let [sHour, sMin] = startTime.split(':').map(Number);
+        
+        // Start Zoom meeting 10 minutes early to allow participants to join before the lesson
+        sMin -= 10;
+        if (sMin < 0) {
+          sMin += 60;
+          sHour -= 1;
+          if (sHour < 0) sHour = 23;
+        }
+        
+        const dateStr = new Date(scheduledDate).toISOString().split('T')[0];
+        const timeStr = `${sHour.toString().padStart(2, '0')}:${sMin.toString().padStart(2, '0')}:00`;
+        const israelDateStr = `${dateStr}T${timeStr}+02:00`;
+        const meetingDate = new Date(israelDateStr);
+
+        // Add 10 minutes to duration to cover the early start
+        const zoomDuration = durationMinutes + 10;
 
         // Find an available Zoom user
-        const availableUser = await zoomService.findAvailableUser(meetingDate, durationMinutes);
+        const availableUser = await zoomService.findAvailableUser(meetingDate, zoomDuration);
         if (availableUser) {
           const zoomMeeting = await zoomService.createMeeting(availableUser.id, {
-            topic: `${cycle.course?.name || cycle.name} - פגישה חריגה`,
+            topic: cycle.name,
             startTime: meetingDate,
-            duration: durationMinutes,
+            duration: zoomDuration,
           });
 
           // Update meeting with Zoom details
@@ -324,11 +397,10 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
       }
     }
 
-    // Update cycle meeting counts
+    // Update cycle remaining count (totalMeetings is static — set at cycle creation)
     await prisma.cycle.update({
       where: { id: cycleId },
       data: {
-        totalMeetings: { increment: 1 },
         remainingMeetings: { increment: 1 },
       },
     });
@@ -365,7 +437,7 @@ meetingsRouter.put('/:id', async (req, res, next) => {
       throw new AppError(404, 'Meeting not found');
     }
 
-    // Instructors can only update on the meeting day
+    // Instructors: restricted to status (completed only) and topic, only on meeting day
     if (req.user!.role === 'instructor') {
       const today = new Date().toISOString().split('T')[0];
       const meetingDate = existingMeeting.scheduledDate.toISOString().split('T')[0];
@@ -373,6 +445,25 @@ meetingsRouter.put('/:id', async (req, res, next) => {
       if (today !== meetingDate) {
         throw new AppError(403, 'Instructors can only update meetings on the scheduled day');
       }
+
+      // Block instructors from setting cancelled status directly
+      if (data.status === 'cancelled') {
+        throw new AppError(403, 'מדריכים לא יכולים לבטל פגישה ישירות. יש להגיש בקשת ביטול');
+      }
+
+      // Instructors can only update status and topic - strip everything else
+      const allowedFields = ['status', 'topic'];
+      const strippedData: any = {};
+      for (const key of allowedFields) {
+        if ((data as any)[key] !== undefined) {
+          strippedData[key] = (data as any)[key];
+        }
+      }
+      // Only allow completed status
+      if (strippedData.status && strippedData.status !== 'completed') {
+        throw new AppError(403, 'מדריכים יכולים רק לסמן פגישה כהושלמה');
+      }
+      Object.keys(data).forEach(k => { if (!allowedFields.includes(k)) delete (data as any)[k]; });
     }
 
     const updateData: any = { ...data };
@@ -387,6 +478,10 @@ meetingsRouter.put('/:id', async (req, res, next) => {
     if (data.endTime) {
       updateData.endTime = new Date(`1970-01-01T${data.endTime}:00Z`);
     }
+
+    // Flags for post-update cycle sync
+    let statusChangedToCompleted = false;
+    let statusChangedFromCompleted = false;
     
     // Track status change
     if (data.status && data.status !== existingMeeting.status) {
@@ -412,12 +507,16 @@ meetingsRouter.put('/:id', async (req, res, next) => {
           const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
           
           if (cycleData.type === 'private') {
-            // Sum all registration amounts and divide by total meetings
-            const totalRegistrationAmount = cycleData.registrations.reduce(
-              (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
-              0
-            );
-            revenue = Math.round(totalRegistrationAmount / cycleData.totalMeetings);
+            if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
+              revenue = Number(cycleData.meetingRevenue);
+            } else {
+              // Sum all registration amounts and divide by total meetings
+              const totalRegistrationAmount = cycleData.registrations.reduce(
+                (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
+                0
+              );
+              revenue = cycleData.totalMeetings > 0 ? Math.round(totalRegistrationAmount / cycleData.totalMeetings) : 0;
+            }
           } else if (cycleData.type === 'institutional_per_child') {
             // Price per student × number of students (use studentCount if set, otherwise count registrations)
             const pricePerStudent = Number(cycleData.pricePerStudent || 0);
@@ -468,24 +567,34 @@ meetingsRouter.put('/:id', async (req, res, next) => {
             
             const durationHours = durationMinutes / 60;
             instructorPayment = Math.round(hourlyRate * durationHours);
+            
+            // Apply employer cost multiplier (1.3) for employees
+            if (instructor.employmentType === 'employee') {
+              instructorPayment = Math.round(instructorPayment * 1.3);
+            }
           }
 
-          // Calculate profit
-          const profit = revenue - instructorPayment;
+          // Get approved meeting expenses
+          const approvedExpenses = await prisma.meetingExpense.aggregate({
+            where: {
+              meetingId: id,
+              status: 'approved',
+            },
+            _sum: {
+              amount: true,
+            },
+          });
+          const expensesTotal = Number(approvedExpenses._sum.amount || 0);
+
+          // Calculate profit (including approved expenses)
+          const profit = revenue - instructorPayment - expensesTotal;
 
           updateData.revenue = revenue;
           updateData.instructorPayment = instructorPayment;
           updateData.profit = profit;
 
-          // Update cycle counters - recalculate from totalMeetings
-          const updatedCompleted = cycleData.completedMeetings + 1;
-          await prisma.cycle.update({
-            where: { id: existingMeeting.cycleId },
-            data: {
-              completedMeetings: updatedCompleted,
-              remainingMeetings: cycleData.totalMeetings - updatedCompleted,
-            },
-          });
+          // Mark for post-update sync (cycle counters updated after meeting is saved)
+          statusChangedToCompleted = true;
 
           // Send WhatsApp alert if profit is negative
           if (profit < 0) {
@@ -514,23 +623,11 @@ meetingsRouter.put('/:id', async (req, res, next) => {
         }
       }
       
-      // Handle status change FROM completed to something else (decrement counters)
+      // Handle status change FROM completed to something else
       if (existingMeeting.status === 'completed' && data.status !== 'completed') {
-        const cycleData = await prisma.cycle.findUnique({
-          where: { id: existingMeeting.cycleId },
-        });
-        
-        if (cycleData && cycleData.completedMeetings > 0) {
-          const updatedCompleted = cycleData.completedMeetings - 1;
-          await prisma.cycle.update({
-            where: { id: existingMeeting.cycleId },
-            data: {
-              completedMeetings: updatedCompleted,
-              remainingMeetings: cycleData.totalMeetings - updatedCompleted,
-            },
-          });
-        }
-        
+        // Mark for post-update sync (cycle counters updated after meeting is saved)
+        statusChangedFromCompleted = true;
+
         // Reset financial fields
         updateData.revenue = 0;
         updateData.instructorPayment = 0;
@@ -552,18 +649,57 @@ meetingsRouter.put('/:id', async (req, res, next) => {
       },
     });
 
-    // Audit log for status changes
-    if (data.status && data.status !== existingMeeting.status) {
-      await logAudit({
-        userId: req.user?.userId,
-        action: 'UPDATE',
-        entity: 'Meeting',
-        entityId: meeting.id,
-        oldValue: { status: existingMeeting.status },
-        newValue: { status: data.status },
-        req,
-      });
+    // Sync cycle progress AFTER meeting is updated (accurate DB count)
+    if (statusChangedToCompleted || statusChangedFromCompleted) {
+      const { remainingMeetings } = await syncCycleProgress(existingMeeting.cycleId);
+      console.log(`[CycleSync] cycleId=${existingMeeting.cycleId} remaining=${remainingMeetings}`);
+
+      // Trigger cycle completion if all meetings done
+      if (statusChangedToCompleted && remainingMeetings <= 0) {
+        handleCycleCompletion(existingMeeting.cycleId).catch(err =>
+          console.error('Cycle completion error:', err)
+        );
+      }
     }
+
+    // Audit log for meeting updates - capture all changed fields
+    const auditOldRecord = {
+      status: existingMeeting.status,
+      scheduledDate: existingMeeting.scheduledDate,
+      startTime: existingMeeting.startTime,
+      endTime: existingMeeting.endTime,
+      instructorId: existingMeeting.instructorId,
+      activityType: existingMeeting.activityType,
+      topic: existingMeeting.topic,
+      notes: existingMeeting.notes,
+    };
+    const auditNewRecord = {
+      status: meeting.status,
+      scheduledDate: meeting.scheduledDate,
+      startTime: meeting.startTime,
+      endTime: meeting.endTime,
+      instructorId: meeting.instructorId,
+      activityType: meeting.activityType,
+      topic: meeting.topic,
+      notes: meeting.notes,
+    };
+    // Trigger replacement meeting when admin sets status to 'postponed'
+    if (data.status === 'postponed' && existingMeeting.status !== 'postponed') {
+      const replacementId = await addReplacementMeetingWithRetry(id, req.user!.userId, existingMeeting.cycle?.name ?? 'לא ידוע');
+      if (!replacementId) {
+        console.error('[ReplacementMeeting] All retries failed for meeting', id, '— admin was notified via WhatsApp');
+      } else {
+        console.log('[ReplacementMeeting] Created replacement', replacementId, 'for postponed meeting', id);
+      }
+    }
+
+    await logUpdateAudit({
+      entity: 'Meeting',
+      entityId: meeting.id,
+      oldRecord: auditOldRecord,
+      newRecord: auditNewRecord,
+      req,
+    });
 
     res.json(meeting);
   } catch (error) {
@@ -698,11 +834,20 @@ meetingsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
 
     const meeting = await prisma.meeting.findUnique({
       where: { id },
-      select: { cycleId: true, status: true },
+      select: { cycleId: true, status: true, zoomMeetingId: true },
     });
 
     if (!meeting) {
       throw new AppError(404, 'Meeting not found');
+    }
+
+    // Delete Zoom meeting if exists
+    if (meeting.zoomMeetingId) {
+      try {
+        await zoomService.deleteMeeting(meeting.zoomMeetingId);
+      } catch (e) {
+        console.warn(`[meetings] Failed to delete Zoom meeting ${meeting.zoomMeetingId}:`, e);
+      }
     }
 
     // If meeting was completed, decrement cycle counters
@@ -730,10 +875,59 @@ meetingsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
   }
 });
 
+// Add Zoom meeting to an existing meeting
+meetingsRouter.post('/:id/add-zoom', managerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+
+    const meeting = await prisma.meeting.findUnique({
+      where: { id },
+      include: { cycle: true },
+    });
+    if (!meeting) throw new AppError(404, 'Meeting not found');
+
+    const duration = meeting.cycle?.durationMinutes || 60;
+    const scheduledDate = meeting.scheduledDate;
+    const startTime = meeting.startTime;
+
+    // Build Israel-time start datetime
+    const dateStr = scheduledDate.toISOString().split('T')[0];
+    const sHour = startTime.getUTCHours();
+    const sMin = startTime.getUTCMinutes();
+    const israelDateStr = `${dateStr}T${String(sHour).padStart(2,'0')}:${String(sMin).padStart(2,'0')}:00+02:00`;
+    const meetingDate = new Date(israelDateStr);
+
+    const availableUser = await zoomService.findAvailableUser(meetingDate, duration + 10);
+    if (!availableUser) throw new AppError(503, 'No available Zoom host found');
+
+    const zoomMeeting = await zoomService.createMeeting(availableUser.id, {
+      topic: meeting.cycle?.name || 'שיעור',
+      startTime: meetingDate,
+      duration: duration + 10,
+    });
+
+    const updated = await prisma.meeting.update({
+      where: { id },
+      data: {
+        zoomMeetingId: zoomMeeting.id?.toString(),
+        zoomJoinUrl: zoomMeeting.join_url,
+        zoomStartUrl: zoomMeeting.start_url,
+        zoomPassword: zoomMeeting.password,
+        zoomHostKey: zoomMeeting.host_key,
+        zoomHostEmail: availableUser.email,
+      },
+      include: { cycle: true, instructor: true },
+    });
+
+    res.json({ success: true, zoomJoinUrl: zoomMeeting.join_url, zoomPassword: zoomMeeting.password, meeting: updated });
+  } catch (err) { next(err); }
+});
+
 // Recalculate meeting costs
 meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
+    const force = req.query.force === 'true' || req.body.force === true;
 
     const meeting = await prisma.meeting.findUnique({
       where: { id },
@@ -757,6 +951,16 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
       throw new AppError(400, 'Can only recalculate completed meetings');
     }
 
+    // Skip if already has financials calculated (unless force=true)
+    if (!force && meeting.revenue !== null && Number(meeting.revenue) > 0) {
+      return res.json({
+        success: true,
+        skipped: true,
+        message: 'Meeting already has financials. Use force=true to recalculate.',
+        meeting,
+      });
+    }
+
     const cycleData = meeting.cycle;
 
     // Calculate revenue based on cycle type
@@ -764,11 +968,15 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
     const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
 
     if (cycleData.type === 'private') {
-      const totalRegistrationAmount = cycleData.registrations.reduce(
-        (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
-        0
-      );
-      revenue = Math.round(totalRegistrationAmount / cycleData.totalMeetings);
+      if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
+        revenue = Number(cycleData.meetingRevenue);
+      } else {
+        const totalRegistrationAmount = cycleData.registrations.reduce(
+          (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
+          0
+        );
+        revenue = cycleData.totalMeetings > 0 ? Math.round(totalRegistrationAmount / cycleData.totalMeetings) : 0;
+      }
     } else if (cycleData.type === 'institutional_per_child') {
       const pricePerStudent = Number(cycleData.pricePerStudent || 0);
       const studentCount = cycleData.studentCount || activeRegistrations.length;
@@ -812,9 +1020,26 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
       
       const durationHours = durationMinutes / 60;
       instructorPayment = Math.round(hourlyRate * durationHours);
+      
+      // Apply employer cost multiplier (1.3) for employees
+      if (instructor.employmentType === 'employee') {
+        instructorPayment = Math.round(instructorPayment * 1.3);
+      }
     }
 
-    const profit = revenue - instructorPayment;
+    // Get approved meeting expenses
+    const approvedExpenses = await prisma.meetingExpense.aggregate({
+      where: {
+        meetingId: id,
+        status: 'approved',
+      },
+      _sum: {
+        amount: true,
+      },
+    });
+    const expensesTotal = Number(approvedExpenses._sum.amount || 0);
+
+    const profit = revenue - instructorPayment - expensesTotal;
 
     // Update meeting
     const updatedMeeting = await prisma.meeting.update({
@@ -844,13 +1069,14 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
 // Bulk recalculate meetings
 meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) => {
   try {
-    const { ids } = req.body;
+    const { ids, force } = req.body;
     
     if (!Array.isArray(ids) || ids.length === 0) {
       throw new AppError(400, 'ids array is required');
     }
 
     let recalculated = 0;
+    let skipped = 0;
     
     for (const id of ids) {
       const meeting = await prisma.meeting.findUnique({
@@ -871,6 +1097,12 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
         continue;
       }
 
+      // Skip if already has financials calculated (unless force=true)
+      if (!force && meeting.revenue !== null && Number(meeting.revenue) > 0) {
+        skipped++;
+        continue;
+      }
+
       const cycleData = meeting.cycle;
 
       // Calculate revenue
@@ -878,11 +1110,15 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
       const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
 
       if (cycleData.type === 'private') {
-        const totalRegistrationAmount = cycleData.registrations.reduce(
-          (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
-          0
-        );
-        revenue = Math.round(totalRegistrationAmount / cycleData.totalMeetings);
+        if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
+          revenue = Number(cycleData.meetingRevenue);
+        } else {
+          const totalRegistrationAmount = cycleData.registrations.reduce(
+            (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
+            0
+          );
+          revenue = cycleData.totalMeetings > 0 ? Math.round(totalRegistrationAmount / cycleData.totalMeetings) : 0;
+        }
       } else if (cycleData.type === 'institutional_per_child') {
         const pricePerStudent = Number(cycleData.pricePerStudent || 0);
         const studentCount = cycleData.studentCount || activeRegistrations.length;
@@ -926,6 +1162,11 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
         
         const durationHours = durationMinutes / 60;
         instructorPayment = Math.round(hourlyRate * durationHours);
+        
+        // Apply employer cost multiplier (1.3) for employees
+        if (instructor.employmentType === 'employee') {
+          instructorPayment = Math.round(instructorPayment * 1.3);
+        }
       }
 
       const profit = revenue - instructorPayment;
@@ -938,7 +1179,7 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
       recalculated++;
     }
 
-    res.json({ success: true, recalculated });
+    res.json({ success: true, recalculated, skipped });
   } catch (error) {
     next(error);
   }
@@ -996,11 +1237,15 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
             const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
             
             if (cycleData.type === 'private') {
-              const totalRegistrationAmount = cycleData.registrations.reduce(
-                (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
-                0
-              );
-              revenue = Math.round(totalRegistrationAmount / cycleData.totalMeetings);
+              if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
+                revenue = Number(cycleData.meetingRevenue);
+              } else {
+                const totalRegistrationAmount = cycleData.registrations.reduce(
+                  (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
+                  0
+                );
+                revenue = cycleData.totalMeetings > 0 ? Math.round(totalRegistrationAmount / cycleData.totalMeetings) : 0;
+              }
             } else if (cycleData.type === 'institutional_per_child') {
               const pricePerStudent = Number(cycleData.pricePerStudent || 0);
               const studentCount = cycleData.studentCount || activeRegistrations.length;
@@ -1041,6 +1286,11 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
               
               const durationHours = durationMinutes / 60;
               instructorPayment = Math.round(hourlyRate * durationHours);
+              
+              // Apply employer cost multiplier (1.3) for employees
+              if (instructor.employmentType === 'employee') {
+                instructorPayment = Math.round(instructorPayment * 1.3);
+              }
             }
 
             const profit = revenue - instructorPayment;
@@ -1051,13 +1301,21 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
 
             // Update cycle counters
             const updatedCompleted = cycleData.completedMeetings + 1;
+            const newRemaining = cycleData.totalMeetings - updatedCompleted;
             await prisma.cycle.update({
               where: { id: existingMeeting.cycleId },
               data: {
                 completedMeetings: updatedCompleted,
-                remainingMeetings: cycleData.totalMeetings - updatedCompleted,
+                remainingMeetings: newRemaining,
               },
             });
+
+            // Trigger cycle completion if no remaining meetings
+            if (newRemaining <= 0) {
+              handleCycleCompletion(existingMeeting.cycleId).catch(err =>
+                console.error('Cycle completion error:', err)
+              );
+            }
           }
         }
         
@@ -1100,9 +1358,151 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
           req,
         });
 
+        // Trigger replacement meeting when admin bulk-sets status to 'postponed'
+        if (status === 'postponed' && existingMeeting.status !== 'postponed') {
+          const replacementId = await addReplacementMeetingWithRetry(id, req.user!.userId);
+          if (!replacementId) {
+            errors.push(`Meeting ${id}: replacement meeting creation failed — admin notified`);
+          }
+        }
+
         updated++;
       } catch (error: any) {
         errors.push(`Meeting ${id}: ${error.message}`);
+      }
+    }
+
+    res.json({ 
+      success: true, 
+      updated, 
+      errors: errors.length > 0 ? errors : undefined 
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Bulk update meetings (multiple fields)
+meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
+  try {
+    const { ids, data } = req.body;
+    
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new AppError(400, 'ids array is required');
+    }
+    
+    if (!data || Object.keys(data).length === 0) {
+      throw new AppError(400, 'data object is required');
+    }
+
+    // Allowed fields for bulk update
+    const allowedFields = ['status', 'activityType', 'topic', 'notes', 'scheduledDate', 'startTime', 'endTime', 'instructorId'];
+    const updateData: Record<string, any> = {};
+    
+    for (const field of allowedFields) {
+      if (data[field] !== undefined) {
+        if (field === 'scheduledDate' && data[field]) {
+          updateData[field] = new Date(data[field]);
+        } else if ((field === 'startTime' || field === 'endTime') && data[field]) {
+          // Convert HH:MM to Date object
+          const [hours, minutes] = data[field].split(':').map(Number);
+          const timeDate = new Date(Date.UTC(1970, 0, 1, hours, minutes, 0));
+          updateData[field] = timeDate;
+        } else {
+          updateData[field] = data[field];
+        }
+      }
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      throw new AppError(400, 'No valid fields to update');
+    }
+
+    let updated = 0;
+    let errors: string[] = [];
+    const shouldRecalculate = updateData.status === 'completed';
+
+    for (const id of ids) {
+      try {
+        const existingMeeting = await prisma.meeting.findUnique({
+          where: { id },
+        });
+
+        if (!existingMeeting) {
+          errors.push(`Meeting ${id} not found`);
+          continue;
+        }
+
+        // If status changing to completed and wasn't completed before, add timestamps
+        if (updateData.status === 'completed' && existingMeeting.status !== 'completed') {
+          updateData.statusUpdatedAt = new Date();
+          updateData.statusUpdatedById = req.user!.userId;
+        }
+
+        await prisma.meeting.update({
+          where: { id },
+          data: updateData,
+        });
+
+        // Recalculate financials if status changed to completed
+        if (shouldRecalculate && existingMeeting.status !== 'completed') {
+          const meeting = await prisma.meeting.findUnique({
+            where: { id },
+            include: {
+              cycle: {
+                include: {
+                  registrations: { where: { status: { in: ['registered', 'active'] } } },
+                },
+              },
+              instructor: true,
+            },
+          });
+
+          if (meeting) {
+            const cycleData = meeting.cycle;
+            let revenue = 0;
+            const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
+
+            if (cycleData.type === 'private') {
+              if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
+                revenue = Number(cycleData.meetingRevenue);
+              } else {
+                const totalAmount = cycleData.registrations.reduce((sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0), 0);
+                revenue = cycleData.totalMeetings > 0 ? Math.round(totalAmount / cycleData.totalMeetings) : 0;
+              }
+            } else if (cycleData.type === 'institutional_per_child') {
+              revenue = Math.round(Number(cycleData.pricePerStudent || 0) * (cycleData.studentCount || activeRegistrations.length));
+            } else if (cycleData.type === 'institutional_fixed') {
+              revenue = Number(cycleData.meetingRevenue || 0);
+            }
+
+            const activityType = meeting.activityType || cycleData.activityType || 'frontal';
+            let instructorPayment = 0;
+            if (meeting.instructor) {
+              let rate = 0;
+              switch (activityType) {
+                case 'online': rate = Number(meeting.instructor.rateOnline || meeting.instructor.rateFrontal || 0); break;
+                case 'private_lesson': rate = Number(meeting.instructor.ratePrivate || meeting.instructor.rateFrontal || 0); break;
+                default: rate = Number(meeting.instructor.rateFrontal || 0);
+              }
+              instructorPayment = Math.round(rate * (cycleData.durationMinutes / 60));
+              
+              // Apply employer cost multiplier (1.3) for employees
+              if (meeting.instructor.employmentType === 'employee') {
+                instructorPayment = Math.round(instructorPayment * 1.3);
+              }
+            }
+
+            await prisma.meeting.update({
+              where: { id },
+              data: { revenue, instructorPayment, profit: revenue - instructorPayment },
+            });
+          }
+        }
+
+        updated++;
+      } catch (err: any) {
+        errors.push(`Meeting ${id}: ${err.message}`);
       }
     }
 

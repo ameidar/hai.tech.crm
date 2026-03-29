@@ -154,7 +154,7 @@ async function sendUnmatchedRecordingEmail(recording: {
   try {
     await transporter.sendMail({
       from: GMAIL_USER,
-      to: 'ami@hai.tech',
+      to: '', // Disabled 2026-02-16 per Ami's request
       subject: `⚠️ הקלטת Zoom לא מזוהה: ${recording.topic}`,
       html: `
         <div dir="rtl" style="font-family: Arial, sans-serif;">

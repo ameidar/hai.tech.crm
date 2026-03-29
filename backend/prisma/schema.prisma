@@ -18,6 +18,7 @@ enum UserRole {
   admin
   manager
   instructor
+  sales
 }
 
 enum CourseCategory {
@@ -51,6 +52,8 @@ enum CycleStatus {
   active
   completed
   cancelled
+  frozen
+  retainer
 }
 
 enum DayOfWeek {
@@ -67,6 +70,7 @@ enum RegistrationStatus {
   registered
   active
   completed
+  pending_cancellation
   cancelled
   trial
 }
@@ -77,10 +81,26 @@ enum PaymentStatus {
   paid
 }
 
+enum QuoteStatus {
+  draft
+  sent
+  accepted
+  rejected
+  expired
+  converted
+}
+
+enum QuoteClientType {
+  private
+  institutional
+}
+
 enum PaymentMethod {
   credit
   transfer
   cash
+  institutional
+  standing_order
 }
 
 enum MeetingStatus {
@@ -88,6 +108,8 @@ enum MeetingStatus {
   completed
   cancelled
   postponed
+  pending_cancellation
+  pending_postponement
 }
 
 enum AttendanceStatus {
@@ -115,37 +137,58 @@ model User {
   name         String
   phone        String?
   role         UserRole  @default(instructor)
-  isActive     Boolean   @default(true) @map("is_active")
-  lastLogin    DateTime? @map("last_login")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  isActive          Boolean   @default(true) @map("is_active")
+  lastLogin         DateTime? @map("last_login")
+  lastActive        DateTime? @map("last_active")
+  resetToken        String?   @unique @map("reset_token")
+  resetTokenExpiry  DateTime? @map("reset_token_expiry")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   // Relations
-  instructor        Instructor?
-  meetingUpdates    Meeting[]    @relation("MeetingStatusUpdater")
-  attendanceRecords Attendance[]
-  savedViews        SavedView[]
-  apiKeys           ApiKey[]
-  webhooks          Webhook[]
+  instructor            Instructor?
+  meetingUpdates        Meeting[]        @relation("MeetingStatusUpdater")
+  attendanceRecords     Attendance[]
+  savedViews            SavedView[]
+  cycleExpenses         CycleExpense[]
+  submittedExpenses     MeetingExpense[] @relation("ExpenseSubmitter")
+  reviewedExpenses      MeetingExpense[] @relation("ExpenseReviewer")
+  quotes                Quote[]
+  uploadedFiles         FileAttachment[]
+  campaigns             Campaign[]
+  apiKeys               ApiKey[]
+  webhooks              Webhook[]
 
   @@map("users")
 }
 
 model Customer {
-  id        String    @id @default(uuid())
-  name      String
-  email     String?   @unique
-  phone     String    @unique
-  address   String?
-  city      String?
-  notes     String?
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
-  deletedBy String?   @map("deleted_by")
+  id           String    @id @default(uuid())
+  name         String
+  email        String?   @unique
+  phone        String?   @unique
+  address      String?
+  city         String?
+  notes        String?
+  lmsUsername  String?   @map("lms_username")
+  lmsPassword  String?   @map("lms_password")
+  source       String?   @map("source")
+  leadStatus   String?   @default("new") @map("lead_status") // new | contacted | in_progress | converted | closed
+  emailUnsubscribed   Boolean   @default(false) @map("email_unsubscribed")
+  emailUnsubscribedAt DateTime? @map("email_unsubscribed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+  deletedBy    String?   @map("deleted_by")
 
   // Relations
-  students Student[]
+  students           Student[]
+  quotes             Quote[]
+  leadAppointments   LeadAppointment[]
+  upsellLeads        UpsellLead[]
+  payments           Payment[]
+  campaignRecipients CampaignRecipient[]
+  facebookLeads      FacebookLead[]
 
   @@map("customers")
 }
@@ -172,17 +215,19 @@ model Student {
 }
 
 model Course {
-  id             String         @id @default(uuid())
-  name           String
-  description    String?
-  targetAudience String?        @map("target_audience")
-  category       CourseCategory
-  isActive       Boolean        @default(true) @map("is_active")
-  createdAt      DateTime       @default(now()) @map("created_at")
-  updatedAt      DateTime       @updatedAt @map("updated_at")
+  id                String         @id @default(uuid())
+  name              String
+  description       String?
+  targetAudience    String?        @map("target_audience")
+  category          CourseCategory
+  isActive          Boolean        @default(true) @map("is_active")
+  materialsFolderId String?        @map("materials_folder_id")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
 
   // Relations
-  cycles Cycle[]
+  cycles     Cycle[]
+  quoteItems QuoteItem[]
 
   @@map("courses")
 }
@@ -203,6 +248,7 @@ model Branch {
   // Relations
   institutionalOrders InstitutionalOrder[]
   cycles              Cycle[]
+  quotes              Quote[]
 
   @@map("branches")
 }
@@ -217,6 +263,7 @@ model Instructor {
   rateOnline      Decimal? @map("rate_online") @db.Decimal(10, 2)
   ratePrivate     Decimal? @map("rate_private") @db.Decimal(10, 2)
   ratePreparation Decimal? @map("rate_preparation") @db.Decimal(10, 2)
+  employmentType  String   @default("freelancer") @map("employment_type")  // freelancer or employee
   isActive        Boolean  @default(true) @map("is_active")
   notes           String?
   inviteToken     String?  @unique @map("invite_token")
@@ -225,35 +272,51 @@ model Instructor {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   // Relations
-  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
-  cycles   Cycle[]
-  meetings Meeting[]
+  user            User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  cycles          Cycle[]
+  meetings        Meeting[]
+  expenseRecords  MeetingExpense[]
+  cycleExpenses   CycleExpense[]
+  changeRequests  MeetingChangeRequest[]
 
   @@map("instructors")
 }
 
 model InstitutionalOrder {
   id                String      @id @default(uuid())
-  branchId          String      @map("branch_id")
+  branchId          String?     @map("branch_id")
+  orderName         String?     @map("order_name")
   orderNumber       String?     @map("order_number")
   orderDate         DateTime?   @map("order_date") @db.Date
-  startDate         DateTime    @map("start_date") @db.Date
-  endDate           DateTime    @map("end_date") @db.Date
-  pricePerMeeting   Decimal     @map("price_per_meeting") @db.Decimal(10, 2)
+  startDate         DateTime?   @map("start_date") @db.Date
+  endDate           DateTime?   @map("end_date") @db.Date
+  pricePerMeeting   Decimal?    @map("price_per_meeting") @db.Decimal(10, 2)
   estimatedMeetings Int?        @map("estimated_meetings")
   estimatedTotal    Decimal?    @map("estimated_total") @db.Decimal(10, 2)
-  contactName       String      @map("contact_name")
-  contactPhone      String      @map("contact_phone")
+  contactName       String?     @map("contact_name")
+  contactPhone      String?     @map("contact_phone")
   contactEmail      String?     @map("contact_email")
   contractFile      String?     @map("contract_file")
   status            OrderStatus @default(draft)
+  fireberryStatus   String?     @map("fireberry_status")
   notes             String?
+  totalAmount       Decimal?    @map("total_amount") @db.Decimal(10, 2)
+  invoiceNumber     String?     @map("invoice_number")
+  invoiceLink       String?     @map("invoice_link")
+  paymentStatus     PaymentStatus? @map("payment_status")
+  paidAmount        Decimal?    @default(0) @map("paid_amount") @db.Decimal(10, 2)
+  payingBody        String?     @map("paying_body")
+  followUpDate      DateTime?   @map("follow_up_date") @db.Date
+  salesperson       String?
+  orderType         String?     @map("order_type")
+  createdBy         String?     @map("created_by")
   createdAt         DateTime    @default(now()) @map("created_at")
   updatedAt         DateTime    @updatedAt @map("updated_at")
 
   // Relations
-  branch Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
   cycles Cycle[]
+  quote  Quote?
 
   @@map("institutional_orders")
 }
@@ -276,6 +339,7 @@ model Cycle {
   totalMeetings        Int         @map("total_meetings")
   pricePerStudent      Decimal?    @map("price_per_student") @db.Decimal(10, 2)
   meetingRevenue       Decimal?    @map("meeting_revenue") @db.Decimal(10, 2)
+  revenueIncludesVat   Boolean?    @map("revenue_includes_vat")
   studentCount         Int?        @map("student_count")
   maxStudents          Int?        @map("max_students")
   sendParentReminders  Boolean      @default(false) @map("send_parent_reminders")
@@ -290,6 +354,9 @@ model Cycle {
   completedMeetings    Int         @default(0) @map("completed_meetings")
   remainingMeetings    Int         @default(0) @map("remaining_meetings")
   status               CycleStatus  @default(active)
+  frozenAt             DateTime?    @map("frozen_at")
+  frozenReason         String?      @map("frozen_reason")
+  resumeDate           DateTime?    @map("resume_date") @db.Date
   createdAt            DateTime     @default(now()) @map("created_at")
   updatedAt            DateTime     @updatedAt @map("updated_at")
   deletedAt            DateTime?    @map("deleted_at")
@@ -302,6 +369,8 @@ model Cycle {
   institutionalOrder InstitutionalOrder? @relation(fields: [institutionalOrderId], references: [id], onDelete: SetNull)
   registrations      Registration[]
   meetings           Meeting[]
+  expenses           CycleExpense[]
+  upsellLeads        UpsellLead[]
 
   @@map("cycles")
 }
@@ -318,6 +387,9 @@ model Registration {
   invoiceLink        String?             @map("invoice_link")
   cancellationDate   DateTime?           @map("cancellation_date") @db.Date
   cancellationReason String?             @map("cancellation_reason")
+  refundAmount       Decimal?            @map("refund_amount") @db.Decimal(10, 2)
+  refundDate         DateTime?           @map("refund_date") @db.Date
+  creditInvoiceLink  String?             @map("credit_invoice_link")
   notes              String?
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
@@ -325,12 +397,32 @@ model Registration {
   deletedBy          String?             @map("deleted_by")
 
   // Relations
-  student    Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  cycle      Cycle        @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  attendance Attendance[]
+  student               Student               @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  cycle                 Cycle                  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  attendance            Attendance[]
+  cancellationRequests  CancellationRequest[]
+  upsellLeads           UpsellLead[]
 
   @@unique([studentId, cycleId])
   @@map("registrations")
+}
+
+model CancellationRequest {
+  id             String    @id @default(uuid())
+  registrationId String    @map("registration_id")
+  customerName   String    @map("customer_name")
+  studentName    String    @map("student_name")
+  reason         String?
+  signature      String?
+  submittedAt    DateTime? @map("submitted_at")
+  status         String    @default("pending") // pending, submitted, processed
+  token          String    @unique
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  registration Registration @relation(fields: [registrationId], references: [id])
+
+  @@map("cancellation_requests")
 }
 
 model Meeting {
@@ -366,12 +458,14 @@ model Meeting {
   deletedBy         String?       @map("deleted_by")
 
   // Relations
-  cycle           Cycle        @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  instructor      Instructor   @relation(fields: [instructorId], references: [id], onDelete: Restrict)
-  statusUpdatedBy User?        @relation("MeetingStatusUpdater", fields: [statusUpdatedById], references: [id])
-  rescheduledTo   Meeting?     @relation("RescheduledMeetings", fields: [rescheduledToId], references: [id])
-  rescheduledFrom Meeting[]    @relation("RescheduledMeetings")
+  cycle           Cycle            @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  instructor      Instructor       @relation(fields: [instructorId], references: [id], onDelete: Restrict)
+  statusUpdatedBy User?            @relation("MeetingStatusUpdater", fields: [statusUpdatedById], references: [id])
+  rescheduledTo   Meeting?         @relation("RescheduledMeetings", fields: [rescheduledToId], references: [id])
+  rescheduledFrom Meeting[]        @relation("RescheduledMeetings")
   attendance      Attendance[]
+  expenses        MeetingExpense[]
+  changeRequests  MeetingChangeRequest[]
 
   @@map("meetings")
 }
@@ -511,4 +605,506 @@ model SavedView {
   @@index([entity])
   @@index([createdById])
   @@map("saved_views")
+}
+
+// ===================
+// EXPENSE TRACKING
+// ===================
+
+enum CycleExpenseType {
+  materials              // הכנת חומרים
+  wraparound_hours       // שעות מעטפת
+  equipment              // ציוד
+  travel_fixed           // נסיעות קבועות
+  additional_instructor  // מדריך נוסף
+  other
+
+  @@map("cycle_expense_type")
+}
+
+enum MeetingExpenseType {
+  travel             // נסיעות
+  taxi               // מונית
+  extra_instructor   // מדריך נוסף
+  materials          // חומרים
+  other
+
+  @@map("meeting_expense_type")
+}
+
+enum ExpenseStatus {
+  pending            // ממתין לאישור
+  approved           // מאושר
+  rejected           // נדחה
+
+  @@map("expense_status")
+}
+
+// Cycle-level expenses (spread across all meetings)
+model CycleExpense {
+  id            String           @id @default(dbgenerated("gen_random_uuid()::text"))
+  cycleId       String           @map("cycle_id")
+  type          CycleExpenseType
+  description   String?
+  amount        Decimal?         @db.Decimal(10, 2)
+  isPercentage  Boolean          @default(false) @map("is_percentage")
+  percentage    Decimal?         @db.Decimal(5, 2)
+  hours         Decimal?         @db.Decimal(5, 2)
+  rateType      String?          @map("rate_type")  // preparation, online, frontal
+  createdById   String           @map("created_by")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @default(now()) @map("updated_at")
+  
+  // Optional: link to instructor for materials/wraparound_hours
+  instructorId  String?          @map("instructor_id")
+
+  // Relations
+  cycle         Cycle            @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  createdBy     User             @relation(fields: [createdById], references: [id])
+  instructor    Instructor?      @relation(fields: [instructorId], references: [id])
+
+  @@index([cycleId])
+  @@map("cycle_expenses")
+}
+
+// Meeting-level expenses (one-time, submitted by instructor)
+model MeetingExpense {
+  id              String             @id @default(dbgenerated("gen_random_uuid()::text"))
+  meetingId       String             @map("meeting_id")
+  type            MeetingExpenseType
+  description     String?
+  amount          Decimal            @db.Decimal(10, 2)
+  status          ExpenseStatus      @default(approved)
+  
+  // Submitted by instructor
+  submittedById   String             @map("submitted_by")
+  submittedAt     DateTime           @default(now()) @map("submitted_at")
+  
+  // Approved/rejected by manager (kept for historical data)
+  reviewedById    String?            @map("reviewed_by")
+  reviewedAt      DateTime?          @map("reviewed_at")
+  rejectionReason String?            @map("rejection_reason")
+  
+  // For extra_instructor type: link to instructor and rate calculation
+  instructorId    String?            @map("instructor_id")
+  rateType        String?            @map("rate_type")  // preparation, online, frontal
+  hours           Decimal?           @db.Decimal(10, 2) @map("hours")
+
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @default(now()) @map("updated_at")
+
+  // Relations
+  meeting         Meeting            @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  submittedBy     User               @relation("ExpenseSubmitter", fields: [submittedById], references: [id])
+  reviewedBy      User?              @relation("ExpenseReviewer", fields: [reviewedById], references: [id])
+  instructor      Instructor?        @relation(fields: [instructorId], references: [id])
+
+  @@index([meetingId])
+  @@index([status])
+  @@index([submittedById])
+  @@map("meeting_expenses")
+}
+
+// ===================
+// QUOTES
+// ===================
+
+model Quote {
+  id              String      @id @default(uuid())
+  quoteNumber     String      @unique @map("quote_number")
+  branchId        String?     @map("branch_id")
+  institutionName String      @map("institution_name")
+  contactName     String      @map("contact_name")
+  contactPhone    String      @map("contact_phone")
+  contactEmail    String?     @map("contact_email")
+  contactRole     String?     @map("contact_role")
+  clientType      QuoteClientType? @map("client_type")
+  customerId      String?          @map("customer_id")
+  
+  // Paying body (גוף משלם)
+  payingBodyName  String?          @map("paying_body_name")
+  payingBodyPhone String?          @map("paying_body_phone")
+  payingBodyEmail String?          @map("paying_body_email")
+  payingBodyNotes String?          @map("paying_body_notes")
+  content         Json?
+  includesVat     Boolean     @default(false) @map("includes_vat")
+  cancellationTerms String?   @map("cancellation_terms")
+  paymentTerms    String?     @map("payment_terms")
+  totalAmount     Decimal     @map("total_amount") @db.Decimal(10, 2)
+  discount        Decimal?    @default(0) @db.Decimal(10, 2)
+  finalAmount     Decimal     @map("final_amount") @db.Decimal(10, 2)
+  validUntil      DateTime?   @map("valid_until") @db.Date
+  status          QuoteStatus @default(draft)
+  notes           String?
+  clientNotes     String?     @map("client_notes")
+  videoPath       String?     @map("video_path")
+  orderId         String?     @unique @map("order_id")
+  createdById     String      @map("created_by")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  // Relations
+  branch    Branch?             @relation(fields: [branchId], references: [id])
+  customer  Customer?           @relation(fields: [customerId], references: [id])
+  items     QuoteItem[]
+  order     InstitutionalOrder? @relation(fields: [orderId], references: [id])
+  createdBy User                @relation(fields: [createdById], references: [id])
+
+  @@map("quotes")
+}
+
+model QuoteItem {
+  id              String  @id @default(uuid())
+  quoteId         String  @map("quote_id")
+  courseId         String? @map("course_id")
+  courseName      String  @map("course_name")
+  description     String?
+  groups          Int
+  meetingsPerGroup Int    @map("meetings_per_group")
+  pricePerMeeting Decimal @map("price_per_meeting") @db.Decimal(10, 2)
+  meetingDuration Int     @default(90) @map("meeting_duration")
+  subtotal        Decimal @db.Decimal(10, 2)
+  sortOrder       Int     @default(0) @map("sort_order")
+
+  // Relations
+  quote  Quote  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  course Course? @relation(fields: [courseId], references: [id])
+
+  @@map("quote_items")
+}
+
+// ===================
+// LEAD APPOINTMENTS (Vapi AI Calling)
+// ===================
+
+model LeadAppointment {
+  id              String    @id @default(uuid())
+  customerId      String?   @map("customer_id")
+  customerName    String    @map("customer_name")
+  customerPhone   String    @map("customer_phone")
+  customerEmail   String?   @map("customer_email")
+  childName       String?   @map("child_name")
+  interest        String?
+  source          String    @default("website")
+
+  // Campaign details (Facebook Lead Ads)
+  campaignId    String?   @map("campaign_id")
+  campaignName  String?   @map("campaign_name")
+  adId          String?   @map("ad_id")
+  adName        String?   @map("ad_name")
+  adsetName     String?   @map("adset_name")
+  formId        String?   @map("form_id")
+
+  // Vapi call details
+  vapiCallId      String?   @map("vapi_call_id")
+  callStatus      String?   @map("call_status")
+  callTranscript  String?   @map("call_transcript")
+  callSummary     String?   @map("call_summary")
+  callDuration    Int?      @map("call_duration")
+  callEndedReason String?   @map("call_ended_reason")
+  callRecordingUrl String?  @map("call_recording_url")
+
+  // Appointment details (extracted from call)
+  appointmentDate   DateTime? @map("appointment_date")
+  appointmentTime   String?   @map("appointment_time")
+  appointmentNotes  String?   @map("appointment_notes")
+  appointmentStatus String    @default("pending") @map("appointment_status")
+
+  // Notifications
+  whatsappSent Boolean @default(false) @map("whatsapp_sent")
+  emailSent    Boolean @default(false) @map("email_sent")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  @@map("lead_appointments")
+}
+
+// ===================
+// UPSELL LEADS
+// ===================
+
+enum UpsellLeadStatus {
+  new
+  contacted
+  converted
+  dismissed
+}
+
+model UpsellLead {
+  id              Int              @id @default(autoincrement())
+  registrationId  String           @map("registration_id")
+  cycleId         String           @map("cycle_id")
+  customerId      String           @map("customer_id")
+  completedCourse String           @map("completed_course")
+  status          UpsellLeadStatus @default(new)
+  notes           String?
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  registration Registration @relation(fields: [registrationId], references: [id])
+  cycle        Cycle        @relation(fields: [cycleId], references: [id])
+  customer     Customer     @relation(fields: [customerId], references: [id])
+
+  @@map("upsell_leads")
+}
+
+// ===================
+// MEETING CHANGE REQUESTS
+// ===================
+
+model MeetingChangeRequest {
+  id           String    @id @default(uuid())
+  meetingId    String    @map("meeting_id")
+  instructorId String    @map("instructor_id")
+  type         String    // "cancel", "postpone", "replacement"
+  reason       String?
+  status       String    @default("pending") // "pending", "approved", "rejected"
+  reviewedBy   String?   @map("reviewed_by")
+  reviewedAt   DateTime? @map("reviewed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  meeting    Meeting    @relation(fields: [meetingId], references: [id])
+  instructor Instructor @relation(fields: [instructorId], references: [id])
+
+  @@map("meeting_change_requests")
+}
+
+// ===================
+// FILE ATTACHMENTS
+// ===================
+
+model FileAttachment {
+  id           String   @id @default(uuid())
+  entityType   String   @map("entity_type")   // "instructor" | "quote"
+  entityId     String   @map("entity_id")
+  fileName     String   @map("file_name")      // stored file name (uuid-based)
+  originalName String   @map("original_name")  // original uploaded file name
+  mimeType     String   @map("mime_type")
+  fileSize     Int      @map("file_size")       // in bytes
+  filePath     String   @map("file_path")       // relative path on disk
+  label        String?                           // optional label/category (e.g. "חוזה", "קו\"ח")
+  uploadedById String?  @map("uploaded_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  uploadedBy User? @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@map("file_attachments")
+}
+
+// ===================
+// WHATSAPP INBOX
+// ===================
+
+enum WaMessageDirection {
+  inbound
+  outbound
+}
+
+enum WaConversationStatus {
+  open
+  pending
+  closed
+}
+
+model WaConversation {
+  id          String               @id @default(uuid())
+  phone       String
+  contactName String?              @map("contact_name")
+  status      WaConversationStatus @default(open)
+  unreadCount Int                  @default(0) @map("unread_count")
+  lastMessageAt DateTime?          @map("last_message_at")
+  lastMessagePreview String?       @map("last_message_preview")
+  // Lead extraction from bot
+  leadName    String?              @map("lead_name")
+  leadEmail   String?              @map("lead_email")
+  childName   String?              @map("child_name")
+  childAge    Int?                 @map("child_age")
+  interests   String?              // JSON array
+  leadType    String?              @map("lead_type")
+  summary     String?
+  // AI auto-reply
+  aiEnabled      Boolean           @default(true) @map("ai_enabled")
+  businessPhone  String?           @map("business_phone")   // which WA number received this (e.g. +972533027763)
+  phoneNumberId  String?           @map("phone_number_id")  // Meta phone number ID
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+
+  messages WaMessage[]
+
+  @@unique([phone, phoneNumberId])
+  @@map("wa_conversations")
+}
+
+model WaMessage {
+  id             String             @id @default(uuid())
+  conversationId String             @map("conversation_id")
+  direction      WaMessageDirection
+  content        String
+  waMessageId    String?            @unique @map("wa_message_id")  // Meta message ID (dedup)
+  status         String             @default("sent")               // sent/delivered/read/failed
+  tokensUsed     Int?               @map("tokens_used")
+  isAiGenerated  Boolean            @default(false) @map("is_ai_generated")
+  createdAt      DateTime           @default(now()) @map("created_at")
+
+  conversation WaConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("wa_messages")
+}
+
+// ===================
+// PAYMENTS
+// ===================
+
+// ===================
+// CALLBACK REQUESTS
+// ===================
+
+model WaCallbackRequest {
+  id             String    @id @default(uuid())
+  conversationId String    @map("conversation_id")
+  phone          String
+  contactName    String?   @map("contact_name")
+  message        String    // The message that triggered the callback request
+  status         String    @default("pending")  // pending / done
+  resolvedAt     DateTime? @map("resolved_at")
+  resolvedBy     String?   @map("resolved_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@map("wa_callback_requests")
+}
+
+// ===================
+// CAMPAIGNS
+// ===================
+
+model Campaign {
+  id              String    @id @default(uuid())
+  name            String
+  description     String?
+  channel         String    @default("email")
+  status          String    @default("draft")
+  audienceFilters Json      @map("audience_filters")
+  subject         String?
+  contentHtml     String?   @map("content_html")
+  contentWa       String?   @map("content_wa")
+  aiContext       Json?     @map("ai_context")
+  scheduledAt     DateTime? @map("scheduled_at")
+  startedAt       DateTime? @map("started_at")
+  completedAt     DateTime? @map("completed_at")
+  createdById     String    @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  recipientCount  Int       @default(0) @map("recipient_count")
+  deliveredCount  Int       @default(0) @map("delivered_count")
+  failedCount     Int       @default(0) @map("failed_count")
+  landingUrl      String?   @map("landing_url")
+  createdBy       User                @relation(fields: [createdById], references: [id])
+  recipients      CampaignRecipient[]
+
+  @@map("campaigns")
+}
+
+model CampaignRecipient {
+  id          String    @id @default(uuid())
+  campaignId  String    @map("campaign_id")
+  customerId  String?   @map("customer_id")
+  recipientName String? @map("recipient_name")
+  phone       String?
+  email       String?
+  status      String    @default("pending")
+  error       String?
+  sentAt      DateTime? @map("sent_at")
+  openedAt    DateTime? @map("opened_at")
+  clickedAt   DateTime? @map("clicked_at")
+  clickCount  Int       @default(0) @map("click_count")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  campaign    Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  customer    Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@map("campaign_recipients")
+}
+
+// ===================
+// FACEBOOK LEADS
+// ===================
+
+model FacebookLead {
+  id           Int      @id @default(autoincrement())
+  fbLeadId     String   @unique @map("fb_lead_id")
+  formId       String?  @map("form_id")
+  adId         String?  @map("ad_id")
+  adName       String?  @map("ad_name")
+  campaignId   String?  @map("campaign_id")
+  campaignName String?  @map("campaign_name")
+  adsetName    String?  @map("adset_name")
+
+  // Lead fields
+  fullName     String?  @map("full_name")
+  phone        String?
+  email        String?
+  city         String?
+  childName    String?  @map("child_name")
+  childAge     String?  @map("child_age")
+  interest     String?
+  rawData      Json?    @map("raw_data")
+
+  // Status
+  status         String   @default("new")  // new | contacted | converted | dismissed
+  notes          String?
+  crmCustomerId  String?  @map("crm_customer_id")
+
+  fbCreatedTime DateTime? @map("fb_created_time")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  customer Customer? @relation(fields: [crmCustomerId], references: [id], onDelete: SetNull)
+
+  @@map("facebook_leads")
+}
+
+model Payment {
+  id               String   @id @default(uuid())
+  customerId       String?  @map("customer_id")
+  customerName     String   @map("customer_name")
+  customerEmail    String?  @map("customer_email")
+  customerPhone    String?  @map("customer_phone")
+  description      String
+  amount           Float
+  currency         String   @default("ILS")
+  wooOrderId       Int?     @unique @map("woo_order_id")
+  wooOrderKey      String?  @map("woo_order_key")
+  status           String   @default("pending")    // pending | paid | cancelled | refunded
+  invoiceUrl       String?  @map("invoice_url")    // Morning/GreenInvoice document URL
+  invoiceNumber    String?  @map("invoice_number")
+  paymentMethod    String?  @map("payment_method")  // creditcard | bit | google-pay
+  paidAt           DateTime? @map("paid_at")
+  payToken         String?  @unique @map("pay_token")  // CRM public pay page token
+  maxInstallments  Int?     @map("max_installments")   // max installments customer can choose
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@map("payments")
+}
+
+model AiLessonLog {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  userName    String?  @map("user_name")
+  courseId    String?  @map("course_id")
+  courseName  String?  @map("course_name")
+  cycleName   String?  @map("cycle_name")
+  ageGroup    String?  @map("age_group")
+  topic       String?
+  usedDrive   Boolean  @default(false) @map("used_drive")
+  driveFiles  String?  @map("drive_files")   // JSON: array of file names referenced
+  response    String   @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("ai_lesson_logs")
 }

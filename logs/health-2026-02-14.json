@@ -1,0 +1,28 @@
+{
+  "timestamp": "2026-02-14T08:51:58Z",
+  "passed": 20,
+  "failed": 0,
+  "total": 20,
+  "checks": [
+    {"check":"haitech-api-dev container","status":"OK","detail":"running "},
+    {"check":"haitech-db container","status":"OK","detail":"running "},
+    {"check":"haitech-redis container","status":"OK","detail":"running "},
+    {"check":"API /health","status":"OK","detail":"{\"status\":\"ok\",\"timestamp\":\"2026-02-14T08:51:56.742Z\",\"version\":\"1.0.0\",\"database\":\"connected\"} "},
+    {"check":"DB SELECT 1","status":"OK","detail":" "},
+    {"check":"Redis PING","status":"OK","detail":" "},
+    {"check":"Redis role=master","status":"OK","detail":" "},
+    {"check":"Disk /sys/firmware/efi/efivars","status":"OK","detail":"7% used "},
+    {"check":"Disk /","status":"OK","detail":"69% used "},
+    {"check":"Disk /var/oled","status":"OK","detail":"8% used "},
+    {"check":"Disk /boot","status":"OK","detail":"23% used "},
+    {"check":"Disk /boot/efi","status":"OK","detail":"8% used "},
+    {"check":"DB size","status":"OK","detail":"15 MB "},
+    {"check":"API login","status":"OK","detail":" "},
+    {"check":"GET /api/instructors","status":"OK","detail":"HTTP 200 "},
+    {"check":"GET /api/cycles","status":"OK","detail":"HTTP 200 "},
+    {"check":"GET /api/meetings","status":"OK","detail":"HTTP 200 "},
+    {"check":"GET /api/customers","status":"OK","detail":"HTTP 200 "},
+    {"check":"Meetings without cycles","status":"OK","detail":"0 orphans "},
+    {"check":"Meetings without instructor","status":"OK","detail":"0 orphans "}
+  ]
+}

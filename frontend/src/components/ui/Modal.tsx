@@ -39,7 +39,7 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center md:p-4">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
@@ -48,7 +48,7 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
 
       {/* Modal */}
       <div
-        className={`relative bg-white rounded-xl shadow-xl w-full ${sizes[size]} max-h-[90vh] overflow-hidden`}
+        className={`relative bg-white rounded-none md:rounded-xl shadow-xl w-full h-full md:h-auto ${sizes[size]} max-h-full md:max-h-[90vh] overflow-hidden`}
       >
         {/* Header */}
         {title && (

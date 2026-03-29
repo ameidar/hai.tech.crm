@@ -1,17 +1,22 @@
 import { useState, useMemo } from 'react';
-import { Calendar, Clock, Users, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { Calendar, Clock, Users, CheckCircle, XCircle, AlertCircle, Video, ChevronLeft, BookOpen, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { useMeetings, useUpdateMeeting } from '../hooks/useApi';
+import { useMeetings, useUpdateMeeting, useCycles } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import Modal from '../components/ui/Modal';
-import { meetingStatusHebrew, dayOfWeekHebrew } from '../types';
+import { CourseMaterials } from '../components/CourseMaterials';
+import { meetingStatusHebrew, dayOfWeekHebrew, cycleStatusHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
 export default function InstructorDashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
-  const [viewMode, setViewMode] = useState<'today' | 'week' | 'all'>('today');
+  const [materialsCourse, setMaterialsCourse] = useState<{ id: string; name: string } | null>(null);
+  const [viewMode, setViewMode] = useState<'today' | 'week' | 'past' | 'all'>('today');
+  const [cycleFilter, setCycleFilter] = useState<string>('all');
 
   // Get date range based on view mode
   const dateRange = useMemo(() => {
@@ -24,19 +29,38 @@ export default function InstructorDashboard() {
       const nextWeek = new Date(today);
       nextWeek.setDate(nextWeek.getDate() + 7);
       return { from: todayStr, to: nextWeek.toISOString().split('T')[0] };
+    } else if (viewMode === 'past') {
+      const past30 = new Date(today);
+      past30.setDate(past30.getDate() - 30);
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      return { from: past30.toISOString().split('T')[0], to: yesterday.toISOString().split('T')[0] };
     }
     return {};
   }, [viewMode]);
 
-  const { data: meetings, isLoading } = useMeetings(dateRange);
+  // Pass higher limit for 'all' view to avoid missing future meetings
+  const meetingsParams = useMemo(() => ({
+    ...dateRange,
+    ...(viewMode === 'all' ? { limit: 500 } : {}),
+  }), [dateRange, viewMode]);
+
+  const { data: meetings, isLoading } = useMeetings(meetingsParams);
   const updateMeeting = useUpdateMeeting();
+
+  // Fetch ALL instructor cycles independently (so DDL is always complete)
+  const { data: allCyclesData } = useCycles({ limit: 200 });
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
+    const thisYear = new Date().getFullYear();
+    const meetingYear = date.getFullYear();
     return date.toLocaleDateString('he-IL', {
       weekday: 'long',
       day: 'numeric',
       month: 'long',
+      // Show year only when it's not the current year (prevents confusion with past cycles)
+      ...(meetingYear !== thisYear ? { year: 'numeric' } : {}),
     });
   };
 
@@ -78,14 +102,45 @@ export default function InstructorDashboard() {
     }
   };
 
+  // Use independently-fetched cycles for the DDL (not derived from loaded meetings)
+  // This ensures the active cycle always appears even if its meetings are beyond the pagination limit
+  const cycles = useMemo(() => {
+    if (allCyclesData && Array.isArray(allCyclesData) && allCyclesData.length > 0) {
+      return allCyclesData.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        status: c.status,
+        totalMeetings: c.totalMeetings ?? null,
+      }));
+    }
+    // Fallback: derive from loaded meetings (legacy behavior)
+    if (!meetings || !Array.isArray(meetings)) return [];
+    const seen = new Map<string, string>();
+    meetings.forEach(m => {
+      if (m.cycle?.id && m.cycle?.name && !seen.has(m.cycle.id)) {
+        seen.set(m.cycle.id, m.cycle.name);
+      }
+    });
+    return Array.from(seen.entries()).map(([id, name]) => ({ id, name, status: undefined, totalMeetings: null }));
+  }, [allCyclesData, meetings]);
+
+  // Filter meetings by cycle
+  const filteredMeetings = useMemo(() => {
+    if (!meetings || !Array.isArray(meetings)) return [];
+    if (cycleFilter === 'all') return meetings;
+    return meetings.filter(m => m.cycle?.id === cycleFilter);
+  }, [meetings, cycleFilter]);
+
   const stats = useMemo(() => {
-    if (!meetings || !Array.isArray(meetings)) return { total: 0, completed: 0, pending: 0 };
+    // When a specific cycle is selected, "total" = cycle's configured totalMeetings (not the DB count)
+    const selectedCycle = cycleFilter !== 'all' ? cycles.find(c => c.id === cycleFilter) : null;
+    const total = selectedCycle?.totalMeetings ?? filteredMeetings.length;
     return {
-      total: meetings.length,
-      completed: meetings.filter(m => m.status === 'completed').length,
-      pending: meetings.filter(m => m.status === 'scheduled').length,
+      total,
+      completed: filteredMeetings.filter(m => m.status === 'completed').length,
+      pending: filteredMeetings.filter(m => m.status === 'scheduled').length,
     };
-  }, [meetings]);
+  }, [filteredMeetings, cycleFilter, cycles]);
 
   if (isLoading) {
     return <Loading size="lg" text="טוען פגישות..." />;
@@ -96,6 +151,18 @@ export default function InstructorDashboard() {
       <PageHeader
         title={`שלום, ${user?.name || 'מדריך'}`}
         subtitle="הפגישות שלך"
+        actions={
+          <div className="flex gap-2">
+            <Link to="/instructor/ai" className="btn btn-primary flex items-center gap-2 text-sm bg-gradient-to-l from-purple-600 to-blue-600 border-0">
+              <Sparkles size={16} />
+              סוכן AI
+            </Link>
+            <Link to="/instructor/library" className="btn btn-secondary flex items-center gap-2 text-sm">
+              <BookOpen size={16} />
+              ספריה
+            </Link>
+          </div>
+        }
       />
 
       <div className="flex-1 p-6 overflow-auto bg-gray-50">
@@ -118,6 +185,14 @@ export default function InstructorDashboard() {
             השבוע הקרוב
           </button>
           <button
+            onClick={() => setViewMode('past')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              viewMode === 'past' ? 'bg-gray-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            עבר (30 יום)
+          </button>
+          <button
             onClick={() => setViewMode('all')}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${
               viewMode === 'all' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'
@@ -126,6 +201,28 @@ export default function InstructorDashboard() {
             כל הפגישות
           </button>
         </div>
+
+        {/* Cycle Filter */}
+        {cycles.length > 1 && (
+          <div className="mb-4">
+            <select
+              value={cycleFilter}
+              onChange={(e) => {
+                setCycleFilter(e.target.value);
+                // Auto-switch to "all" view so all cycle meetings are visible
+                if (e.target.value !== 'all') setViewMode('all');
+              }}
+              className="px-4 py-2 rounded-lg border border-gray-200 bg-white text-gray-700 font-medium"
+            >
+              <option value="all">כל המחזורים</option>
+              {cycles.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.name}{c.status ? ` (${cycleStatusHebrew[c.status as keyof typeof cycleStatusHebrew] ?? c.status})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4 mb-6">
@@ -159,12 +256,13 @@ export default function InstructorDashboard() {
         </div>
 
         {/* Meetings List */}
-        {meetings && meetings.length > 0 ? (
+        {filteredMeetings && filteredMeetings.length > 0 ? (
           <div className="space-y-3">
-            {meetings.map((meeting) => (
+            {filteredMeetings.map((meeting) => (
               <div
                 key={meeting.id}
-                className={`bg-white rounded-lg p-4 shadow ${
+                onClick={() => navigate(`/instructor/meeting/${meeting.id}`)}
+                className={`bg-white rounded-lg p-4 shadow cursor-pointer hover:shadow-md transition-shadow ${
                   isToday(meeting.scheduledDate) ? 'border-r-4 border-blue-500' : ''
                 }`}
               >
@@ -189,10 +287,31 @@ export default function InstructorDashboard() {
                     }`}>
                       {meetingStatusHebrew[meeting.status]}
                     </span>
+                    {meeting.cycle?.course?.materialsFolderId && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setMaterialsCourse({ id: meeting.cycle!.course!.id, name: meeting.cycle!.course!.name }); }}
+                        className="btn btn-secondary text-sm flex items-center gap-1"
+                        title="חומרי לימוד"
+                      >
+                        <BookOpen size={14} />
+                        חומרים
+                      </button>
+                    )}
+                    {viewMode !== 'past' && meeting.cycle?.activityType === 'online' && meeting.zoomJoinUrl && meeting.status === 'scheduled' && (
+                      <a
+                        href={meeting.zoomJoinUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-primary text-sm flex items-center gap-2"
+                      >
+                        <Video size={16} />
+                        הצטרף לזום
+                      </a>
+                    )}
                     {isToday(meeting.scheduledDate) && meeting.status === 'scheduled' && (
                       <button
                         onClick={() => setSelectedMeeting(meeting)}
-                        className="btn btn-primary text-sm"
+                        className="btn btn-secondary text-sm"
                       >
                         עדכן סטטוס
                       </button>
@@ -210,7 +329,11 @@ export default function InstructorDashboard() {
         ) : (
           <div className="bg-white rounded-lg p-8 text-center">
             <Calendar size={48} className="mx-auto mb-4 text-gray-300" />
-            <p className="text-gray-500">אין פגישות {viewMode === 'today' ? 'להיום' : 'בטווח הנבחר'}</p>
+            <p className="text-gray-500">
+              {viewMode === 'today' ? 'אין פגישות להיום' :
+               viewMode === 'past' ? 'אין פגישות ב-30 הימים האחרונים' :
+               'אין פגישות בטווח הנבחר'}
+            </p>
           </div>
         )}
       </div>
@@ -228,6 +351,19 @@ export default function InstructorDashboard() {
             onCancel={() => setSelectedMeeting(null)}
             isLoading={updateMeeting.isPending}
           />
+        )}
+      </Modal>
+
+      {/* Course Materials Modal */}
+      <Modal
+        isOpen={!!materialsCourse}
+        onClose={() => setMaterialsCourse(null)}
+        title={`📚 חומרי לימוד — ${materialsCourse?.name}`}
+      >
+        {materialsCourse && (
+          <div className="p-4">
+            <CourseMaterials courseId={materialsCourse.id} courseName={materialsCourse.name} />
+          </div>
         )}
       </Modal>
     </div>

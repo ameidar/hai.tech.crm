@@ -93,33 +93,118 @@ export default function AuditLog() {
     });
   };
 
-  const renderNewValue = (entity: string, newValue: any) => {
-    if (!newValue) return '-';
-    
-    if (entity === 'communication_whatsapp') {
-      return (
-        <div className="text-sm">
-          <p><span className="text-gray-500">לטלפון:</span> {newValue.phone}</p>
-          <p className="text-gray-600 truncate max-w-md">{newValue.message}</p>
-        </div>
-      );
+  // Format a single value for display
+  const formatValue = (value: any): string => {
+    if (value === null || value === undefined) return '-';
+    if (typeof value === 'boolean') return value ? 'כן' : 'לא';
+    if (value instanceof Date || (typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}/))) {
+      const date = new Date(value);
+      if (!isNaN(date.getTime())) {
+        // Check if it's a time-only value (1970-01-01)
+        if (date.getFullYear() === 1970) {
+          return date.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+        }
+        return date.toLocaleDateString('he-IL');
+      }
     }
-    
-    if (entity === 'communication_email') {
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
+  };
+
+  // Render changes between old and new values
+  const renderChanges = (action: string, entity: string, oldValue: any, newValue: any) => {
+    // For CREATE - show new values
+    if (action === 'CREATE') {
+      if (!newValue) return '-';
+      
+      if (entity === 'communication_whatsapp') {
+        return (
+          <div className="text-sm">
+            <p><span className="text-gray-500">לטלפון:</span> {newValue.phone}</p>
+            <p className="text-gray-600 truncate max-w-md">{newValue.message}</p>
+          </div>
+        );
+      }
+      
+      if (entity === 'communication_email') {
+        return (
+          <div className="text-sm">
+            <p><span className="text-gray-500">ל:</span> {newValue.to}</p>
+            <p><span className="text-gray-500">נושא:</span> {newValue.subject}</p>
+          </div>
+        );
+      }
+
+      // Show key fields for other entities
+      const keyFields = Object.keys(newValue).slice(0, 4);
       return (
-        <div className="text-sm">
-          <p><span className="text-gray-500">ל:</span> {newValue.to}</p>
-          <p><span className="text-gray-500">נושא:</span> {newValue.subject}</p>
+        <div className="text-sm space-y-1">
+          {keyFields.map(key => (
+            <p key={key}>
+              <span className="text-gray-500">{key}:</span>{' '}
+              <span className="text-green-700">{formatValue(newValue[key])}</span>
+            </p>
+          ))}
         </div>
       );
     }
 
-    // Generic display
-    return (
-      <pre className="text-xs bg-gray-50 p-2 rounded max-w-md overflow-auto">
-        {JSON.stringify(newValue, null, 2)}
-      </pre>
-    );
+    // For DELETE - show old values
+    if (action === 'DELETE') {
+      if (!oldValue) return '-';
+      const keyFields = Object.keys(oldValue).slice(0, 4);
+      return (
+        <div className="text-sm space-y-1">
+          {keyFields.map(key => (
+            <p key={key}>
+              <span className="text-gray-500">{key}:</span>{' '}
+              <span className="text-red-700 line-through">{formatValue(oldValue[key])}</span>
+            </p>
+          ))}
+        </div>
+      );
+    }
+
+    // For UPDATE - show what changed (old → new)
+    if (action === 'UPDATE') {
+      if (!oldValue && !newValue) return '-';
+      
+      // Get all changed fields
+      const allKeys = new Set([
+        ...(oldValue ? Object.keys(oldValue) : []),
+        ...(newValue ? Object.keys(newValue) : [])
+      ]);
+      
+      const changes: { key: string; old: string; new: string }[] = [];
+      for (const key of allKeys) {
+        const oldVal = oldValue?.[key];
+        const newVal = newValue?.[key];
+        if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
+          changes.push({
+            key,
+            old: formatValue(oldVal),
+            new: formatValue(newVal),
+          });
+        }
+      }
+
+      if (changes.length === 0) return '-';
+
+      return (
+        <div className="text-sm space-y-1">
+          {changes.map(({ key, old, new: newVal }) => (
+            <p key={key} className="flex items-center gap-1 flex-wrap">
+              <span className="text-gray-500">{key}:</span>{' '}
+              <span className="text-red-600 line-through">{old}</span>
+              <span className="text-gray-400">→</span>
+              <span className="text-green-700 font-medium">{newVal}</span>
+            </p>
+          ))}
+        </div>
+      );
+    }
+
+    return '-';
   };
 
   return (
@@ -202,8 +287,8 @@ export default function AuditLog() {
                         <span className="text-sm">{entityLabels[log.entity] || log.entity}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3">
-                      {renderNewValue(log.entity, log.newValue)}
+                    <td className="px-4 py-3 max-w-md">
+                      {renderChanges(log.action, log.entity, log.oldValue, log.newValue)}
                     </td>
                   </tr>
                 ))}

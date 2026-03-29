@@ -1,10 +1,14 @@
 # Fireberry → HaiTech CRM Migration Plan
 
-## Overview
+## Status: ✅ MOSTLY COMPLETED
+
+### Summary
 - **Source**: Fireberry CRM (127 active cycles)
 - **Target**: HaiTech CRM
-- **Already Imported**: ~17 cycles (mostly ORT Monday)
-- **Remaining**: ~110 cycles
+- **Imported**: ~127 cycles
+- **Status**: All active cycles migrated, system in production use
+
+---
 
 ## Field Mapping
 
@@ -24,49 +28,128 @@
 | pcfsystemfield534 | duration minutes | durationMinutes | Number (75 default) |
 | pcfsystemfield536name | type | type | Map to institutional_fixed/private |
 | pcfsystemfield549name | pricing type | type | "מוסדי" = institutional |
+| - | - | fireberryId | Original Fireberry ID stored for reference |
 
 ### Day Mapping
-- ראשון → sunday
-- שני → monday
-- שלישי → tuesday
-- רביעי → wednesday
-- חמישי → thursday
-- שישי → friday
+| Hebrew | English |
+|--------|---------|
+| ראשון | sunday |
+| שני | monday |
+| שלישי | tuesday |
+| רביעי | wednesday |
+| חמישי | thursday |
+| שישי | friday |
 
 ### Type Mapping
-- אונליין קבוצתי + מוסדי → institutional_fixed, isOnline: true
-- פרונטלי שנתי + מוסדי → institutional_fixed, isOnline: false
-- פרטי → private
+| Fireberry Type | HaiTech Type | isOnline |
+|----------------|--------------|----------|
+| אונליין קבוצתי + מוסדי | institutional_fixed | true |
+| פרונטלי שנתי + מוסדי | institutional_fixed | false |
+| פרטי | private | varies |
 
-## Validation Checklist (Per Cycle)
-- [ ] Name matches
-- [ ] Instructor matches
-- [ ] Course matches
-- [ ] Branch/Customer matches
-- [ ] Day of week matches
-- [ ] Start time matches
-- [ ] Start/End date matches
-- [ ] Total meetings count correct
-- [ ] Completed meetings count correct
-- [ ] Revenue per meeting matches
-- [ ] IsOnline flag correct
-- [ ] Meetings generated with correct dates
-- [ ] First 4 meetings marked as completed (if completedMeetings >= 4)
+---
 
-## Migration Steps
-1. Export all active cycles from Fireberry
-2. Identify missing courses → create them
-3. Identify missing instructors → create them  
-4. Identify missing branches → create them
-5. Import cycles one by one
-6. Generate meetings for each cycle
-7. Mark completed meetings
-8. Validate each cycle
+## Migration Checklist
 
-## Execution Order
-1. Sunday cycles (36)
-2. Monday cycles (remaining ~18 after ORT)
-3. Tuesday cycles (19)
-4. Wednesday cycles (24)
-5. Thursday cycles (10)
-6. Friday cycles (4)
+### Entity Migration Status
+
+| Entity | Status | Count | Notes |
+|--------|--------|-------|-------|
+| Courses | ✅ Done | ~15 | Created as needed |
+| Instructors | ✅ Done | ~12 | All active imported |
+| Branches | ✅ Done | ~40 | Schools & community centers |
+| Cycles | ✅ Done | ~127 | All active cycles |
+| Meetings | ✅ Done | Auto-generated | Based on cycle dates |
+| Customers | ⚠️ Partial | For private only | Not all imported |
+| Students | ⚠️ Partial | For private only | Linked to customers |
+| Registrations | ⚠️ Partial | For private only | Payment tracking |
+
+### Validation Checklist (Per Cycle)
+- [x] Name matches
+- [x] Instructor matches
+- [x] Course matches
+- [x] Branch/Customer matches
+- [x] Day of week matches
+- [x] Start time matches
+- [x] Start/End date matches
+- [x] Total meetings count correct
+- [x] Completed meetings count correct
+- [x] Revenue per meeting matches
+- [x] IsOnline flag correct
+- [x] Meetings generated with correct dates
+
+---
+
+## Import Scripts
+
+### Location
+```
+/home/opc/clawd/projects/haitech-crm/scripts/
+```
+
+### Available Scripts
+- Import meetings from CSV
+- Bulk cycle creation
+- Meeting generation utilities
+
+---
+
+## Post-Migration Tasks
+
+### Completed ✅
+- [x] All cycles imported and verified
+- [x] Meetings auto-generated for each cycle
+- [x] Instructor assignments correct
+- [x] Branch/course relationships established
+- [x] Zoom integration for online cycles
+- [x] System in production use
+
+### Remaining (Optional)
+- [ ] Import historical attendance records (if needed)
+- [ ] Import payment history for private cycles
+- [ ] Archive old Fireberry data
+
+---
+
+## Data Validation
+
+### Post-Import Checks
+```sql
+-- Count cycles by status
+SELECT status, COUNT(*) FROM cycles GROUP BY status;
+
+-- Count meetings by status
+SELECT status, COUNT(*) FROM meetings GROUP BY status;
+
+-- Verify all cycles have instructor
+SELECT COUNT(*) FROM cycles WHERE instructor_id IS NULL;
+
+-- Check for orphan meetings
+SELECT COUNT(*) FROM meetings m
+WHERE NOT EXISTS (SELECT 1 FROM cycles c WHERE c.id = m.cycle_id);
+```
+
+### Known Issues Resolved
+1. **Duplicate instructors** - Merged during import
+2. **Missing branches** - Created on-the-fly
+3. **Date format issues** - Normalized to ISO format
+4. **Hebrew encoding** - Proper UTF-8 handling
+
+---
+
+## Rollback Plan (No Longer Needed)
+
+Since the system is in production and working well, rollback is not expected. However, the original Fireberry system remains accessible as read-only if needed for reference.
+
+---
+
+## Support Contacts
+
+- **Technical**: Clawd (AI assistant)
+- **Business**: Ami (HaiTech)
+- **Fireberry Access**: Read-only for historical data
+
+---
+
+*Last updated: 2025-02-13*
+*Migration status: Production*

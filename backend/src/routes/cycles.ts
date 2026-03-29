@@ -4,83 +4,48 @@ import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createCycleSchema, updateCycleSchema, createRegistrationSchema, paginationSchema, uuidSchema, bulkUpdateCyclesSchema } from '../types/schemas.js';
 import { fetchHolidays, dayNameToNumber, calculateCycleEndDate } from '../utils/holidays.js';
-import { config } from '../config.js';
-import { zoomService } from '../services/zoom.js';
+import { zoomService, getHostKeyByEmail } from '../services/zoom.js';
+import { logAudit, logUpdateAudit } from '../utils/audit.js';
 
-// Trigger Zoom webhook when online cycle is created
-async function triggerZoomWebhook(cycleId: string) {
-  if (!config.zoomWebhookUrl) {
-    console.log('No ZOOM_WEBHOOK_URL configured, skipping webhook');
-    return;
-  }
-
-  try {
-    const cycle = await prisma.cycle.findUnique({
-      where: { id: cycleId },
-      include: {
-        course: { select: { name: true } },
-        instructor: { select: { name: true, email: true } },
-        meetings: {
-          where: { status: 'scheduled' },
-          orderBy: { scheduledDate: 'asc' },
-          select: {
-            id: true,
-            scheduledDate: true,
-            startTime: true,
-            endTime: true,
-          },
-        },
-      },
-    });
-
-    if (!cycle) return;
-
-    const payload = {
-      event: 'cycle.created.online',
-      cycleId: cycle.id,
-      cycleName: cycle.name,
-      courseName: cycle.course.name,
-      instructorName: cycle.instructor.name,
-      instructorEmail: cycle.instructor.email,
-      meetings: cycle.meetings.map(m => ({
-        id: m.id,
-        date: m.scheduledDate.toISOString().split('T')[0],
-        startTime: m.startTime instanceof Date 
-          ? m.startTime.toISOString().substring(11, 16) 
-          : String(m.startTime).substring(0, 5),
-        endTime: m.endTime instanceof Date 
-          ? m.endTime.toISOString().substring(11, 16) 
-          : String(m.endTime).substring(0, 5),
-      })),
-      callbackUrl: `${process.env.FRONTEND_URL || 'http://localhost:3001'}/api/webhook/cycles/${cycleId}/zoom`,
-    };
-
-    console.log('Triggering Zoom webhook:', config.zoomWebhookUrl);
-    
-    const response = await fetch(config.zoomWebhookUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      console.error('Zoom webhook failed:', response.status, await response.text());
-    } else {
-      console.log('Zoom webhook triggered successfully');
-    }
-  } catch (error) {
-    console.error('Error triggering Zoom webhook:', error);
-  }
-}
+// Make.com webhook removed — Zoom recordings handled directly via /api/zoom-webhook
 
 export const cyclesRouter = Router();
 
 cyclesRouter.use(authenticate);
 
+// Helper: compute expected revenue per meeting for any cycle type
+function computeRevenuePerMeeting(cycle: any): number {
+  const totalMeetings = Number(cycle.totalMeetings) || 1;
+  if (cycle.type === 'institutional_fixed') {
+    return Number(cycle.meetingRevenue || 0);
+  }
+  if (cycle.type === 'institutional_per_child') {
+    const count = cycle.studentCount || (cycle.registrations?.length ?? cycle._count?.registrations ?? 0);
+    return Math.round(Number(cycle.pricePerStudent || 0) * count);
+  }
+  if (cycle.type === 'private') {
+    // Priority: explicit meetingRevenue > pricePerStudent × students > registration amounts / meetings
+    if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) return Number(cycle.meetingRevenue);
+    if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
+      const count = cycle.registrations?.length ?? cycle._count?.registrations ?? 0;
+      return Math.round(Number(cycle.pricePerStudent) * count);
+    }
+    // Sum active registration amounts (available in detail endpoint)
+    if (Array.isArray(cycle.registrations) && cycle.registrations.length > 0) {
+      const activeRegs = cycle.registrations.filter((r: any) => !['cancelled', 'pending_cancellation'].includes(r.status));
+      const totalRegAmount = activeRegs.reduce((s: number, r: any) => s + (r.amount ? Number(r.amount) : 0), 0);
+      return totalMeetings > 0 ? Math.round(totalRegAmount / totalMeetings) : 0;
+    }
+    // Fallback: aggregated sum if available (list endpoint — already filtered to active)
+    if (cycle._sum?.registrations?.amount) {
+      return totalMeetings > 0 ? Math.round(Number(cycle._sum.registrations.amount) / totalMeetings) : 0;
+    }
+  }
+  return 0;
+}
+
 // Helper to generate meetings for a cycle (skips Israeli holidays)
-async function generateMeetingsForCycle(cycleId: string) {
+async function generateMeetingsForCycle(cycleId: string, fromDate?: Date, targetCount?: number) {
   const cycle = await prisma.cycle.findUnique({
     where: { id: cycleId },
   });
@@ -89,24 +54,27 @@ async function generateMeetingsForCycle(cycleId: string) {
 
   const meetings = [];
   const targetDay = dayNameToNumber(cycle.dayOfWeek);
-  let currentDate = new Date(cycle.startDate);
+  let currentDate = fromDate ? new Date(fromDate) : new Date(cycle.startDate);
   
+  // How many meetings to generate
+  const meetingsToGenerate = targetCount ?? cycle.totalMeetings;
+
   // Fetch holidays for relevant years
   const startYear = currentDate.getFullYear();
   const holidaysThisYear = await fetchHolidays(startYear);
   const holidaysNextYear = await fetchHolidays(startYear + 1);
   const allHolidays = new Set([...holidaysThisYear, ...holidaysNextYear]);
   
-  // Find first occurrence of the target day
+  // Find first occurrence of the target day on or after fromDate
   while (currentDate.getDay() !== targetDay) {
     currentDate.setDate(currentDate.getDate() + 1);
   }
 
   // Generate meetings, skipping holidays
   let attempts = 0;
-  const maxAttempts = cycle.totalMeetings * 3; // Safety limit
+  const maxAttempts = meetingsToGenerate * 3; // Safety limit
   
-  while (meetings.length < cycle.totalMeetings && attempts < maxAttempts) {
+  while (meetings.length < meetingsToGenerate && attempts < maxAttempts) {
     attempts++;
     const dateStr = currentDate.toISOString().split('T')[0];
     
@@ -148,10 +116,19 @@ cyclesRouter.get('/', async (req, res, next) => {
     const status = req.query.status as string | undefined;
     const type = req.query.type as string | undefined;
     const branchId = req.query.branchId as string | undefined;
-    const instructorId = req.query.instructorId as string | undefined;
+    let instructorId = req.query.instructorId as string | undefined;
     const courseId = req.query.courseId as string | undefined;
     const dayOfWeek = req.query.dayOfWeek as string | undefined;
     const search = req.query.search as string | undefined;
+
+    // If user is an instructor, restrict to their own cycles only
+    if (req.user?.role === 'instructor') {
+      const instructor = await prisma.instructor.findUnique({
+        where: { userId: req.user.userId },
+        select: { id: true },
+      });
+      if (instructor) instructorId = instructor.id;
+    }
 
     const where = {
       ...(status && { status: status as any }),
@@ -172,6 +149,7 @@ cyclesRouter.get('/', async (req, res, next) => {
           instructor: { select: { id: true, name: true } },
           institutionalOrder: { select: { id: true, orderNumber: true } },
           _count: { select: { registrations: true, meetings: true } },
+          registrations: { where: { status: { notIn: ['cancelled', 'pending_cancellation'] } }, select: { amount: true } },
         },
         orderBy: { startDate: 'desc' },
         skip: (page - 1) * limit,
@@ -182,7 +160,7 @@ cyclesRouter.get('/', async (req, res, next) => {
 
     const totalPages = Math.ceil(total / limit);
     res.json({
-      data: cycles,
+      data: cycles.map(c => ({ ...c, revenuePerMeeting: computeRevenuePerMeeting(c) })),
       pagination: {
         page,
         limit,
@@ -192,6 +170,24 @@ cyclesRouter.get('/', async (req, res, next) => {
         hasPrev: page > 1,
       },
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Count cycles
+cyclesRouter.get('/count', async (req, res, next) => {
+  try {
+    const status = req.query.status as string | undefined;
+    const branchId = req.query.branchId as string | undefined;
+
+    const where = {
+      ...(status && { status: status as any }),
+      ...(branchId && { branchId }),
+    };
+
+    const total = await prisma.cycle.count({ where });
+    res.json({ total });
   } catch (error) {
     next(error);
   }
@@ -223,6 +219,10 @@ cyclesRouter.get('/:id', async (req, res, next) => {
           include: {
             instructor: { select: { id: true, name: true } },
             _count: { select: { attendance: true } },
+            changeRequests: {
+              where: { status: 'pending' },
+              select: { id: true, type: true, reason: true, status: true, createdAt: true },
+            },
           },
         },
       },
@@ -232,7 +232,7 @@ cyclesRouter.get('/:id', async (req, res, next) => {
       throw new AppError(404, 'Cycle not found');
     }
 
-    res.json(cycle);
+    res.json({ ...cycle, revenuePerMeeting: computeRevenuePerMeeting(cycle) });
   } catch (error) {
     next(error);
   }
@@ -297,6 +297,7 @@ cyclesRouter.post('/', managerOrAdmin, async (req, res, next) => {
         totalMeetings: data.totalMeetings,
         pricePerStudent: data.pricePerStudent,
         meetingRevenue: data.meetingRevenue,
+        revenueIncludesVat: data.revenueIncludesVat,
         studentCount: data.studentCount,
         maxStudents: data.maxStudents,
         sendParentReminders: data.sendParentReminders,
@@ -315,13 +316,23 @@ cyclesRouter.post('/', managerOrAdmin, async (req, res, next) => {
     // Generate meetings
     await generateMeetingsForCycle(cycle.id);
 
-    // Trigger Zoom webhook for online cycles
-    if (cycle.isOnline) {
-      // Run async - don't wait for it
-      triggerZoomWebhook(cycle.id).catch(err => {
-        console.error('Zoom webhook error:', err);
-      });
-    }
+    // Audit log for cycle creation
+    await logAudit({
+      action: 'CREATE',
+      entity: 'Cycle',
+      entityId: cycle.id,
+      newValue: {
+        name: cycle.name,
+        courseName: cycle.course?.name,
+        branchName: cycle.branch?.name,
+        instructorName: cycle.instructor?.name,
+        type: cycle.type,
+        startDate: cycle.startDate,
+        totalMeetings: cycle.totalMeetings,
+        meetingRevenue: Number(cycle.meetingRevenue),
+      },
+      req,
+    });
 
     res.status(201).json(cycle);
   } catch (error) {
@@ -335,6 +346,17 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     const id = uuidSchema.parse(req.params.id);
     const data = updateCycleSchema.parse(req.body);
 
+    // Get existing cycle for audit comparison
+    const existingCycle = await prisma.cycle.findUnique({
+      where: { id },
+      include: {
+        course: { select: { name: true } },
+        branch: { select: { name: true } },
+        instructor: { select: { name: true } },
+      },
+    });
+    if (!existingCycle) throw new AppError(404, 'Cycle not found');
+
     const updateData: any = { ...data };
     
     if (data.startDate) updateData.startDate = new Date(data.startDate);
@@ -344,12 +366,9 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
 
     // If totalMeetings or completedMeetings changed, recalculate remainingMeetings
     if (data.totalMeetings !== undefined || data.completedMeetings !== undefined) {
-      const existingCycle = await prisma.cycle.findUnique({ where: { id } });
-      if (existingCycle) {
-        const newTotal = data.totalMeetings ?? existingCycle.totalMeetings;
-        const newCompleted = data.completedMeetings ?? existingCycle.completedMeetings;
-        updateData.remainingMeetings = newTotal - newCompleted;
-      }
+      const newTotal = data.totalMeetings ?? existingCycle.totalMeetings;
+      const newCompleted = data.completedMeetings ?? existingCycle.completedMeetings;
+      updateData.remainingMeetings = newTotal - newCompleted;
     }
 
     // Check if we need to regenerate meetings
@@ -368,6 +387,50 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
       },
     });
 
+    // Audit log for cycle update
+    const oldRecord = {
+      name: existingCycle.name,
+      status: existingCycle.status,
+      type: existingCycle.type,
+      courseName: existingCycle.course?.name,
+      branchName: existingCycle.branch?.name,
+      instructorName: existingCycle.instructor?.name,
+      startDate: existingCycle.startDate,
+      endDate: existingCycle.endDate,
+      dayOfWeek: existingCycle.dayOfWeek,
+      totalMeetings: existingCycle.totalMeetings,
+      meetingRevenue: Number(existingCycle.meetingRevenue),
+      pricePerStudent: Number(existingCycle.pricePerStudent),
+      studentCount: existingCycle.studentCount,
+      activityType: existingCycle.activityType,
+    };
+    const newRecord = {
+      name: cycle.name,
+      status: cycle.status,
+      type: cycle.type,
+      courseName: cycle.course?.name,
+      branchName: cycle.branch?.name,
+      instructorName: cycle.instructor?.name,
+      startDate: cycle.startDate,
+      endDate: cycle.endDate,
+      dayOfWeek: cycle.dayOfWeek,
+      totalMeetings: cycle.totalMeetings,
+      meetingRevenue: Number(cycle.meetingRevenue),
+      pricePerStudent: Number(cycle.pricePerStudent),
+      studentCount: cycle.studentCount,
+      activityType: cycle.activityType,
+    };
+    await logUpdateAudit({
+      entity: 'Cycle',
+      entityId: id,
+      oldRecord,
+      newRecord,
+      req,
+    });
+
+    // Attach revenuePerMeeting to the response (may be partial for private if no regs loaded)
+    (cycle as any).revenuePerMeeting = computeRevenuePerMeeting(cycle);
+
     // If regenerateMeetings flag is set, delete all non-completed meetings and regenerate
     if (regenerateMeetings) {
       // Delete only scheduled/postponed meetings (not completed or cancelled)
@@ -378,21 +441,36 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
         },
       });
 
-      // Reset cycle counters
+      // Count already-completed meetings
       const completedCount = await prisma.meeting.count({
         where: { cycleId: id, status: 'completed' },
       });
+
+      // Find the last completed meeting date to start generating after it
+      const lastCompleted = await prisma.meeting.findFirst({
+        where: { cycleId: id, status: 'completed' },
+        orderBy: { scheduledDate: 'desc' },
+      });
+
+      // Start from the week after the last completed meeting, or from today if none
+      const generateFrom = lastCompleted
+        ? new Date(new Date(lastCompleted.scheduledDate).getTime() + 7 * 24 * 60 * 60 * 1000)
+        : new Date();
+
+      const remainingCount = cycle.totalMeetings - completedCount;
       
       await prisma.cycle.update({
         where: { id },
         data: {
           completedMeetings: completedCount,
-          remainingMeetings: cycle.totalMeetings - completedCount,
+          remainingMeetings: remainingCount,
         },
       });
 
-      // Regenerate meetings from new start date
-      await generateMeetingsForCycle(id);
+      // Regenerate only the remaining meetings, starting from the future
+      if (remainingCount > 0) {
+        await generateMeetingsForCycle(id, generateFrom, remainingCount);
+      }
     }
 
     res.json(cycle);
@@ -463,7 +541,32 @@ cyclesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
       }
     });
 
-    // Delete the cycle (cascade will delete meetings)
+    // Delete related records before the cycle
+    await prisma.cancellationRequest.deleteMany({
+      where: { registration: { cycleId: id } },
+    });
+    await prisma.attendance.deleteMany({
+      where: { meeting: { cycleId: id } },
+    });
+    await prisma.meetingChangeRequest.deleteMany({
+      where: { meeting: { cycleId: id } },
+    });
+    // Null out rescheduledToId self-references before deleting meetings
+    await prisma.meeting.updateMany({
+      where: { cycleId: id },
+      data: { rescheduledToId: null },
+    });
+    await prisma.registration.deleteMany({
+      where: { cycleId: id },
+    });
+    await prisma.meeting.deleteMany({
+      where: { cycleId: id },
+    });
+    await prisma.cycleExpense.deleteMany({
+      where: { cycleId: id },
+    });
+
+    // Delete the cycle
     await prisma.cycle.delete({
       where: { id },
     });
@@ -609,6 +712,7 @@ cyclesRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
     if (data.courseId !== undefined) updateData.courseId = data.courseId;
     if (data.branchId !== undefined) updateData.branchId = data.branchId;
     if (data.meetingRevenue !== undefined) updateData.meetingRevenue = data.meetingRevenue;
+    if (data.revenueIncludesVat !== undefined) updateData.revenueIncludesVat = data.revenueIncludesVat;
     if (data.pricePerStudent !== undefined) updateData.pricePerStudent = data.pricePerStudent;
     if (data.studentCount !== undefined) updateData.studentCount = data.studentCount;
     if (data.sendParentReminders !== undefined) updateData.sendParentReminders = data.sendParentReminders;
@@ -642,6 +746,12 @@ cyclesRouter.get('/:id/meetings', async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
+    // Get cycle info for totalMeetings
+    const cycle = await prisma.cycle.findUnique({
+      where: { id },
+      select: { totalMeetings: true },
+    });
+
     const meetings = await prisma.meeting.findMany({
       where: { cycleId: id },
       include: {
@@ -659,7 +769,34 @@ cyclesRouter.get('/:id/meetings', async (req, res, next) => {
       orderBy: { scheduledDate: 'asc' },
     });
 
-    res.json(meetings);
+    // Get total cycle expenses
+    const cycleExpenses = await prisma.cycleExpense.aggregate({
+      where: { cycleId: id },
+      _sum: { amount: true },
+    });
+    
+    const totalCycleExpenses = Number(cycleExpenses._sum.amount || 0);
+    const totalMeetings = cycle?.totalMeetings || 1;
+    const cycleExpensePerMeeting = totalCycleExpenses / totalMeetings;
+    
+    // Add adjusted profit + fallback host key to each meeting
+    const meetingsWithAdjustedProfit = meetings.map(meeting => {
+      const baseProfit = Number(meeting.profit || 0);
+      const adjustedProfit = baseProfit - cycleExpensePerMeeting;
+      
+      // Fill missing zoomHostKey from local map if we know the host email
+      const zoomHostKey = meeting.zoomHostKey ||
+        (meeting.zoomHostEmail ? getHostKeyByEmail(meeting.zoomHostEmail) : null);
+      
+      return {
+        ...meeting,
+        zoomHostKey,
+        adjustedProfit: Math.round(adjustedProfit * 100) / 100,
+        cycleExpenseShare: Math.round(cycleExpensePerMeeting * 100) / 100,
+      };
+    });
+
+    res.json(meetingsWithAdjustedProfit);
   } catch (error) {
     next(error);
   }
@@ -688,6 +825,54 @@ cyclesRouter.get('/:id/registrations', async (req, res, next) => {
   }
 });
 
+// ─── GET /api/cycles/:id/students ───────────────────────────────────────────
+// Clean flat list of students enrolled in a cycle.
+// Query params:
+//   status=registered|cancelled|all  (default: registered)
+cyclesRouter.get('/:id/students', async (req, res, next) => {
+  try {
+    const id          = uuidSchema.parse(req.params.id);
+    const statusParam = (req.query.status as string | undefined) ?? 'registered';
+
+    const where: Record<string, unknown> = { cycleId: id };
+    if (statusParam !== 'all') {
+      where.status = statusParam;
+    }
+
+    const registrations = await prisma.registration.findMany({
+      where,
+      include: {
+        student: {
+          include: {
+            customer: { select: { id: true, name: true, phone: true, email: true, city: true } },
+          },
+        },
+      },
+      orderBy: { registrationDate: 'asc' },
+    });
+
+    const students = registrations.map(r => ({
+      registrationId:   r.id,
+      registrationStatus: r.status,
+      registrationDate: r.registrationDate,
+      paymentStatus:    r.paymentStatus,
+      studentId:        r.student?.id ?? null,
+      studentName:      r.student?.name ?? null,
+      studentBirthDate: r.student?.birthDate ?? null,
+      studentGrade:     r.student?.grade ?? null,
+      customerId:       r.student?.customer?.id ?? null,
+      parentName:       r.student?.customer?.name ?? null,
+      parentPhone:      r.student?.customer?.phone ?? null,
+      parentEmail:      r.student?.customer?.email ?? null,
+      parentCity:       r.student?.customer?.city ?? null,
+    }));
+
+    res.json({ cycleId: id, total: students.length, students });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Add registration to cycle
 cyclesRouter.post('/:id/registrations', managerOrAdmin, async (req, res, next) => {
   try {
@@ -702,14 +887,34 @@ cyclesRouter.post('/:id/registrations', managerOrAdmin, async (req, res, next) =
 
     // Check if already registered
     const existing = await prisma.registration.findUnique({
-      where: {
-        studentId_cycleId: {
-          studentId: data.studentId,
-          cycleId,
-        },
-      },
+      where: { studentId_cycleId: { studentId: data.studentId, cycleId } },
     });
-    if (existing) throw new AppError(409, 'Student already registered for this cycle');
+
+    // If cancelled registration exists — reactivate it instead of creating new
+    if (existing) {
+      if (existing.status !== 'cancelled') {
+        throw new AppError(409, 'Student already registered for this cycle');
+      }
+      const reactivated = await prisma.registration.update({
+        where: { id: existing.id },
+        data: {
+          status: data.status ?? 'registered',
+          registrationDate: data.registrationDate ? new Date(data.registrationDate) : new Date(),
+          amount: data.amount,
+          paymentStatus: data.paymentStatus,
+          paymentMethod: data.paymentMethod,
+          cancellationDate: null,
+          cancellationReason: null,
+          refundAmount: null,
+          refundDate: null,
+        },
+        include: {
+          student: { include: { customer: { select: { id: true, name: true, phone: true } } } },
+          cycle: { select: { id: true, name: true } },
+        },
+      });
+      return res.status(200).json(reactivated);
+    }
 
     const registration = await prisma.registration.create({
       data: {
@@ -738,6 +943,33 @@ cyclesRouter.post('/:id/registrations', managerOrAdmin, async (req, res, next) =
   }
 });
 
+// Sync ALL active cycles progress from meetings table (bulk)
+cyclesRouter.post('/sync-all', managerOrAdmin, async (req, res, next) => {
+  try {
+    const cycles = await prisma.cycle.findMany({
+      where: { status: 'active', deletedAt: null },
+      select: { id: true, totalMeetings: true },
+    });
+
+    let updated = 0;
+    for (const cycle of cycles) {
+      const completedMeetings = await prisma.meeting.count({
+        where: { cycleId: cycle.id, status: 'completed' },
+      });
+      const remainingMeetings = cycle.totalMeetings - completedMeetings;
+      await prisma.cycle.update({
+        where: { id: cycle.id },
+        data: { completedMeetings, remainingMeetings },
+      });
+      updated++;
+    }
+
+    res.json({ success: true, synced: updated });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Sync cycle progress from meetings table
 cyclesRouter.post('/:id/sync-progress', managerOrAdmin, async (req, res, next) => {
   try {
@@ -757,22 +989,20 @@ cyclesRouter.post('/:id/sync-progress', managerOrAdmin, async (req, res, next) =
       },
     });
 
-    // Count total meetings from meetings table
+    // Count total meetings from meetings table (for info only)
     const totalMeetingsFromTable = await prisma.meeting.count({
       where: { cycleId: id },
     });
 
-    // Use the larger of cycle.totalMeetings or actual meeting count
-    const totalMeetings = Math.max(cycle.totalMeetings, totalMeetingsFromTable);
-    const remainingMeetings = totalMeetings - completedMeetings;
+    // totalMeetings is fixed (set by payment), only update completed/remaining
+    const remainingMeetings = cycle.totalMeetings - completedMeetings;
 
-    // Update cycle with synced values
+    // Update cycle with synced values (don't change totalMeetings)
     const updated = await prisma.cycle.update({
       where: { id },
       data: {
         completedMeetings,
         remainingMeetings,
-        totalMeetings,
       },
       include: {
         course: { select: { id: true, name: true } },
@@ -786,10 +1016,118 @@ cyclesRouter.post('/:id/sync-progress', managerOrAdmin, async (req, res, next) =
       synced: {
         completedMeetings,
         remainingMeetings,
-        totalMeetings,
+        totalMeetings: cycle.totalMeetings,
         meetingsInTable: totalMeetingsFromTable,
       },
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ─── Freeze / Resume ──────────────────────────────────────────────────────────
+
+/**
+ * POST /api/cycles/:id/freeze
+ * Freeze a cycle — set status=frozen, postpone future scheduled meetings.
+ * Body: { reason?: string, resumeDate?: string (ISO date) }
+ */
+cyclesRouter.post('/:id/freeze', managerOrAdmin, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { reason, resumeDate } = req.body;
+
+    const cycle = await prisma.cycle.findUnique({ where: { id } });
+    if (!cycle) throw new AppError(404, 'מחזור לא נמצא');
+    if (cycle.status === 'frozen') throw new AppError(400, 'המחזור כבר מוקפא');
+    if (cycle.status === 'cancelled') throw new AppError(400, 'לא ניתן להקפיא מחזור מבוטל');
+
+    // Postpone all future scheduled meetings
+    const postponed = await prisma.meeting.updateMany({
+      where: {
+        cycleId: id,
+        status: 'scheduled',
+        scheduledDate: { gte: new Date() },
+      },
+      data: { status: 'postponed' },
+    });
+
+    // Freeze the cycle
+    const updated = await prisma.cycle.update({
+      where: { id },
+      data: {
+        status: 'frozen',
+        frozenAt: new Date(),
+        frozenReason: reason?.trim() || null,
+        resumeDate: resumeDate ? new Date(resumeDate) : null,
+      },
+      include: {
+        course: { select: { id: true, name: true } },
+        branch: { select: { id: true, name: true } },
+        instructor: { select: { id: true, name: true } },
+      },
+    });
+
+    await logAudit({ req, action: 'UPDATE', entity: 'cycle', entityId: id, newValue: { action: 'freeze', reason, resumeDate, postponedMeetings: postponed.count } });
+
+    res.json({ ...updated, postponedMeetings: postponed.count });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/cycles/:id/resume
+ * Resume a frozen cycle — set status=active, reschedule postponed meetings from newStartDate.
+ * Body: { newStartDate: string (ISO date) }
+ */
+cyclesRouter.post('/:id/resume', managerOrAdmin, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { newStartDate } = req.body;
+
+    const cycle = await prisma.cycle.findUnique({
+      where: { id },
+      include: { meetings: { where: { status: 'postponed' }, orderBy: { scheduledDate: 'asc' } } },
+    });
+    if (!cycle) throw new AppError(404, 'מחזור לא נמצא');
+    if (cycle.status !== 'frozen') throw new AppError(400, 'המחזור לא מוקפא');
+
+    let rescheduledCount = 0;
+
+    if (newStartDate && cycle.meetings.length > 0) {
+      // Reschedule postponed meetings starting from newStartDate, keeping original day-of-week interval
+      const start = new Date(newStartDate);
+      for (let i = 0; i < cycle.meetings.length; i++) {
+        const newDate = new Date(start);
+        newDate.setDate(start.getDate() + i * 7); // weekly intervals
+        await prisma.meeting.update({
+          where: { id: cycle.meetings[i].id },
+          data: { status: 'scheduled', scheduledDate: newDate },
+        });
+        rescheduledCount++;
+      }
+    }
+
+    // Activate the cycle
+    const updated = await prisma.cycle.update({
+      where: { id },
+      data: {
+        status: 'active',
+        frozenAt: null,
+        frozenReason: null,
+        resumeDate: null,
+      },
+      include: {
+        course: { select: { id: true, name: true } },
+        branch: { select: { id: true, name: true } },
+        instructor: { select: { id: true, name: true } },
+      },
+    });
+
+    await logAudit({ req, action: 'UPDATE', entity: 'cycle', entityId: id, newValue: { action: 'resume', newStartDate, rescheduledMeetings: rescheduledCount } });
+
+    res.json({ ...updated, rescheduledMeetings: rescheduledCount });
   } catch (error) {
     next(error);
   }

@@ -293,6 +293,11 @@ registrationsRouter.post('/:id/cancel', managerOrAdmin, async (req, res, next) =
       console.error('[CANCEL CASCADE] Error:', err)
     );
 
+    // Recalculate future meeting revenues based on new student count
+    recalcMeetingRevenue(registration.cycle.id).catch(err =>
+      console.error('[RECALC REVENUE] Error:', err)
+    );
+
     res.json(registration);
   } catch (error) {
     next(error);

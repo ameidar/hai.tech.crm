@@ -29,7 +29,6 @@ export async function recalcMeetingRevenue(cycleId: string): Promise<void> {
     const activeCount = cycle.registrations.length;
     newRevenue = Math.round(Number(cycle.pricePerStudent || 0) * activeCount);
   } else if (cycle.type === 'private') {
-    if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) return; // manually fixed, skip
     if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
       newRevenue = Math.round(Number(cycle.pricePerStudent) * cycle.registrations.length);
     } else {
@@ -41,6 +40,16 @@ export async function recalcMeetingRevenue(cycleId: string): Promise<void> {
   }
 
   if (newRevenue <= 0) return;
+
+  // Update cycle's student_count and meeting_revenue to reflect current state
+  const activeCount = cycle.registrations.length;
+  await prisma.cycle.update({
+    where: { id: cycleId },
+    data: {
+      studentCount: activeCount,
+      meetingRevenue: newRevenue,
+    },
+  });
 
   // Get future scheduled meetings
   const today = new Date(); today.setHours(0, 0, 0, 0);

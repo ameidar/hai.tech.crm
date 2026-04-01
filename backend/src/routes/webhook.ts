@@ -461,6 +461,22 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
         }
       }
 
+      // Send welcome template also for returning customers (every new lead submission)
+      if (customer.phone) {
+        sendLeadWelcomeTemplate(customer.phone, customer.name)
+          .catch(err => console.error('[WEBHOOK] welcome template error (existing customer):', err));
+      }
+
+      // Notify admin about returning lead
+      notifyAdminNewLead({
+        name: customer.name,
+        phone: customer.phone,
+        email: customer.email,
+        childName: childName || undefined,
+        interest: interest || undefined,
+        source,
+      }).catch(err => console.error('[WEBHOOK] Failed to notify admin (existing customer):', err));
+
       // Trigger Vapi AI call for returning customer with phone (not for WhatsApp leads)
       if (customer.phone && source !== 'whatsapp') {
         initiateVapiCall({

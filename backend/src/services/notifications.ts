@@ -124,23 +124,10 @@ export async function sendWelcomeNotifications(lead: {
   phone?: string | null;
   email?: string | null;
 }): Promise<void> {
-  const { name, phone, email } = lead;
+  const { name, email } = lead;
 
-  // Send WhatsApp if phone provided
-  if (phone) {
-    const whatsappMessage = `שלום ${name}! 👋
-
-תודה שפנית אלינו ב-Hai.Tech! 🎯
-
-קיבלנו את פנייתך ונחזור אליך בהקדם.
-
-בינתיים, מוזמן/ת לבקר באתר שלנו:
-🌐 https://hai.tech
-
-צוות Hai.Tech 💙`;
-
-    await sendWhatsAppMessage(phone, whatsappMessage);
-  }
+  // WhatsApp ללקוח נשלח דרך lead_welcome_hai template (ב-sendLeadWelcomeTemplate)
+  // לא שולחים כאן הודעה חופשית ב-Green API
 
   // Send email if email provided
   if (email) {

@@ -71,11 +71,11 @@ export async function findOrCreateLeadAppointment(
   const windowStart = new Date(Date.now() - DEDUP_DAYS * 24 * 60 * 60 * 1000);
 
   // Find existing open lead with same phone in the dedup window
+  // Note: deleted_at column may not exist in all deployments — omit it from WHERE
   const existing = await prisma.$queryRaw<{ id: string; source: string; appointment_status: string; appointment_notes: string | null }[]>`
     SELECT id, source, appointment_status, appointment_notes
     FROM lead_appointments
-    WHERE deleted_at IS NULL
-      AND appointment_status NOT IN ('done', 'cancelled', 'rejected')
+    WHERE appointment_status NOT IN ('done', 'cancelled', 'rejected')
       AND created_at >= ${windowStart}
       AND RIGHT(REPLACE(REPLACE(REPLACE(customer_phone, '+', ''), '-', ''), ' ', ''), 9) = ${phoneLast9}
     ORDER BY created_at DESC

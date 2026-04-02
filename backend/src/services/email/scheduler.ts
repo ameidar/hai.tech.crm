@@ -428,6 +428,7 @@ async function checkCyclesNearCompletion(): Promise<void> {
       where: {
         status: 'active',
         remainingMeetings: 1,
+        type: 'private', // הודעת "שיעור אחרון" רלוונטית רק למחזורים פרטיים
       },
       include: {
         course: { select: { name: true } },

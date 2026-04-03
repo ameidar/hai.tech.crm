@@ -164,10 +164,10 @@ model User {
 
 enum LeadStatus {
   new
+  contacted
   in_progress
-  purchased
-  gift
-  not_relevant
+  converted
+  closed
 }
 
 model Customer {

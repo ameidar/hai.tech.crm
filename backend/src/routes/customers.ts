@@ -39,10 +39,46 @@ customersRouter.get('/', async (req, res, next) => {
     let total: number;
 
     if (sortBy === 'lastPayment') {
-      // Sort by most recent paid payment — use raw query for efficiency
-      [customers, total] = await Promise.all([
-        prisma.customer.findMany({
-          where,
+      // Sort by most recent paid payment using raw SQL (Prisma can't ORDER BY relation field)
+      // First get all matching customer IDs sorted by latest payment, then paginate
+      const offset = (page - 1) * limit;
+
+      // Build WHERE clause for search
+      const searchCondition = search
+        ? `AND (c.name ILIKE '%${search.replace(/'/g, "''")}%' OR c.phone LIKE '%${search}%' OR c.email ILIKE '%${search.replace(/'/g, "''")}%')`
+        : '';
+      const leadStatusCondition = leadStatus ? `AND c.lead_status = '${leadStatus}'` : '';
+
+      const [sortedCustomers, countResult] = await Promise.all([
+        prisma.$queryRawUnsafe<any[]>(`
+          SELECT c.id, MAX(p.paid_at) as latest_payment
+          FROM customers c
+          INNER JOIN payments p ON p.customer_id = c.id AND p.status = 'paid'
+          WHERE c.deleted_at IS NULL
+          ${searchCondition}
+          ${leadStatusCondition}
+          GROUP BY c.id
+          ORDER BY latest_payment DESC NULLS LAST
+          LIMIT ${limit} OFFSET ${offset}
+        `),
+        prisma.$queryRawUnsafe<any[]>(`
+          SELECT COUNT(DISTINCT c.id)::int as count
+          FROM customers c
+          INNER JOIN payments p ON p.customer_id = c.id AND p.status = 'paid'
+          WHERE c.deleted_at IS NULL
+          ${searchCondition}
+          ${leadStatusCondition}
+        `),
+      ]);
+
+      total = Number(countResult[0]?.count ?? 0);
+      const orderedIds = sortedCustomers.map((r: any) => r.id);
+
+      if (orderedIds.length === 0) {
+        customers = [];
+      } else {
+        const rawCustomers = await prisma.customer.findMany({
+          where: { id: { in: orderedIds } },
           include: {
             _count: { select: { students: true } },
             payments: {
@@ -52,23 +88,10 @@ customersRouter.get('/', async (req, res, next) => {
               select: { id: true, amount: true, description: true, paidAt: true },
             },
           },
-          orderBy: {
-            payments: {
-              _count: 'desc', // fallback; actual sort below
-            },
-          },
-          skip: (page - 1) * limit,
-          take: limit,
-        }),
-        prisma.customer.count({ where }),
-      ]);
-
-      // Re-sort by actual latest payment date (Prisma doesn't support orderBy relation field directly)
-      customers = customers.sort((a: any, b: any) => {
-        const aDate = a.payments?.[0]?.paidAt ? new Date(a.payments[0].paidAt).getTime() : 0;
-        const bDate = b.payments?.[0]?.paidAt ? new Date(b.payments[0].paidAt).getTime() : 0;
-        return bDate - aDate;
-      });
+        });
+        // Restore SQL order
+        customers = orderedIds.map((id: string) => rawCustomers.find((c: any) => c.id === id)).filter(Boolean);
+      }
     } else {
       const orderBy = sortBy === 'updatedAt' ? { updatedAt: 'desc' as const } : { createdAt: 'desc' as const };
       [customers, total] = await Promise.all([

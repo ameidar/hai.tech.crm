@@ -894,7 +894,12 @@ meetingsRouter.post('/:id/add-zoom', managerOrAdmin, async (req, res, next) => {
     const dateStr = scheduledDate.toISOString().split('T')[0];
     const sHour = startTime.getUTCHours();
     const sMin = startTime.getUTCMinutes();
-    const israelDateStr = `${dateStr}T${String(sHour).padStart(2,'0')}:${String(sMin).padStart(2,'0')}:00+02:00`;
+    // Determine correct Israel UTC offset (handles DST: +02:00 winter / +03:00 summer)
+    const offsetFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jerusalem', timeZoneName: 'shortOffset' });
+    const tzPart = offsetFormatter.formatToParts(scheduledDate).find(p => p.type === 'timeZoneName');
+    const offsetMatch = tzPart?.value?.match(/GMT([+-])(\d+)/);
+    const israelOffset = offsetMatch ? `${offsetMatch[1]}${offsetMatch[2].padStart(2,'0')}:00` : '+02:00';
+    const israelDateStr = `${dateStr}T${String(sHour).padStart(2,'0')}:${String(sMin).padStart(2,'0')}:00${israelOffset}`;
     const meetingDate = new Date(israelDateStr);
 
     const availableUser = await zoomService.findAvailableUser(meetingDate, duration + 10);

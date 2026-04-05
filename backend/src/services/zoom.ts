@@ -1,5 +1,25 @@
 import axios from 'axios';
 
+/**
+ * Get the correct UTC offset string for a given date in Asia/Jerusalem timezone.
+ * Returns '+02:00' in winter or '+03:00' during DST.
+ */
+function getIsraelOffset(date: Date): string {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Jerusalem',
+    timeZoneName: 'shortOffset',
+  });
+  const parts = formatter.formatToParts(date);
+  const tzPart = parts.find(p => p.type === 'timeZoneName');
+  const match = tzPart?.value?.match(/GMT([+-])(\d+)/);
+  if (match) {
+    const sign = match[1];
+    const hours = match[2];
+    return `${sign}${hours.padStart(2, '0')}:00`;
+  }
+  return '+02:00'; // fallback
+}
+
 // Zoom API configuration
 const ZOOM_ACCOUNT_ID = process.env.ZOOM_ACCOUNT_ID;
 const ZOOM_CLIENT_ID = process.env.ZOOM_CLIENT_ID;
@@ -437,7 +457,8 @@ export async function createCycleMeeting(params: {
   // The timeStr is in Israel local time, we need to convert to UTC
   // Israel is UTC+2 (or UTC+3 during DST, but Zoom handles DST)
   // Create date in Israel timezone by appending the timezone offset
-  const israelDateStr = `${firstMeetingDateStr}T${timeStr}+02:00`;
+  const offset = getIsraelOffset(new Date(`${firstMeetingDateStr}T${timeStr}`));
+  const israelDateStr = `${firstMeetingDateStr}T${timeStr}${offset}`;
   const firstMeeting = new Date(israelDateStr);
   
   console.log('[Zoom] createCycleMeeting:', {

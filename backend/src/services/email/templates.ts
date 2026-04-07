@@ -90,7 +90,7 @@ const baseStyles = `
   </style>
 `;
 
-// Instructor reminder template (24h before class)
+// Instructor reminder template (same-day morning reminder)
 export const instructorReminderTemplate = (data: InstructorReminderData): string => `
 <!DOCTYPE html>
 <html dir="rtl" lang="he">
@@ -101,11 +101,11 @@ export const instructorReminderTemplate = (data: InstructorReminderData): string
 <body>
   <div class="container">
     <div class="header">
-      <h1>🎓 תזכורת שיעור - מחר</h1>
+      <h1>🎓 תזכורת שיעור - היום</h1>
     </div>
     <div class="content">
       <p>שלום ${data.instructorName},</p>
-      <p>זוהי תזכורת לשיעור שמתקיים <strong>מחר</strong>:</p>
+      <p>זוהי תזכורת לשיעור שמתקיים <strong>היום</strong>:</p>
       
       <div class="info-box">
         <p><strong>📚 קורס:</strong> ${data.className}</p>

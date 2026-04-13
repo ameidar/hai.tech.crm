@@ -93,8 +93,9 @@ function buildMorningMessage(instructorName: string, meetings: any[], meetingLin
   for (const m of meetings) {
     const time = formatTimeFromDate(m.startTime);
     const zoom = m.zoomJoinUrl ? ` | זום: ${m.zoomJoinUrl}` : '';
+    const hostKey = m.zoomHostKey ? ` | קוד מנהל: ${m.zoomHostKey}` : '';
     const link = meetingLinks?.get(m.id) ? `\n📋 ${meetingLinks.get(m.id)}` : '';
-    lines.push(`\n📚 ${m.cycle?.name || ''} | 🏫 ${m.cycle?.branch?.name || ''} | 🕐 ${time}${zoom}${link}`);
+    lines.push(`\n📚 ${m.cycle?.name || ''} | 🏫 ${m.cycle?.branch?.name || ''} | 🕐 ${time}${zoom}${hostKey}${link}`);
   }
   lines.push('\nבהצלחה! 🙂');
   return lines.join('');

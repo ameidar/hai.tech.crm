@@ -106,6 +106,7 @@ const sendInstructorReminders = async () => {
         location: meeting.cycle.branch?.name || 'אונליין',
         studentCount: meeting.cycle.registrations.length,
         zoomLink: meeting.zoomJoinUrl || undefined,
+        zoomHostKey: meeting.zoomHostKey || undefined,
       };
 
       await queueEmail({

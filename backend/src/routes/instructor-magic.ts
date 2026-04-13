@@ -15,6 +15,7 @@ import {
 } from '../services/instructor-reminder.service.js';
 import { authenticate, adminOnly } from '../middleware/auth.js';
 import { sendWhatsAppMessage } from '../services/notifications.js';
+import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
 
 // WhatsApp group for pending meeting requests (postponements, cancellations)
 const ADMIN_PHONE = '120363353459332838@g.us';
@@ -441,6 +442,7 @@ router.post('/approve-request/:meetingId', authenticate, adminOnly, async (req: 
       return res.status(400).json({ error: 'NOT_PENDING', message: 'הפגישה אינה ממתינה לאישור' });
     }
     
+    const isPostponeRequest = meeting.status === 'pending_postponement';
     let newStatus: string;
     if (action === 'approve') {
       newStatus = meeting.status === 'pending_cancellation' ? 'cancelled' : 'postponed';
@@ -452,9 +454,22 @@ router.post('/approve-request/:meetingId', authenticate, adminOnly, async (req: 
       where: { id: meetingId },
       data: { 
         status: newStatus as any,
+        statusUpdatedAt: new Date(),
+        statusUpdatedById: req.user?.userId,
         notes: adminNotes || meeting.notes,
       },
     });
+
+    if (action === 'approve' && isPostponeRequest) {
+      const replacementId = await addReplacementMeetingWithRetry(
+        meetingId,
+        req.user!.userId,
+        'לא ידוע'
+      );
+      if (!replacementId) {
+        console.error('[ReplacementMeeting] All retries failed for instructor-magic approval:', meetingId);
+      }
+    }
     
     // Notify instructor via WhatsApp
     try {

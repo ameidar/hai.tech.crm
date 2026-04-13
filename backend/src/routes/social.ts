@@ -13,6 +13,32 @@ const GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
 const FB_PAGE_ID = process.env.FB_PAGE_ID || '124822734055754';
 const FB_PAGE_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN || '';
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function waitForInstagramContainerReady(creationId: string, maxAttempts = 8, delayMs = 1500) {
+  let lastStatus: any = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const statusR = await fetch(
+      `https://graph.facebook.com/v18.0/${creationId}?fields=status_code,status&access_token=${FB_PAGE_TOKEN}`
+    );
+    const statusD = await statusR.json() as any;
+    lastStatus = statusD;
+
+    if (statusR.ok) {
+      const statusCode = String(statusD.status_code || '').toUpperCase();
+      if (['FINISHED', 'PUBLISHED'].includes(statusCode)) return statusD;
+      if (['ERROR', 'EXPIRED'].includes(statusCode)) {
+        throw new Error(statusD.status || `Instagram media container failed with status ${statusCode}`);
+      }
+    }
+
+    if (attempt < maxAttempts) await sleep(delayMs);
+  }
+
+  throw new Error(lastStatus?.status || 'Instagram media is not ready yet. Please try again in a few seconds.');
+}
+
 // Platform-specific system prompts
 const PLATFORM_PROMPTS: Record<string, string> = {
   facebook: `אתה מומחה לכתיבת תוכן פייסבוק עבור דרך ההייטק — עסק לחוגי תכנות לילדים בישראל.
@@ -278,7 +304,10 @@ router.post('/publish/instagram', authenticate, managerOrAdmin, async (req: Requ
     const containerD = await containerR.json() as any;
     if (!containerR.ok) throw new Error(containerD.error?.message || 'Container creation failed');
 
-    // Step 2: Publish
+    // Step 2: Wait until Instagram marks the container as ready
+    await waitForInstagramContainerReady(containerD.id);
+
+    // Step 3: Publish
     const publishR = await fetch(`https://graph.facebook.com/v18.0/${igId}/media_publish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

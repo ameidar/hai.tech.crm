@@ -17,6 +17,7 @@ export interface InstructorReminderData {
   location: string;
   studentCount: number;
   zoomLink?: string;
+  zoomHostKey?: string;
   meetingId?: string;
   remainingMeetings?: number;
   totalMeetings?: number;
@@ -122,6 +123,7 @@ export const instructorReminderTemplate = (data: InstructorReminderData): string
       <div class="success">
         <p><strong>🔗 קישור לזום:</strong></p>
         <p><a href="${data.zoomLink}" class="btn">כניסה לשיעור</a></p>
+        ${data.zoomHostKey ? `<p style="margin-top: 12px;"><strong>🔑 קוד מנהל:</strong> ${data.zoomHostKey}</p>` : ''}
       </div>
       ` : ''}
       

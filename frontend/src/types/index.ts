@@ -2,7 +2,7 @@
 export type CourseCategory = 'programming' | 'ai' | 'robotics' | 'printing_3d';
 export type BranchType = 'school' | 'community_center' | 'frontal' | 'online';
 export type OrderStatus = 'draft' | 'active' | 'completed' | 'cancelled';
-export type CycleType = 'private' | 'institutional_per_child' | 'institutional_fixed';
+export type CycleType = 'private' | 'trial_private' | 'institutional_per_child' | 'institutional_fixed';
 export type CycleStatus = 'active' | 'completed' | 'cancelled' | 'frozen' | 'retainer';
 export type DayOfWeek = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday';
 export type MeetingStatus = 'scheduled' | 'completed' | 'cancelled' | 'postponed' | 'pending_cancellation' | 'pending_postponement';
@@ -312,6 +312,7 @@ export const cycleStatusHebrew: Record<CycleStatus, string> = {
 
 export const cycleTypeHebrew: Record<CycleType, string> = {
   private: 'פרטי',
+  trial_private: 'שיעור ניסיון פרטי',
   institutional_per_child: 'מוסדי (פר ילד)',
   institutional_fixed: 'מוסדי (סכום קבוע)',
 };

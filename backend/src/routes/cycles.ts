@@ -24,7 +24,7 @@ function computeRevenuePerMeeting(cycle: any): number {
     const count = cycle.studentCount || (cycle.registrations?.length ?? cycle._count?.registrations ?? 0);
     return Math.round(Number(cycle.pricePerStudent || 0) * count);
   }
-  if (cycle.type === 'private') {
+  if (cycle.type === 'private' || cycle.type === 'trial_private') {
     // Priority: explicit meetingRevenue > pricePerStudent × students > registration amounts / meetings
     if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) return Number(cycle.meetingRevenue);
     if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {

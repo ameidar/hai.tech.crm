@@ -283,7 +283,7 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
     } else if (cycle.type === 'institutional_per_child' && cycle.pricePerStudent) {
       const studentCount = cycle.studentCount || cycle.registrations.length;
       revenue = Number(cycle.pricePerStudent) * studentCount;
-    } else if (cycle.type === 'private') {
+    } else if (cycle.type === 'private' || cycle.type === 'trial_private') {
       if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
         revenue = Number(cycle.meetingRevenue);
       } else if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
@@ -506,7 +506,7 @@ meetingsRouter.put('/:id', async (req, res, next) => {
           let revenue = 0;
           const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
           
-          if (cycleData.type === 'private') {
+          if (cycleData.type === 'private' || cycleData.type === 'trial_private') {
             if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
               revenue = Number(cycleData.meetingRevenue);
             } else {
@@ -537,7 +537,7 @@ meetingsRouter.put('/:id', async (req, res, next) => {
             // Determine rate based on activity type
             // Priority: meeting.activityType > cycle.activityType > fallback to cycle.isOnline
             const activityType = data.activityType || existingMeeting.activityType || cycleData.activityType || 
-              (cycleData.isOnline ? 'online' : (cycleData.type === 'private' ? 'private_lesson' : 'frontal'));
+              (cycleData.isOnline ? 'online' : ((cycleData.type === 'private' || cycleData.type === 'trial_private') ? 'private_lesson' : 'frontal'));
             
             let hourlyRate = 0;
             switch (activityType) {
@@ -972,7 +972,7 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
     let revenue = 0;
     const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
 
-    if (cycleData.type === 'private') {
+    if (cycleData.type === 'private' || cycleData.type === 'trial_private') {
       if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
         revenue = Number(cycleData.meetingRevenue);
       } else {
@@ -992,7 +992,7 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
 
     // Calculate instructor payment based on activity type
     const activityType = meeting.activityType || cycleData.activityType ||
-      (cycleData.isOnline ? 'online' : (cycleData.type === 'private' ? 'private_lesson' : 'frontal'));
+      (cycleData.isOnline ? 'online' : ((cycleData.type === 'private' || cycleData.type === 'trial_private') ? 'private_lesson' : 'frontal'));
 
     const instructor = meeting.instructor;
     let instructorPayment = 0;
@@ -1114,7 +1114,7 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
       let revenue = 0;
       const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
 
-      if (cycleData.type === 'private') {
+      if (cycleData.type === 'private' || cycleData.type === 'trial_private') {
         if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
           revenue = Number(cycleData.meetingRevenue);
         } else {
@@ -1134,7 +1134,7 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
 
       // Calculate instructor payment
       const activityType = meeting.activityType || cycleData.activityType ||
-        (cycleData.isOnline ? 'online' : (cycleData.type === 'private' ? 'private_lesson' : 'frontal'));
+        (cycleData.isOnline ? 'online' : ((cycleData.type === 'private' || cycleData.type === 'trial_private') ? 'private_lesson' : 'frontal'));
 
       const instructor = meeting.instructor;
       let instructorPayment = 0;
@@ -1241,7 +1241,7 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
             let revenue = 0;
             const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
             
-            if (cycleData.type === 'private') {
+            if (cycleData.type === 'private' || cycleData.type === 'trial_private') {
               if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
                 revenue = Number(cycleData.meetingRevenue);
               } else {
@@ -1266,7 +1266,7 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
             let instructorPayment = 0;
             if (instructor) {
               const activityType = existingMeeting.activityType || cycleData.activityType || 
-                (cycleData.isOnline ? 'online' : (cycleData.type === 'private' ? 'private_lesson' : 'frontal'));
+                (cycleData.isOnline ? 'online' : ((cycleData.type === 'private' || cycleData.type === 'trial_private') ? 'private_lesson' : 'frontal'));
               
               let hourlyRate = 0;
               switch (activityType) {
@@ -1468,7 +1468,7 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
             let revenue = 0;
             const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
 
-            if (cycleData.type === 'private') {
+            if (cycleData.type === 'private' || cycleData.type === 'trial_private') {
               if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
                 revenue = Number(cycleData.meetingRevenue);
               } else {
@@ -1481,7 +1481,7 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
               revenue = Number(cycleData.meetingRevenue || 0);
             }
 
-            const activityType = meeting.activityType || cycleData.activityType || 'frontal';
+            const activityType = meeting.activityType || cycleData.activityType || ((cycleData.type === 'private' || cycleData.type === 'trial_private') ? 'private_lesson' : 'frontal');
             let instructorPayment = 0;
             if (meeting.instructor) {
               let rate = 0;

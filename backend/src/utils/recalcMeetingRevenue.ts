@@ -28,9 +28,11 @@ export async function recalcMeetingRevenue(cycleId: string): Promise<void> {
     // pricePerStudent × active students
     const activeCount = cycle.registrations.length;
     newRevenue = Math.round(Number(cycle.pricePerStudent || 0) * activeCount);
-  } else if (cycle.type === 'private') {
+  } else if (cycle.type === 'private' || cycle.type === 'trial_private') {
     if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
       newRevenue = Math.round(Number(cycle.pricePerStudent) * cycle.registrations.length);
+    } else if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
+      newRevenue = Number(cycle.meetingRevenue);
     } else {
       // sum of active registration amounts / totalMeetings
       const totalAmount = cycle.registrations.reduce((s, r) => s + Number(r.amount ?? 0), 0);

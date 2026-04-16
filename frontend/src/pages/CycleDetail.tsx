@@ -790,7 +790,7 @@ export default function CycleDetail() {
 
                 <div className="pt-4 border-t flex items-center justify-between">
                   <span className={`badge ${
-                    cycle.type === 'private' ? 'badge-warning' : 'badge-info'
+                    (cycle.type === 'private' || cycle.type === 'trial_private') ? 'badge-warning' : 'badge-info'
                   }`}>
                     {cycleTypeHebrew[cycle.type]}
                   </span>
@@ -853,7 +853,7 @@ export default function CycleDetail() {
                   </div>
                 )}
 
-                {cycle.type === 'private' && (
+                {(cycle.type === 'private' || cycle.type === 'trial_private') && (
                   <div className="pt-3 mt-3 border-t space-y-1">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-gray-500">מחיר לפגישה:</span>
@@ -937,7 +937,7 @@ export default function CycleDetail() {
             </div>
 
             {/* Zoom Card - For online or private cycles */}
-            {(cycle.activityType === 'online' || cycle.activityType === 'private_lesson' || cycle.type === 'private') && (
+            {(cycle.activityType === 'online' || cycle.activityType === 'private_lesson' || cycle.type === 'private' || cycle.type === 'trial_private') && (
               <div className="card" data-testid="zoom-section">
                 <div className="card-header flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -2833,8 +2833,8 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
       endTime: formData.endTime,
       durationMinutes: durationMinutes > 0 ? durationMinutes : 60,
       totalMeetings: Number(formData.totalMeetings),
-      pricePerStudent: (formData.type === 'private' || formData.type === 'institutional_per_child') ? Number(formData.pricePerStudent) : undefined,
-      meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'private') ? meetingRevenueValue : undefined,
+      pricePerStudent: (formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') ? Number(formData.pricePerStudent) : undefined,
+      meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'trial_private') ? meetingRevenueValue : undefined,
       revenueIncludesVat: formData.type === 'institutional_fixed' ? formData.includesVat : undefined,
       studentCount: formData.type === 'institutional_per_child' ? Number(formData.studentCount) : undefined,
       maxStudents: Number(formData.maxStudents),
@@ -3031,7 +3031,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
           />
         </div>
 
-        {(formData.type === 'private' || formData.type === 'institutional_per_child') && (
+        {(formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && (
           <div>
             <label className="form-label">מחיר לתלמיד {formData.type === 'institutional_per_child' ? '(למפגש)' : ''} (₪)</label>
             <input
@@ -3044,7 +3044,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
           </div>
         )}
 
-        {formData.type === 'private' && (
+        {(formData.type === 'private' || formData.type === 'trial_private') && (
           <div>
             <label className="form-label">מחיר לפגישה (₪)</label>
             <input

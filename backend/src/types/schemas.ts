@@ -120,7 +120,7 @@ export const createCycleSchema = z.object({
   branchId: z.string().min(1, 'Branch ID is required'),
   instructorId: z.string().min(1, 'Instructor ID is required'),
   institutionalOrderId: z.string().optional().nullable(),
-  type: z.enum(['private', 'institutional_per_child', 'institutional_fixed']),
+  type: z.enum(['private', 'trial_private', 'institutional_per_child', 'institutional_fixed']),
   startDate: z.string(),
   endDate: z.string().optional(), // Will be calculated automatically if not provided
   dayOfWeek: z.enum(['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']),

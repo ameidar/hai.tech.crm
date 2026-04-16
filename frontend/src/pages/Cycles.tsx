@@ -630,7 +630,7 @@ export default function Cycles() {
                       )}
                       {isColVisible('type') && (
                         <td>
-                          <span className={`badge ${cycle.type === 'private' ? 'badge-warning' : 'badge-info'}`}>
+                          <span className={`badge ${(cycle.type === 'private' || cycle.type === 'trial_private') ? 'badge-warning' : 'badge-info'}`}>
                             {cycleTypeHebrew[cycle.type]}
                           </span>
                         </td>
@@ -842,8 +842,8 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
       ...formData,
       durationMinutes,
       totalMeetings: Number(formData.totalMeetings),
-      pricePerStudent: (formData.type === 'private' || formData.type === 'institutional_per_child') && priceValue > 0 ? priceValue : undefined,
-      meetingRevenue: formData.type === 'institutional_fixed' && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
+      pricePerStudent: (formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && priceValue > 0 ? priceValue : undefined,
+      meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'trial_private') && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
       studentCount: formData.type === 'institutional_per_child' && studentCountValue > 0 ? studentCountValue : undefined,
       maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
     };
@@ -933,6 +933,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
             className="form-input"
           >
             <option value="private">פרטי</option>
+            <option value="trial_private">שיעור ניסיון פרטי</option>
             <option value="institutional_per_child">מוסדי (פר ילד)</option>
             <option value="institutional_fixed">מוסדי (סכום קבוע)</option>
           </select>
@@ -1035,7 +1036,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
             />
           </div>
 
-          {(formData.type === 'private' || formData.type === 'institutional_per_child') && (
+          {(formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && (
             <div>
               <label className="form-label">מחיר לתלמיד {formData.type === 'institutional_per_child' ? '(למפגש)' : ''}</label>
               <div className="relative">
@@ -1064,7 +1065,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
             </div>
           )}
 
-          {formData.type === 'institutional_fixed' && (
+          {(formData.type === 'institutional_fixed' || formData.type === 'trial_private') && (
             <>
               <div>
                 <label className="form-label">הכנסה למפגש *</label>
@@ -1236,8 +1237,8 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
       endTime: formData.endTime,
       durationMinutes,
       totalMeetings: Number(formData.totalMeetings),
-      pricePerStudent: (formData.type === 'private' || formData.type === 'institutional_per_child') && priceValue > 0 ? priceValue : undefined,
-      meetingRevenue: formData.type === 'institutional_fixed' && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
+      pricePerStudent: (formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && priceValue > 0 ? priceValue : undefined,
+      meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'trial_private') && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
       revenueIncludesVat: formData.type === 'institutional_fixed' ? formData.includesVat : undefined,
       studentCount: formData.type === 'institutional_per_child' && studentCountValue > 0 ? studentCountValue : undefined,
       maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
@@ -1320,6 +1321,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
             className="form-input"
           >
             <option value="private">פרטי</option>
+            <option value="trial_private">שיעור ניסיון פרטי</option>
             <option value="institutional_per_child">מוסדי (פר ילד)</option>
             <option value="institutional_fixed">מוסדי (סכום קבוע)</option>
           </select>
@@ -1407,7 +1409,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
             />
           </div>
 
-          {(formData.type === 'private' || formData.type === 'institutional_per_child') && (
+          {(formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && (
             <div>
               <label className="form-label">מחיר לתלמיד {formData.type === 'institutional_per_child' ? '(למפגש)' : ''}</label>
               <div className="relative">
@@ -1436,7 +1438,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
             </div>
           )}
 
-          {formData.type === 'institutional_fixed' && (
+          {(formData.type === 'institutional_fixed' || formData.type === 'trial_private') && (
             <>
               <div>
                 <label className="form-label">הכנסה למפגש *</label>

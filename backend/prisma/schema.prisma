@@ -44,6 +44,7 @@ enum OrderStatus {
 
 enum CycleType {
   private
+  trial_private
   institutional_per_child
   institutional_fixed
 }

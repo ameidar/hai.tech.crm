@@ -24,7 +24,7 @@ function computeRevenuePerMeeting(cycle: any): number {
     const count = cycle.studentCount || (cycle.registrations?.length ?? cycle._count?.registrations ?? 0);
     return Math.round(Number(cycle.pricePerStudent || 0) * count);
   }
-  if (cycle.type === 'private') {
+  if (cycle.type === 'private' || cycle.type === 'trial_private') {
     // Priority: explicit meetingRevenue > pricePerStudent × students > registration amounts / meetings
     if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) return Number(cycle.meetingRevenue);
     if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
@@ -281,32 +281,34 @@ cyclesRouter.post('/', managerOrAdmin, async (req, res, next) => {
       endDate = result.endDate;
     }
 
-    const cycle = await prisma.cycle.create({
-      data: {
-        name: data.name,
-        courseId: data.courseId,
-        branchId: data.branchId,
-        instructorId: data.instructorId,
-        institutionalOrderId: data.institutionalOrderId,
-        type: data.type,
-        startDate: new Date(data.startDate),
-        endDate,
-        dayOfWeek: data.dayOfWeek,
-        startTime,
-        endTime,
-        durationMinutes: data.durationMinutes,
-        totalMeetings: data.totalMeetings,
-        pricePerStudent: data.pricePerStudent,
-        meetingRevenue: data.meetingRevenue,
-        revenueIncludesVat: data.revenueIncludesVat,
-        studentCount: data.studentCount,
-        maxStudents: data.maxStudents,
-        sendParentReminders: data.sendParentReminders,
-        isOnline: data.activityType === 'online',
-        activityType: data.activityType,
-        zoomHostId: data.zoomHostId,
-        remainingMeetings: data.totalMeetings,
-      },
+    const createData: any = {
+      name: data.name,
+      courseId: data.courseId,
+      branchId: data.branchId,
+      instructorId: data.instructorId,
+      institutionalOrderId: data.institutionalOrderId,
+      type: data.type,
+      startDate: new Date(data.startDate),
+      endDate,
+      dayOfWeek: data.dayOfWeek,
+      startTime,
+      endTime,
+      durationMinutes: data.durationMinutes,
+      totalMeetings: data.totalMeetings,
+      pricePerStudent: data.pricePerStudent,
+      meetingRevenue: data.meetingRevenue,
+      revenueIncludesVat: data.revenueIncludesVat,
+      studentCount: data.studentCount,
+      maxStudents: data.maxStudents,
+      sendParentReminders: data.sendParentReminders,
+      isOnline: data.activityType === 'online',
+      activityType: data.activityType,
+      zoomHostId: data.zoomHostId,
+      remainingMeetings: data.totalMeetings,
+    };
+
+    const cycle: any = await prisma.cycle.create({
+      data: createData,
       include: {
         course: { select: { id: true, name: true } },
         branch: { select: { id: true, name: true } },

@@ -316,8 +316,10 @@ cyclesRouter.post('/', managerOrAdmin, async (req, res, next) => {
       },
     });
 
-    // Generate meetings
-    await generateMeetingsForCycle(cycle.id);
+    // Generate meetings (skip for trial_private — meetings are added manually)
+    if (data.type !== 'trial_private') {
+      await generateMeetingsForCycle(cycle.id);
+    }
 
     // Audit log for cycle creation
     await logAudit({

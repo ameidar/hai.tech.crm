@@ -439,6 +439,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
           notes: existingCustomer.notes
             ? `${existingCustomer.notes}\n---\n[${new Date().toISOString()}] ${source}: ${noteText}`
             : `[${new Date().toISOString()}] ${source}: ${noteText}`,
+          source: existingCustomer.source || source || 'website',
         },
         include: {
           students: true,
@@ -460,6 +461,19 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
           });
         }
       }
+
+      // Existing customers should still create/merge a lead record just like new leads
+      const { lead, isDuplicate } = await findOrCreateLeadAppointment({
+        customerId: customer.id,
+        customerName: customer.name,
+        customerPhone: customer.phone || phone || '',
+        customerEmail: customer.email || email || null,
+        childName: childName || null,
+        interest: interest || null,
+        source,
+        appointmentStatus: 'pending',
+        appointmentNotes: noteText,
+      });
 
       // Send welcome template also for returning customers (every new lead submission)
       if (customer.phone) {
@@ -490,16 +504,42 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
         }).catch(err => console.error('[WEBHOOK] Failed to initiate Vapi call:', err));
       }
 
+      // Create audit log for repeat website lead activity as well
+      logAudit({
+        userId: 'system',
+        userName: 'Website Lead',
+        action: isDuplicate ? 'UPDATE' : 'CREATE',
+        entity: 'lead_appointment',
+        entityId: lead.id,
+        req,
+        newValue: {
+          source,
+          customerId: customer.id,
+          name: customer.name,
+          phone: customer.phone,
+          email: customer.email,
+          childName,
+          interest,
+          isDuplicate,
+          clientIp,
+        },
+      }).catch(err => console.error('[WEBHOOK] Failed to create audit log (existing customer):', err));
+
       res.json({
         success: true,
         isNew: false,
+        isDuplicateLead: isDuplicate,
         customer: {
           id: customer.id,
           name: customer.name,
           phone: customer.phone,
           email: customer.email,
         },
-        message: 'Customer already exists, notes updated',
+        lead: {
+          id: lead.id,
+          appointmentStatus: lead.appointmentStatus,
+        },
+        message: 'Customer already exists, customer and lead updated',
       });
       return;
     }

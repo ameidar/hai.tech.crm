@@ -46,14 +46,26 @@ export async function sendLeadWelcomeTemplate(phone: string, name: string): Prom
     );
 
     const waId = resp.data?.messages?.[0]?.id;
+    const messageContent = `[תבנית: lead_welcome_hai] היי ${firstName} 👋 קיבלנו את ההתעניינות שלך!`;
+    const now = new Date();
+
     await prisma.waMessage.create({
       data: {
         conversationId: conv.id,
         direction: 'outbound',
-        content: `[תבנית: lead_welcome_hai] היי ${firstName} 👋 קיבלנו את ההתעניינות שלך!`,
+        content: messageContent,
         waMessageId: waId || undefined,
         status: 'sent',
         isAiGenerated: false,
+      },
+    });
+
+    // Update conversation so the message shows in CRM UI
+    await prisma.waConversation.update({
+      where: { id: conv.id },
+      data: {
+        lastMessageAt: now,
+        lastMessagePreview: messageContent.slice(0, 200),
       },
     });
 

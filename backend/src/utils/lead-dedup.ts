@@ -32,7 +32,6 @@ export interface LeadAppointmentInput {
   appointmentNotes?: string | null;
   callSummary?: string | null;
   callStatus?: string | null;
-  callDirection?: string | null;
   vapiCallId?: string | null;
   campaignId?: string | null;
   campaignName?: string | null;
@@ -135,7 +134,6 @@ function buildData(input: LeadAppointmentInput) {
     appointmentNotes:  input.appointmentNotes ?? null,
     callSummary:       input.callSummary ?? null,
     callStatus:        input.callStatus ?? null,
-    callDirection:     input.callDirection ?? null,
     vapiCallId:        input.vapiCallId ?? null,
     campaignId:        input.campaignId ?? null,
     campaignName:      input.campaignName ?? null,

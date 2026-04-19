@@ -239,7 +239,6 @@ export async function handleEndOfCallReport(payload: any): Promise<void> {
         customerName: existingCustomer?.name || callerNumber,
         customerPhone: normalizedPhone || callerNumber,
         source: 'inbound',
-        callDirection: 'inbound',
         vapiCallId: callId,
         callStatus: 'ended',
       });

@@ -122,7 +122,9 @@ export async function findOrCreateLeadAppointment(
 
 function buildData(input: LeadAppointmentInput) {
   return {
-    customerId:        input.customerId ?? null,
+    customer: input.customerId
+      ? { connect: { id: input.customerId } }
+      : undefined,
     customerName:      input.customerName,
     customerPhone:     input.customerPhone,
     customerEmail:     input.customerEmail ?? null,

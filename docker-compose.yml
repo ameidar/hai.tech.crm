@@ -26,6 +26,11 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-}
+        COMMIT_SHA: ${COMMIT_SHA:-}
+        GIT_BRANCH: ${GIT_BRANCH:-}
+        BUILD_TIME: ${BUILD_TIME:-}
     container_name: haitech-api
     restart: unless-stopped
     depends_on:

@@ -32,3 +32,6 @@ coverage/
 # Misc
 *.tmp
 *.temp
+
+# Generated at build time
+src/version.json

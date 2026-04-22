@@ -1,11 +1,12 @@
 {
   "name": "haitech-crm-backend",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "HaiTech CRM - Backend API for managing coding education business",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc || true",
+    "version:generate": "tsx scripts/generate-version.ts",
+    "build": "tsx scripts/generate-version.ts && (tsc || true)",
     "start": "node dist/index.js",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",

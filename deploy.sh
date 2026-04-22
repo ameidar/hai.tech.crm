@@ -45,15 +45,9 @@ sleep 10
 echo "📊 Running database migrations..."
 docker exec haitech-api npx prisma migrate deploy || echo "⚠️  Migration warning (may need manual resolve)"
 
-# Auto-tag: if package.json version matches no existing tag, create one
-TAG="v${APP_VERSION}"
-if git rev-parse "$TAG" >/dev/null 2>&1; then
-  echo "🏷️  Tag ${TAG} already exists — skipping tag creation"
-else
-  echo "🏷️  Creating tag ${TAG} (commit ${COMMIT_SHA})..."
-  git tag -a "$TAG" -m "Release ${TAG} (${COMMIT_SHA}) deployed at ${BUILD_TIME}"
-  git push origin "$TAG" || echo "⚠️  Tag push failed (non-fatal)"
-fi
+# NOTE: Git tagging is intentionally NOT done from production.
+# Run `scripts/tag-release.sh` from the dev machine (187.124.2.69) after merge to main
+# to create and push the vX.Y.Z tag. Production has no git write credentials by design.
 
 # Verify
 echo ""

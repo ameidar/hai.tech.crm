@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import OnlineUsers from './OnlineUsers';
+import VersionBadge from './VersionBadge';
 import {
   LayoutDashboard,
   Users,
@@ -227,12 +228,7 @@ export default function Layout() {
       </nav>
 
       {/* Version + Build Time */}
-      <div className="px-4 py-1 text-center">
-        <span className="text-xs text-slate-500">v2.2</span>
-        <span className="text-xs text-slate-600 block" title="זמן build">
-          {new Date(__BUILD_TIME__).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-        </span>
-      </div>
+      <VersionBadge />
 
       {/* Online Users (admin/manager only) */}
       {isAdmin && (

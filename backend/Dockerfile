@@ -14,15 +14,25 @@ RUN npx prisma generate
 # Copy source code
 COPY tsconfig.json ./
 COPY src ./src/
+COPY scripts ./scripts/
 
 # Copy frontend dist if available
 COPY frontend-dist ./frontend-dist/
 
 # Build
 FROM base AS builder
-RUN npm run build && \
+ARG APP_VERSION=unknown
+ARG COMMIT_SHA=unknown
+ARG GIT_BRANCH=unknown
+ARG BUILD_TIME=
+RUN BUILD_TIME="${BUILD_TIME:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" \
+    APP_VERSION="$APP_VERSION" \
+    COMMIT_SHA="$COMMIT_SHA" \
+    GIT_BRANCH="$GIT_BRANCH" \
+    npm run build && \
     mkdir -p dist/data && \
-    cp -r src/data/* dist/data/ 2>/dev/null || true
+    cp -r src/data/* dist/data/ 2>/dev/null || true && \
+    cp src/version.json dist/version.json 2>/dev/null || true
 
 # Production image
 FROM node:22-alpine AS production

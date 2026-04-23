@@ -79,6 +79,8 @@ meetingsRouter.get('/', async (req, res, next) => {
     let instructorId = req.query.instructorId as string | undefined;
     const cycleId = req.query.cycleId as string | undefined;
     const branchId = req.query.branchId as string | undefined;
+    const sortParam = (req.query.sort as string | undefined)?.toLowerCase();
+    const sortDir: 'asc' | 'desc' = sortParam === 'desc' ? 'desc' : 'asc';
 
     // If user is an instructor, only show their meetings
     if (req.user!.role === 'instructor') {
@@ -130,8 +132,8 @@ meetingsRouter.get('/', async (req, res, next) => {
           },
         },
         orderBy: [
-          { scheduledDate: 'asc' },
-          { startTime: 'asc' },
+          { scheduledDate: sortDir },
+          { startTime: sortDir },
         ],
         skip: (page - 1) * limit,
         take: limit,

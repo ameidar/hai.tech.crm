@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+const lowercase = <T extends string | null | undefined>(v: T): T =>
+  (typeof v === 'string' ? v.trim().toLowerCase() : v) as T;
+
 // Common schemas - allow any string ID (not just UUID)
 export const uuidSchema = z.string().min(1);
 
@@ -10,12 +13,12 @@ export const paginationSchema = z.object({
 
 // Auth schemas
 export const loginSchema = z.object({
-  email: z.string().email('Invalid email'),
+  email: z.string().email('Invalid email').transform(lowercase),
   password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
 export const registerSchema = z.object({
-  email: z.string().email('Invalid email'),
+  email: z.string().email('Invalid email').transform(lowercase),
   password: z.string().min(6, 'Password must be at least 6 characters'),
   name: z.string().min(2, 'Name must be at least 2 characters'),
   phone: z.string().optional(),
@@ -25,7 +28,7 @@ export const registerSchema = z.object({
 // Customer schemas
 export const createCustomerSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
-  email: z.union([z.string().email(), z.literal('').transform(() => null), z.null()]).optional().nullable(),
+  email: z.union([z.string().email(), z.literal('').transform(() => null), z.null()]).optional().nullable().transform(lowercase),
   phone: z.string().min(9, 'Phone must be at least 9 characters'),
   address: z.string().optional().nullable(),
   city: z.string().optional().nullable(),
@@ -70,7 +73,7 @@ export const createBranchSchema = z.object({
   city: z.string().optional().nullable(),
   contactName: z.string().optional().nullable(),
   contactPhone: z.string().optional().nullable(),
-  contactEmail: z.string().email().optional().nullable().or(z.literal('')).transform(v => v || null),
+  contactEmail: z.string().email().optional().nullable().or(z.literal('')).transform(v => (v ? v.trim().toLowerCase() : null)),
   isActive: z.boolean().default(true),
 });
 
@@ -80,7 +83,7 @@ export const updateBranchSchema = createBranchSchema.partial();
 export const createInstructorSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   phone: z.string().min(9, 'Phone must be at least 9 characters'),
-  email: z.string().email().optional().nullable(),
+  email: z.string().email().optional().nullable().transform(lowercase),
   rateFrontal: z.number().nonnegative().optional().nullable(),
   rateOnline: z.number().nonnegative().optional().nullable(),
   ratePrivate: z.number().nonnegative().optional().nullable(),
@@ -105,7 +108,7 @@ export const createInstitutionalOrderSchema = z.object({
   estimatedTotal: z.number().positive().optional().nullable(),
   contactName: z.string().min(2, 'Contact name must be at least 2 characters'),
   contactPhone: z.string().min(9, 'Phone must be at least 9 characters'),
-  contactEmail: z.string().email().optional().nullable(),
+  contactEmail: z.string().email().optional().nullable().transform(lowercase),
   contractFile: z.string().optional().nullable(),
   status: z.enum(['draft', 'active', 'completed', 'cancelled']).default('draft'),
   notes: z.string().optional().nullable(),
@@ -203,7 +206,7 @@ export const updateMeetingSchema = z.object({
   zoomStartUrl: z.string().url().optional().nullable(),
   zoomPassword: z.string().optional().nullable(),
   zoomHostKey: z.string().optional().nullable(),
-  zoomHostEmail: z.string().email().optional().nullable(),
+  zoomHostEmail: z.string().email().optional().nullable().transform(lowercase),
 });
 
 export const postponeMeetingSchema = z.object({

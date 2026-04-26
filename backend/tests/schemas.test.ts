@@ -31,8 +31,17 @@ describe('Validation Schemas', () => {
       const result = loginSchema.safeParse({
         email: 'test@example.com',
       });
-      
+
       expect(result.success).toBe(false);
+    });
+
+    it('should normalize email to lowercase', () => {
+      const result = loginSchema.parse({
+        email: 'Test@Example.COM',
+        password: 'password123',
+      });
+
+      expect(result.email).toBe('test@example.com');
     });
   });
 
@@ -52,8 +61,18 @@ describe('Validation Schemas', () => {
         name: 'ישראל ישראלי',
         phone: '050-1234567',
       });
-      
+
       expect(result.success).toBe(true);
+    });
+
+    it('should normalize customer email to lowercase', () => {
+      const result = createCustomerSchema.parse({
+        name: 'ישראל ישראלי',
+        phone: '050-1234567',
+        email: 'Israel@EXAMPLE.com',
+      });
+
+      expect(result.email).toBe('israel@example.com');
     });
 
     it('should reject missing name', () => {

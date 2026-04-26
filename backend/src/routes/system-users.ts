@@ -12,7 +12,7 @@ export const systemUsersRouter = Router();
 systemUsersRouter.use(authenticate);
 
 const createUserSchema = z.object({
-  email: z.string().email('Invalid email'),
+  email: z.string().email('Invalid email').transform(v => v.trim().toLowerCase()),
   name: z.string().min(2, 'Name must be at least 2 characters'),
   phone: z.string().optional().nullable(),
   role: z.enum(['admin', 'manager', 'sales']),

@@ -259,12 +259,13 @@ router.get('/profile', authenticateParent, async (req: any, res, next) => {
 router.put('/profile', authenticateParent, async (req: any, res, next) => {
   try {
     const { name, email, address, city } = req.body;
+    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : email;
 
     const updated = await prisma.customer.update({
       where: { id: req.parent.id },
       data: {
         ...(name && { name }),
-        ...(email && { email }),
+        ...(normalizedEmail && { email: normalizedEmail }),
         ...(address && { address }),
         ...(city && { city }),
       },

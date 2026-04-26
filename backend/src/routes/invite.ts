@@ -161,11 +161,12 @@ inviteRouter.post('/:token/setup', async (req, res, next) => {
       throw new AppError(400, 'Invite has expired');
     }
 
-    // Use provided email or instructor's email
-    const userEmail = email || instructor.email;
-    if (!userEmail) {
+    // Use provided email or instructor's email — normalize to lowercase for consistent lookups
+    const rawEmail = email || instructor.email;
+    if (!rawEmail) {
       throw new AppError(400, 'Email is required');
     }
+    const userEmail = String(rawEmail).trim().toLowerCase();
 
     // Check if email already exists
     const existingUser = await prisma.user.findUnique({

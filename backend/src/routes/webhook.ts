@@ -477,7 +477,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
 
       // Send welcome template also for returning customers (every new lead submission)
       if (customer.phone) {
-        sendLeadWelcomeTemplate(customer.phone, customer.name)
+        sendLeadWelcomeTemplate(customer.phone, customer.name, interest)
           .catch(err => console.error('[WEBHOOK] welcome template error (existing customer):', err));
       }
 
@@ -589,7 +589,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
 
     // Auto-send WhatsApp welcome template to new leads (feature flag gated)
     if (customer.phone) {
-      sendLeadWelcomeTemplate(customer.phone, customer.name)
+      sendLeadWelcomeTemplate(customer.phone, customer.name, interest)
         .catch(err => console.error('[WEBHOOK] welcome template error:', err));
     }
 

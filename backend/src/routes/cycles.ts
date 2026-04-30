@@ -7,6 +7,7 @@ import { fetchHolidays, dayNameToNumber, calculateCycleEndDate } from '../utils/
 import { zoomService, getHostKeyByEmail } from '../services/zoom.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
+import { deleteMeeting as deleteZoomMeeting } from '../services/zoom.js';
 
 // Make.com webhook removed — Zoom recordings handled directly via /api/zoom-webhook
 
@@ -43,6 +44,29 @@ function computeRevenuePerMeeting(cycle: any): number {
     }
   }
   return 0;
+}
+
+// Cascade: when a cycle is cancelled, cancel all its scheduled future meetings
+// and remove their Zoom rooms. Idempotent — safe to call repeatedly.
+async function cascadeCancelCycleMeetings(cycleId: string): Promise<number> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const futureMeetings = await prisma.meeting.findMany({
+    where: { cycleId, status: 'scheduled', scheduledDate: { gte: today } },
+    select: { id: true, zoomMeetingId: true },
+  });
+  for (const m of futureMeetings) {
+    await prisma.meeting.update({
+      where: { id: m.id },
+      data: { status: 'cancelled', zoomMeetingId: null, zoomJoinUrl: null, zoomStartUrl: null },
+    });
+    if (m.zoomMeetingId) {
+      deleteZoomMeeting(m.zoomMeetingId).catch(err =>
+        console.error(`[CANCEL CASCADE] Failed to delete Zoom ${m.zoomMeetingId}:`, err)
+      );
+    }
+  }
+  return futureMeetings.length;
 }
 
 // Helper to generate meetings for a cycle (skips Israeli holidays)
@@ -392,6 +416,12 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
       },
     });
 
+    // Hook: when a cycle transitions to 'cancelled', cascade-cancel its future scheduled meetings
+    if (existingCycle.status !== 'cancelled' && cycle.status === 'cancelled') {
+      const cancelled = await cascadeCancelCycleMeetings(id);
+      console.log(`[CYCLE CANCEL] cascade-cancelled ${cancelled} future meetings for cycle ${id}`);
+    }
+
     // Audit log for cycle update
     const oldRecord = {
       name: existingCycle.name,
@@ -727,8 +757,16 @@ cyclesRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
     }
 
     // Update all cycles in a transaction
+    // Snapshot prior statuses to detect cancellation transitions for the cascade hook
+    const priorStatuses = updateData.status === 'cancelled'
+      ? new Map(
+          (await prisma.cycle.findMany({ where: { id: { in: ids } }, select: { id: true, status: true } }))
+            .map(c => [c.id, c.status])
+        )
+      : null;
+
     const results = await prisma.$transaction(
-      ids.map(id => 
+      ids.map(id =>
         prisma.cycle.update({
           where: { id },
           data: updateData,
@@ -736,6 +774,16 @@ cyclesRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
         })
       )
     );
+
+    // Hook: for each cycle that just transitioned to 'cancelled', cancel its future meetings
+    if (priorStatuses) {
+      for (const id of ids) {
+        if (priorStatuses.get(id) !== 'cancelled') {
+          const cancelled = await cascadeCancelCycleMeetings(id);
+          console.log(`[CYCLE CANCEL] cascade-cancelled ${cancelled} future meetings for cycle ${id}`);
+        }
+      }
+    }
 
     res.json({
       message: `עודכנו ${results.length} מחזורים בהצלחה`,

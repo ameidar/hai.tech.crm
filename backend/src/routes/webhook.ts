@@ -8,6 +8,7 @@ import { handleStatusReply } from '../services/whatsapp-reminder.service.js';
 import { logAudit } from '../utils/audit.js';
 import { initiateVapiCall } from '../services/vapi.js';
 import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
+import { meetingRevenueFromRegistrations } from '../utils/revenue.js';
 import rateLimit from 'express-rate-limit';
 
 // Rate limiter for public lead submission endpoint
@@ -778,11 +779,7 @@ async function recalculateMeetingFinancials(meetingId: string) {
   const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
 
   if (cycleData.type === 'private') {
-    const totalRegistrationAmount = cycleData.registrations.reduce(
-      (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
-      0
-    );
-    revenue = Math.round(totalRegistrationAmount / cycleData.totalMeetings);
+    revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
   } else if (cycleData.type === 'institutional_per_child') {
     const pricePerStudent = Number(cycleData.pricePerStudent || 0);
     const studentCount = cycleData.studentCount || activeRegistrations.length;

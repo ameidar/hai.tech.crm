@@ -16,6 +16,7 @@ import {
 import { authenticate, adminOnly } from '../middleware/auth.js';
 import { sendWhatsAppMessage } from '../services/notifications.js';
 import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
+import { meetingRevenueFromRegistrations } from '../utils/revenue.js';
 
 // WhatsApp group for pending meeting requests (postponements, cancellations)
 const ADMIN_PHONE = '120363353459332838@g.us';
@@ -260,11 +261,7 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
           const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
 
           if (cycleData.type === 'private') {
-            const totalRegistrationAmount = cycleData.registrations.reduce(
-              (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
-              0
-            );
-            revenue = Math.round(totalRegistrationAmount / cycleData.totalMeetings);
+            revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
           } else if (cycleData.type === 'institutional_per_child') {
             const pricePerStudent = Number(cycleData.pricePerStudent || 0);
             const studentCount = cycleData.studentCount || activeRegistrations.length;

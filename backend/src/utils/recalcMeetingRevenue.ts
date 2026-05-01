@@ -1,4 +1,5 @@
 import { prisma } from './prisma.js';
+import { meetingRevenueFromRegistrations } from './revenue.js';
 
 /**
  * After a registration change (e.g. cancellation), recalculate revenue + profit
@@ -34,10 +35,12 @@ export async function recalcMeetingRevenue(cycleId: string): Promise<void> {
     } else if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
       newRevenue = Number(cycle.meetingRevenue);
     } else {
-      // sum of active registration amounts / totalMeetings
-      const totalAmount = cycle.registrations.reduce((s, r) => s + Number(r.amount ?? 0), 0);
-      const totalMeetings = Number(cycle.totalMeetings) || 1;
-      newRevenue = Math.round(totalAmount / totalMeetings);
+      // sum of active registration amounts / totalMeetings (net of VAT for private)
+      newRevenue = meetingRevenueFromRegistrations(
+        cycle.registrations,
+        Number(cycle.totalMeetings) || 1,
+        cycle.type
+      );
     }
   }
 

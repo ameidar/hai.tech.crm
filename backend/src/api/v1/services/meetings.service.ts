@@ -14,6 +14,7 @@ import {
   CompleteMeetingInput,
   CancelMeetingInput,
 } from '../validators/meetings.js';
+import { meetingRevenueFromRegistrations } from '../../../utils/revenue.js';
 
 /**
  * Meetings Service - Business logic layer
@@ -272,11 +273,7 @@ export class MeetingsService {
     const activeRegistrations = cycle.registrations.filter((reg) => reg.status === 'active');
 
     if (cycle.type === 'private') {
-      const totalRegistrationAmount = cycle.registrations.reduce(
-        (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
-        0
-      );
-      revenue = Math.round(totalRegistrationAmount / cycle.totalMeetings);
+      revenue = meetingRevenueFromRegistrations(cycle.registrations, cycle.totalMeetings, cycle.type);
     } else if (cycle.type === 'institutional_per_child') {
       const pricePerStudent = Number(cycle.pricePerStudent || 0);
       const studentCount = cycle.studentCount || activeRegistrations.length;

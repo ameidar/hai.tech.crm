@@ -22,7 +22,7 @@ const createDocumentSchema = z.object({
   type: z.number().int().default(DOCUMENT_TYPES.PROFORMA),
   lang: z.enum(['he', 'en']).default('he'),
   currency: z.string().default('ILS'),
-  vatType: z.union([z.literal(0), z.literal(1), z.literal(2)]).default(1),
+  vatType: z.union([z.literal(0), z.literal(1), z.literal(2)]).default(0),
   client: z.object({
     name: z.string().min(1),
     taxId: z.string().optional().nullable(),

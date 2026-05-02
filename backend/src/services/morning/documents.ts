@@ -12,7 +12,12 @@ export const DOCUMENT_TYPES = {
   CREDIT_INVOICE: 330,    // חשבונית זיכוי
 } as const;
 
-// Morning vatType: 0=exempt (no VAT), 1=above (price excludes VAT), 2=included (price includes VAT)
+// Morning vatType (verified empirically against doc 40839):
+//   0 = default — price excludes VAT, Morning adds 18% on top (this is the regular case)
+//   1 = exempt — no VAT (e.g. עוסק פטור)
+//   2 = included — price already includes VAT, Morning extracts it
+// NOTE: Morning's docs label these confusingly; do not trust labels — see doc 40839 which
+// has vatType:0 and correctly applies 18% VAT.
 export type VatType = 0 | 1 | 2;
 
 export interface MorningClient {
@@ -64,7 +69,7 @@ export async function createDocument(input: CreateDocumentInput): Promise<Mornin
   const body = {
     lang: 'he',
     currency: 'ILS',
-    vatType: 1,
+    vatType: 0,
     ...input,
   };
   return morningRequest<MorningDocument>('POST', '/api/v1/documents', body);
@@ -83,7 +88,7 @@ export async function previewDocument(input: CreateDocumentInput): Promise<Previ
   const body = {
     lang: 'he',
     currency: 'ILS',
-    vatType: 1,
+    vatType: 0,
     ...input,
   };
   return morningRequest<PreviewResponse>('POST', '/api/v1/documents/preview', body);

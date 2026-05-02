@@ -13,9 +13,9 @@ const DOC_TYPES = [
 ];
 
 const VAT_TYPES = [
-  { value: 1, label: 'הסכום לא כולל מע״מ — מורנינג מוסיפה 18%' },
+  { value: 0, label: 'הסכום לא כולל מע״מ — מורנינג מוסיפה 18%' },
   { value: 2, label: 'הסכום כולל מע״מ — מורנינג מפצלת לבד' },
-  { value: 0, label: 'פטור ממע״מ' },
+  { value: 1, label: 'פטור ממע״מ' },
 ];
 
 interface IncomeRow {
@@ -37,7 +37,7 @@ interface ResultDoc {
 
 export default function MorningInvoiceTest() {
   const [type, setType] = useState<number>(300);
-  const [vatType, setVatType] = useState<number>(1);
+  const [vatType, setVatType] = useState<number>(0);
   const [lang, setLang] = useState<'he' | 'en'>('he');
   const [client, setClient] = useState({
     name: '',
@@ -58,8 +58,8 @@ export default function MorningInvoiceTest() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const total = items.reduce((s, it) => s + (Number(it.quantity) || 0) * (Number(it.price) || 0), 0);
-  const vatLine = vatType === 1 ? Math.round(total * 0.18 * 100) / 100 : 0;
-  const grandTotal = vatType === 1 ? total + vatLine : total;
+  const vatLine = vatType === 0 ? Math.round(total * 0.18 * 100) / 100 : vatType === 2 ? Math.round((total - total / 1.18) * 100) / 100 : 0;
+  const grandTotal = vatType === 0 ? total + vatLine : total;
 
   function addRow() {
     setItems([...items, { description: '', quantity: 1, price: 0 }]);
@@ -329,7 +329,7 @@ export default function MorningInvoiceTest() {
               <tfoot className="text-gray-700 font-medium">
                 <tr><td colSpan={3} className="p-2 text-left">סכום:</td>
                     <td className="p-2">{total.toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}</td><td/></tr>
-                {vatType === 1 && (
+                {vatType === 0 && (
                   <>
                     <tr><td colSpan={3} className="p-2 text-left">מע״מ 18%:</td>
                         <td className="p-2">{vatLine.toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}</td><td/></tr>
@@ -337,7 +337,7 @@ export default function MorningInvoiceTest() {
                         <td className="p-2">{grandTotal.toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}</td><td/></tr>
                   </>
                 )}
-                {vatType !== 1 && (
+                {vatType !== 0 && (
                   <tr className="text-base font-bold"><td colSpan={3} className="p-2 text-left">סה״כ:</td>
                       <td className="p-2">{total.toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}</td><td/></tr>
                 )}

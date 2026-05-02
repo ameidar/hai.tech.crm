@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { Plus, Trash2, ExternalLink, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Plus, Trash2, ExternalLink, AlertCircle, CheckCircle2, Eye } from 'lucide-react';
 import { api } from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 
 const DOC_TYPES = [
-  { value: 200, label: 'חשבון עסקה (Proforma)' },
-  { value: 305, label: 'חשבונית מס' },
-  { value: 320, label: 'חשבונית מס + קבלה' },
-  { value: 400, label: 'קבלה' },
+  { value: 300, label: 'חשבון עסקה (Proforma)' },
+  { value: 200, label: 'תעודת משלוח' },
+  { value: 305, label: 'חשבונית מס ⚠️ (לא ניתן למחוק לפי החוק)' },
+  { value: 320, label: 'חשבונית מס + קבלה ⚠️' },
+  { value: 400, label: 'קבלה ⚠️' },
   { value: 10, label: 'הצעת מחיר' },
 ];
 
@@ -35,7 +36,7 @@ interface ResultDoc {
 }
 
 export default function MorningInvoiceTest() {
-  const [type, setType] = useState<number>(200);
+  const [type, setType] = useState<number>(300);
   const [vatType, setVatType] = useState<number>(1);
   const [lang, setLang] = useState<'he' | 'en'>('he');
   const [client, setClient] = useState({
@@ -54,6 +55,7 @@ export default function MorningInvoiceTest() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ResultDoc | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const total = items.reduce((s, it) => s + (Number(it.quantity) || 0) * (Number(it.price) || 0), 0);
   const vatLine = vatType === 1 ? Math.round(total * 0.18 * 100) / 100 : 0;
@@ -72,46 +74,82 @@ export default function MorningInvoiceTest() {
     setItems(items.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)));
   }
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  function buildPayload() {
+    return {
+      type,
+      lang,
+      currency: 'ILS',
+      vatType,
+      client: {
+        name: client.name.trim(),
+        taxId: client.taxId.trim() || undefined,
+        emails: client.email ? [client.email.trim()] : undefined,
+        phone: client.phone.trim() || undefined,
+        address: client.address.trim() || undefined,
+        city: client.city.trim() || undefined,
+        add: client.addToMorning,
+      },
+      income: items.map((it) => ({
+        description: it.description.trim(),
+        quantity: Number(it.quantity),
+        price: Number(it.price),
+        vatType,
+      })),
+      remarks: remarks.trim() || undefined,
+    };
+  }
+
+  function handleApiError(err: any) {
+    const msg =
+      err.response?.data?.details?.errorMessage ||
+      err.response?.data?.error ||
+      err.response?.data?.message ||
+      err.message ||
+      'שגיאה לא ידועה';
+    setError(typeof msg === 'string' ? msg : JSON.stringify(msg));
+  }
+
+  function clearOutputs() {
     setError(null);
     setResult(null);
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
+    }
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    clearOutputs();
     setSubmitting(true);
-
     try {
-      const payload = {
-        type,
-        lang,
-        currency: 'ILS',
-        vatType,
-        client: {
-          name: client.name.trim(),
-          taxId: client.taxId.trim() || undefined,
-          emails: client.email ? [client.email.trim()] : undefined,
-          phone: client.phone.trim() || undefined,
-          address: client.address.trim() || undefined,
-          city: client.city.trim() || undefined,
-          add: client.addToMorning,
-        },
-        income: items.map((it) => ({
-          description: it.description.trim(),
-          quantity: Number(it.quantity),
-          price: Number(it.price),
-          vatType,
-        })),
-        remarks: remarks.trim() || undefined,
-      };
-
-      const { data } = await api.post('/morning/documents', payload);
+      const { data } = await api.post('/morning/documents', buildPayload());
       setResult(data.document);
     } catch (err: any) {
-      const msg =
-        err.response?.data?.details?.errorMessage ||
-        err.response?.data?.error ||
-        err.response?.data?.message ||
-        err.message ||
-        'שגיאה לא ידועה';
-      setError(typeof msg === 'string' ? msg : JSON.stringify(msg));
+      handleApiError(err);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function preview() {
+    if (!client.name.trim() || items.some((it) => !it.description.trim())) {
+      setError('מלא שם לקוח ותיאור לכל פריט לפני התצוגה המקדימה');
+      return;
+    }
+    clearOutputs();
+    setSubmitting(true);
+    try {
+      const { data } = await api.post('/morning/documents/preview', buildPayload());
+      const binary = atob(data.fileBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      setPreviewUrl(url);
+      window.open(url, '_blank');
+    } catch (err: any) {
+      handleApiError(err);
     } finally {
       setSubmitting(false);
     }
@@ -144,6 +182,21 @@ export default function MorningInvoiceTest() {
                 </a>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {previewUrl && !result && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
+          <Eye className="text-blue-600 mt-1" size={22} />
+          <div className="flex-1">
+            <h3 className="font-semibold text-blue-900">תצוגה מקדימה — לא נרשם במורנינג</h3>
+            <p className="text-sm text-blue-800 mt-1">
+              ה-PDF נפתח בכרטיסייה חדשה. אם נחסם — לחץ על הלינק:
+              <a href={previewUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 mr-2 text-blue-700 hover:underline">
+                <ExternalLink size={14} /> פתח תצוגה מקדימה
+              </a>
+            </p>
           </div>
         </div>
       )}
@@ -299,12 +352,19 @@ export default function MorningInvoiceTest() {
                     onChange={(e) => setRemarks(e.target.value)} placeholder="תיאור עסקה / הערות שיופיעו על המסמך" />
         </section>
 
-        <div className="flex justify-end gap-3">
+        <div className="flex flex-wrap justify-end gap-3">
+          <button type="button" onClick={preview} disabled={submitting}
+                  className="inline-flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium px-5 py-2 rounded-lg disabled:opacity-50 border">
+            <Eye size={16} /> תצוגה מקדימה (ללא רישום)
+          </button>
           <button type="submit" disabled={submitting}
                   className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-2 rounded-lg disabled:opacity-50">
             {submitting ? 'מפיק...' : 'הפק מסמך'}
           </button>
         </div>
+        <p className="text-xs text-gray-500 text-left">
+          💡 <b>תצוגה מקדימה</b> מחזירה PDF מקומי בלבד — אין רישום, אין מספר מסמך, ואין השפעה על החשבון במורנינג.
+        </p>
       </form>
     </div>
   );

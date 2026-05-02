@@ -214,9 +214,9 @@ export default function BillingPeriodDetail() {
         <div className="bg-amber-50 border border-amber-200 rounded p-4 text-sm text-amber-900 flex items-start gap-2">
           <AlertCircle size={16} className="mt-0.5" />
           <div>
-            <b>חסר ת.ז עוסק / ח.פ</b> — מורנינג ידחה את ההפקה. תיכנס ל
+            <b>חסר ת.ז עוסק / ח.פ</b> — ניתן להפיק גם בלי, אבל מומלץ למלא דרך
             <Link to={`/institutional-orders`} className="underline mx-1">עמוד המוסד</Link>
-            ותעדכן את שדה taxId לפני שתפיק.
+            לזיהוי מלא של הלקוח אצל מורנינג.
           </div>
         </div>
       )}
@@ -364,9 +364,9 @@ export default function BillingPeriodDetail() {
             className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded inline-flex items-center gap-2 border">
             <Eye size={16} /> תצוגה מקדימה
           </button>
-          <button onClick={issue} disabled={busy || missingTaxId || period.lines.length === 0}
+          <button onClick={issue} disabled={busy || period.lines.length === 0}
             className="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded inline-flex items-center gap-2 disabled:opacity-50"
-            title={missingTaxId ? 'חסר ת.ז עוסק' : period.lines.length === 0 ? 'אין שורות' : ''}>
+            title={period.lines.length === 0 ? 'אין שורות' : ''}>
             <Send size={16} /> אשר והפק במורנינג
           </button>
         </div>

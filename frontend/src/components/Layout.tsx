@@ -84,6 +84,7 @@ const adminNavGroups = [
     items: [
       { path: '/system-users', icon: UserCog, label: 'ניהול הנהלה', testId: 'nav-system-users' },
       { path: '/reports', icon: BarChart3, label: 'דוחות', testId: 'nav-reports' },
+      { path: '/morning-invoice', icon: Receipt, label: 'הוצאת חשבון עסקה', testId: 'nav-morning-invoice' },
       { path: '/audit', icon: FileText, label: 'יומן פעילות', testId: 'nav-audit' },
     ],
   },

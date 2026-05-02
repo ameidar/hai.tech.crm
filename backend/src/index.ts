@@ -40,6 +40,7 @@ import { publicQuoteRouter } from './routes/public-quote.js';
 import { publicCancelRouter } from './routes/public-cancel.js';
 import { vapiWebhookRouter } from './routes/vapi-webhook.js';
 import { morningWebhookRouter } from './routes/morning-webhook.js';
+import { morningRouter } from './routes/morning.js';
 import { vapiToolsRouter } from './routes/vapi-tools.js';
 import { updateVapiAssistantDate, processPendingVapiCalls } from './services/vapi.js';
 import cron from 'node-cron';
@@ -214,6 +215,7 @@ app.use('/api/quotes', quotesRouter); // Quote management
 app.use('/api/vapi-webhook', vapiWebhookRouter); // Vapi AI webhook (no auth)
 app.use('/api/vapi-tools', vapiToolsRouter); // Vapi AI tool calls - Google Calendar (no auth)
 app.use('/api/morning-webhook', morningWebhookRouter); // Morning (GreenInvoice) payment webhook (no auth)
+app.use('/api/morning', morningRouter);                   // Morning outgoing — issue documents
 app.use('/api/messenger/webhook', cors({ origin: '*', credentials: false, methods: ['GET', 'POST', 'OPTIONS'] }));
 app.use('/api/instagram/webhook', cors({ origin: '*', credentials: false, methods: ['GET', 'POST', 'OPTIONS'] }));
 app.use('/api/lead-appointments', leadAppointmentsRouter); // Lead appointment management

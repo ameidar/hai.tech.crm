@@ -127,9 +127,16 @@ export class MeetingsService {
         where: { id: existing.cycleId },
         data: {
           completedMeetings: { decrement: 1 },
-          remainingMeetings: { increment: 1 },
         },
       });
+    }
+
+    // Zero amounts on any transition to postponed/cancelled — these meetings
+    // didn't take place, so they shouldn't carry revenue/payment/profit.
+    if (data.status === 'postponed' || data.status === 'cancelled') {
+      data.revenue = 0;
+      data.instructorPayment = 0;
+      data.profit = 0;
     }
 
     const meeting = await this.repository.update(id, data, req?.user?.userId);
@@ -551,6 +558,14 @@ export class MeetingsService {
               remainingMeetings: { increment: 1 },
             },
           });
+        }
+
+        // Zero amounts on any transition to postponed/cancelled — these
+        // meetings didn't take place, so they shouldn't carry $ figures.
+        if (input.status === 'postponed' || input.status === 'cancelled') {
+          updateData.revenue = 0;
+          updateData.instructorPayment = 0;
+          updateData.profit = 0;
         }
 
         await this.repository.update(id, updateData, req?.user?.userId);

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Trash2, FileText, ExternalLink, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Plus, Trash2, ExternalLink, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { api } from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 
@@ -122,7 +122,6 @@ export default function MorningInvoiceTest() {
       <PageHeader
         title="הוצאת חשבון עסקה / מסמך מורנינג"
         subtitle="טופס בדיקה — מילוי ידני של פרטי לקוח ופריטים והפקה מיידית דרך ה-API של מורנינג"
-        icon={FileText}
       />
 
       {result && (

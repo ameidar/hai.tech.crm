@@ -34,6 +34,7 @@ import { emailRouter } from './routes/email.js';
 import { initEmailQueue } from './services/email/queue.js';
 import { initEmailScheduler } from './services/email/scheduler.js';
 import { initCancellationScheduler } from './services/cancellation-scheduler.js';
+import { initBillingScheduler } from './services/billing-scheduler.js';
 import { forecastRouter } from './routes/forecast.js';
 import { quotesRouter } from './routes/quotes.js';
 import { publicQuoteRouter } from './routes/public-quote.js';
@@ -41,6 +42,7 @@ import { publicCancelRouter } from './routes/public-cancel.js';
 import { vapiWebhookRouter } from './routes/vapi-webhook.js';
 import { morningWebhookRouter } from './routes/morning-webhook.js';
 import { morningRouter } from './routes/morning.js';
+import { billingRouter } from './routes/billing.js';
 import { vapiToolsRouter } from './routes/vapi-tools.js';
 import { updateVapiAssistantDate, processPendingVapiCalls } from './services/vapi.js';
 import cron from 'node-cron';
@@ -216,6 +218,7 @@ app.use('/api/vapi-webhook', vapiWebhookRouter); // Vapi AI webhook (no auth)
 app.use('/api/vapi-tools', vapiToolsRouter); // Vapi AI tool calls - Google Calendar (no auth)
 app.use('/api/morning-webhook', morningWebhookRouter); // Morning (GreenInvoice) payment webhook (no auth)
 app.use('/api/morning', morningRouter);                   // Morning outgoing — issue documents
+app.use('/api/billing', billingRouter);                   // Monthly billing periods for institutions
 app.use('/api/messenger/webhook', cors({ origin: '*', credentials: false, methods: ['GET', 'POST', 'OPTIONS'] }));
 app.use('/api/instagram/webhook', cors({ origin: '*', credentials: false, methods: ['GET', 'POST', 'OPTIONS'] }));
 app.use('/api/lead-appointments', leadAppointmentsRouter); // Lead appointment management
@@ -286,6 +289,7 @@ const start = async () => {
     } else {
       initEmailScheduler();
       initCancellationScheduler();
+      initBillingScheduler();
       // Update VAPI assistant date on startup + daily cron handles ongoing updates
       updateVapiAssistantDate().catch((err: any) =>
         console.error('[VAPI] Startup date update failed:', err)

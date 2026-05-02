@@ -310,6 +310,10 @@ model InstitutionalOrder {
   status            OrderStatus @default(draft)
   fireberryStatus   String?     @map("fireberry_status")
   notes             String?
+  taxId             String?     @map("tax_id")           // ת.ז עוסק / ח.פ — required for billing
+  address           String?
+  city              String?
+  zip               String?
   totalAmount       Decimal?    @map("total_amount") @db.Decimal(10, 2)
   invoiceNumber     String?     @map("invoice_number")
   invoiceLink       String?     @map("invoice_link")
@@ -324,11 +328,73 @@ model InstitutionalOrder {
   updatedAt         DateTime    @updatedAt @map("updated_at")
 
   // Relations
-  branch Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  cycles Cycle[]
-  quote  Quote?
+  branch         Branch?         @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  cycles         Cycle[]
+  quote          Quote?
+  billingPeriods BillingPeriod[]
 
   @@map("institutional_orders")
+}
+
+// Monthly billing for institutional clients — one per (institution × month)
+enum BillingStatus {
+  draft        // generated, awaiting admin review/edit
+  issued       // sent to Morning, document number allocated
+  cancelled    // marked cancelled by admin (no Morning action — for drafts only)
+}
+
+model BillingPeriod {
+  id                    String              @id @default(uuid())
+  institutionalOrderId  String              @map("institutional_order_id")
+  month                 DateTime            @db.Date  // first of the billed month, e.g. 2026-04-01
+  status                BillingStatus       @default(draft)
+  totalAmount           Decimal             @default(0) @map("total_amount") @db.Decimal(10, 2)
+  notes                 String?
+  sendByEmail           Boolean             @default(false) @map("send_by_email")
+
+  generatedAt           DateTime            @default(now()) @map("generated_at")
+  generatedById         String?             @map("generated_by_id")
+  approvedAt            DateTime?           @map("approved_at")
+  approvedById          String?             @map("approved_by_id")
+  issuedAt              DateTime?           @map("issued_at")
+  issuedById            String?             @map("issued_by_id")
+
+  // Morning fields populated after issue
+  morningDocId          String?             @map("morning_doc_id")
+  morningDocNumber      Int?                @map("morning_doc_number")
+  morningDocUrl         String?             @map("morning_doc_url")
+  morningDocType        Int?                @map("morning_doc_type")
+
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  institutionalOrder    InstitutionalOrder  @relation(fields: [institutionalOrderId], references: [id], onDelete: Cascade)
+  lines                 BillingPeriodLine[]
+
+  @@unique([institutionalOrderId, month])
+  @@index([month])
+  @@index([status])
+  @@map("billing_periods")
+}
+
+model BillingPeriodLine {
+  id                String         @id @default(uuid())
+  billingPeriodId   String         @map("billing_period_id")
+  cycleId           String?        @map("cycle_id")             // optional — admin can add manual lines
+  description       String
+  quantity          Decimal        @db.Decimal(10, 2)
+  unitPrice         Decimal        @map("unit_price") @db.Decimal(10, 2)
+  total             Decimal        @db.Decimal(10, 2)
+  sortOrder         Int            @default(0) @map("sort_order")
+
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  billingPeriod     BillingPeriod  @relation(fields: [billingPeriodId], references: [id], onDelete: Cascade)
+  cycle             Cycle?         @relation(fields: [cycleId], references: [id], onDelete: SetNull)
+
+  @@index([billingPeriodId])
+  @@map("billing_period_lines")
 }
 
 model Cycle {
@@ -381,6 +447,7 @@ model Cycle {
   meetings           Meeting[]
   expenses           CycleExpense[]
   upsellLeads        UpsellLead[]
+  billingLines       BillingPeriodLine[]
 
   @@map("cycles")
 }

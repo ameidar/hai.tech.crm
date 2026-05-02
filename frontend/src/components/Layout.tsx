@@ -15,6 +15,7 @@ import {
   BarChart3,
   FileText,
   Receipt,
+  CreditCard,
   PhoneCall,
   LogOut,
   Menu,
@@ -51,6 +52,7 @@ const adminNavGroups = [
       { path: '/meetings', icon: Calendar, label: 'פגישות', testId: 'nav-meetings' },
       { path: '/quotes', icon: Receipt, label: 'הצעות מחיר', testId: 'nav-quotes' },
       { path: '/institutional-orders', icon: FileText, label: 'הזמנות מוסדיות', testId: 'nav-institutional-orders' },
+      { path: '/billing', icon: CreditCard, label: 'חשבונות חודשיים', testId: 'nav-billing' },
     ],
   },
   {

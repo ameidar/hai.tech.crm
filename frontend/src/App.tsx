@@ -29,6 +29,8 @@ import PublicQuoteView from './pages/PublicQuoteView';
 import PublicCancelForm from './pages/PublicCancelForm';
 import LeadAppointments from './pages/LeadAppointments';
 import InstitutionalOrders from './pages/InstitutionalOrders';
+import BillingPeriods from './pages/BillingPeriods';
+import BillingPeriodDetail from './pages/BillingPeriodDetail';
 import SystemUsers from './pages/SystemUsers';
 import WhatsAppInbox from './pages/WhatsAppInbox';
 import MessengerInbox from './pages/MessengerInbox';
@@ -176,6 +178,8 @@ function AppRoutes() {
             <Route path="quotes/:id" element={<NonSalesRoute><QuoteDetail /></NonSalesRoute>} />
             <Route path="quotes/:id/edit" element={<NonSalesRoute><QuoteEdit /></NonSalesRoute>} />
             <Route path="institutional-orders" element={<NonSalesRoute><InstitutionalOrders /></NonSalesRoute>} />
+            <Route path="billing" element={<NonSalesRoute><BillingPeriods /></NonSalesRoute>} />
+            <Route path="billing/:id" element={<NonSalesRoute><BillingPeriodDetail /></NonSalesRoute>} />
             <Route path="lead-appointments" element={<NonSalesRoute><LeadAppointments /></NonSalesRoute>} />
             <Route path="system-users" element={<NonSalesRoute><SystemUsers /></NonSalesRoute>} />
             <Route path="reports" element={<NonSalesRoute><Reports /></NonSalesRoute>} />

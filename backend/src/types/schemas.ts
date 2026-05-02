@@ -112,6 +112,11 @@ export const createInstitutionalOrderSchema = z.object({
   contractFile: z.string().optional().nullable(),
   status: z.enum(['draft', 'active', 'completed', 'cancelled']).default('draft'),
   notes: z.string().optional().nullable(),
+  // Billing fields — needed for issuing monthly proforma via Morning
+  taxId: z.string().optional().nullable(),
+  address: z.string().optional().nullable(),
+  city: z.string().optional().nullable(),
+  zip: z.string().optional().nullable(),
 });
 
 export const updateInstitutionalOrderSchema = createInstitutionalOrderSchema.partial().omit({ branchId: true });

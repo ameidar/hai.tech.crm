@@ -94,6 +94,11 @@ const orderSchema = z.object({
   salesperson: z.string().optional().nullable(),
   orderType: z.string().optional().nullable(),
   createdBy: z.string().optional().nullable(),
+  // Billing fields — needed for issuing monthly proforma to Morning
+  taxId: z.string().optional().nullable(),
+  address: z.string().optional().nullable(),
+  city: z.string().optional().nullable(),
+  zip: z.string().optional().nullable(),
 });
 
 // Create institutional order
@@ -124,6 +129,10 @@ institutionalOrdersRouter.post('/', managerOrAdmin, async (req, res, next) => {
         salesperson: data.salesperson ?? null,
         orderType: data.orderType ?? null,
         createdBy: data.createdBy ?? null,
+        taxId: data.taxId ?? null,
+        address: data.address ?? null,
+        city: data.city ?? null,
+        zip: data.zip ?? null,
       },
       include: {
         branch: { select: { id: true, name: true, city: true, type: true } },
@@ -172,6 +181,10 @@ institutionalOrdersRouter.put('/:id', managerOrAdmin, async (req, res, next) => 
         ...(data.salesperson !== undefined && { salesperson: data.salesperson }),
         ...(data.orderType !== undefined && { orderType: data.orderType }),
         ...(data.createdBy !== undefined && { createdBy: data.createdBy }),
+        ...(data.taxId !== undefined && { taxId: data.taxId }),
+        ...(data.address !== undefined && { address: data.address }),
+        ...(data.city !== undefined && { city: data.city }),
+        ...(data.zip !== undefined && { zip: data.zip }),
       },
       include: {
         branch: { select: { id: true, name: true, city: true, type: true } },

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { logAudit } from '../utils/audit.js';
-import { createDocument, DOCUMENT_TYPES } from '../services/morning/documents.js';
+import { createDocument, previewDocument, DOCUMENT_TYPES } from '../services/morning/documents.js';
 import { isMorningConfigured } from '../services/morning/client.js';
 
 export const morningRouter = Router();
@@ -44,6 +44,25 @@ morningRouter.get('/status', (_req, res) => {
   res.json({ configured: isMorningConfigured() });
 });
 
+function buildPayload(data: ReturnType<typeof createDocumentSchema.parse>) {
+  const cleanedClient = {
+    ...data.client,
+    taxId: data.client.taxId || undefined,
+    phone: data.client.phone || undefined,
+    mobile: data.client.mobile || undefined,
+    address: data.client.address || undefined,
+    city: data.client.city || undefined,
+    zip: data.client.zip || undefined,
+  };
+  return {
+    ...data,
+    client: cleanedClient,
+    remarks: data.remarks || undefined,
+    description: data.description || undefined,
+    dueDate: data.dueDate || undefined,
+  };
+}
+
 morningRouter.post('/documents', managerOrAdmin, async (req, res, next) => {
   try {
     if (!isMorningConfigured()) {
@@ -51,24 +70,8 @@ morningRouter.post('/documents', managerOrAdmin, async (req, res, next) => {
     }
 
     const data = createDocumentSchema.parse(req.body);
-
-    const cleanedClient = {
-      ...data.client,
-      taxId: data.client.taxId || undefined,
-      phone: data.client.phone || undefined,
-      mobile: data.client.mobile || undefined,
-      address: data.client.address || undefined,
-      city: data.client.city || undefined,
-      zip: data.client.zip || undefined,
-    };
-
-    const document = await createDocument({
-      ...data,
-      client: cleanedClient,
-      remarks: data.remarks || undefined,
-      description: data.description || undefined,
-      dueDate: data.dueDate || undefined,
-    });
+    const payload = buildPayload(data);
+    const document = await createDocument(payload);
 
     await logAudit({
       req,
@@ -93,11 +96,28 @@ morningRouter.post('/documents', managerOrAdmin, async (req, res, next) => {
     });
   } catch (err: any) {
     if (err.body) {
-      // Surface Morning's error to the client
-      return res.status(err.status || 500).json({
-        error: 'Morning API error',
-        details: err.body,
-      });
+      return res.status(err.status || 500).json({ error: 'Morning API error', details: err.body });
+    }
+    next(err);
+  }
+});
+
+// Preview — returns base64 PDF without creating any record in Morning.
+// Use for safe end-to-end testing.
+morningRouter.post('/documents/preview', managerOrAdmin, async (req, res, next) => {
+  try {
+    if (!isMorningConfigured()) {
+      throw new AppError(503, 'Morning API is not configured on this server');
+    }
+
+    const data = createDocumentSchema.parse(req.body);
+    const payload = buildPayload(data);
+    const result = await previewDocument(payload);
+
+    res.json({ success: true, fileBase64: result.file });
+  } catch (err: any) {
+    if (err.body) {
+      return res.status(err.status || 500).json({ error: 'Morning API error', details: err.body });
     }
     next(err);
   }

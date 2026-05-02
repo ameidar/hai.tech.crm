@@ -1,14 +1,15 @@
 import { morningRequest } from './client.js';
 
-// Morning document types — see https://www.greeninvoice.co.il/api-docs
+// Morning document types — see https://greeninvoice.docs.apiary.io/
 export const DOCUMENT_TYPES = {
-  PRICE_QUOTE: 10,
-  WORK_ORDER: 100,
-  PROFORMA: 200,           // חשבון עסקה
-  TAX_INVOICE: 305,
-  TAX_INVOICE_RECEIPT: 320,
-  RECEIPT: 400,
-  CREDIT_INVOICE: 330,
+  PRICE_QUOTE: 10,        // הצעת מחיר
+  WORK_ORDER: 100,        // הזמנת עבודה
+  DELIVERY_NOTE: 200,     // תעודת משלוח
+  PROFORMA: 300,          // חשבון עסקה (Proforma)
+  TAX_INVOICE: 305,       // חשבונית מס (binding)
+  TAX_INVOICE_RECEIPT: 320, // חשבונית מס + קבלה
+  RECEIPT: 400,           // קבלה
+  CREDIT_INVOICE: 330,    // חשבונית זיכוי
 } as const;
 
 // Morning vatType: 0=exempt (no VAT), 1=above (price excludes VAT), 2=included (price includes VAT)
@@ -67,4 +68,23 @@ export async function createDocument(input: CreateDocumentInput): Promise<Mornin
     ...input,
   };
   return morningRequest<MorningDocument>('POST', '/api/v1/documents', body);
+}
+
+/**
+ * Render the same document via Morning's preview endpoint — returns the rendered
+ * PDF as a base64 string in `file`, with NO record created in Morning's books and
+ * NO document number allocated. Use for end-to-end testing without leaving traces.
+ */
+export interface PreviewResponse {
+  file: string;            // base64-encoded PDF
+}
+
+export async function previewDocument(input: CreateDocumentInput): Promise<PreviewResponse> {
+  const body = {
+    lang: 'he',
+    currency: 'ILS',
+    vatType: 1,
+    ...input,
+  };
+  return morningRequest<PreviewResponse>('POST', '/api/v1/documents/preview', body);
 }

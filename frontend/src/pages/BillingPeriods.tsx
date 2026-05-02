@@ -13,6 +13,10 @@ interface BillingPeriod {
   morningDocUrl: string | null;
   generatedAt: string;
   issuedAt: string | null;
+  dueDate: string | null;
+  paymentStatus: 'unpaid' | 'partial' | 'paid';
+  paidAmount: number | string;
+  sentAt: string | null;
   institutionalOrder: { id: string; orderName: string | null; taxId: string | null };
   _count: { lines: number };
 }
@@ -32,6 +36,12 @@ const STATUS_COLOR: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-700',
   issued: 'bg-green-100 text-green-700',
   cancelled: 'bg-red-100 text-red-700',
+};
+const PAY_HE: Record<string, string> = { unpaid: 'טרם שולם', partial: 'חלקי', paid: 'שולם' };
+const PAY_COLOR: Record<string, string> = {
+  unpaid: 'bg-red-100 text-red-700',
+  partial: 'bg-amber-100 text-amber-700',
+  paid: 'bg-green-100 text-green-700',
 };
 
 const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
@@ -54,6 +64,7 @@ export default function BillingPeriods() {
   const [orders, setOrders] = useState<InstitutionalOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [overdueOnly, setOverdueOnly] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,8 +76,11 @@ export default function BillingPeriods() {
   async function load() {
     setLoading(true);
     try {
-      const params = statusFilter ? `?status=${statusFilter}` : '';
-      const { data } = await api.get(`/billing${params}`);
+      const params = new URLSearchParams();
+      if (statusFilter) params.set('status', statusFilter);
+      if (overdueOnly) params.set('overdue', 'true');
+      const qs = params.toString() ? `?${params}` : '';
+      const { data } = await api.get(`/billing${qs}`);
       setPeriods(data);
     } finally {
       setLoading(false);
@@ -79,7 +93,7 @@ export default function BillingPeriods() {
     }).catch(() => {});
   }, []);
 
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [statusFilter]);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [statusFilter, overdueOnly]);
 
   async function generate(e: React.FormEvent) {
     e.preventDefault();
@@ -146,12 +160,16 @@ export default function BillingPeriods() {
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="font-semibold text-gray-900">רשימת חשבונות חודשיים</h2>
           <div className="flex items-center gap-2">
-            <select className="form-input !w-40" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <select className="form-input !w-40" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setOverdueOnly(false); }}>
               <option value="">כל הסטטוסים</option>
               <option value="draft">טיוטות</option>
               <option value="issued">הופק</option>
               <option value="cancelled">בוטלו</option>
             </select>
+            <label className="flex items-center gap-1 text-sm text-red-700 font-medium whitespace-nowrap cursor-pointer">
+              <input type="checkbox" checked={overdueOnly} onChange={(e) => { setOverdueOnly(e.target.checked); if (e.target.checked) setStatusFilter(''); }} />
+              פגי תוקף
+            </label>
             <button onClick={load} className="text-gray-600 hover:text-gray-900 p-2"><RefreshCcw size={18} /></button>
           </div>
         </div>
@@ -166,15 +184,19 @@ export default function BillingPeriods() {
                 <th className="text-right p-3">מוסד</th>
                 <th className="text-right p-3">חודש</th>
                 <th className="text-right p-3">שורות</th>
-                <th className="text-right p-3">סכום</th>
+                <th className="text-right p-3">סכום (נטו)</th>
                 <th className="text-right p-3">סטטוס</th>
+                <th className="text-right p-3">תשלום</th>
+                <th className="text-right p-3">לתשלום עד</th>
                 <th className="text-right p-3">מסמך מורנינג</th>
                 <th className="text-right p-3"></th>
               </tr>
             </thead>
             <tbody>
-              {periods.map((p) => (
-                <tr key={p.id} className="border-b last:border-b-0 hover:bg-gray-50">
+              {periods.map((p) => {
+                const isOverdue = p.status === 'issued' && p.dueDate && new Date(p.dueDate) < new Date() && p.paymentStatus !== 'paid';
+                return (
+                <tr key={p.id} className={`border-b last:border-b-0 hover:bg-gray-50 ${isOverdue ? 'bg-red-50' : ''}`}>
                   <td className="p-3">
                     <div className="font-medium">{p.institutionalOrder.orderName || '—'}</div>
                     {!p.institutionalOrder.taxId && (
@@ -186,6 +208,21 @@ export default function BillingPeriods() {
                   <td className="p-3">{Number(p.totalAmount).toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}</td>
                   <td className="p-3">
                     <span className={`px-2 py-1 rounded text-xs font-medium ${STATUS_COLOR[p.status]}`}>{STATUS_HE[p.status]}</span>
+                  </td>
+                  <td className="p-3">
+                    {p.status === 'issued' ? (
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${PAY_COLOR[p.paymentStatus]}`}>
+                        {PAY_HE[p.paymentStatus]}
+                      </span>
+                    ) : '—'}
+                  </td>
+                  <td className="p-3 text-sm">
+                    {p.dueDate ? (
+                      <span className={isOverdue ? 'text-red-700 font-semibold' : ''}>
+                        {new Date(p.dueDate).toLocaleDateString('he-IL')}
+                        {isOverdue && ' ⚠️'}
+                      </span>
+                    ) : '—'}
                   </td>
                   <td className="p-3">
                     {p.morningDocNumber ? (
@@ -203,7 +240,8 @@ export default function BillingPeriods() {
                     <Link to={`/billing/${p.id}`} className="text-blue-600 hover:underline text-sm">פתח →</Link>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}

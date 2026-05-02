@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowRight, Plus, Trash2, Eye, Send, AlertCircle, CheckCircle2, ExternalLink, X } from 'lucide-react';
+import { ArrowRight, Plus, Trash2, Eye, Send, AlertCircle, CheckCircle2, ExternalLink, X, MessageCircle, Wallet, FileCheck2 } from 'lucide-react';
 import { api } from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 
@@ -14,6 +14,15 @@ interface Line {
   sortOrder: number;
 }
 
+interface Payment {
+  id: string;
+  amount: string | number;
+  method: string | null;
+  notes: string | null;
+  paidAt: string;
+  recordedById: string | null;
+}
+
 interface Period {
   id: string;
   month: string;
@@ -25,17 +34,50 @@ interface Period {
   morningDocUrl: string | null;
   morningDocId: string | null;
   issuedAt: string | null;
+  dueDate: string | null;
+  taxInvoiceId: string | null;
+  taxInvoiceNumber: number | null;
+  taxInvoiceUrl: string | null;
+  taxInvoiceIssuedAt: string | null;
+  sentAt: string | null;
+  sentChannel: string | null;
+  sentToEmail: string | null;
+  sentToPhone: string | null;
+  paymentStatus: 'unpaid' | 'partial' | 'paid';
+  paidAmount: string | number;
+  paidAt: string | null;
   institutionalOrder: {
     id: string;
     orderName: string | null;
     taxId: string | null;
     contactEmail: string | null;
     contactName: string | null;
+    contactPhone?: string | null;
     address: string | null;
     city: string | null;
     branch?: { name: string | null };
   };
   lines: Line[];
+  payments: Payment[];
+  _count?: { meetings: number };
+}
+
+interface DriftMeeting {
+  id: string;
+  scheduledDate: string;
+  startTime: string;
+  revenue: string | number;
+  instructorPayment: string | number;
+  cycle: { id: string; name: string; type: string };
+  instructor: { id: string; name: string };
+}
+
+interface DriftReport {
+  issuedAt: string | null;
+  snapshotCount: number;
+  currentCount: number;
+  newSinceIssue: DriftMeeting[];
+  removedSinceIssue: string[];
 }
 
 const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
@@ -56,11 +98,27 @@ export default function BillingPeriodDetail() {
   const [newLine, setNewLine] = useState({ description: '', quantity: '1', unitPrice: '0' });
   const [showAddLine, setShowAddLine] = useState(false);
 
+  // Payment + actions state
+  const [drift, setDrift] = useState<DriftReport | null>(null);
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [newPayment, setNewPayment] = useState({ amount: '', method: '', notes: '', paidAt: new Date().toISOString().slice(0, 10) });
+  const [showWhatsAppForm, setShowWhatsAppForm] = useState(false);
+  const [waPhone, setWaPhone] = useState('');
+  const [waMessage, setWaMessage] = useState('');
+
   async function load() {
     setLoading(true);
     try {
       const { data } = await api.get(`/billing/${id}`);
       setPeriod(data);
+      if (data.status === 'issued') {
+        try {
+          const { data: d } = await api.get(`/billing/${id}/drift`);
+          setDrift(d);
+        } catch { setDrift(null); }
+      } else {
+        setDrift(null);
+      }
     } catch (err: any) {
       setError(err.response?.data?.error || err.message);
     } finally {
@@ -168,6 +226,86 @@ export default function BillingPeriodDetail() {
     } catch (err) { handleErr(err); } finally { setBusy(false); }
   }
 
+  async function addPayment(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await api.post(`/billing/${id}/payments`, {
+        amount: Number(newPayment.amount),
+        method: newPayment.method || null,
+        notes: newPayment.notes || null,
+        paidAt: newPayment.paidAt || null,
+      });
+      setNewPayment({ amount: '', method: '', notes: '', paidAt: new Date().toISOString().slice(0, 10) });
+      setShowPaymentForm(false);
+      await load();
+    } catch (err) { handleErr(err); } finally { setBusy(false); }
+  }
+
+  async function deletePayment(paymentId: string) {
+    if (!confirm('למחוק את רישום התשלום?')) return;
+    setError(null);
+    try {
+      await api.delete(`/billing/${id}/payments/${paymentId}`);
+      await load();
+    } catch (err) { handleErr(err); }
+  }
+
+  async function markSent(channel: 'manual' | 'email') {
+    setError(null);
+    try {
+      await api.post(`/billing/${id}/mark-sent`, {
+        channel,
+        toEmail: channel === 'email' ? period?.institutionalOrder.contactEmail || null : null,
+      });
+      await load();
+    } catch (err) { handleErr(err); }
+  }
+
+  async function openWhatsApp() {
+    if (!period) return;
+    const phone = period.institutionalOrder.contactPhone || '';
+    setWaPhone(phone);
+    const orderName = period.institutionalOrder.orderName || 'מוסד';
+    const monthDate = new Date(period.month);
+    const monthLbl = `${HEBREW_MONTHS[monthDate.getUTCMonth()]} ${monthDate.getUTCFullYear()}`;
+    const totalGross = (Number(period.totalAmount) * 1.18).toFixed(2);
+    setWaMessage([
+      `שלום,`,
+      `מצורף חשבון עסקה מספר ${period.morningDocNumber} עבור ${orderName} — ${monthLbl}.`,
+      `סכום לתשלום: ₪${totalGross} (כולל מע"מ).`,
+      `קישור למסמך: ${period.morningDocUrl}`,
+      ``,
+      `דרך ההיי-טק בע"מ`,
+    ].join('\n'));
+    setShowWhatsAppForm(true);
+  }
+
+  async function sendWhatsApp(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await api.post(`/billing/${id}/send-whatsapp`, {
+        phone: waPhone,
+        message: waMessage,
+      });
+      setShowWhatsAppForm(false);
+      await load();
+    } catch (err) { handleErr(err); } finally { setBusy(false); }
+  }
+
+  async function issueTaxInvoice() {
+    if (!confirm('להפיק חשבונית מס מחייבת (305) במורנינג? המסמך לא ניתן לביטול.')) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await api.post(`/billing/${id}/issue-tax-invoice`);
+      await load();
+    } catch (err) { handleErr(err); } finally { setBusy(false); }
+  }
+
   if (loading) return <div className="p-6 text-center text-gray-500">טוען...</div>;
   if (!period) return <div className="p-6 text-center text-red-600">{error || 'לא נמצא'}</div>;
 
@@ -196,16 +334,56 @@ export default function BillingPeriodDetail() {
         <div className="bg-green-50 border border-green-200 rounded p-4 flex items-start gap-3">
           <CheckCircle2 className="text-green-600 mt-0.5" size={20} />
           <div className="flex-1">
-            <h3 className="font-semibold text-green-900">המסמך הופק במורנינג</h3>
+            <h3 className="font-semibold text-green-900">חשבון עסקה הופק במורנינג</h3>
             <p className="text-sm text-green-800 mt-1">
               מספר: <b>{period.morningDocNumber}</b>
-              {period.issuedAt && <> · תאריך הפקה: {new Date(period.issuedAt).toLocaleString('he-IL')}</>}
+              {period.issuedAt && <> · הופק: {new Date(period.issuedAt).toLocaleString('he-IL')}</>}
+              {period.dueDate && <> · לתשלום עד: {new Date(period.dueDate).toLocaleDateString('he-IL')}</>}
             </p>
-            {period.morningDocUrl && (
-              <a href={period.morningDocUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-green-700 hover:underline text-sm mt-2">
-                <ExternalLink size={14} /> פתח PDF
-              </a>
-            )}
+            <div className="flex flex-wrap gap-3 mt-2 text-sm">
+              {period.morningDocUrl && (
+                <a href={period.morningDocUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-green-700 hover:underline">
+                  <ExternalLink size={14} /> חשבון עסקה (PDF)
+                </a>
+              )}
+              {period.taxInvoiceUrl && (
+                <a href={period.taxInvoiceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-green-700 hover:underline">
+                  <ExternalLink size={14} /> חשבונית מס #{period.taxInvoiceNumber} (PDF)
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {drift && (drift.newSinceIssue.length > 0 || drift.removedSinceIssue.length > 0) && (
+        <div className="bg-amber-50 border border-amber-200 rounded p-4 text-sm text-amber-900">
+          <div className="flex items-start gap-2">
+            <AlertCircle size={16} className="mt-0.5" />
+            <div className="flex-1">
+              <b>שינוי בפגישות אחרי ההפקה</b> — בעת ההפקה נכללו {drift.snapshotCount} פגישות, ועכשיו יש {drift.currentCount}.
+              {drift.newSinceIssue.length > 0 && (
+                <div className="mt-2">
+                  <b>{drift.newSinceIssue.length} פגישות חדשות שלא חויבו:</b>
+                  <ul className="mt-1 list-disc pr-5 space-y-0.5">
+                    {drift.newSinceIssue.map((m) => (
+                      <li key={m.id}>
+                        {new Date(m.scheduledDate).toLocaleDateString('he-IL')} · {m.cycle.name} · {m.instructor.name}
+                        {Number(m.instructorPayment) > 0 && (
+                          <span className="text-red-700 mx-1">⚠️ שולם למדריך {Number(m.instructorPayment).toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-xs mt-2">שקול ליצור חשבון משלים לחודש הבא או לעדכן את החשבון הקיים ידנית במורנינג.</p>
+                </div>
+              )}
+              {drift.removedSinceIssue.length > 0 && (
+                <div className="mt-2">
+                  <b>{drift.removedSinceIssue.length} פגישות שכבר לא רלוונטיות</b> (נמחקו / שונה סטטוס לאחר ההפקה).
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -370,6 +548,177 @@ export default function BillingPeriodDetail() {
             <Send size={16} /> אשר והפק במורנינג
           </button>
         </div>
+      )}
+
+      {/* ── Payment tracking ─────────────────────────────────────────── */}
+      {period.status === 'issued' && (
+        <section className="bg-white rounded-xl border p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Wallet size={18} className="text-gray-600" />
+              <h2 className="font-semibold text-gray-900">מעקב תשלומים</h2>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                period.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' :
+                period.paymentStatus === 'partial' ? 'bg-amber-100 text-amber-700' :
+                'bg-red-100 text-red-700'
+              }`}>
+                {period.paymentStatus === 'paid' ? 'שולם' :
+                 period.paymentStatus === 'partial' ? 'שולם חלקית' : 'טרם שולם'}
+              </span>
+            </div>
+            {!showPaymentForm && period.paymentStatus !== 'paid' && (
+              <button onClick={() => setShowPaymentForm(true)}
+                className="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded inline-flex items-center gap-1">
+                <Plus size={14} /> הוסף תשלום
+              </button>
+            )}
+          </div>
+
+          <div className="text-sm text-gray-600">
+            שולם: <b>{Number(period.paidAmount).toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}</b>
+            {' '}מתוך{' '}
+            <b>{(Number(period.totalAmount) * 1.18).toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}</b>
+            {' '}(כולל מע"מ)
+            {Number(period.paidAmount) > 0 && Number(period.paidAmount) < Number(period.totalAmount) * 1.18 && (
+              <span className="text-amber-700 mr-2">
+                · יתרה: {((Number(period.totalAmount) * 1.18) - Number(period.paidAmount)).toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}
+              </span>
+            )}
+          </div>
+
+          {period.payments.length > 0 && (
+            <table className="w-full text-sm border rounded overflow-hidden">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <th className="text-right p-2">תאריך</th>
+                  <th className="text-right p-2">סכום</th>
+                  <th className="text-right p-2">אמצעי תשלום</th>
+                  <th className="text-right p-2">הערות</th>
+                  <th className="w-10"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {period.payments.map((pay) => (
+                  <tr key={pay.id} className="border-t">
+                    <td className="p-2">{new Date(pay.paidAt).toLocaleDateString('he-IL')}</td>
+                    <td className="p-2 font-medium">{Number(pay.amount).toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}</td>
+                    <td className="p-2">{pay.method || '—'}</td>
+                    <td className="p-2 text-gray-500">{pay.notes || '—'}</td>
+                    <td className="p-2">
+                      <button onClick={() => deletePayment(pay.id)} className="text-red-500 hover:text-red-700">
+                        <Trash2 size={15} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {showPaymentForm && (
+            <form onSubmit={addPayment} className="bg-gray-50 rounded-lg border p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-medium text-sm">תשלום חדש</h3>
+                <button type="button" onClick={() => setShowPaymentForm(false)} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="form-label">סכום (₪)</label>
+                  <input type="number" step="0.01" className="form-input" required value={newPayment.amount}
+                    onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })} />
+                </div>
+                <div>
+                  <label className="form-label">תאריך תשלום</label>
+                  <input type="date" className="form-input" value={newPayment.paidAt}
+                    onChange={(e) => setNewPayment({ ...newPayment, paidAt: e.target.value })} />
+                </div>
+                <div>
+                  <label className="form-label">אמצעי תשלום</label>
+                  <input className="form-input" placeholder="העברה / צ׳ק / מזומן…" value={newPayment.method}
+                    onChange={(e) => setNewPayment({ ...newPayment, method: e.target.value })} />
+                </div>
+                <div>
+                  <label className="form-label">הערות</label>
+                  <input className="form-input" value={newPayment.notes}
+                    onChange={(e) => setNewPayment({ ...newPayment, notes: e.target.value })} />
+                </div>
+              </div>
+              <div className="text-left">
+                <button type="submit" disabled={busy} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm disabled:opacity-50">
+                  שמור תשלום
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
+      )}
+
+      {/* ── Send + tax invoice actions ────────────────────────────────── */}
+      {period.status === 'issued' && (
+        <section className="bg-white rounded-xl border p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <MessageCircle size={18} className="text-gray-600" />
+            <h2 className="font-semibold text-gray-900">שליחה ותיעוד</h2>
+            {period.sentAt && (
+              <span className="text-xs text-gray-500">
+                · נשלח: {new Date(period.sentAt).toLocaleString('he-IL')} דרך {period.sentChannel}
+                {period.sentToPhone && ` → ${period.sentToPhone}`}
+                {period.sentToEmail && ` → ${period.sentToEmail}`}
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <button onClick={openWhatsApp} disabled={!period.morningDocUrl}
+              className="inline-flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded text-sm disabled:opacity-40"
+              title={!period.morningDocUrl ? 'אין קישור מסמך' : ''}>
+              <MessageCircle size={15} /> שלח בWhatsApp
+            </button>
+
+            <button onClick={() => markSent('manual')}
+              className="inline-flex items-center gap-2 bg-gray-100 hover:bg-gray-200 border text-gray-700 px-4 py-2 rounded text-sm">
+              <CheckCircle2 size={15} /> סמן כנשלח (ידני)
+            </button>
+
+            {!period.taxInvoiceId && (
+              <button onClick={issueTaxInvoice} disabled={busy}
+                className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm disabled:opacity-50">
+                <FileCheck2 size={15} /> הפק חשבונית מס (305)
+              </button>
+            )}
+            {period.taxInvoiceId && period.taxInvoiceUrl && (
+              <a href={period.taxInvoiceUrl} target="_blank" rel="noreferrer"
+                className="inline-flex items-center gap-2 border text-indigo-700 hover:bg-indigo-50 px-4 py-2 rounded text-sm">
+                <FileCheck2 size={15} /> חשבונית מס #{period.taxInvoiceNumber}
+              </a>
+            )}
+          </div>
+
+          {showWhatsAppForm && (
+            <form onSubmit={sendWhatsApp} className="bg-gray-50 rounded-lg border p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-medium text-sm">שליחת WhatsApp</h3>
+                <button type="button" onClick={() => setShowWhatsAppForm(false)} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+              </div>
+              <div>
+                <label className="form-label">מספר טלפון (כולל קידומת בינ"ל)</label>
+                <input className="form-input" dir="ltr" placeholder="972501234567" required value={waPhone}
+                  onChange={(e) => setWaPhone(e.target.value)} />
+              </div>
+              <div>
+                <label className="form-label">תוכן ההודעה</label>
+                <textarea className="form-input" rows={6} value={waMessage}
+                  onChange={(e) => setWaMessage(e.target.value)} />
+              </div>
+              <div className="text-left">
+                <button type="submit" disabled={busy || !waPhone}
+                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm disabled:opacity-50">
+                  שלח
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
       )}
     </div>
   );

@@ -71,16 +71,44 @@ function toMinutes(dt: Date | string | null): number {
 }
 
 /**
+ * Optional context block appended to a meeting message:
+ * how many lessons remain in the cycle and a summary of the previous lesson.
+ * Both fields are optional — only rendered when the caller provides them.
+ */
+type MeetingExtras = {
+  remaining?: number;
+  totalMeetings?: number;
+  lastSummary?: string | null;
+};
+
+function buildExtrasBlock(extras?: MeetingExtras): string {
+  if (!extras) return '';
+  const parts: string[] = [];
+  if (typeof extras.remaining === 'number') {
+    const total = extras.totalMeetings;
+    parts.push(`📊 נותרו ${extras.remaining}${total ? ` מתוך ${total}` : ''} שיעורים במחזור.`);
+  }
+  if (extras.lastSummary !== undefined) {
+    const trimmed = (extras.lastSummary || '').trim();
+    parts.push(trimmed
+      ? `📝 סיכום השיעור הקודם:\n${trimmed}`
+      : `📝 אין סיכום לשיעור הקודם.`);
+  }
+  return parts.length ? `\n\n${parts.join('\n\n')}` : '';
+}
+
+/**
  * Build WhatsApp message for a single meeting
  */
-function buildMeetingMessage(instructorName: string, meeting: any, meetingLink?: string): string {
+function buildMeetingMessage(instructorName: string, meeting: any, meetingLink?: string, extras?: MeetingExtras): string {
   const cycleName = meeting.cycle?.name || '';
   const branchName = meeting.cycle?.branch?.name || '';
   const time = formatTimeFromDate(meeting.startTime);
   const zoom = meeting.zoomJoinUrl ? `\n🔗 קישור זום: ${meeting.zoomJoinUrl}` : '';
   const hostKey = meeting.zoomHostKey ? `\n🔑 קוד מנהל: ${meeting.zoomHostKey}` : '';
   const link = meetingLink ? `\n📋 לינק לפגישה: ${meetingLink}` : '';
-  return `שלום ${instructorName} 👋\nתזכורת לשיעור היום:\n📚 ${cycleName}\n🏫 ${branchName}\n🕐 שעה: ${time}${zoom}${hostKey}${link}\nבהצלחה! 🙂`;
+  const extrasBlock = buildExtrasBlock(extras);
+  return `שלום ${instructorName} 👋\nתזכורת לשיעור היום:\n📚 ${cycleName}\n🏫 ${branchName}\n🕐 שעה: ${time}${zoom}${hostKey}${link}${extrasBlock}\n\nבהצלחה! 🙂`;
 }
 
 /**
@@ -236,7 +264,34 @@ export async function sendPreMeetingReminders(): Promise<void> {
       if (meetMin < windowMin || meetMin > windowMax) continue;
 
       const meetingLink = generateMeetingMagicLink(m.instructor.id, m.id, APP_URL);
-      const message = buildMeetingMessage(m.instructor.name, m, meetingLink);
+
+      // Pre-meeting context: lessons left in the cycle + previous lesson's summary.
+      // remainingMeetings on the cycle still counts THIS one, so display it as-is.
+      const remaining = m.cycle?.remainingMeetings;
+      const totalMeetings = m.cycle?.totalMeetings;
+      const previous = await prisma.meeting.findFirst({
+        where: {
+          cycleId: m.cycleId,
+          status: 'completed',
+          OR: [
+            { scheduledDate: { lt: m.scheduledDate } },
+            { scheduledDate: m.scheduledDate, startTime: { lt: m.startTime } },
+          ],
+        },
+        orderBy: [
+          { scheduledDate: 'desc' },
+          { startTime: 'desc' },
+        ],
+        select: { lessonSummary: true },
+      });
+
+      const extras: MeetingExtras = {
+        remaining: typeof remaining === 'number' ? remaining : undefined,
+        totalMeetings: typeof totalMeetings === 'number' ? totalMeetings : undefined,
+        lastSummary: previous ? previous.lessonSummary ?? null : null,
+      };
+
+      const message = buildMeetingMessage(m.instructor.name, m, meetingLink, extras);
       const result = await sendWhatsApp({ phone: m.instructor.phone!, message });
       if (result.success) {
         preMeetingRemindersSent.add(m.id);

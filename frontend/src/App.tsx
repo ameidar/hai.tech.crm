@@ -21,6 +21,7 @@ import ResetPassword from './pages/ResetPassword';
 import MeetingStatus from './pages/MeetingStatus';
 import AuditLog from './pages/AuditLog';
 import Quotes from './pages/Quotes';
+import MorningInvoiceTest from './pages/MorningInvoiceTest';
 import QuoteWizard from './pages/QuoteWizard';
 import QuoteDetail from './pages/QuoteDetail';
 import QuoteEdit from './pages/QuoteEdit';
@@ -178,6 +179,7 @@ function AppRoutes() {
             <Route path="lead-appointments" element={<NonSalesRoute><LeadAppointments /></NonSalesRoute>} />
             <Route path="system-users" element={<NonSalesRoute><SystemUsers /></NonSalesRoute>} />
             <Route path="reports" element={<NonSalesRoute><Reports /></NonSalesRoute>} />
+            <Route path="morning-invoice" element={<NonSalesRoute><MorningInvoiceTest /></NonSalesRoute>} />
             <Route path="audit" element={<NonSalesRoute><AuditLog /></NonSalesRoute>} />
             <Route path="campaigns" element={<NonSalesRoute><Campaigns /></NonSalesRoute>} />
             <Route path="facebook-leads" element={<NonSalesRoute><FacebookLeads /></NonSalesRoute>} />

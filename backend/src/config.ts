@@ -62,4 +62,12 @@ export const config = {
     consumerKey: process.env.WOO_CONSUMER_KEY || '',
     consumerSecret: process.env.WOO_CONSUMER_SECRET || '',
   },
+
+  // Morning (formerly Green Invoice) — issuing invoices/proforma documents
+  morning: {
+    apiKeyId: process.env.MORNING_API_KEY_ID || '',
+    apiSecret: process.env.MORNING_API_SECRET || '',
+    businessId: process.env.MORNING_BUSINESS_ID || '',
+    baseUrl: process.env.MORNING_BASE_URL || 'https://api.greeninvoice.co.il',
+  },
 };

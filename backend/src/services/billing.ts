@@ -212,14 +212,13 @@ async function buildMorningPayload(billingPeriodId: string): Promise<CreateDocum
     quantity: Number(l.quantity),
     price: Number(l.unitPrice),
     currency: 'ILS',
-    vatType: 1, // institutional cycles store NET; Morning adds VAT on top
   }));
 
   return {
     type: DOCUMENT_TYPES.PROFORMA,
     lang: 'he',
     currency: 'ILS',
-    vatType: 1,
+    vatType: 0, // Morning: 0=default (price excludes VAT, 18% added on top); 1=exempt; 2=included
     client,
     income,
     remarks: period.notes || undefined,

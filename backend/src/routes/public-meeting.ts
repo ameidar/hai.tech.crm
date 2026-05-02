@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
+import { meetingRevenueFromRegistrations } from '../utils/revenue.js';
 import crypto from 'crypto';
 
 const MEETING_TOKEN_SECRET = process.env.MEETING_TOKEN_SECRET || 'haitech-meeting-status-2026';
@@ -114,11 +115,7 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
       // Calculate revenue
       let revenue = 0;
       if (cycleData.type === 'private') {
-        const totalRegistrationAmount = cycleData.registrations.reduce(
-          (sum, reg) => sum + (reg.amount ? Number(reg.amount) : 0),
-          0
-        );
-        revenue = Math.round(totalRegistrationAmount / cycleData.totalMeetings);
+        revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
       } else if (cycleData.type === 'institutional_per_child') {
         const pricePerStudent = Number(cycleData.pricePerStudent || 0);
         const studentCount = cycleData.studentCount || cycleData.registrations.filter(r => r.status === 'active').length;

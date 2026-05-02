@@ -7,6 +7,7 @@ import { fetchHolidays, dayNameToNumber, calculateCycleEndDate } from '../utils/
 import { zoomService, getHostKeyByEmail } from '../services/zoom.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
+import { meetingRevenueFromRegistrations, netAmount } from '../utils/revenue.js';
 
 // Make.com webhook removed — Zoom recordings handled directly via /api/zoom-webhook
 
@@ -34,12 +35,13 @@ function computeRevenuePerMeeting(cycle: any): number {
     // Sum active registration amounts (available in detail endpoint)
     if (Array.isArray(cycle.registrations) && cycle.registrations.length > 0) {
       const activeRegs = cycle.registrations.filter((r: any) => !['cancelled', 'pending_cancellation'].includes(r.status));
-      const totalRegAmount = activeRegs.reduce((s: number, r: any) => s + (r.amount ? Number(r.amount) : 0), 0);
-      return totalMeetings > 0 ? Math.round(totalRegAmount / totalMeetings) : 0;
+      return meetingRevenueFromRegistrations(activeRegs, totalMeetings, cycle.type);
     }
     // Fallback: aggregated sum if available (list endpoint — already filtered to active)
     if (cycle._sum?.registrations?.amount) {
-      return totalMeetings > 0 ? Math.round(Number(cycle._sum.registrations.amount) / totalMeetings) : 0;
+      return totalMeetings > 0
+        ? Math.round(netAmount(Number(cycle._sum.registrations.amount), cycle.type) / totalMeetings)
+        : 0;
     }
   }
   return 0;

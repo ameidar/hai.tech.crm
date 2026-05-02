@@ -247,13 +247,16 @@ export class MeetingsRepository {
       },
     });
 
-    // Update original meeting
+    // Update original meeting (zero amounts — postponed meetings don't generate revenue)
     await prisma.meeting.update({
       where: { id: originalId },
       data: {
         status: 'postponed',
         statusUpdatedAt: new Date(),
         rescheduledToId: newMeeting.id,
+        revenue: 0,
+        instructorPayment: 0,
+        profit: 0,
       },
     });
 

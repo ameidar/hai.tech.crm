@@ -630,6 +630,16 @@ meetingsRouter.put('/:id', async (req, res, next) => {
         updateData.instructorPayment = 0;
         updateData.profit = 0;
       }
+
+      // Zero amounts on any transition to postponed/cancelled — these meetings
+      // didn't take place, so they shouldn't carry revenue/payment/profit.
+      // Covers cycles (e.g. institutional_fixed) where revenue is set at creation
+      // and would otherwise persist through a scheduled→postponed/cancelled jump.
+      if (data.status === 'postponed' || data.status === 'cancelled') {
+        updateData.revenue = 0;
+        updateData.instructorPayment = 0;
+        updateData.profit = 0;
+      }
     }
 
     const meeting = await prisma.meeting.update({
@@ -739,7 +749,7 @@ meetingsRouter.post('/:id/postpone', managerOrAdmin, async (req, res, next) => {
       },
     });
 
-    // Update original meeting
+    // Update original meeting (zero amounts — postponed meetings don't generate revenue)
     await prisma.meeting.update({
       where: { id },
       data: {
@@ -747,6 +757,9 @@ meetingsRouter.post('/:id/postpone', managerOrAdmin, async (req, res, next) => {
         statusUpdatedAt: new Date(),
         statusUpdatedById: req.user!.userId,
         rescheduledToId: newMeeting.id,
+        revenue: 0,
+        instructorPayment: 0,
+        profit: 0,
       },
     });
 
@@ -1327,6 +1340,14 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
           }
           
           // Reset financial fields
+          updateData.revenue = 0;
+          updateData.instructorPayment = 0;
+          updateData.profit = 0;
+        }
+
+        // Zero amounts on any transition to postponed/cancelled — these meetings
+        // didn't take place, so they shouldn't carry revenue/payment/profit.
+        if (status === 'postponed' || status === 'cancelled') {
           updateData.revenue = 0;
           updateData.instructorPayment = 0;
           updateData.profit = 0;

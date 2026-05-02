@@ -24,6 +24,7 @@ interface CycleBillingSummary {
   quantity: number;
   total: number;
   description: string;
+  meetingIds: string[];
 }
 
 /**
@@ -80,6 +81,7 @@ async function computeBillingLines(institutionalOrderId: string, month: BillingM
       quantity: completedMeetings,
       total,
       description: `${cycle.name} — ${hebrewLabel} (${descriptionDetail})`,
+      meetingIds: cycle.meetings.map((m) => m.id),
     });
   }
   return summaries;
@@ -231,7 +233,10 @@ export async function previewBillingPeriod(billingPeriodId: string) {
 }
 
 export async function issueBillingPeriod(billingPeriodId: string, issuedById?: string) {
-  const period = await prisma.billingPeriod.findUnique({ where: { id: billingPeriodId } });
+  const period = await prisma.billingPeriod.findUnique({
+    where: { id: billingPeriodId },
+    include: { lines: true },
+  });
   if (!period) throw new Error('Billing period not found');
   if (period.status === 'issued') throw new Error('Billing period already issued');
   if (period.status === 'cancelled') throw new Error('Billing period is cancelled');
@@ -239,17 +244,214 @@ export async function issueBillingPeriod(billingPeriodId: string, issuedById?: s
   const payload = await buildMorningPayload(billingPeriodId);
   const document = await createDocument(payload);
 
+  // Snapshot meetings included in this issued invoice — used for drift detection later.
+  const month = monthKey(period.month);
+  const summaries = await computeBillingLines(period.institutionalOrderId, month);
+  const cycleToLineId = new Map<string, string>();
+  for (const line of period.lines) {
+    if (line.cycleId) cycleToLineId.set(line.cycleId, line.id);
+  }
+  const snapshot: { billingPeriodId: string; lineId: string | null; meetingId: string }[] = [];
+  for (const s of summaries) {
+    const lineId = cycleToLineId.get(s.cycleId) ?? null;
+    for (const meetingId of s.meetingIds) {
+      snapshot.push({ billingPeriodId, lineId, meetingId });
+    }
+  }
+
+  const issuedAt = new Date();
+  const dueDate = new Date(issuedAt);
+  dueDate.setUTCDate(dueDate.getUTCDate() + 8); // matches Morning's default proforma due date
+
+  return prisma.$transaction(async (tx) => {
+    if (snapshot.length > 0) {
+      await tx.billingPeriodMeeting.createMany({
+        data: snapshot,
+        skipDuplicates: true,
+      });
+    }
+    return tx.billingPeriod.update({
+      where: { id: billingPeriodId },
+      data: {
+        status: 'issued',
+        issuedAt,
+        issuedById,
+        dueDate,
+        morningDocId: document.id,
+        morningDocNumber: document.number,
+        morningDocUrl: document.url?.he || document.url?.origin || null,
+        morningDocType: document.type,
+      },
+      include: { lines: true, institutionalOrder: true },
+    });
+  });
+}
+
+function monthKey(d: Date): BillingMonth {
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth() + 1;
+  return `${y}-${String(m).padStart(2, '0')}`;
+}
+
+/**
+ * Find completed meetings for the period's institution + month that are NOT in
+ * the issued snapshot. Used to flag "we billed and then someone added more
+ * billable activity for the same month." Drafts have no snapshot, so this is
+ * only meaningful for issued periods.
+ */
+export async function detectDrift(billingPeriodId: string) {
+  const period = await prisma.billingPeriod.findUnique({
+    where: { id: billingPeriodId },
+    include: { meetings: { select: { meetingId: true } } },
+  });
+  if (!period) throw new Error('Billing period not found');
+
+  const snapshotIds = new Set(period.meetings.map((m) => m.meetingId));
+  const month = monthKey(period.month);
+  const { start, end } = monthBounds(month);
+
+  const currentMeetings = await prisma.meeting.findMany({
+    where: {
+      cycle: { institutionalOrderId: period.institutionalOrderId, deletedAt: null },
+      status: 'completed',
+      scheduledDate: { gte: start, lt: end },
+      deletedAt: null,
+    },
+    select: {
+      id: true,
+      scheduledDate: true,
+      startTime: true,
+      revenue: true,
+      instructorPayment: true,
+      cycle: { select: { id: true, name: true, type: true } },
+      instructor: { select: { id: true, name: true } },
+    },
+    orderBy: { scheduledDate: 'asc' },
+  });
+
+  const newSinceIssue = currentMeetings.filter((m) => !snapshotIds.has(m.id));
+  const removedSinceIssue: string[] = [];
+  for (const id of snapshotIds) {
+    if (!currentMeetings.find((m) => m.id === id)) removedSinceIssue.push(id);
+  }
+
+  return {
+    issuedAt: period.issuedAt,
+    snapshotCount: snapshotIds.size,
+    currentCount: currentMeetings.length,
+    newSinceIssue,        // meetings completed/added after issue → potentially under-billed
+    removedSinceIssue,    // meetings that were in snapshot but no longer match → over-billed
+  };
+}
+
+/**
+ * Append a payment record and recompute the period's paymentStatus + paidAmount.
+ * Treats sums >= totalAmount (with 1 agora tolerance) as fully paid.
+ */
+export async function addPayment(
+  billingPeriodId: string,
+  input: { amount: number; method?: string | null; notes?: string | null; paidAt?: string | Date | null; recordedById?: string },
+) {
+  const period = await prisma.billingPeriod.findUnique({ where: { id: billingPeriodId } });
+  if (!period) throw new Error('Billing period not found');
+
+  const paidAt = input.paidAt ? new Date(input.paidAt) : new Date();
+
+  return prisma.$transaction(async (tx) => {
+    await tx.billingPayment.create({
+      data: {
+        billingPeriodId,
+        amount: input.amount,
+        method: input.method || null,
+        notes: input.notes || null,
+        paidAt,
+        recordedById: input.recordedById || null,
+      },
+    });
+    const sums = await tx.billingPayment.aggregate({
+      where: { billingPeriodId },
+      _sum: { amount: true },
+    });
+    const paidAmount = Number(sums._sum.amount ?? 0);
+    // Total includes 18% VAT — periods store NET, but the client owes gross.
+    const totalGross = Number(period.totalAmount) * 1.18;
+    const isFullyPaid = paidAmount + 0.01 >= totalGross;
+    const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
+
+    return tx.billingPeriod.update({
+      where: { id: billingPeriodId },
+      data: {
+        paidAmount,
+        paymentStatus,
+        paidAt: isFullyPaid ? paidAt : null,
+      },
+      include: { payments: { orderBy: { paidAt: 'desc' } }, lines: true },
+    });
+  });
+}
+
+export async function deletePayment(billingPeriodId: string, paymentId: string) {
+  const payment = await prisma.billingPayment.findUnique({ where: { id: paymentId } });
+  if (!payment || payment.billingPeriodId !== billingPeriodId) throw new Error('Payment not found');
+
+  return prisma.$transaction(async (tx) => {
+    await tx.billingPayment.delete({ where: { id: paymentId } });
+    const period = await tx.billingPeriod.findUnique({ where: { id: billingPeriodId } });
+    if (!period) throw new Error('Billing period not found');
+    const sums = await tx.billingPayment.aggregate({
+      where: { billingPeriodId },
+      _sum: { amount: true },
+    });
+    const paidAmount = Number(sums._sum.amount ?? 0);
+    const totalGross = Number(period.totalAmount) * 1.18;
+    const isFullyPaid = paidAmount + 0.01 >= totalGross;
+    const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
+    return tx.billingPeriod.update({
+      where: { id: billingPeriodId },
+      data: { paidAmount, paymentStatus, paidAt: isFullyPaid ? period.paidAt : null },
+      include: { payments: { orderBy: { paidAt: 'desc' } } },
+    });
+  });
+}
+
+export async function markBillingSent(
+  billingPeriodId: string,
+  input: { channel: string; toEmail?: string | null; toPhone?: string | null },
+) {
   return prisma.billingPeriod.update({
     where: { id: billingPeriodId },
     data: {
-      status: 'issued',
-      issuedAt: new Date(),
-      issuedById,
-      morningDocId: document.id,
-      morningDocNumber: document.number,
-      morningDocUrl: document.url?.he || document.url?.origin || null,
-      morningDocType: document.type,
+      sentAt: new Date(),
+      sentChannel: input.channel,
+      sentToEmail: input.toEmail || null,
+      sentToPhone: input.toPhone || null,
     },
-    include: { lines: true, institutionalOrder: true },
+  });
+}
+
+/**
+ * Issue a binding tax invoice (חשבונית מס, type 305) in Morning, alongside the proforma.
+ * The proforma stays linked on the period; this only adds tax-invoice fields.
+ */
+export async function issueTaxInvoice(billingPeriodId: string, issuedById?: string) {
+  const period = await prisma.billingPeriod.findUnique({ where: { id: billingPeriodId } });
+  if (!period) throw new Error('Billing period not found');
+  if (period.status !== 'issued') throw new Error('Proforma must be issued first');
+  if (period.taxInvoiceId) throw new Error('Tax invoice already issued for this period');
+
+  const payload = await buildMorningPayload(billingPeriodId);
+  payload.type = 305; // חשבונית מס
+  const document = await createDocument(payload);
+
+  return prisma.billingPeriod.update({
+    where: { id: billingPeriodId },
+    data: {
+      taxInvoiceId: document.id,
+      taxInvoiceNumber: document.number,
+      taxInvoiceUrl: document.url?.he || document.url?.origin || null,
+      taxInvoiceIssuedAt: new Date(),
+      taxInvoiceIssuedById: issuedById,
+    },
+    include: { lines: true, institutionalOrder: true, payments: true },
   });
 }

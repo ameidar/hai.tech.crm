@@ -343,6 +343,12 @@ enum BillingStatus {
   cancelled    // marked cancelled by admin (no Morning action — for drafts only)
 }
 
+enum BillingPaymentStatus {
+  unpaid
+  partial
+  paid
+}
+
 model BillingPeriod {
   id                    String              @id @default(uuid())
   institutionalOrderId  String              @map("institutional_order_id")
@@ -358,22 +364,44 @@ model BillingPeriod {
   approvedById          String?             @map("approved_by_id")
   issuedAt              DateTime?           @map("issued_at")
   issuedById            String?             @map("issued_by_id")
+  dueDate               DateTime?           @map("due_date") @db.Date
 
-  // Morning fields populated after issue
+  // Morning proforma (300) — populated after issue
   morningDocId          String?             @map("morning_doc_id")
   morningDocNumber      Int?                @map("morning_doc_number")
   morningDocUrl         String?             @map("morning_doc_url")
   morningDocType        Int?                @map("morning_doc_type")
+
+  // Tax invoice (305) — issued manually after payment received; lives alongside the proforma
+  taxInvoiceId          String?             @map("tax_invoice_id")
+  taxInvoiceNumber      Int?                @map("tax_invoice_number")
+  taxInvoiceUrl         String?             @map("tax_invoice_url")
+  taxInvoiceIssuedAt    DateTime?           @map("tax_invoice_issued_at")
+  taxInvoiceIssuedById  String?             @map("tax_invoice_issued_by_id")
+
+  // Sending log — most recent send only; full history tracked via audit log
+  sentAt                DateTime?           @map("sent_at")
+  sentChannel           String?             @map("sent_channel")    // 'morning_email' | 'whatsapp' | 'manual'
+  sentToEmail           String?             @map("sent_to_email")
+  sentToPhone           String?             @map("sent_to_phone")
+
+  // Payment roll-up — paidAmount is the sum of BillingPayment records
+  paymentStatus         BillingPaymentStatus @default(unpaid) @map("payment_status")
+  paidAmount            Decimal              @default(0) @map("paid_amount") @db.Decimal(10, 2)
+  paidAt                DateTime?            @map("paid_at")          // set when fully paid
 
   createdAt             DateTime            @default(now()) @map("created_at")
   updatedAt             DateTime            @updatedAt @map("updated_at")
 
   institutionalOrder    InstitutionalOrder  @relation(fields: [institutionalOrderId], references: [id], onDelete: Cascade)
   lines                 BillingPeriodLine[]
+  meetings              BillingPeriodMeeting[]
+  payments              BillingPayment[]
 
   @@unique([institutionalOrderId, month])
   @@index([month])
   @@index([status])
+  @@index([paymentStatus])
   @@map("billing_periods")
 }
 
@@ -392,9 +420,46 @@ model BillingPeriodLine {
 
   billingPeriod     BillingPeriod  @relation(fields: [billingPeriodId], references: [id], onDelete: Cascade)
   cycle             Cycle?         @relation(fields: [cycleId], references: [id], onDelete: SetNull)
+  meetings          BillingPeriodMeeting[]
 
   @@index([billingPeriodId])
   @@map("billing_period_lines")
+}
+
+// Snapshot of meetings included in a BillingPeriod when it was issued.
+// Enables drift detection: if completed meetings appear later for the same
+// cycle/month that aren't in this snapshot, the issued invoice is stale.
+model BillingPeriodMeeting {
+  id                String              @id @default(uuid())
+  billingPeriodId   String              @map("billing_period_id")
+  lineId            String?             @map("line_id")
+  meetingId         String              @map("meeting_id")
+  createdAt         DateTime            @default(now()) @map("created_at")
+
+  billingPeriod     BillingPeriod       @relation(fields: [billingPeriodId], references: [id], onDelete: Cascade)
+  line              BillingPeriodLine?  @relation(fields: [lineId], references: [id], onDelete: SetNull)
+  meeting           Meeting             @relation(fields: [meetingId], references: [id], onDelete: Restrict)
+
+  @@unique([billingPeriodId, meetingId])
+  @@index([meetingId])
+  @@map("billing_period_meetings")
+}
+
+// Individual payment records (supports partial payments + audit history).
+model BillingPayment {
+  id                String         @id @default(uuid())
+  billingPeriodId   String         @map("billing_period_id")
+  amount            Decimal        @db.Decimal(10, 2)
+  method            String?        // free text: bank transfer, check #, card, etc.
+  notes             String?
+  paidAt            DateTime       @map("paid_at")
+  recordedById      String?        @map("recorded_by_id")
+  createdAt         DateTime       @default(now()) @map("created_at")
+
+  billingPeriod     BillingPeriod  @relation(fields: [billingPeriodId], references: [id], onDelete: Cascade)
+
+  @@index([billingPeriodId])
+  @@map("billing_payments")
 }
 
 model Cycle {
@@ -543,6 +608,7 @@ model Meeting {
   attendance      Attendance[]
   expenses        MeetingExpense[]
   changeRequests  MeetingChangeRequest[]
+  billingPeriodMeetings BillingPeriodMeeting[]
 
   @@map("meetings")
 }

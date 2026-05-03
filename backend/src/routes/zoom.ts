@@ -277,8 +277,7 @@ router.delete('/cycles/:cycleId/meeting', managerOrAdmin, async (req: Request, r
         zoomHostEmail: null,
         zoomRecordingUrl: null,
         zoomRecordingPassword: null,
-        lessonTranscript: null,
-        lessonSummary: null
+        lessonTranscript: null
       }
     });
 

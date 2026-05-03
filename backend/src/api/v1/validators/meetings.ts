@@ -66,7 +66,6 @@ export const updateMeetingSchema = z.object({
   zoomRecordingUrl: z.string().url().optional().nullable(),
   zoomRecordingPassword: z.string().optional().nullable(),
   lessonTranscript: z.string().optional().nullable(),
-  lessonSummary: z.string().optional().nullable(),
 });
 
 /**

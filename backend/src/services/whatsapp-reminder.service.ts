@@ -282,13 +282,13 @@ export async function sendPreMeetingReminders(): Promise<void> {
           { scheduledDate: 'desc' },
           { startTime: 'desc' },
         ],
-        select: { lessonSummary: true },
+        select: { topic: true },
       });
 
       const extras: MeetingExtras = {
         remaining: typeof remaining === 'number' ? remaining : undefined,
         totalMeetings: typeof totalMeetings === 'number' ? totalMeetings : undefined,
-        lastSummary: previous ? previous.lessonSummary ?? null : null,
+        lastSummary: previous ? previous.topic ?? null : null,
       };
 
       const message = buildMeetingMessage(m.instructor.name, m, meetingLink, extras);

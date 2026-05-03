@@ -1483,18 +1483,6 @@ export default function CycleDetail() {
                     </div>
                   )}
                   
-                  {/* Lesson Summary */}
-                  {viewingMeeting.lessonSummary && (
-                    <div className="col-span-2 p-4 bg-green-50 rounded-lg">
-                      <h4 className="text-sm font-medium text-green-800 mb-2 flex items-center gap-2">
-                        📋 סיכום השיעור
-                      </h4>
-                      <div className="text-sm text-gray-700 whitespace-pre-wrap">
-                        {viewingMeeting.lessonSummary}
-                      </div>
-                    </div>
-                  )}
-                  
                   {/* Lesson Transcript */}
                   {viewingMeeting.lessonTranscript && (
                     <div className="col-span-2 p-4 bg-blue-50 rounded-lg">

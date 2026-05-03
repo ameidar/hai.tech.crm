@@ -30,7 +30,7 @@ async function sendWhatsAppToInstructor(
   instructorName: string, 
   topic: string, 
   recordingUrl: string,
-  lessonSummary?: string
+  summary?: string
 ) {
   if (!GREEN_API_INSTANCE_ID || !GREEN_API_TOKEN) {
     console.log('[Zoom Webhook] WhatsApp not configured, skipping');
@@ -45,11 +45,11 @@ async function sendWhatsAppToInstructor(
 🎥 לצפייה בהקלטה:
 ${recordingUrl}`;
 
-    if (lessonSummary) {
+    if (summary) {
       message += `
 
 📝 סיכום השיעור:
-${lessonSummary}`;
+${summary}`;
     }
 
     message += `
@@ -94,18 +94,28 @@ async function processTranscriptionInBackground(
   try {
     // Process recording: transcribe + summarize
     const { transcript, summary } = await processRecording(audioUrl, topic);
-    
-    // Update meeting with transcript and summary
+
+    // Merge the AI summary into `topic`. If the instructor already wrote a pre-lesson
+    // topic, append the summary so we don't overwrite their note.
+    const current = await prisma.meeting.findUnique({
+      where: { id: meetingId },
+      select: { topic: true },
+    });
+    const existing = (current?.topic || '').trim();
+    const mergedTopic = existing
+      ? `${existing}\n\n📝 ${summary}`
+      : summary;
+
     await prisma.meeting.update({
       where: { id: meetingId },
       data: {
         lessonTranscript: transcript,
-        lessonSummary: summary
+        topic: mergedTopic
       }
     });
-    
-    console.log(`[Transcription] Saved transcript and summary for meeting ${meetingId}`);
-    
+
+    console.log(`[Transcription] Saved transcript + merged summary into topic for meeting ${meetingId}`);
+
     // Send WhatsApp to instructor with recording + summary
     if (instructorPhone) {
       await sendWhatsAppToInstructor(

@@ -28,7 +28,7 @@ cycles (id, name, course_id, branch_id, instructor_id, type, start_date, end_dat
   → status: 'active','completed','cancelled','draft'
   → NO column named "price" — use price_per_student
 
-meetings (id, cycle_id, instructor_id, scheduled_date, start_time, end_time, status, revenue, instructor_payment, profit, topic, notes, zoom_join_url, lesson_transcript, lesson_summary, created_at, updated_at, deleted_at)
+meetings (id, cycle_id, instructor_id, scheduled_date, start_time, end_time, status, revenue, instructor_payment, profit, topic, notes, zoom_join_url, lesson_transcript, created_at, updated_at, deleted_at)
   → Filter active: WHERE deleted_at IS NULL
   → status: 'scheduled','completed','cancelled'
 

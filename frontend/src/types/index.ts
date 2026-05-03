@@ -211,7 +211,6 @@ export interface Meeting {
   zoomRecordingUrl?: string;
   zoomRecordingPassword?: string;
   lessonTranscript?: string;
-  lessonSummary?: string;
   rescheduledToId?: string;
   createdAt: string;
   cycle?: Cycle;

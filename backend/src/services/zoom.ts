@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { prisma } from '../utils/prisma.js';
 
 /**
  * Get the correct UTC offset string for a given date in Asia/Jerusalem timezone.
@@ -262,23 +263,87 @@ export async function isUserAvailable(
 }
 
 /**
+ * Local DB pre-check: which Zoom hosts are already booked in the given time window
+ * for any meeting in our system (regardless of cycle)?
+ *
+ * Why this exists in addition to Zoom's API check (`isUserAvailable`):
+ *   - Zoom API has sync lag — a meeting created seconds ago may not appear yet.
+ *   - Recurring Zoom meetings (type 8) sometimes don't enumerate every future
+ *     occurrence in `getUserMeetings`, so a parallel session on the same host
+ *     can slip through. We saw this on 2026-05-03: a trial-cycle meeting was
+ *     assigned `hila@hai.tech` even though another cycle's recurring lesson
+ *     already used hila at the same time.
+ *
+ * Querying our own DB is authoritative for our own bookings and not subject
+ * to either of those Zoom API quirks.
+ */
+async function getLocallyBookedHostEmails(
+  startTime: Date,
+  durationMinutes: number
+): Promise<Set<string>> {
+  const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
+
+  // Build the @db.Date scheduledDate (midnight UTC of that calendar day).
+  const scheduledDate = new Date(Date.UTC(
+    startTime.getUTCFullYear(),
+    startTime.getUTCMonth(),
+    startTime.getUTCDate()
+  ));
+
+  // @db.Time columns store the time on 1970-01-01, so compare against same epoch date.
+  const newStart = new Date(Date.UTC(1970, 0, 1, startTime.getUTCHours(), startTime.getUTCMinutes(), startTime.getUTCSeconds()));
+  const newEnd   = new Date(Date.UTC(1970, 0, 1, endTime.getUTCHours(),   endTime.getUTCMinutes(),   endTime.getUTCSeconds()));
+
+  const overlapping = await prisma.meeting.findMany({
+    where: {
+      scheduledDate,
+      deletedAt: null,
+      status: { notIn: ['cancelled', 'postponed'] },
+      // Half-open overlap: existing.startTime < newEnd  AND  existing.endTime > newStart
+      AND: [
+        { startTime: { lt: newEnd } },
+        { endTime:   { gt: newStart } },
+      ],
+    },
+    select: { zoomHostEmail: true },
+  });
+
+  const booked = new Set<string>();
+  for (const m of overlapping) {
+    if (m.zoomHostEmail) booked.add(m.zoomHostEmail.toLowerCase());
+  }
+  return booked;
+}
+
+/**
  * Find an available Zoom user for a given time slot
  */
 export async function findAvailableUser(
-  startTime: Date, 
+  startTime: Date,
   durationMinutes: number
 ): Promise<ZoomUser | null> {
   const users = await getUsers();
-  
+
   console.log(`[Zoom] Finding available user for ${startTime.toISOString()} (${durationMinutes} min)`);
   console.log(`[Zoom] Checking ${users.length} users...`);
-  
+
+  // Pre-filter: skip any host that's already booked in our DB during this window.
+  const lockedByDb = await getLocallyBookedHostEmails(startTime, durationMinutes);
+  if (lockedByDb.size > 0) {
+    console.log(`[Zoom] Locally-booked hosts in this window: ${[...lockedByDb].join(', ')}`);
+  }
+
   for (const user of users) {
     if (user.status !== 'active') {
       console.log(`[Zoom] Skipping inactive user: ${user.email}`);
       continue;
     }
-    
+
+    if (lockedByDb.has(user.email.toLowerCase())) {
+      console.log(`[Zoom] Skipping ${user.email} — already booked locally for this slot`);
+      continue;
+    }
+
     console.log(`[Zoom] Checking user: ${user.email}`);
     const available = await isUserAvailable(user.id, startTime, durationMinutes);
     if (available) {
@@ -289,7 +354,7 @@ export async function findAvailableUser(
     }
     console.log(`[Zoom] User ${user.email} is NOT available`);
   }
-  
+
   console.log(`[Zoom] NO available users found!`);
   return null;
 }

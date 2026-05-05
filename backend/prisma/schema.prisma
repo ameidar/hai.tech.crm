@@ -503,6 +503,9 @@ model Cycle {
   frozenAt             DateTime?    @map("frozen_at")
   frozenReason         String?      @map("frozen_reason")
   resumeDate           DateTime?    @map("resume_date") @db.Date
+  notes                String?      // free-form admin notes about the cycle (pricing assumptions,
+                                    // contract structure, etc.) — surfaced in cycle detail UI
+                                    // but not on customer-facing documents.
   createdAt            DateTime     @default(now()) @map("created_at")
   updatedAt            DateTime     @updatedAt @map("updated_at")
   deletedAt            DateTime?    @map("deleted_at")

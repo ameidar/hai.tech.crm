@@ -285,15 +285,24 @@ async function buildMorningPayload(billingPeriodId: string): Promise<{
     ...(allSameVatType ? {} : { vatType: lineVatTypes[i] as 0 | 2 }),
   }));
 
+  // Morning's PDF always shows the VAT line in the totals block, but we want a plain
+  // sentence on the document itself so the recipient sees "המחירים אינם כוללים מע״מ"
+  // (or "כוללים מע״מ") next to the lines, not just in the math at the bottom.
+  const effectiveVatType = allSameVatType ? documentVatType : 0;
+  const vatLabel = effectiveVatType === 2
+    ? 'המחירים בחשבון זה כוללים מע״מ.'
+    : 'המחירים בחשבון זה אינם כוללים מע״מ. סה״כ כולל מע״מ מצוין בסיכום.';
+  const remarks = [vatLabel, period.notes].filter(Boolean).join('\n');
+
   return {
     payload: {
       type: DOCUMENT_TYPES.PROFORMA,
       lang: 'he',
       currency: 'ILS',
-      vatType: allSameVatType ? documentVatType : 0,
+      vatType: effectiveVatType,
       client,
       income,
-      remarks: period.notes || undefined,
+      remarks,
     },
     discoveredMorningClientId: discoveredId,
   };

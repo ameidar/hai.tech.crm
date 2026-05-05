@@ -21,7 +21,10 @@ export const DOCUMENT_TYPES = {
 export type VatType = 0 | 1 | 2;
 
 export interface MorningClient {
-  name: string;
+  id?: string;              // existing Morning client UUID — when set, Morning links the
+                            // new document to this client instead of creating/upserting,
+                            // and the rest of the fields below can be omitted.
+  name?: string;            // required when `id` is not set
   taxId?: string;
   emails?: string[];
   phone?: string;

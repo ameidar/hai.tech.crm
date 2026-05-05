@@ -372,6 +372,10 @@ model BillingPeriod {
   morningDocNumber      Int?                @map("morning_doc_number")
   morningDocUrl         String?             @map("morning_doc_url")
   morningDocType        Int?                @map("morning_doc_type")
+  // Morning draft — set when we push a draft to Morning's drafts area without finalizing.
+  // The user finalizes manually from Morning UI (lets them backdate beyond API limits)
+  // and then calls our `mark-issued-manually` route to fill in the morningDoc* fields above.
+  morningDraftId        String?             @map("morning_draft_id")
 
   // Tax invoice (305) — issued manually after payment received; lives alongside the proforma
   taxInvoiceId          String?             @map("tax_invoice_id")

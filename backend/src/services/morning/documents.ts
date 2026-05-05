@@ -96,3 +96,25 @@ export async function previewDocument(input: CreateDocumentInput): Promise<Previ
   };
   return morningRequest<PreviewResponse>('POST', '/api/v1/documents/preview', body);
 }
+
+/**
+ * Create a Morning **draft** — sits in Morning's drafts area without a document number,
+ * editable from the UI. The user finalizes (and can backdate) from Morning's UI; our
+ * regular `createDocument` call goes straight to a numbered, signed, immutable document
+ * and is constrained by Morning's API-side date validation.
+ */
+export interface CreateDraftResponse {
+  id: string;
+  creationDate: number;
+  lastUpdateDate: number;
+  doc: CreateDocumentInput & { amount?: number };
+}
+
+export async function createDraftDocument(input: CreateDocumentInput): Promise<CreateDraftResponse> {
+  const body = { lang: 'he', currency: 'ILS', vatType: 0, ...input };
+  return morningRequest<CreateDraftResponse>('POST', '/api/v1/documents/drafts', body);
+}
+
+export async function deleteDraftDocument(draftId: string): Promise<void> {
+  await morningRequest('DELETE', `/api/v1/documents/drafts/${draftId}`);
+}

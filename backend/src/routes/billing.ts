@@ -14,6 +14,8 @@ import {
   deletePayment,
   markBillingSent,
   issueTaxInvoice,
+  sendBillingPeriodAsDraft,
+  markBillingPeriodIssuedManually,
 } from '../services/billing.js';
 import { sendWhatsApp } from '../services/messaging.js';
 
@@ -222,6 +224,47 @@ billingRouter.post('/:id/issue', managerOrAdmin, async (req, res, next) => {
     res.json(period);
   } catch (err: any) {
     if (err.body) return res.status(err.status || 500).json({ error: 'Morning API error', details: err.body });
+    next(err);
+  }
+});
+
+// Send to Morning as a *draft* — sits in Morning's drafts area, user finalizes from Morning UI.
+// Use when backdating beyond Morning's strict API window for finalized docs.
+billingRouter.post('/:id/send-as-draft', managerOrAdmin, async (req, res, next) => {
+  try {
+    const period = await sendBillingPeriodAsDraft(req.params.id);
+    await logAudit({ req, action: 'UPDATE', entity: 'BillingPeriod', entityId: period.id, newValue: { action: 'sent-as-draft', morningDraftId: period.morningDraftId } });
+    res.json(period);
+  } catch (err: any) {
+    if (err.body) return res.status(err.status || 500).json({ error: 'Morning API error', details: err.body });
+    next(err);
+  }
+});
+
+// Mark as issued manually — user finalized in Morning UI; sync the document number back here.
+billingRouter.post('/:id/mark-issued-manually', managerOrAdmin, async (req, res, next) => {
+  try {
+    const data = z.object({
+      morningDocNumber: z.number().int().positive(),
+      morningDocId: z.string().optional().nullable(),
+      morningDocUrl: z.string().url().optional().nullable(),
+      morningDocType: z.number().int().optional().nullable(),
+      issuedAt: z.string().optional().nullable(),
+    }).parse(req.body);
+
+    const period = await markBillingPeriodIssuedManually(req.params.id, {
+      morningDocNumber: data.morningDocNumber,
+      morningDocId: data.morningDocId ?? null,
+      morningDocUrl: data.morningDocUrl ?? null,
+      morningDocType: data.morningDocType ?? null,
+      issuedAt: data.issuedAt ? new Date(data.issuedAt) : undefined,
+    }, req.user?.userId);
+    await logAudit({ req, action: 'UPDATE', entity: 'BillingPeriod', entityId: period.id, newValue: { action: 'mark-issued-manually', morningDocNumber: period.morningDocNumber, issuedAt: period.issuedAt } });
+    res.json(period);
+  } catch (err: any) {
+    if (err.message?.includes('already issued') || err.message?.includes('cancelled')) {
+      return res.status(409).json({ error: err.message });
+    }
     next(err);
   }
 });

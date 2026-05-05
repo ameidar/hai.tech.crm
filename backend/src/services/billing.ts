@@ -1,6 +1,7 @@
 import { prisma } from '../utils/prisma.js';
-import { createDocument, previewDocument, DOCUMENT_TYPES } from './morning/documents.js';
+import { createDocument, previewDocument, createDraftDocument, deleteDraftDocument, DOCUMENT_TYPES } from './morning/documents.js';
 import type { CreateDocumentInput, MorningClient, MorningIncomeItem } from './morning/documents.js';
+import { findClientForInstitutionalOrder } from './morning/clients.js';
 
 export type BillingMonth = string; // 'YYYY-MM'
 
@@ -185,19 +186,49 @@ export async function generateAllBillingPeriodsForMonth(month: BillingMonth, gen
 }
 
 /**
- * Build the Morning createDocument payload from a billing period (draft state).
+ * Resolve which Morning client to use for an institutional order. Returns the client object
+ * to put on the document plus, if we discovered the linkage just now (rather than reusing a
+ * cached `morningClientId`), the Morning client UUID so the caller can persist it back to
+ * the order. Persisting only happens on `issue` — preview is read-only.
  */
-async function buildMorningPayload(billingPeriodId: string): Promise<CreateDocumentInput> {
-  const period = await prisma.billingPeriod.findUnique({
-    where: { id: billingPeriodId },
-    include: {
-      institutionalOrder: { include: { branch: true } },
-      lines: { orderBy: { sortOrder: 'asc' } },
-    },
-  });
-  if (!period) throw new Error('Billing period not found');
+async function resolveMorningClient(
+  order: {
+    id: string;
+    orderName: string | null;
+    branch?: { name: string | null } | null;
+    taxId: string | null;
+    contactEmail: string | null;
+    contactPhone: string | null;
+    address: string | null;
+    city: string | null;
+    zip: string | null;
+    payingBody: string | null;
+    morningClientId: string | null;
+  }
+): Promise<{ client: MorningClient; discoveredId: string | null }> {
+  // 1. Already linked — trust it.
+  if (order.morningClientId) {
+    return { client: { id: order.morningClientId }, discoveredId: null };
+  }
 
-  const order = period.institutionalOrder;
+  // 2. Try to discover an existing Morning customer by taxId / email / payingBody / orderName.
+  try {
+    const match = await findClientForInstitutionalOrder({
+      taxId: order.taxId,
+      contactEmail: order.contactEmail,
+      orderName: order.orderName,
+      payingBody: order.payingBody,
+    });
+    if (match) {
+      console.log(`[billing] Linked institutional order ${order.id} → Morning client ${match.client.id} (matched by ${match.matchedBy})`);
+      return { client: { id: match.client.id }, discoveredId: match.client.id };
+    }
+  } catch (err: any) {
+    // If the Morning search itself fails, fall through to upsert — no worse than the old behavior.
+    console.warn(`[billing] Morning client search failed for order ${order.id}:`, err.message || err);
+  }
+
+  // 3. Fallback: send full client details with `add: true` so Morning upserts.
   const client: MorningClient = {
     name: order.orderName || order.branch?.name || 'מוסד',
     taxId: order.taxId || undefined,
@@ -208,6 +239,28 @@ async function buildMorningPayload(billingPeriodId: string): Promise<CreateDocum
     zip: order.zip || undefined,
     add: true,
   };
+  return { client, discoveredId: null };
+}
+
+/**
+ * Build the Morning createDocument payload from a billing period (draft state).
+ * Also returns the Morning client UUID we discovered on-the-fly (if any), so the caller
+ * can persist it back to the institutional order on a successful issue.
+ */
+async function buildMorningPayload(billingPeriodId: string): Promise<{
+  payload: CreateDocumentInput;
+  discoveredMorningClientId: string | null;
+}> {
+  const period = await prisma.billingPeriod.findUnique({
+    where: { id: billingPeriodId },
+    include: {
+      institutionalOrder: { include: { branch: true } },
+      lines: { orderBy: { sortOrder: 'asc' } },
+    },
+  });
+  if (!period) throw new Error('Billing period not found');
+
+  const { client, discoveredId } = await resolveMorningClient(period.institutionalOrder);
 
   const income: MorningIncomeItem[] = period.lines.map((l) => ({
     description: l.description,
@@ -217,18 +270,21 @@ async function buildMorningPayload(billingPeriodId: string): Promise<CreateDocum
   }));
 
   return {
-    type: DOCUMENT_TYPES.PROFORMA,
-    lang: 'he',
-    currency: 'ILS',
-    vatType: 0, // Morning: 0=default (price excludes VAT, 18% added on top); 1=exempt; 2=included
-    client,
-    income,
-    remarks: period.notes || undefined,
+    payload: {
+      type: DOCUMENT_TYPES.PROFORMA,
+      lang: 'he',
+      currency: 'ILS',
+      vatType: 0, // Morning: 0=default (price excludes VAT, 18% added on top); 1=exempt; 2=included
+      client,
+      income,
+      remarks: period.notes || undefined,
+    },
+    discoveredMorningClientId: discoveredId,
   };
 }
 
 export async function previewBillingPeriod(billingPeriodId: string) {
-  const payload = await buildMorningPayload(billingPeriodId);
+  const { payload } = await buildMorningPayload(billingPeriodId);
   return previewDocument(payload);
 }
 
@@ -241,7 +297,7 @@ export async function issueBillingPeriod(billingPeriodId: string, issuedById?: s
   if (period.status === 'issued') throw new Error('Billing period already issued');
   if (period.status === 'cancelled') throw new Error('Billing period is cancelled');
 
-  const payload = await buildMorningPayload(billingPeriodId);
+  const { payload, discoveredMorningClientId } = await buildMorningPayload(billingPeriodId);
   const document = await createDocument(payload);
 
   // Snapshot meetings included in this issued invoice — used for drift detection later.
@@ -270,6 +326,14 @@ export async function issueBillingPeriod(billingPeriodId: string, issuedById?: s
         skipDuplicates: true,
       });
     }
+    // Cache the Morning client linkage on the institutional order so future invoices
+    // skip the lookup and never accidentally create a duplicate Morning customer.
+    if (discoveredMorningClientId) {
+      await tx.institutionalOrder.update({
+        where: { id: period.institutionalOrderId },
+        data: { morningClientId: discoveredMorningClientId },
+      });
+    }
     return tx.billingPeriod.update({
       where: { id: billingPeriodId },
       data: {
@@ -291,6 +355,114 @@ function monthKey(d: Date): BillingMonth {
   const y = d.getUTCFullYear();
   const m = d.getUTCMonth() + 1;
   return `${y}-${String(m).padStart(2, '0')}`;
+}
+
+/**
+ * Push the billing period to Morning as a **draft** (lives in Morning's drafts area,
+ * editable from their UI, not a real document yet). Use this when the user needs to
+ * backdate beyond the few-day window the API allows on `createDocument` — they'll
+ * finalize the document inside Morning's UI with the date they need, then come back
+ * here and call `markBillingPeriodIssuedManually` with the resulting doc number.
+ *
+ * Idempotent-ish: if the period already has a `morningDraftId`, that draft is deleted
+ * and replaced (so the draft on Morning's side always reflects the latest line edits).
+ */
+export async function sendBillingPeriodAsDraft(billingPeriodId: string) {
+  const period = await prisma.billingPeriod.findUnique({ where: { id: billingPeriodId } });
+  if (!period) throw new Error('Billing period not found');
+  if (period.status === 'issued') throw new Error('Already issued — use mark-issued-manually instead');
+  if (period.status === 'cancelled') throw new Error('Period is cancelled');
+
+  const { payload, discoveredMorningClientId } = await buildMorningPayload(billingPeriodId);
+
+  // Replace any prior draft so Morning's drafts area never accumulates stale copies.
+  if (period.morningDraftId) {
+    try { await deleteDraftDocument(period.morningDraftId); } catch { /* ignore — draft might already be gone */ }
+  }
+
+  const draft = await createDraftDocument(payload);
+
+  return prisma.$transaction(async (tx) => {
+    if (discoveredMorningClientId) {
+      await tx.institutionalOrder.update({
+        where: { id: period.institutionalOrderId },
+        data: { morningClientId: discoveredMorningClientId },
+      });
+    }
+    return tx.billingPeriod.update({
+      where: { id: billingPeriodId },
+      data: { morningDraftId: draft.id },
+      include: { lines: true, institutionalOrder: true },
+    });
+  });
+}
+
+/**
+ * Manually mark a billing period as issued — the user finalized the document inside
+ * Morning's UI (typically because they needed to backdate) and is now syncing the
+ * document number back into our system. Captures the meeting snapshot for drift
+ * detection and clears the morningDraftId since the draft has graduated.
+ */
+export interface ManualIssueInput {
+  morningDocNumber: number;
+  morningDocId?: string | null;
+  morningDocUrl?: string | null;
+  morningDocType?: number | null;     // defaults to 300 (proforma)
+  issuedAt?: Date;                    // defaults to now()
+}
+
+export async function markBillingPeriodIssuedManually(
+  billingPeriodId: string,
+  input: ManualIssueInput,
+  issuedById?: string
+) {
+  const period = await prisma.billingPeriod.findUnique({
+    where: { id: billingPeriodId },
+    include: { lines: true },
+  });
+  if (!period) throw new Error('Billing period not found');
+  if (period.status === 'issued') throw new Error('Billing period already issued');
+  if (period.status === 'cancelled') throw new Error('Billing period is cancelled');
+
+  const issuedAt = input.issuedAt ?? new Date();
+  const dueDate = new Date(issuedAt);
+  dueDate.setUTCDate(dueDate.getUTCDate() + 8);
+
+  // Snapshot meetings — same as auto-issue path.
+  const month = monthKey(period.month);
+  const summaries = await computeBillingLines(period.institutionalOrderId, month);
+  const cycleToLineId = new Map<string, string>();
+  for (const line of period.lines) {
+    if (line.cycleId) cycleToLineId.set(line.cycleId, line.id);
+  }
+  const snapshot: { billingPeriodId: string; lineId: string | null; meetingId: string }[] = [];
+  for (const s of summaries) {
+    const lineId = cycleToLineId.get(s.cycleId) ?? null;
+    for (const meetingId of s.meetingIds) {
+      snapshot.push({ billingPeriodId, lineId, meetingId });
+    }
+  }
+
+  return prisma.$transaction(async (tx) => {
+    if (snapshot.length > 0) {
+      await tx.billingPeriodMeeting.createMany({ data: snapshot, skipDuplicates: true });
+    }
+    return tx.billingPeriod.update({
+      where: { id: billingPeriodId },
+      data: {
+        status: 'issued',
+        issuedAt,
+        issuedById,
+        dueDate,
+        morningDocId: input.morningDocId ?? null,
+        morningDocNumber: input.morningDocNumber,
+        morningDocUrl: input.morningDocUrl ?? null,
+        morningDocType: input.morningDocType ?? 300,
+        morningDraftId: null, // draft has graduated; clear the pointer
+      },
+      include: { lines: true, institutionalOrder: true },
+    });
+  });
 }
 
 /**
@@ -439,19 +611,27 @@ export async function issueTaxInvoice(billingPeriodId: string, issuedById?: stri
   if (period.status !== 'issued') throw new Error('Proforma must be issued first');
   if (period.taxInvoiceId) throw new Error('Tax invoice already issued for this period');
 
-  const payload = await buildMorningPayload(billingPeriodId);
+  const { payload, discoveredMorningClientId } = await buildMorningPayload(billingPeriodId);
   payload.type = 305; // חשבונית מס
   const document = await createDocument(payload);
 
-  return prisma.billingPeriod.update({
-    where: { id: billingPeriodId },
-    data: {
-      taxInvoiceId: document.id,
-      taxInvoiceNumber: document.number,
-      taxInvoiceUrl: document.url?.he || document.url?.origin || null,
-      taxInvoiceIssuedAt: new Date(),
-      taxInvoiceIssuedById: issuedById,
-    },
-    include: { lines: true, institutionalOrder: true, payments: true },
+  return prisma.$transaction(async (tx) => {
+    if (discoveredMorningClientId) {
+      await tx.institutionalOrder.update({
+        where: { id: period.institutionalOrderId },
+        data: { morningClientId: discoveredMorningClientId },
+      });
+    }
+    return tx.billingPeriod.update({
+      where: { id: billingPeriodId },
+      data: {
+        taxInvoiceId: document.id,
+        taxInvoiceNumber: document.number,
+        taxInvoiceUrl: document.url?.he || document.url?.origin || null,
+        taxInvoiceIssuedAt: new Date(),
+        taxInvoiceIssuedById: issuedById,
+      },
+      include: { lines: true, institutionalOrder: true, payments: true },
+    });
   });
 }

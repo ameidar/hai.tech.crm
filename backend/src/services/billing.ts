@@ -54,32 +54,47 @@ async function computeBillingLines(institutionalOrderId: string, month: BillingM
     const completedMeetings = cycle.meetings.length;
     if (completedMeetings === 0) continue;
 
+    // Each cycle type produces a single billing line whose `quantity × unitPrice` totals
+    // the gross revenue for the month. The convention differs:
+    //   - institutional_fixed:     qty = #meetings,            unitPrice = meetingRevenue
+    //   - institutional_per_child: qty = #meetings × students, unitPrice = pricePerStudent
+    // The per-student-meeting form for institutional_per_child matches what Morning's UI
+    // ends up rendering and gives the recipient line-level granularity to verify.
     let unitPrice = 0;
+    let quantity = 0;
     let descriptionDetail = '';
+    let studentCount = cycle.studentCount ?? 0;
 
     if (cycle.type === 'institutional_fixed') {
       unitPrice = Number(cycle.meetingRevenue ?? 0);
+      quantity = completedMeetings;
       descriptionDetail = `${completedMeetings} פגישות × ${unitPrice.toLocaleString('he-IL')} ₪`;
     } else if (cycle.type === 'institutional_per_child') {
       const perChild = Number(cycle.pricePerStudent ?? 0);
-      const studentCount = cycle.studentCount ?? 0;
-      unitPrice = perChild * studentCount;
-      descriptionDetail = `${completedMeetings} פגישות × ${studentCount} ילדים × ${perChild.toLocaleString('he-IL')} ₪`;
+      unitPrice = perChild;
+      quantity = completedMeetings * studentCount;
+      // Display the agreed gross (price × 1.18) when prices are stored net, otherwise
+      // the per-child price as-is. This keeps the description in the customer's mental
+      // model ("9 ילדים × ₪ 60") even when our DB carries the net (₪ 50.85).
+      const grossPerChild = cycle.revenueIncludesVat === false
+        ? Math.round(perChild * 1.18 * 100) / 100
+        : perChild;
+      descriptionDetail = `${completedMeetings} פגישות × ${studentCount} ילדים × ${grossPerChild.toLocaleString('he-IL')} ₪`;
     } else {
       // private/trial — should not be linked to institutional order, but skip safely
       continue;
     }
 
-    const total = unitPrice * completedMeetings;
+    const total = unitPrice * quantity;
     summaries.push({
       cycleId: cycle.id,
       cycleName: cycle.name,
       cycleType: cycle.type,
       pricePerMeeting: Number(cycle.meetingRevenue ?? 0),
-      studentCount: cycle.studentCount ?? 0,
+      studentCount,
       completedMeetings,
       unitPrice,
-      quantity: completedMeetings,
+      quantity,
       total,
       description: `${cycle.name} — ${hebrewLabel} (${descriptionDetail})`,
       meetingIds: cycle.meetings.map((m) => m.id),

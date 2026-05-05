@@ -211,10 +211,12 @@ export const useDeleteCourse = () => {
 };
 
 // ==================== Branches ====================
+// Branches list is small (~300 in prod) and used in dropdowns site-wide; fetch all
+// in one request rather than the paginated default of 50 so the UI never truncates.
 export const useBranches = () => {
   return useQuery({
     queryKey: ['branches'],
-    queryFn: () => fetchData<Branch[]>('/branches'),
+    queryFn: () => fetchData<Branch[]>('/branches?limit=5000'),
   });
 };
 

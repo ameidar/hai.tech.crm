@@ -64,7 +64,12 @@ billingRouter.get('/:id', async (req, res, next) => {
       where: { id: req.params.id },
       include: {
         institutionalOrder: { include: { branch: true } },
-        lines: { orderBy: { sortOrder: 'asc' } },
+        lines: {
+          orderBy: { sortOrder: 'asc' },
+          // Include `cycle.revenueIncludesVat` so the UI can show per-line VAT
+          // inclusivity and warn when lines disagree.
+          include: { cycle: { select: { revenueIncludesVat: true } } },
+        },
         payments: { orderBy: { paidAt: 'desc' } },
         _count: { select: { meetings: true } },
       },

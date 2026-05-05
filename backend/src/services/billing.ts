@@ -255,18 +255,34 @@ async function buildMorningPayload(billingPeriodId: string): Promise<{
     where: { id: billingPeriodId },
     include: {
       institutionalOrder: { include: { branch: true } },
-      lines: { orderBy: { sortOrder: 'asc' } },
+      lines: {
+        orderBy: { sortOrder: 'asc' },
+        include: { cycle: { select: { revenueIncludesVat: true } } },
+      },
     },
   });
   if (!period) throw new Error('Billing period not found');
 
   const { client, discoveredId } = await resolveMorningClient(period.institutionalOrder);
 
-  const income: MorningIncomeItem[] = period.lines.map((l) => ({
+  // Per-line vatType: derive from the source cycle's `revenueIncludesVat` flag.
+  // Morning vatType: 0 = price excludes VAT (Morning adds 18% on top — the default for
+  // institutional clients that quote net prices); 2 = price already includes VAT (Morning
+  // extracts it). Manual lines without a cycle fall back to 0.
+  const lineVatTypes = period.lines.map((l) =>
+    l.cycle?.revenueIncludesVat === true ? 2 : 0
+  );
+  const allSameVatType = lineVatTypes.every((v) => v === lineVatTypes[0]);
+  const documentVatType: 0 | 2 = (lineVatTypes[0] ?? 0);
+
+  const income: MorningIncomeItem[] = period.lines.map((l, i) => ({
     description: l.description,
     quantity: Number(l.quantity),
     price: Number(l.unitPrice),
     currency: 'ILS',
+    // Only set per-line vatType when lines disagree — keeps the typical case
+    // (uniform document) clean and defers to the document-level vatType.
+    ...(allSameVatType ? {} : { vatType: lineVatTypes[i] as 0 | 2 }),
   }));
 
   return {
@@ -274,7 +290,7 @@ async function buildMorningPayload(billingPeriodId: string): Promise<{
       type: DOCUMENT_TYPES.PROFORMA,
       lang: 'he',
       currency: 'ILS',
-      vatType: 0, // Morning: 0=default (price excludes VAT, 18% added on top); 1=exempt; 2=included
+      vatType: allSameVatType ? documentVatType : 0,
       client,
       income,
       remarks: period.notes || undefined,

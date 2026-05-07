@@ -1066,6 +1066,27 @@ export const useForecast = (historicalMonths = 6, forecastMonths = 3) => {
   });
 };
 
+interface MorningMonthData {
+  month: string;
+  monthName: string;
+  income: number;
+  expenses: number;
+  profit: number;
+  docCount: number;
+}
+
+export interface MorningFinancialsResult {
+  months: MorningMonthData[];
+  hasExpenses: boolean;
+}
+
+export const useMorningFinancials = (months = 12) => {
+  return useQuery({
+    queryKey: ['morningFinancials', months],
+    queryFn: () => fetchData<MorningFinancialsResult>(`/morning/financials?months=${months}`),
+  });
+};
+
 export const useCycleForecast = (cycleId: string, forecastMonths = 3) => {
   return useQuery({
     queryKey: ['cycle-forecast', cycleId, forecastMonths],

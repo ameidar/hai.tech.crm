@@ -597,12 +597,9 @@ morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, nex
     for (const d of credits) addInvoice(d, -1);
 
     // Match branches to Morning clients by name similarity
-    function normalize(s: string): string {
-      return s.toLowerCase().replace(/['"״׳`]/g, '').replace(/\s+/g, ' ').trim();
-    }
     function matchScore(a: string, b: string): number {
-      const na = normalize(a);
-      const nb = normalize(b);
+      const na = norm(a);
+      const nb = norm(b);
       if (!na || !nb) return 0;
       if (na === nb) return 100;
       if (na.includes(nb) || nb.includes(na)) return 80;
@@ -632,6 +629,18 @@ morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, nex
     const isExcluded = (name: string) =>
       EXCLUDED_BRANCHES.some((ex) => name.toLowerCase().trim() === ex);
 
+    // Manual mapping for branches whose name doesn't fuzzy-match the Morning
+    // client name. Keys = CRM branch name (normalized), values = Morning client
+    // name (normalized) — both lower-cased & quote-stripped via the normalize() fn.
+    function norm(s: string): string {
+      return s.toLowerCase().replace(/['"״׳`]/g, '').replace(/\s+/g, ' ').trim();
+    }
+    const BRANCH_TO_MORNING: Record<string, string> = {
+      [norm('סקו״פ')]: norm('רשת קהילה ופנאי - המרכז להעשרה חינוכית'),
+      [norm('כיוונים - חוגים')]: norm('כיוונים באר שבע'),
+      [norm('בית ספר רימון רעננה')]: norm('חט"ב רימון רעננה'),
+    };
+
     // Iterate branches with revenue, find best client match
     const branchList = Array.from(branches.values()).filter(
       (b) => Object.values(b.crmByMonth).some((v) => v > 0) && !isExcluded(b.name),
@@ -643,19 +652,32 @@ morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, nex
     });
 
     for (const b of branchList) {
-      // Find candidates with score >= 50
-      const candidates: { name: string; score: number }[] = [];
-      for (const [cn] of clientMap) {
-        if (usedClients.has(cn)) continue;
-        const s = matchScore(b.name, cn);
-        if (s >= 50) candidates.push({ name: cn, score: s });
-      }
-      candidates.sort((a, b) => b.score - a.score);
       const matched: { name: string; clientId: string | null }[] = [];
-      for (const c of candidates.slice(0, 1)) {
-        const acc = clientMap.get(c.name);
-        matched.push({ name: c.name, clientId: acc?.clientId ?? null });
-        usedClients.add(c.name);
+      // First, prefer manual override mapping if present.
+      const overrideTarget = BRANCH_TO_MORNING[norm(b.name)];
+      if (overrideTarget) {
+        for (const [cn, acc] of clientMap) {
+          if (norm(cn) === overrideTarget) {
+            matched.push({ name: cn, clientId: acc.clientId });
+            usedClients.add(cn);
+            break;
+          }
+        }
+      }
+      // Fall back to fuzzy match if no override (or override missed).
+      if (matched.length === 0) {
+        const candidates: { name: string; score: number }[] = [];
+        for (const [cn] of clientMap) {
+          if (usedClients.has(cn)) continue;
+          const s = matchScore(b.name, cn);
+          if (s >= 50) candidates.push({ name: cn, score: s });
+        }
+        candidates.sort((a, b) => b.score - a.score);
+        for (const c of candidates.slice(0, 1)) {
+          const acc = clientMap.get(c.name);
+          matched.push({ name: c.name, clientId: acc?.clientId ?? null });
+          usedClients.add(c.name);
+        }
       }
 
       const morningByMonth: Record<string, number> = {};

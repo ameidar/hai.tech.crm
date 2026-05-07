@@ -120,13 +120,29 @@ export default function BranchReconciliationTable() {
             {filteredBranches.map((b) => (
               <tr key={b.branchId} className="border-b border-gray-100 hover:bg-gray-50">
                 <td className="py-2 px-3 font-medium sticky right-0 bg-white">{b.branchName}</td>
-                <td className="py-2 px-3 text-xs text-gray-500">
+                <td className="py-2 px-3 text-xs">
                   {b.matchedClients.length === 0 ? (
                     <span className="text-amber-600 flex items-center gap-1">
                       <AlertTriangle className="w-3 h-3" /> לא נמצאה התאמה
                     </span>
                   ) : (
-                    b.matchedClients.join(', ')
+                    b.matchedClients.map((c, i) => (
+                      <span key={i}>
+                        {i > 0 && ', '}
+                        {c.clientId ? (
+                          <a
+                            href={`https://app.greeninvoice.co.il/i#/clients/${c.clientId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-indigo-600 hover:underline"
+                          >
+                            {c.name} ↗
+                          </a>
+                        ) : (
+                          <span className="text-gray-500">{c.name}</span>
+                        )}
+                      </span>
+                    ))
                   )}
                 </td>
                 {b.monthly.map((m) => (

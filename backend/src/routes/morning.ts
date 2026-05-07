@@ -578,16 +578,18 @@ morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, nex
     const invoices = (await fetchAllDocs([305, 320])).filter((d: any) => d.status !== 2);
     const credits = (await fetchAllDocs([330])).filter((d: any) => d.status !== 2);
 
-    // Group Morning invoices by client name + month
-    type ClientAcc = { name: string; byMonth: Record<string, number>; docCount: number };
+    // Group Morning invoices by client name + month. Capture client.id for deep-linking.
+    type ClientAcc = { name: string; clientId: string | null; byMonth: Record<string, number>; docCount: number };
     const clientMap = new Map<string, ClientAcc>();
     function addInvoice(d: any, sign: 1 | -1) {
       const name = d.client?.name ?? '—';
+      const cid = d.client?.id ?? null;
       const date = d.documentDate;
       if (!date || typeof date !== 'string') return;
       const key = date.slice(0, 7);
-      if (!clientMap.has(name)) clientMap.set(name, { name, byMonth: {}, docCount: 0 });
+      if (!clientMap.has(name)) clientMap.set(name, { name, clientId: cid, byMonth: {}, docCount: 0 });
       const acc = clientMap.get(name)!;
+      if (!acc.clientId && cid) acc.clientId = cid;
       acc.byMonth[key] = (acc.byMonth[key] ?? 0) + sign * Number(d.amountExcludeVat ?? 0);
       acc.docCount++;
     }
@@ -614,7 +616,7 @@ morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, nex
     type BranchOut = {
       branchId: string;
       branchName: string;
-      matchedClients: string[];
+      matchedClients: { name: string; clientId: string | null }[];
       crmTotal: number;
       morningTotal: number;
       diff: number;
@@ -626,7 +628,7 @@ morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, nex
 
     // Branches to exclude from the reconciliation view (one-off / non-billable
     // buckets that don't have a single Morning client to reconcile against).
-    const EXCLUDED_BRANCHES = ['כללי', 'אונליין b2c', 'עומר פרונטלי'];
+    const EXCLUDED_BRANCHES = ['כללי', 'אונליין b2c', 'עומר פרונטלי', 'אונליין'];
     const isExcluded = (name: string) =>
       EXCLUDED_BRANCHES.some((ex) => name.toLowerCase().trim() === ex);
 
@@ -649,12 +651,16 @@ morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, nex
         if (s >= 50) candidates.push({ name: cn, score: s });
       }
       candidates.sort((a, b) => b.score - a.score);
-      const matched = candidates.slice(0, 1).map((c) => c.name);
-      for (const m of matched) usedClients.add(m);
+      const matched: { name: string; clientId: string | null }[] = [];
+      for (const c of candidates.slice(0, 1)) {
+        const acc = clientMap.get(c.name);
+        matched.push({ name: c.name, clientId: acc?.clientId ?? null });
+        usedClients.add(c.name);
+      }
 
       const morningByMonth: Record<string, number> = {};
       for (const m of matched) {
-        const acc = clientMap.get(m);
+        const acc = clientMap.get(m.name);
         if (!acc) continue;
         for (const [k, v] of Object.entries(acc.byMonth)) {
           morningByMonth[k] = (morningByMonth[k] ?? 0) + v;

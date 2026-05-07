@@ -1092,6 +1092,35 @@ export const useMorningFinancials = (range: number | 'ytd' = 12) => {
   });
 };
 
+export type FinancialDetailCategory = 'income' | 'morningExpenses' | 'instructorPayments' | 'globalSalaries';
+
+export interface FinancialDetailItem {
+  date?: string;
+  reportingDate?: string;
+  type?: number;
+  number?: string;
+  name?: string;
+  description?: string;
+  instructorName?: string;
+  cycleName?: string;
+  status?: string;
+  amount: number;
+  url?: string | null;
+}
+
+export const useMorningFinancialsDetails = (
+  month: string | null,
+  category: FinancialDetailCategory | null,
+) => {
+  return useQuery({
+    queryKey: ['morningFinancialsDetails', month, category],
+    queryFn: () => fetchData<{ items: FinancialDetailItem[] }>(
+      `/morning/financials/details?month=${month}&category=${category}`,
+    ),
+    enabled: !!month && !!category,
+  });
+};
+
 export const useCycleForecast = (cycleId: string, forecastMonths = 3) => {
   return useQuery({
     queryKey: ['cycle-forecast', cycleId, forecastMonths],

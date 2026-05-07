@@ -120,46 +120,48 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
     // Income = binding tax invoices (305 + 320) minus credit notes (330).
     // Exclude type 300 (proforma — not real income) and type 400 (would double-count with 305).
     // Exclude status 2 (cancelled).
-    async function fetchAllPages(type: number[]): Promise<any[]> {
+    // Note: Morning API uses `page` (1-based), not `pageIndex` — passing pageIndex
+    // makes the API ignore pagination and return the same first page repeatedly.
+    async function fetchAllDocs(type: number[]): Promise<any[]> {
       const all: any[] = [];
-      let p = 0;
+      let page = 1;
       while (true) {
         const r = await morningRequest<any>('POST', '/api/v1/documents/search', {
-          pageSize: 100,
-          pageIndex: p,
-          fromDate: fromDateStr,
-          toDate: toDateStr,
-          type,
+          pageSize: 500, page, fromDate: fromDateStr, toDate: toDateStr, type,
         });
         const items: any[] = r.items || [];
         all.push(...items);
-        if (all.length >= (r.total ?? items.length) || items.length < 100) break;
-        p++;
-        if (p > 100) break;
+        if (items.length < 500 || all.length >= (r.total ?? all.length)) break;
+        page++;
+        if (page > 50) break;
       }
       return all;
     }
 
     // Match Morning's "תקבולים" report: types 305 + 320 + 400 minus 330 (credit notes).
     // Excludes 300 (proforma — not real income) and status 2 (cancelled).
-    const allIncome = (await fetchAllPages([305, 320, 400])).filter((d: any) => d.status !== 2);
-    const allCreditNotes = (await fetchAllPages([330])).filter((d: any) => d.status !== 2);
+    const allIncome = (await fetchAllDocs([305, 320, 400])).filter((d: any) => d.status !== 2);
+    const allCreditNotes = (await fetchAllDocs([330])).filter((d: any) => d.status !== 2);
 
-    // Try expenses endpoint — gracefully skip if not available
+    // Expenses — also uses `page` (1-based). Search a wider window so we can match
+    // by `reportingDate` (חודש דיווח) which Morning's reports group by — a doc may
+    // have a document date earlier than its reporting period.
+    const expFromDate = new Date(fromDate);
+    expFromDate.setMonth(expFromDate.getMonth() - 12);
+    const expFromStr = expFromDate.toISOString().split('T')[0];
+
     let allExpenses: any[] = [];
     try {
-      let expPage = 0;
+      let page = 1;
       while (true) {
         const result = await morningRequest<any>('POST', '/api/v1/expenses/search', {
-          pageSize: 100,
-          pageIndex: expPage,
-          fromDate: fromDateStr,
-          toDate: toDateStr,
+          pageSize: 500, page, fromDate: expFromStr, toDate: toDateStr,
         });
         const items: any[] = result.items || [];
         allExpenses = allExpenses.concat(items);
-        if (allExpenses.length >= (result.total ?? items.length) || items.length < 100) break;
-        expPage++;
+        if (items.length < 500 || allExpenses.length >= (result.total ?? allExpenses.length)) break;
+        page++;
+        if (page > 50) break;
       }
     } catch {
       // expenses endpoint not available
@@ -204,8 +206,10 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       }
     }
 
+    // Aggregate expenses by reportingDate (חודש דיווח) — matches Morning's report.
+    // Docs outside the requested window's reporting months are filtered out here.
     for (const item of allExpenses) {
-      const key = docDateToKey(item.date ?? item.reportingDate ?? item.documentDate);
+      const key = docDateToKey(item.reportingDate ?? item.date);
       const entry = key ? monthMap.get(key) : null;
       if (entry) {
         entry.expenses += Number(item.amountLocal ?? item.amount ?? 0);

@@ -636,7 +636,7 @@ morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, nex
       return s.toLowerCase().replace(/['"״׳`]/g, '').replace(/\s+/g, ' ').trim();
     }
     const BRANCH_TO_MORNING: Record<string, string> = {
-      [norm('סקו״פ')]: norm('רשת קהילה ופנאי - המרכז להעשרה חינוכית'),
+      [norm('מרכז סקו״פ חולון')]: norm('רשת קהילה ופנאי - המרכז להעשרה חינוכית'),
       [norm('כיוונים - חוגים')]: norm('כיוונים באר שבע'),
       [norm('בית ספר רימון רעננה')]: norm('חט"ב רימון רעננה'),
     };

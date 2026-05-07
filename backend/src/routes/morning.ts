@@ -140,7 +140,9 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       return all;
     }
 
-    const allIncome = (await fetchAllPages([305, 320])).filter((d: any) => d.status !== 2);
+    // Match Morning's "תקבולים" report: types 305 + 320 + 400 minus 330 (credit notes).
+    // Excludes 300 (proforma — not real income) and status 2 (cancelled).
+    const allIncome = (await fetchAllPages([305, 320, 400])).filter((d: any) => d.status !== 2);
     const allCreditNotes = (await fetchAllPages([330])).filter((d: any) => d.status !== 2);
 
     // Try expenses endpoint — gracefully skip if not available

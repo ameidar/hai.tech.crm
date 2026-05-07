@@ -1070,6 +1070,9 @@ interface MorningMonthData {
   month: string;
   monthName: string;
   income: number;
+  morningExpenses: number;
+  instructorPayments: number;
+  globalSalaries: number;
   expenses: number;
   profit: number;
   docCount: number;
@@ -1078,6 +1081,7 @@ interface MorningMonthData {
 export interface MorningFinancialsResult {
   months: MorningMonthData[];
   hasExpenses: boolean;
+  globalEmployees?: { name: string; amount: number }[];
 }
 
 export const useMorningFinancials = (range: number | 'ytd' = 12) => {

@@ -37,11 +37,16 @@ export default function MorningRevenueChart() {
     );
   }
 
-  const { months: monthData, hasExpenses } = data;
+  const { months: monthData, globalEmployees } = data;
+  const hasExpenses = true;
   const totalIncome = monthData.reduce((s, m) => s + m.income, 0);
+  const totalMorningExp = monthData.reduce((s, m) => s + (m.morningExpenses ?? 0), 0);
+  const totalInstructorPay = monthData.reduce((s, m) => s + (m.instructorPayments ?? 0), 0);
+  const totalGlobalSal = monthData.reduce((s, m) => s + (m.globalSalaries ?? 0), 0);
   const totalExpenses = monthData.reduce((s, m) => s + m.expenses, 0);
   const totalProfit = totalIncome - totalExpenses;
   const avgIncome = Math.round(totalIncome / (monthData.filter(m => m.income > 0).length || 1));
+  const globalEmpLabel = (globalEmployees ?? []).map(e => `${e.name} ₪${e.amount.toLocaleString()}`).join(' + ');
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-6">
@@ -153,24 +158,27 @@ export default function MorningRevenueChart() {
               axisLine={false}
             />
             <Tooltip
-              formatter={(value, name) => {
-                const labels: Record<string, string> = {
-                  income: 'הכנסות',
-                  expenses: 'הוצאות',
-                  profit: hasExpenses ? 'רווח' : 'גבייה',
-                };
-                return [`₪${Number(value).toLocaleString()}`, labels[String(name)] ?? String(name)];
-              }}
-              contentStyle={{
-                backgroundColor: 'white',
-                border: '1px solid #e5e7eb',
-                borderRadius: '8px',
-                boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+              content={({ active, payload }) => {
+                if (!active || !payload?.length) return null;
+                const d: any = payload[0].payload;
+                return (
+                  <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
+                    <div className="font-semibold text-gray-900 mb-2">{d.monthName}</div>
+                    <div className="text-emerald-600">הכנסות: ₪{d.income?.toLocaleString()}</div>
+                    <div className="border-t border-gray-100 my-1.5 pt-1.5 text-xs space-y-0.5">
+                      <div className="text-rose-500">- הוצאות מורנינג: ₪{d.morningExpenses?.toLocaleString()}</div>
+                      <div className="text-rose-500">- תשלום מדריכים: ₪{d.instructorPayments?.toLocaleString()}</div>
+                      <div className="text-rose-500">- משכורות גלובליות: ₪{d.globalSalaries?.toLocaleString()}</div>
+                    </div>
+                    <div className="text-rose-600 font-medium border-t border-gray-100 pt-1.5">סה״כ הוצאות: ₪{d.expenses?.toLocaleString()}</div>
+                    <div className={`font-bold mt-1 ${d.profit >= 0 ? 'text-sky-600' : 'text-orange-600'}`}>רווח: ₪{d.profit?.toLocaleString()}</div>
+                  </div>
+                );
               }}
             />
             <Legend
               formatter={(v) => {
-                const labels: Record<string, string> = { income: 'הכנסות', expenses: 'הוצאות', profit: hasExpenses ? 'רווח' : 'גבייה' };
+                const labels: Record<string, string> = { income: 'הכנסות', expenses: 'הוצאות', profit: 'רווח' };
                 return labels[v] ?? v;
               }}
             />
@@ -192,37 +200,32 @@ export default function MorningRevenueChart() {
 
       {/* Monthly Table */}
       <div className="border-t border-gray-100 pt-4">
+        {globalEmpLabel && (
+          <p className="text-xs text-gray-500 mb-2">משכורות גלובליות קבועות: {globalEmpLabel}</p>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-gray-500 border-b border-gray-200 bg-gray-50">
                 <th className="text-right py-2 px-3 font-semibold">חודש</th>
                 <th className="text-right py-2 px-3 font-semibold text-emerald-600">הכנסות</th>
-                {hasExpenses && <th className="text-right py-2 px-3 font-semibold text-rose-600">הוצאות</th>}
-                <th className="text-right py-2 px-3 font-semibold text-sky-600">{hasExpenses ? 'רווח' : 'מסמכים'}</th>
-                <th className="text-right py-2 px-3 font-semibold text-gray-500">מסמכים</th>
+                <th className="text-right py-2 px-3 font-semibold text-rose-500">מורנינג</th>
+                <th className="text-right py-2 px-3 font-semibold text-rose-500">מדריכים</th>
+                <th className="text-right py-2 px-3 font-semibold text-rose-500">משכורות</th>
+                <th className="text-right py-2 px-3 font-semibold text-rose-600">סה״כ הוצאות</th>
+                <th className="text-right py-2 px-3 font-semibold text-sky-600">רווח</th>
               </tr>
             </thead>
             <tbody>
               {monthData.map((row) => (
                 <tr key={row.month} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="py-2 px-3 font-medium">{row.monthName}</td>
-                  <td className="py-2 px-3 text-emerald-600 font-medium">
-                    {row.income > 0 ? `₪${row.income.toLocaleString()}` : '—'}
-                  </td>
-                  {hasExpenses && (
-                    <td className="py-2 px-3 text-rose-500">
-                      {row.expenses > 0 ? `₪${row.expenses.toLocaleString()}` : '—'}
-                    </td>
-                  )}
-                  {hasExpenses ? (
-                    <td className={`py-2 px-3 font-bold ${row.profit >= 0 ? 'text-sky-600' : 'text-rose-600'}`}>
-                      ₪{row.profit.toLocaleString()}
-                    </td>
-                  ) : (
-                    <td className="py-2 px-3 text-gray-500">{row.docCount}</td>
-                  )}
-                  <td className="py-2 px-3 text-gray-400 text-xs">{row.docCount} מסמכים</td>
+                  <td className="py-2 px-3 text-emerald-600 font-medium">{row.income > 0 ? `₪${row.income.toLocaleString()}` : '—'}</td>
+                  <td className="py-2 px-3 text-rose-500">{row.morningExpenses > 0 ? `₪${row.morningExpenses.toLocaleString()}` : '—'}</td>
+                  <td className="py-2 px-3 text-rose-500">{row.instructorPayments > 0 ? `₪${row.instructorPayments.toLocaleString()}` : '—'}</td>
+                  <td className="py-2 px-3 text-rose-500">₪{row.globalSalaries.toLocaleString()}</td>
+                  <td className="py-2 px-3 text-rose-600 font-medium">₪{row.expenses.toLocaleString()}</td>
+                  <td className={`py-2 px-3 font-bold ${row.profit >= 0 ? 'text-sky-600' : 'text-rose-600'}`}>₪{row.profit.toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>
@@ -230,19 +233,11 @@ export default function MorningRevenueChart() {
               <tr className="bg-gray-100 font-semibold">
                 <td className="py-2 px-3">סה״כ</td>
                 <td className="py-2 px-3 text-emerald-600">₪{totalIncome.toLocaleString()}</td>
-                {hasExpenses && <td className="py-2 px-3 text-rose-600">₪{totalExpenses.toLocaleString()}</td>}
-                {hasExpenses ? (
-                  <td className={`py-2 px-3 ${totalProfit >= 0 ? 'text-sky-600' : 'text-rose-600'}`}>
-                    ₪{totalProfit.toLocaleString()}
-                  </td>
-                ) : (
-                  <td className="py-2 px-3 text-gray-500">
-                    {monthData.reduce((s, m) => s + m.docCount, 0)}
-                  </td>
-                )}
-                <td className="py-2 px-3 text-gray-400 text-xs">
-                  {monthData.reduce((s, m) => s + m.docCount, 0)} מסמכים
-                </td>
+                <td className="py-2 px-3 text-rose-500">₪{totalMorningExp.toLocaleString()}</td>
+                <td className="py-2 px-3 text-rose-500">₪{totalInstructorPay.toLocaleString()}</td>
+                <td className="py-2 px-3 text-rose-500">₪{totalGlobalSal.toLocaleString()}</td>
+                <td className="py-2 px-3 text-rose-600">₪{totalExpenses.toLocaleString()}</td>
+                <td className={`py-2 px-3 ${totalProfit >= 0 ? 'text-sky-600' : 'text-rose-600'}`}>₪{totalProfit.toLocaleString()}</td>
               </tr>
             </tfoot>
           </table>

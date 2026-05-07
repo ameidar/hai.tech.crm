@@ -8,12 +8,16 @@ import { isMorningConfigured, morningRequest } from '../services/morning/client.
 import { prisma } from '../utils/prisma.js';
 
 // Fixed monthly salaries for global employees (not paid via Morning or per-meeting).
-// `excludeMonths` lists YYYY-MM strings where the employee should not be charged
-// (e.g. unpaid leave / חל"ת).
-const GLOBAL_MONTHLY_SALARIES: { name: string; amount: number; excludeMonths?: string[] }[] = [
-  { name: 'הילה', amount: 13000, excludeMonths: ['2026-03'] },
-  { name: 'אור', amount: 13000, excludeMonths: ['2026-03'] },
+// `monthOverrides` lets specific months override the default (e.g. partial month,
+// reduced pay, unpaid leave = 0).
+const GLOBAL_MONTHLY_SALARIES: { name: string; amount: number; monthOverrides?: Record<string, number> }[] = [
+  { name: 'הילה', amount: 13000, monthOverrides: { '2026-03': 8000, '2026-04': 3000 } },
+  { name: 'אור', amount: 13000, monthOverrides: { '2026-03': 8000, '2026-04': 8000 } },
 ];
+
+function salaryForMonth(emp: typeof GLOBAL_MONTHLY_SALARIES[number], month: string): number {
+  return emp.monthOverrides?.[month] ?? emp.amount;
+}
 
 export const morningRouter = Router();
 morningRouter.use(authenticate);
@@ -309,9 +313,9 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       const [year, month] = key.split('-').map(Number);
       const morningExp = Math.round(data.morningExpenses);
       const instructorPay = Math.round(data.instructorPayments);
-      // Sum global salaries for this month, excluding employees on leave (excludeMonths).
+      // Sum global salaries for this month, applying any per-month overrides.
       const globalSalariesMonthly = GLOBAL_MONTHLY_SALARIES.reduce(
-        (s, e) => s + (e.excludeMonths?.includes(key) ? 0 : e.amount),
+        (s, e) => s + salaryForMonth(e, key),
         0,
       );
       const totalExpenses = morningExp + instructorPay + globalSalariesMonthly;
@@ -479,8 +483,8 @@ morningRouter.get('/financials/details', managerOrAdmin, async (req, res, next) 
 
     if (category === 'globalSalaries') {
       const items = GLOBAL_MONTHLY_SALARIES
-        .filter((e) => !e.excludeMonths?.includes(month))
-        .map((e) => ({ name: e.name, amount: e.amount }));
+        .map((e) => ({ name: e.name, amount: salaryForMonth(e, month) }))
+        .filter((i) => i.amount > 0);
       return res.json({ items });
     }
 

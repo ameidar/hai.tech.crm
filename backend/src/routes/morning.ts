@@ -117,24 +117,31 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
     const fromDateStr = fromDate.toISOString().split('T')[0];
     const toDateStr = toDate.toISOString().split('T')[0];
 
-    // Fetch all pages of income documents
-    const INCOME_TYPES = [300, 305, 320, 400];
-    let allIncome: any[] = [];
-    let pageIndex = 0;
-    while (true) {
-      const result = await morningRequest<any>('POST', '/api/v1/documents/search', {
-        pageSize: 100,
-        pageIndex,
-        fromDate: fromDateStr,
-        toDate: toDateStr,
-        type: INCOME_TYPES,
-        status: 0,
-      });
-      const items: any[] = result.items || [];
-      allIncome = allIncome.concat(items);
-      if (allIncome.length >= (result.total ?? items.length) || items.length < 100) break;
-      pageIndex++;
+    // Income = binding tax invoices (305 + 320) minus credit notes (330).
+    // Exclude type 300 (proforma — not real income) and type 400 (would double-count with 305).
+    // Exclude status 2 (cancelled).
+    async function fetchAllPages(type: number[]): Promise<any[]> {
+      const all: any[] = [];
+      let p = 0;
+      while (true) {
+        const r = await morningRequest<any>('POST', '/api/v1/documents/search', {
+          pageSize: 100,
+          pageIndex: p,
+          fromDate: fromDateStr,
+          toDate: toDateStr,
+          type,
+        });
+        const items: any[] = r.items || [];
+        all.push(...items);
+        if (all.length >= (r.total ?? items.length) || items.length < 100) break;
+        p++;
+        if (p > 100) break;
+      }
+      return all;
     }
+
+    const allIncome = (await fetchAllPages([305, 320])).filter((d: any) => d.status !== 2);
+    const allCreditNotes = (await fetchAllPages([330])).filter((d: any) => d.status !== 2);
 
     // Try expenses endpoint — gracefully skip if not available
     let allExpenses: any[] = [];
@@ -183,6 +190,15 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       if (entry) {
         entry.income += Number(item.amountLocal ?? item.amount ?? 0);
         entry.docCount++;
+      }
+    }
+
+    // Subtract credit notes from income (refunds/cancellations)
+    for (const item of allCreditNotes) {
+      const key = docDateToKey(item.documentDate ?? item.date);
+      const entry = key ? monthMap.get(key) : null;
+      if (entry) {
+        entry.income -= Number(item.amountLocal ?? item.amount ?? 0);
       }
     }
 

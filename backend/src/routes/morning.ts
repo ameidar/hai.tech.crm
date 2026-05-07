@@ -4,7 +4,7 @@ import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { logAudit } from '../utils/audit.js';
 import { createDocument, previewDocument, DOCUMENT_TYPES } from '../services/morning/documents.js';
-import { isMorningConfigured } from '../services/morning/client.js';
+import { isMorningConfigured, morningRequest } from '../services/morning/client.js';
 
 export const morningRouter = Router();
 morningRouter.use(authenticate);
@@ -94,6 +94,119 @@ morningRouter.post('/documents', managerOrAdmin, async (req, res, next) => {
         urlOrigin: document.url?.origin,
       },
     });
+  } catch (err: any) {
+    if (err.body) {
+      return res.status(err.status || 500).json({ error: 'Morning API error', details: err.body });
+    }
+    next(err);
+  }
+});
+
+// GET /api/morning/financials?months=12
+// Fetches real income + expenses from Morning and aggregates by month.
+morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
+  try {
+    if (!isMorningConfigured()) {
+      throw new AppError(503, 'Morning API is not configured on this server');
+    }
+
+    const months = Math.min(24, Math.max(1, Number(req.query.months) || 12));
+    const now = new Date();
+    const fromDate = new Date(now.getFullYear(), now.getMonth() - months + 1, 1);
+    const toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const fromDateStr = fromDate.toISOString().split('T')[0];
+    const toDateStr = toDate.toISOString().split('T')[0];
+
+    // Fetch all pages of income documents
+    const INCOME_TYPES = [300, 305, 320, 400];
+    let allIncome: any[] = [];
+    let pageIndex = 0;
+    while (true) {
+      const result = await morningRequest<any>('POST', '/api/v1/documents/search', {
+        pageSize: 100,
+        pageIndex,
+        fromDate: fromDateStr,
+        toDate: toDateStr,
+        type: INCOME_TYPES,
+        status: 0,
+      });
+      const items: any[] = result.items || [];
+      allIncome = allIncome.concat(items);
+      if (allIncome.length >= (result.total ?? items.length) || items.length < 100) break;
+      pageIndex++;
+    }
+
+    // Try expenses endpoint — gracefully skip if not available
+    let allExpenses: any[] = [];
+    try {
+      let expPage = 0;
+      while (true) {
+        const result = await morningRequest<any>('POST', '/api/v1/expenses/search', {
+          pageSize: 100,
+          pageIndex: expPage,
+          fromDate: fromDateStr,
+          toDate: toDateStr,
+        });
+        const items: any[] = result.items || [];
+        allExpenses = allExpenses.concat(items);
+        if (allExpenses.length >= (result.total ?? items.length) || items.length < 100) break;
+        expPage++;
+      }
+    } catch {
+      // expenses endpoint not available
+    }
+
+    // Build month map (last N months)
+    const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+    const monthMap = new Map<string, { income: number; expenses: number; docCount: number }>();
+    for (let i = 0; i < months; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - months + 1 + i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      monthMap.set(key, { income: 0, expenses: 0, docCount: 0 });
+    }
+
+    function docDateToKey(raw: any): string | null {
+      let d: Date;
+      if (typeof raw === 'number') {
+        // Unix timestamp: Morning uses seconds
+        d = new Date(raw < 1e12 ? raw * 1000 : raw);
+      } else if (typeof raw === 'string') {
+        d = new Date(raw);
+      } else return null;
+      if (isNaN(d.getTime())) return null;
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    }
+
+    for (const item of allIncome) {
+      const key = docDateToKey(item.documentDate ?? item.date);
+      const entry = key ? monthMap.get(key) : null;
+      if (entry) {
+        entry.income += Number(item.sum ?? item.sumBeforeVat ?? 0);
+        entry.docCount++;
+      }
+    }
+
+    for (const item of allExpenses) {
+      const key = docDateToKey(item.documentDate ?? item.date ?? item.issueDate);
+      const entry = key ? monthMap.get(key) : null;
+      if (entry) {
+        entry.expenses += Number(item.sum ?? item.sumBeforeVat ?? item.total ?? 0);
+      }
+    }
+
+    const result = Array.from(monthMap.entries()).map(([key, data]) => {
+      const [year, month] = key.split('-').map(Number);
+      return {
+        month: key,
+        monthName: `${HEBREW_MONTHS[month - 1]} ${year}`,
+        income: Math.round(data.income),
+        expenses: Math.round(data.expenses),
+        profit: Math.round(data.income - data.expenses),
+        docCount: data.docCount,
+      };
+    });
+
+    res.json({ months: result, hasExpenses: allExpenses.length > 0 });
   } catch (err: any) {
     if (err.body) {
       return res.status(err.status || 500).json({ error: 'Morning API error', details: err.body });

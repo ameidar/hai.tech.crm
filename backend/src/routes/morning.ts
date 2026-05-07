@@ -188,14 +188,64 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       // expenses endpoint not available
     }
 
-    // Sum instructor payments from completed past meetings, grouped by month.
-    const completedMeetings = await prisma.meeting.findMany({
+    // Sum instructor payments for past meetings.
+    // Include both `completed` and past `scheduled` meetings — in dev/prod the
+    // status often isn't auto-updated to completed after the date passes, so
+    // past scheduled meetings still represent real instructor cost.
+    // Compute payment from rate × duration when stored instructorPayment is 0
+    // (which happens for scheduled meetings that haven't been finalized).
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const meetingsForPayments = await prisma.meeting.findMany({
       where: {
-        status: 'completed',
         scheduledDate: { gte: fromDate, lte: toDate },
+        OR: [
+          { status: 'completed' },
+          { status: 'scheduled', scheduledDate: { lte: todayMidnight } },
+        ],
       },
-      select: { scheduledDate: true, instructorPayment: true },
+      select: {
+        scheduledDate: true,
+        startTime: true,
+        endTime: true,
+        instructorPayment: true,
+        activityType: true,
+        cycle: {
+          select: {
+            activityType: true,
+            isOnline: true,
+            type: true,
+            durationMinutes: true,
+          },
+        },
+        instructor: {
+          select: { rateFrontal: true, rateOnline: true, ratePrivate: true, employmentType: true },
+        },
+      },
     });
+
+    function computeInstructorPayment(m: typeof meetingsForPayments[number]): number {
+      const stored = Number(m.instructorPayment ?? 0);
+      if (stored > 0) return stored;
+      // Fall back to live calculation: rate × duration (× 1.3 for employees).
+      const instr = m.instructor;
+      if (!instr) return 0;
+      const cycle = m.cycle;
+      const actType = m.activityType ?? cycle?.activityType ?? (cycle?.isOnline ? 'online' : cycle?.type === 'private' ? 'private_lesson' : 'frontal');
+      let hourlyRate = 0;
+      switch (actType) {
+        case 'online': hourlyRate = Number(instr.rateOnline ?? instr.rateFrontal ?? 0); break;
+        case 'private_lesson': hourlyRate = Number(instr.ratePrivate ?? instr.rateFrontal ?? 0); break;
+        default: hourlyRate = Number(instr.rateFrontal ?? 0);
+      }
+      let durationMinutes = Number(cycle?.durationMinutes ?? 60);
+      if (m.startTime && m.endTime) {
+        const calc = (m.endTime.getTime() - m.startTime.getTime()) / 60000;
+        if (calc > 0 && calc < 1440) durationMinutes = calc;
+      }
+      let payment = Math.round(hourlyRate * (durationMinutes / 60));
+      if (instr.employmentType === 'employee') payment = Math.round(payment * 1.3);
+      return payment;
+    }
 
     // Build month map (last N months) — also tracks instructor payments + salaries
     const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
@@ -206,11 +256,11 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       monthMap.set(key, { income: 0, morningExpenses: 0, instructorPayments: 0, docCount: 0 });
     }
 
-    for (const m of completedMeetings) {
+    for (const m of meetingsForPayments) {
       const d = m.scheduledDate;
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       const entry = monthMap.get(key);
-      if (entry) entry.instructorPayments += Number(m.instructorPayment ?? 0);
+      if (entry) entry.instructorPayments += computeInstructorPayment(m);
     }
 
     function docDateToKey(raw: any): string | null {

@@ -7,11 +7,12 @@ import { createDocument, previewDocument, DOCUMENT_TYPES } from '../services/mor
 import { isMorningConfigured, morningRequest } from '../services/morning/client.js';
 import { prisma } from '../utils/prisma.js';
 
-// Fixed monthly salaries for global employees (not in Morning).
-// Add new entries here as people are hired.
-const GLOBAL_MONTHLY_SALARIES: { name: string; amount: number }[] = [
-  { name: 'הילה', amount: 13000 },
-  { name: 'אור', amount: 13000 },
+// Fixed monthly salaries for global employees (not paid via Morning or per-meeting).
+// `excludeMonths` lists YYYY-MM strings where the employee should not be charged
+// (e.g. unpaid leave / חל"ת).
+const GLOBAL_MONTHLY_SALARIES: { name: string; amount: number; excludeMonths?: string[] }[] = [
+  { name: 'הילה', amount: 13000, excludeMonths: ['2026-03'] },
+  { name: 'אור', amount: 13000, excludeMonths: ['2026-03'] },
 ];
 
 export const morningRouter = Router();
@@ -254,12 +255,15 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       }
     }
 
-    const globalSalariesMonthly = GLOBAL_MONTHLY_SALARIES.reduce((s, e) => s + e.amount, 0);
-
     const result = Array.from(monthMap.entries()).map(([key, data]) => {
       const [year, month] = key.split('-').map(Number);
       const morningExp = Math.round(data.morningExpenses);
       const instructorPay = Math.round(data.instructorPayments);
+      // Sum global salaries for this month, excluding employees on leave (excludeMonths).
+      const globalSalariesMonthly = GLOBAL_MONTHLY_SALARIES.reduce(
+        (s, e) => s + (e.excludeMonths?.includes(key) ? 0 : e.amount),
+        0,
+      );
       const totalExpenses = morningExp + instructorPay + globalSalariesMonthly;
       const income = Math.round(data.income);
       return {

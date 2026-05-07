@@ -1124,7 +1124,7 @@ export const useMorningFinancialsDetails = (
 export interface BranchReconciliationBranch {
   branchId: string;
   branchName: string;
-  matchedClients: string[];
+  matchedClients: { name: string; clientId: string | null }[];
   crmTotal: number;
   morningTotal: number;
   diff: number;

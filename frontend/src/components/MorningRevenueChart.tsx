@@ -15,8 +15,8 @@ import { useMorningFinancials } from '../hooks/useApi';
 import Loading from './ui/Loading';
 
 export default function MorningRevenueChart() {
-  const [months, setMonths] = useState(12);
-  const { data, isLoading, error, refetch, isFetching } = useMorningFinancials(months);
+  const [range, setRange] = useState<'ytd' | number>(12);
+  const { data, isLoading, error, refetch, isFetching } = useMorningFinancials(range);
 
   if (isLoading) {
     return (
@@ -58,10 +58,11 @@ export default function MorningRevenueChart() {
         </div>
         <div className="flex items-center gap-2">
           <select
-            value={months}
-            onChange={(e) => setMonths(Number(e.target.value))}
+            value={range}
+            onChange={(e) => setRange(e.target.value === 'ytd' ? 'ytd' : Number(e.target.value))}
             className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-emerald-500"
           >
+            <option value="ytd">מתחילת השנה</option>
             <option value={3}>3 חודשים</option>
             <option value={6}>6 חודשים</option>
             <option value={12}>12 חודשים</option>
@@ -143,7 +144,7 @@ export default function MorningRevenueChart() {
               dataKey="monthName"
               tick={{ fontSize: 11 }}
               tickLine={false}
-              interval={months > 12 ? 1 : 0}
+              interval={monthData.length > 12 ? 1 : 0}
             />
             <YAxis
               tick={{ fontSize: 11 }}

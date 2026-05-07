@@ -300,12 +300,15 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
     }
 
     // Aggregate expenses by reportingDate (חודש דיווח) — matches Morning's report.
-    // Docs outside the requested window's reporting months are filtered out here.
+    // Use deductibleAmount: this is the recognized expense in ILS, excluding any
+    // recoverable Israeli VAT. The DB stores it pre-converted from the document's
+    // original currency. amountExcludeVat is in the document's own currency, so
+    // summing it across mixed currencies (ILS/USD/EUR) produces wrong totals.
     for (const item of allExpenses) {
       const key = docDateToKey(item.reportingDate ?? item.date);
       const entry = key ? monthMap.get(key) : null;
       if (entry) {
-        entry.morningExpenses += Number(item.amountExcludeVat ?? 0);
+        entry.morningExpenses += Number(item.deductibleAmount ?? 0);
       }
     }
 
@@ -421,7 +424,7 @@ morningRouter.get('/financials/details', managerOrAdmin, async (req, res, next) 
           reportingDate: e.reportingDate,
           name: e.supplier?.name ?? e.data?.supplier?.name ?? '—',
           description: e.description ?? e.data?.description ?? '',
-          amount: Math.round(Number(e.amountExcludeVat ?? 0)),
+          amount: Math.round(Number(e.deductibleAmount ?? 0)),
           url: e.url ?? null,
         }))
         .sort((a, b) => String(a.date).localeCompare(String(b.date)));

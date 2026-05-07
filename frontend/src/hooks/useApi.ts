@@ -1066,6 +1066,85 @@ export const useForecast = (historicalMonths = 6, forecastMonths = 3) => {
   });
 };
 
+interface MorningMonthData {
+  month: string;
+  monthName: string;
+  income: number;
+  morningExpenses: number;
+  instructorPayments: number;
+  globalSalaries: number;
+  expenses: number;
+  profit: number;
+  docCount: number;
+}
+
+export interface MorningFinancialsResult {
+  months: MorningMonthData[];
+  hasExpenses: boolean;
+  globalEmployees?: { name: string; amount: number }[];
+}
+
+export const useMorningFinancials = (range: number | 'ytd' = 12) => {
+  const qs = range === 'ytd' ? 'mode=ytd' : `months=${range}`;
+  return useQuery({
+    queryKey: ['morningFinancials', range],
+    queryFn: () => fetchData<MorningFinancialsResult>(`/morning/financials?${qs}`),
+  });
+};
+
+export type FinancialDetailCategory = 'income' | 'morningExpenses' | 'instructorPayments' | 'globalSalaries';
+
+export interface FinancialDetailItem {
+  date?: string;
+  reportingDate?: string;
+  type?: number;
+  number?: string;
+  name?: string;
+  description?: string;
+  instructorName?: string;
+  cycleName?: string;
+  status?: string;
+  amount: number;
+  url?: string | null;
+}
+
+export const useMorningFinancialsDetails = (
+  month: string | null,
+  category: FinancialDetailCategory | null,
+) => {
+  return useQuery({
+    queryKey: ['morningFinancialsDetails', month, category],
+    queryFn: () => fetchData<{ items: FinancialDetailItem[] }>(
+      `/morning/financials/details?month=${month}&category=${category}`,
+    ),
+    enabled: !!month && !!category,
+  });
+};
+
+export interface BranchReconciliationBranch {
+  branchId: string;
+  branchName: string;
+  matchedClients: { name: string; clientId: string | null }[];
+  crmTotal: number;
+  morningTotal: number;
+  diff: number;
+  monthly: { month: string; crm: number; morning: number; diff: number }[];
+}
+
+export interface BranchReconciliationResult {
+  months: string[];
+  branches: BranchReconciliationBranch[];
+  unmatchedClients: { name: string; total: number; monthly: Record<string, number> }[];
+}
+
+export const useBranchReconciliation = (range: number | 'ytd' = 'ytd') => {
+  const qs = range === 'ytd' ? 'mode=ytd' : `months=${range}`;
+  return useQuery({
+    queryKey: ['branchReconciliation', range],
+    queryFn: () => fetchData<BranchReconciliationResult>(`/morning/branch-reconciliation?${qs}`),
+  });
+};
+
 export const useCycleForecast = (cycleId: string, forecastMonths = 3) => {
   return useQuery({
     queryKey: ['cycle-forecast', cycleId, forecastMonths],

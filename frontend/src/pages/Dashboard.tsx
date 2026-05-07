@@ -27,6 +27,8 @@ import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import MeetingDetailModal from '../components/MeetingDetailModal';
 import ForecastChart from '../components/ForecastChart';
+import MorningRevenueChart from '../components/MorningRevenueChart';
+import BranchReconciliationTable from '../components/BranchReconciliationTable';
 import { meetingStatusHebrew, dayOfWeekHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
@@ -234,6 +236,12 @@ export default function Dashboard() {
 
             {/* Financial Forecast Chart */}
             <ForecastChart />
+
+            {/* Real Morning Revenue Chart */}
+            <MorningRevenueChart />
+
+            {/* Branch reconciliation: CRM vs Morning */}
+            <BranchReconciliationTable />
 
             {/* Today's Meetings - Enhanced Table */}
             <div className="card overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-300">

@@ -200,11 +200,13 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     }
 
+    // Use amountExcludeVat — net income/expense without VAT, matches Morning's
+    // "הכנסות לא כולל מע״מ" report and the standard accountant view.
     for (const item of allIncome) {
       const key = docDateToKey(item.documentDate ?? item.date);
       const entry = key ? monthMap.get(key) : null;
       if (entry) {
-        entry.income += Number(item.amountLocal ?? item.amount ?? 0);
+        entry.income += Number(item.amountExcludeVat ?? 0);
         entry.docCount++;
       }
     }
@@ -214,7 +216,7 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       const key = docDateToKey(item.documentDate ?? item.date);
       const entry = key ? monthMap.get(key) : null;
       if (entry) {
-        entry.income -= Number(item.amountLocal ?? item.amount ?? 0);
+        entry.income -= Number(item.amountExcludeVat ?? 0);
       }
     }
 
@@ -224,7 +226,7 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       const key = docDateToKey(item.reportingDate ?? item.date);
       const entry = key ? monthMap.get(key) : null;
       if (entry) {
-        entry.expenses += Number(item.amountLocal ?? item.amount ?? 0);
+        entry.expenses += Number(item.amountExcludeVat ?? 0);
       }
     }
 

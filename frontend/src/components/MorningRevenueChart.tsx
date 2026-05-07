@@ -147,7 +147,7 @@ export default function MorningRevenueChart() {
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-6 space-y-4 md:space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-emerald-50 rounded-lg">
             <Activity className="w-5 h-5 text-emerald-600" />
@@ -181,7 +181,7 @@ export default function MorningRevenueChart() {
       </div>
 
       {/* Summary Cards */}
-      <div className={`grid gap-3 md:gap-4 grid-cols-1 ${hasExpenses ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+      <div className={`grid gap-3 md:gap-4 grid-cols-1 ${hasExpenses ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
         <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-xl p-4">
           <div className="flex items-center justify-between">
             <span className="text-sm text-emerald-700">סה״כ הכנסות</span>
@@ -227,9 +227,9 @@ export default function MorningRevenueChart() {
       </div>
 
       {/* Bar + Line Chart */}
-      <div className="h-64 md:h-72">
+      <div className="h-72 md:h-80">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={monthData} margin={{ top: 10, right: 12, left: 0, bottom: 8 }}>
+          <ComposedChart data={monthData} margin={{ top: 10, right: 12, left: 0, bottom: 24 }}>
             <defs>
               <linearGradient id="mIncomeGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#10b981" stopOpacity={0.9} />
@@ -245,8 +245,10 @@ export default function MorningRevenueChart() {
               dataKey="month"
               tick={{ fontSize: 10 }}
               tickLine={false}
-              interval="preserveStartEnd"
-              minTickGap={20}
+              interval={0}
+              angle={-40}
+              textAnchor="end"
+              height={50}
               tickFormatter={(m: string) => {
                 if (!m || typeof m !== 'string') return m;
                 const [y, mm] = m.split('-');

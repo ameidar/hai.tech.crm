@@ -639,12 +639,32 @@ morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, nex
       [norm('מרכז סקו״פ חולון')]: norm('רשת קהילה ופנאי - המרכז להעשרה חינוכית'),
       [norm('כיוונים - חוגים')]: norm('כיוונים באר שבע'),
       [norm('בית ספר רימון רעננה')]: norm('חט"ב רימון רעננה'),
+      [norm('יסוד המעלה')]: norm('החברה העירונית לתרבות ספורט ונופש ראשל"צ'),
+      [norm('עמל')]: norm('רשת עמל 1 בע״מ'),
+      [norm('בי"ס יסודי הרעות כרמיאל')]: norm('בית ספר יסודי הרעות כרמיאל'),
+      [norm('הרעות כרמיאל')]: norm('בית ספר יסודי הרעות כרמיאל'),
     };
 
-    // Iterate branches with revenue, find best client match
-    const branchList = Array.from(branches.values()).filter(
-      (b) => Object.values(b.crmByMonth).some((v) => v > 0) && !isExcluded(b.name),
-    );
+    // Also include any branch in the override map even if it has no CRM revenue
+    // in this window — useful when dev DB is missing meeting data but Morning has
+    // invoices, so the user can still see the gap.
+    const allBranchesInDb = await prisma.branch.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+    });
+    for (const b of allBranchesInDb) {
+      if (BRANCH_TO_MORNING[norm(b.name)] && !branches.has(b.id)) {
+        branches.set(b.id, { id: b.id, name: b.name, crmByMonth: {} });
+      }
+    }
+
+    // Include branches with revenue OR with a manual override mapping
+    const branchList = Array.from(branches.values()).filter((b) => {
+      if (isExcluded(b.name)) return false;
+      const hasRevenue = Object.values(b.crmByMonth).some((v) => v > 0);
+      const hasOverride = !!BRANCH_TO_MORNING[norm(b.name)];
+      return hasRevenue || hasOverride;
+    });
     branchList.sort((a, b) => {
       const sa = Object.values(a.crmByMonth).reduce((s, v) => s + v, 0);
       const sb = Object.values(b.crmByMonth).reduce((s, v) => s + v, 0);

@@ -500,6 +500,201 @@ morningRouter.get('/financials/details', managerOrAdmin, async (req, res, next) 
   }
 });
 
+// GET /api/morning/branch-reconciliation?mode=ytd|months=N
+// Per-branch monthly comparison: CRM revenue (from meetings) vs Morning invoices
+// (305 + 320, ex-VAT). Helps spot mismatches between recognized revenue and
+// actual billing.
+morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, next) => {
+  try {
+    if (!isMorningConfigured()) throw new AppError(503, 'Morning API is not configured');
+
+    const mode = String(req.query.mode || '');
+    const now = new Date();
+    let fromDate: Date;
+    let toDate: Date;
+    let monthCount: number;
+    if (mode === 'ytd') {
+      fromDate = new Date(now.getFullYear(), 0, 1);
+      toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      monthCount = now.getMonth() + 1;
+    } else {
+      monthCount = Math.min(24, Math.max(1, Number(req.query.months) || 12));
+      fromDate = new Date(now.getFullYear(), now.getMonth() - monthCount + 1, 1);
+      toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    }
+    const fromStr = fromDate.toISOString().split('T')[0];
+    const toStr = toDate.toISOString().split('T')[0];
+
+    const monthKeys: string[] = [];
+    for (let i = 0; i < monthCount; i++) {
+      const d = new Date(fromDate.getFullYear(), fromDate.getMonth() + i, 1);
+      monthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+
+    // CRM side: per-branch, per-month revenue from past meetings
+    const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const meetings = await prisma.meeting.findMany({
+      where: {
+        scheduledDate: { gte: fromDate, lte: toDate },
+        OR: [
+          { status: 'completed' },
+          { status: 'scheduled', scheduledDate: { lte: todayMid } },
+        ],
+      },
+      select: {
+        scheduledDate: true,
+        revenue: true,
+        cycle: { select: { branchId: true, branch: { select: { id: true, name: true } } } },
+      },
+    });
+
+    type BranchAcc = { id: string; name: string; crmByMonth: Record<string, number> };
+    const branches = new Map<string, BranchAcc>();
+    for (const m of meetings) {
+      const b = m.cycle?.branch;
+      if (!b) continue;
+      const key = `${m.scheduledDate.getFullYear()}-${String(m.scheduledDate.getMonth() + 1).padStart(2, '0')}`;
+      if (!branches.has(b.id)) branches.set(b.id, { id: b.id, name: b.name, crmByMonth: {} });
+      const acc = branches.get(b.id)!;
+      acc.crmByMonth[key] = (acc.crmByMonth[key] ?? 0) + Number(m.revenue ?? 0);
+    }
+
+    // Morning side: invoices in window
+    async function fetchAllDocs(type: number[]): Promise<any[]> {
+      const all: any[] = [];
+      let page = 1;
+      while (true) {
+        const r = await morningRequest<any>('POST', '/api/v1/documents/search', {
+          pageSize: 500, page, fromDate: fromStr, toDate: toStr, type,
+        });
+        const items: any[] = r.items || [];
+        all.push(...items);
+        if (items.length < 500 || all.length >= (r.total ?? all.length)) break;
+        page++;
+        if (page > 30) break;
+      }
+      return all;
+    }
+    const invoices = (await fetchAllDocs([305, 320])).filter((d: any) => d.status !== 2);
+    const credits = (await fetchAllDocs([330])).filter((d: any) => d.status !== 2);
+
+    // Group Morning invoices by client name + month
+    type ClientAcc = { name: string; byMonth: Record<string, number>; docCount: number };
+    const clientMap = new Map<string, ClientAcc>();
+    function addInvoice(d: any, sign: 1 | -1) {
+      const name = d.client?.name ?? '—';
+      const date = d.documentDate;
+      if (!date || typeof date !== 'string') return;
+      const key = date.slice(0, 7);
+      if (!clientMap.has(name)) clientMap.set(name, { name, byMonth: {}, docCount: 0 });
+      const acc = clientMap.get(name)!;
+      acc.byMonth[key] = (acc.byMonth[key] ?? 0) + sign * Number(d.amountExcludeVat ?? 0);
+      acc.docCount++;
+    }
+    for (const d of invoices) addInvoice(d, 1);
+    for (const d of credits) addInvoice(d, -1);
+
+    // Match branches to Morning clients by name similarity
+    function normalize(s: string): string {
+      return s.toLowerCase().replace(/['"״׳`]/g, '').replace(/\s+/g, ' ').trim();
+    }
+    function matchScore(a: string, b: string): number {
+      const na = normalize(a);
+      const nb = normalize(b);
+      if (!na || !nb) return 0;
+      if (na === nb) return 100;
+      if (na.includes(nb) || nb.includes(na)) return 80;
+      const wA = na.split(' ').filter((w) => w.length >= 3);
+      const wB = nb.split(' ').filter((w) => w.length >= 3);
+      if (wA.length === 0 || wB.length === 0) return 0;
+      const common = wA.filter((w) => wB.includes(w)).length;
+      return Math.round((common / Math.max(wA.length, wB.length)) * 60);
+    }
+
+    type BranchOut = {
+      branchId: string;
+      branchName: string;
+      matchedClients: string[];
+      crmTotal: number;
+      morningTotal: number;
+      diff: number;
+      monthly: { month: string; crm: number; morning: number; diff: number }[];
+    };
+
+    const usedClients = new Set<string>();
+    const result: BranchOut[] = [];
+
+    // Iterate branches with revenue, find best client match
+    const branchList = Array.from(branches.values()).filter((b) =>
+      Object.values(b.crmByMonth).some((v) => v > 0),
+    );
+    branchList.sort((a, b) => {
+      const sa = Object.values(a.crmByMonth).reduce((s, v) => s + v, 0);
+      const sb = Object.values(b.crmByMonth).reduce((s, v) => s + v, 0);
+      return sb - sa;
+    });
+
+    for (const b of branchList) {
+      // Find candidates with score >= 50
+      const candidates: { name: string; score: number }[] = [];
+      for (const [cn] of clientMap) {
+        if (usedClients.has(cn)) continue;
+        const s = matchScore(b.name, cn);
+        if (s >= 50) candidates.push({ name: cn, score: s });
+      }
+      candidates.sort((a, b) => b.score - a.score);
+      const matched = candidates.slice(0, 1).map((c) => c.name);
+      for (const m of matched) usedClients.add(m);
+
+      const morningByMonth: Record<string, number> = {};
+      for (const m of matched) {
+        const acc = clientMap.get(m);
+        if (!acc) continue;
+        for (const [k, v] of Object.entries(acc.byMonth)) {
+          morningByMonth[k] = (morningByMonth[k] ?? 0) + v;
+        }
+      }
+
+      const monthly = monthKeys.map((k) => {
+        const crm = Math.round(b.crmByMonth[k] ?? 0);
+        const morning = Math.round(morningByMonth[k] ?? 0);
+        return { month: k, crm, morning, diff: crm - morning };
+      });
+      const crmTotal = monthly.reduce((s, m) => s + m.crm, 0);
+      const morningTotal = monthly.reduce((s, m) => s + m.morning, 0);
+      result.push({
+        branchId: b.id,
+        branchName: b.name,
+        matchedClients: matched,
+        crmTotal,
+        morningTotal,
+        diff: crmTotal - morningTotal,
+        monthly,
+      });
+    }
+
+    // Also list unmatched Morning clients (Morning income with no matching CRM branch)
+    const unmatchedClients: { name: string; total: number; monthly: Record<string, number> }[] = [];
+    for (const [name, acc] of clientMap) {
+      if (usedClients.has(name)) continue;
+      const total = Object.values(acc.byMonth).reduce((s, v) => s + v, 0);
+      if (total > 0) unmatchedClients.push({ name, total: Math.round(total), monthly: acc.byMonth });
+    }
+    unmatchedClients.sort((a, b) => b.total - a.total);
+
+    res.json({
+      months: monthKeys,
+      branches: result,
+      unmatchedClients,
+    });
+  } catch (err: any) {
+    if (err.body) {
+      return res.status(err.status || 500).json({ error: 'Morning API error', details: err.body });
+    }
+    next(err);
+  }
+});
+
 // Preview — returns base64 PDF without creating any record in Morning.
 // Use for safe end-to-end testing.
 morningRouter.post('/documents/preview', managerOrAdmin, async (req, res, next) => {

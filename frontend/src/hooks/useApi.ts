@@ -1121,6 +1121,30 @@ export const useMorningFinancialsDetails = (
   });
 };
 
+export interface BranchReconciliationBranch {
+  branchId: string;
+  branchName: string;
+  matchedClients: string[];
+  crmTotal: number;
+  morningTotal: number;
+  diff: number;
+  monthly: { month: string; crm: number; morning: number; diff: number }[];
+}
+
+export interface BranchReconciliationResult {
+  months: string[];
+  branches: BranchReconciliationBranch[];
+  unmatchedClients: { name: string; total: number; monthly: Record<string, number> }[];
+}
+
+export const useBranchReconciliation = (range: number | 'ytd' = 'ytd') => {
+  const qs = range === 'ytd' ? 'mode=ytd' : `months=${range}`;
+  return useQuery({
+    queryKey: ['branchReconciliation', range],
+    queryFn: () => fetchData<BranchReconciliationResult>(`/morning/branch-reconciliation?${qs}`),
+  });
+};
+
 export const useCycleForecast = (cycleId: string, forecastMonths = 3) => {
   return useQuery({
     queryKey: ['cycle-forecast', cycleId, forecastMonths],

@@ -10,12 +10,108 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { TrendingUp, TrendingDown, Activity, AlertCircle, RefreshCw } from 'lucide-react';
-import { useMorningFinancials } from '../hooks/useApi';
+import { TrendingUp, TrendingDown, Activity, AlertCircle, RefreshCw, X } from 'lucide-react';
+import { useMorningFinancials, useMorningFinancialsDetails, type FinancialDetailCategory } from '../hooks/useApi';
 import Loading from './ui/Loading';
+
+const CATEGORY_LABELS: Record<FinancialDetailCategory, string> = {
+  income: 'הכנסות',
+  morningExpenses: 'הוצאות מורנינג',
+  instructorPayments: 'תשלום מדריכים',
+  globalSalaries: 'משכורות גלובליות',
+};
+
+function DetailsModal({ month, category, onClose }: { month: string; category: FinancialDetailCategory; onClose: () => void }) {
+  const { data, isLoading, error } = useMorningFinancialsDetails(month, category);
+  const total = (data?.items ?? []).reduce((s, i) => s + (i.amount ?? 0), 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-gray-100">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">{CATEGORY_LABELS[category]}</h3>
+            <p className="text-sm text-gray-500">{month} • סה״כ ₪{Math.round(total).toLocaleString()}</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+        <div className="overflow-y-auto p-4">
+          {isLoading && <Loading />}
+          {error && <div className="text-red-600 text-sm">שגיאה בטעינת הפירוט</div>}
+          {data && data.items.length === 0 && <div className="text-gray-500 text-center py-8">אין פריטים בחודש זה</div>}
+          {data && data.items.length > 0 && (
+            <table className="w-full text-sm">
+              <thead className="text-gray-500 border-b border-gray-200 bg-gray-50">
+                <tr>
+                  {category === 'instructorPayments' ? (
+                    <>
+                      <th className="text-right py-2 px-3 font-semibold">תאריך</th>
+                      <th className="text-right py-2 px-3 font-semibold">מדריך</th>
+                      <th className="text-right py-2 px-3 font-semibold">מחזור</th>
+                      <th className="text-right py-2 px-3 font-semibold">סטטוס</th>
+                      <th className="text-right py-2 px-3 font-semibold">סכום</th>
+                    </>
+                  ) : category === 'globalSalaries' ? (
+                    <>
+                      <th className="text-right py-2 px-3 font-semibold">עובד</th>
+                      <th className="text-right py-2 px-3 font-semibold">סכום</th>
+                    </>
+                  ) : (
+                    <>
+                      <th className="text-right py-2 px-3 font-semibold">תאריך</th>
+                      <th className="text-right py-2 px-3 font-semibold">{category === 'income' ? 'לקוח' : 'ספק'}</th>
+                      {category === 'income' && <th className="text-right py-2 px-3 font-semibold">מספר</th>}
+                      <th className="text-right py-2 px-3 font-semibold">סכום</th>
+                      <th className="text-right py-2 px-3 font-semibold"></th>
+                    </>
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {data.items.map((item, idx) => (
+                  <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                    {category === 'instructorPayments' ? (
+                      <>
+                        <td className="py-2 px-3">{item.date}</td>
+                        <td className="py-2 px-3">{item.instructorName}</td>
+                        <td className="py-2 px-3 text-gray-600">{item.cycleName}</td>
+                        <td className="py-2 px-3 text-gray-500">{item.status}</td>
+                        <td className="py-2 px-3 text-rose-500 font-medium">₪{item.amount.toLocaleString()}</td>
+                      </>
+                    ) : category === 'globalSalaries' ? (
+                      <>
+                        <td className="py-2 px-3 font-medium">{item.name}</td>
+                        <td className="py-2 px-3 text-rose-500 font-medium">₪{item.amount.toLocaleString()}</td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="py-2 px-3">{item.date}</td>
+                        <td className="py-2 px-3 font-medium">{item.name} {item.description ? <span className="text-gray-400 text-xs">— {item.description}</span> : null}</td>
+                        {category === 'income' && <td className="py-2 px-3 text-gray-500">#{item.number}</td>}
+                        <td className={`py-2 px-3 font-medium ${item.amount >= 0 ? (category === 'income' ? 'text-emerald-600' : 'text-rose-500') : 'text-rose-500'}`}>
+                          ₪{item.amount.toLocaleString()}
+                        </td>
+                        <td className="py-2 px-3">
+                          {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline text-xs">פתח</a>}
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function MorningRevenueChart() {
   const [range, setRange] = useState<'ytd' | number>(12);
+  const [drillDown, setDrillDown] = useState<{ month: string; category: FinancialDetailCategory } | null>(null);
   const { data, isLoading, error, refetch, isFetching } = useMorningFinancials(range);
 
   if (isLoading) {
@@ -217,17 +313,34 @@ export default function MorningRevenueChart() {
               </tr>
             </thead>
             <tbody>
-              {monthData.map((row) => (
-                <tr key={row.month} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="py-2 px-3 font-medium">{row.monthName}</td>
-                  <td className="py-2 px-3 text-emerald-600 font-medium">{row.income > 0 ? `₪${row.income.toLocaleString()}` : '—'}</td>
-                  <td className="py-2 px-3 text-rose-500">{row.morningExpenses > 0 ? `₪${row.morningExpenses.toLocaleString()}` : '—'}</td>
-                  <td className="py-2 px-3 text-rose-500">{row.instructorPayments > 0 ? `₪${row.instructorPayments.toLocaleString()}` : '—'}</td>
-                  <td className="py-2 px-3 text-rose-500">₪{row.globalSalaries.toLocaleString()}</td>
-                  <td className="py-2 px-3 text-rose-600 font-medium">₪{row.expenses.toLocaleString()}</td>
-                  <td className={`py-2 px-3 font-bold ${row.profit >= 0 ? 'text-sky-600' : 'text-rose-600'}`}>₪{row.profit.toLocaleString()}</td>
-                </tr>
-              ))}
+              {monthData.map((row) => {
+                const cell = (val: number, color: string, cat: FinancialDetailCategory | null, allowZero = false) => {
+                  if (val === 0 && !allowZero) return <td className="py-2 px-3 text-gray-400">—</td>;
+                  return (
+                    <td className={`py-2 px-3 ${color}`}>
+                      {cat ? (
+                        <button
+                          onClick={() => setDrillDown({ month: row.month, category: cat })}
+                          className="hover:underline cursor-pointer"
+                        >
+                          ₪{val.toLocaleString()}
+                        </button>
+                      ) : `₪${val.toLocaleString()}`}
+                    </td>
+                  );
+                };
+                return (
+                  <tr key={row.month} className="border-b border-gray-100 hover:bg-gray-50">
+                    <td className="py-2 px-3 font-medium">{row.monthName}</td>
+                    {cell(row.income, 'text-emerald-600 font-medium', 'income')}
+                    {cell(row.morningExpenses, 'text-rose-500', 'morningExpenses')}
+                    {cell(row.instructorPayments, 'text-rose-500', 'instructorPayments')}
+                    {cell(row.globalSalaries, 'text-rose-500', 'globalSalaries', true)}
+                    <td className="py-2 px-3 text-rose-600 font-medium">₪{row.expenses.toLocaleString()}</td>
+                    <td className={`py-2 px-3 font-bold ${row.profit >= 0 ? 'text-sky-600' : 'text-rose-600'}`}>₪{row.profit.toLocaleString()}</td>
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr className="bg-gray-100 font-semibold">
@@ -243,6 +356,13 @@ export default function MorningRevenueChart() {
           </table>
         </div>
       </div>
+      {drillDown && (
+        <DetailsModal
+          month={drillDown.month}
+          category={drillDown.category}
+          onClose={() => setDrillDown(null)}
+        />
+      )}
     </div>
   );
 }

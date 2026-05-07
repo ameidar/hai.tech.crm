@@ -342,6 +342,157 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
   }
 });
 
+// GET /api/morning/financials/details?month=YYYY-MM&category=income|morningExpenses|instructorPayments|globalSalaries
+// Returns the line items that compose a single chart cell.
+morningRouter.get('/financials/details', managerOrAdmin, async (req, res, next) => {
+  try {
+    if (!isMorningConfigured()) throw new AppError(503, 'Morning API is not configured on this server');
+    const month = String(req.query.month || '');
+    const category = String(req.query.category || '');
+    if (!/^\d{4}-\d{2}$/.test(month)) throw new AppError(400, 'month must be YYYY-MM');
+
+    const [yearStr, monthStr] = month.split('-');
+    const yearN = Number(yearStr);
+    const monthN = Number(monthStr);
+    const monthStart = new Date(yearN, monthN - 1, 1);
+    const monthEnd = new Date(yearN, monthN, 0);
+    const fromStr = monthStart.toISOString().split('T')[0];
+    const toStr = monthEnd.toISOString().split('T')[0];
+
+    async function fetchAllDocs(type: number[]): Promise<any[]> {
+      const all: any[] = [];
+      let page = 1;
+      while (true) {
+        const r = await morningRequest<any>('POST', '/api/v1/documents/search', {
+          pageSize: 500, page, fromDate: fromStr, toDate: toStr, type,
+        });
+        const items: any[] = r.items || [];
+        all.push(...items);
+        if (items.length < 500 || all.length >= (r.total ?? all.length)) break;
+        page++;
+        if (page > 20) break;
+      }
+      return all;
+    }
+
+    if (category === 'income') {
+      const inc = (await fetchAllDocs([305, 320, 400])).filter((d: any) => d.status !== 2);
+      const credits = (await fetchAllDocs([330])).filter((d: any) => d.status !== 2);
+      const items = [
+        ...inc.map((d: any) => ({
+          date: d.documentDate, type: d.type, number: String(d.number ?? ''),
+          name: d.client?.name ?? '—',
+          amount: Math.round(Number(d.amountExcludeVat ?? 0)),
+          url: d.url?.he ?? d.url?.origin ?? null,
+        })),
+        ...credits.map((d: any) => ({
+          date: d.documentDate, type: d.type, number: String(d.number ?? ''),
+          name: `${d.client?.name ?? '—'} (זיכוי)`,
+          amount: -Math.round(Number(d.amountExcludeVat ?? 0)),
+          url: d.url?.he ?? d.url?.origin ?? null,
+        })),
+      ].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      return res.json({ items });
+    }
+
+    if (category === 'morningExpenses') {
+      // Search 12 months wider then filter by reportingDate.
+      const wider = new Date(yearN - 1, monthN - 1, 1).toISOString().split('T')[0];
+      const all: any[] = [];
+      let page = 1;
+      while (true) {
+        const r = await morningRequest<any>('POST', '/api/v1/expenses/search', {
+          pageSize: 500, page, fromDate: wider, toDate: toStr,
+        });
+        const items: any[] = r.items || [];
+        all.push(...items);
+        if (items.length < 500 || all.length >= (r.total ?? all.length)) break;
+        page++;
+        if (page > 20) break;
+      }
+      const items = all
+        .filter((e: any) => String(e.reportingDate ?? e.date).startsWith(month))
+        .map((e: any) => ({
+          date: e.date,
+          reportingDate: e.reportingDate,
+          name: e.supplier?.name ?? e.data?.supplier?.name ?? '—',
+          description: e.description ?? e.data?.description ?? '',
+          amount: Math.round(Number(e.amountExcludeVat ?? 0)),
+          url: e.url ?? null,
+        }))
+        .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      return res.json({ items });
+    }
+
+    if (category === 'instructorPayments') {
+      const now = new Date();
+      const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const meetings = await prisma.meeting.findMany({
+        where: {
+          scheduledDate: { gte: monthStart, lte: monthEnd },
+          OR: [
+            { status: 'completed' },
+            { status: 'scheduled', scheduledDate: { lte: todayMid } },
+          ],
+        },
+        select: {
+          id: true, scheduledDate: true, startTime: true, endTime: true, status: true,
+          instructorPayment: true, activityType: true,
+          cycle: { select: { name: true, activityType: true, isOnline: true, type: true, durationMinutes: true } },
+          instructor: { select: { name: true, rateFrontal: true, rateOnline: true, ratePrivate: true, employmentType: true } },
+        },
+        orderBy: { scheduledDate: 'asc' },
+      });
+
+      function compute(m: typeof meetings[number]): number {
+        const stored = Number(m.instructorPayment ?? 0);
+        if (stored > 0) return stored;
+        const instr = m.instructor;
+        if (!instr) return 0;
+        const cycle = m.cycle;
+        const actType = m.activityType ?? cycle?.activityType ?? (cycle?.isOnline ? 'online' : cycle?.type === 'private' ? 'private_lesson' : 'frontal');
+        let hourlyRate = 0;
+        switch (actType) {
+          case 'online': hourlyRate = Number(instr.rateOnline ?? instr.rateFrontal ?? 0); break;
+          case 'private_lesson': hourlyRate = Number(instr.ratePrivate ?? instr.rateFrontal ?? 0); break;
+          default: hourlyRate = Number(instr.rateFrontal ?? 0);
+        }
+        let durationMinutes = Number(cycle?.durationMinutes ?? 60);
+        if (m.startTime && m.endTime) {
+          const calc = (m.endTime.getTime() - m.startTime.getTime()) / 60000;
+          if (calc > 0 && calc < 1440) durationMinutes = calc;
+        }
+        let p = Math.round(hourlyRate * (durationMinutes / 60));
+        if (instr.employmentType === 'employee') p = Math.round(p * 1.3);
+        return p;
+      }
+
+      const items = meetings.map((m) => ({
+        date: m.scheduledDate.toISOString().split('T')[0],
+        instructorName: m.instructor?.name ?? '—',
+        cycleName: m.cycle?.name ?? '—',
+        status: m.status,
+        amount: compute(m),
+      }));
+      return res.json({ items });
+    }
+
+    if (category === 'globalSalaries') {
+      const items = GLOBAL_MONTHLY_SALARIES
+        .filter((e) => !e.excludeMonths?.includes(month))
+        .map((e) => ({ name: e.name, amount: e.amount }));
+      return res.json({ items });
+    }
+
+    throw new AppError(400, 'unknown category');
+  } catch (err: any) {
+    if (err.body) {
+      return res.status(err.status || 500).json({ error: 'Morning API error', details: err.body });
+    }
+    next(err);
+  }
+});
+
 // Preview — returns base64 PDF without creating any record in Morning.
 // Use for safe end-to-end testing.
 morningRouter.post('/documents/preview', managerOrAdmin, async (req, res, next) => {

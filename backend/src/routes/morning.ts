@@ -181,16 +181,16 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       const key = docDateToKey(item.documentDate ?? item.date);
       const entry = key ? monthMap.get(key) : null;
       if (entry) {
-        entry.income += Number(item.sum ?? item.sumBeforeVat ?? 0);
+        entry.income += Number(item.amountLocal ?? item.amount ?? 0);
         entry.docCount++;
       }
     }
 
     for (const item of allExpenses) {
-      const key = docDateToKey(item.documentDate ?? item.date ?? item.issueDate);
+      const key = docDateToKey(item.date ?? item.reportingDate ?? item.documentDate);
       const entry = key ? monthMap.get(key) : null;
       if (entry) {
-        entry.expenses += Number(item.sum ?? item.sumBeforeVat ?? item.total ?? 0);
+        entry.expenses += Number(item.amountLocal ?? item.amount ?? 0);
       }
     }
 

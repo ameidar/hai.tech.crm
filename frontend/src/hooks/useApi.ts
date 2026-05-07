@@ -1080,10 +1080,11 @@ export interface MorningFinancialsResult {
   hasExpenses: boolean;
 }
 
-export const useMorningFinancials = (months = 12) => {
+export const useMorningFinancials = (range: number | 'ytd' = 12) => {
+  const qs = range === 'ytd' ? 'mode=ytd' : `months=${range}`;
   return useQuery({
-    queryKey: ['morningFinancials', months],
-    queryFn: () => fetchData<MorningFinancialsResult>(`/morning/financials?months=${months}`),
+    queryKey: ['morningFinancials', range],
+    queryFn: () => fetchData<MorningFinancialsResult>(`/morning/financials?${qs}`),
   });
 };
 

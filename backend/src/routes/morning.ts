@@ -110,10 +110,22 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       throw new AppError(503, 'Morning API is not configured on this server');
     }
 
-    const months = Math.min(24, Math.max(1, Number(req.query.months) || 12));
+    const mode = String(req.query.mode || '');
     const now = new Date();
-    const fromDate = new Date(now.getFullYear(), now.getMonth() - months + 1, 1);
-    const toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    let fromDate: Date;
+    let toDate: Date;
+    let months: number;
+
+    if (mode === 'ytd') {
+      // Year-to-date: Jan 1 of current year through today
+      fromDate = new Date(now.getFullYear(), 0, 1);
+      toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      months = now.getMonth() + 1;
+    } else {
+      months = Math.min(24, Math.max(1, Number(req.query.months) || 12));
+      fromDate = new Date(now.getFullYear(), now.getMonth() - months + 1, 1);
+      toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    }
     const fromDateStr = fromDate.toISOString().split('T')[0];
     const toDateStr = toDate.toISOString().split('T')[0];
 

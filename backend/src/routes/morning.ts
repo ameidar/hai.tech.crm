@@ -624,9 +624,15 @@ morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, nex
     const usedClients = new Set<string>();
     const result: BranchOut[] = [];
 
+    // Branches to exclude from the reconciliation view (one-off / non-billable
+    // buckets that don't have a single Morning client to reconcile against).
+    const EXCLUDED_BRANCHES = ['כללי', 'אונליין b2c', 'עומר פרונטלי'];
+    const isExcluded = (name: string) =>
+      EXCLUDED_BRANCHES.some((ex) => name.toLowerCase().trim() === ex);
+
     // Iterate branches with revenue, find best client match
-    const branchList = Array.from(branches.values()).filter((b) =>
-      Object.values(b.crmByMonth).some((v) => v > 0),
+    const branchList = Array.from(branches.values()).filter(
+      (b) => Object.values(b.crmByMonth).some((v) => v > 0) && !isExcluded(b.name),
     );
     branchList.sort((a, b) => {
       const sa = Object.values(a.crmByMonth).reduce((s, v) => s + v, 0);

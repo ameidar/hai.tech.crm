@@ -5,7 +5,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { logAudit } from '../utils/audit.js';
 import { createDocument, previewDocument, DOCUMENT_TYPES } from '../services/morning/documents.js';
 import { isMorningConfigured, morningRequest } from '../services/morning/client.js';
-import { prisma } from '../utils/prisma.js';
+import { prodPrisma as prisma } from '../utils/prodPrisma.js';
 
 // Fixed monthly salaries for global employees (not paid via Morning or per-meeting).
 // `monthOverrides` lets specific months override the default (e.g. partial month,

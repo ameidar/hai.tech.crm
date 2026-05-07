@@ -5,6 +5,14 @@ import { AppError } from '../middleware/errorHandler.js';
 import { logAudit } from '../utils/audit.js';
 import { createDocument, previewDocument, DOCUMENT_TYPES } from '../services/morning/documents.js';
 import { isMorningConfigured, morningRequest } from '../services/morning/client.js';
+import { prisma } from '../utils/prisma.js';
+
+// Fixed monthly salaries for global employees (not in Morning).
+// Add new entries here as people are hired.
+const GLOBAL_MONTHLY_SALARIES: { name: string; amount: number }[] = [
+  { name: 'הילה', amount: 13000 },
+  { name: 'אור', amount: 13000 },
+];
 
 export const morningRouter = Router();
 morningRouter.use(authenticate);
@@ -179,13 +187,29 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       // expenses endpoint not available
     }
 
-    // Build month map (last N months)
+    // Sum instructor payments from completed past meetings, grouped by month.
+    const completedMeetings = await prisma.meeting.findMany({
+      where: {
+        status: 'completed',
+        scheduledDate: { gte: fromDate, lte: toDate },
+      },
+      select: { scheduledDate: true, instructorPayment: true },
+    });
+
+    // Build month map (last N months) — also tracks instructor payments + salaries
     const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
-    const monthMap = new Map<string, { income: number; expenses: number; docCount: number }>();
+    const monthMap = new Map<string, { income: number; morningExpenses: number; instructorPayments: number; docCount: number }>();
     for (let i = 0; i < months; i++) {
       const d = new Date(now.getFullYear(), now.getMonth() - months + 1 + i, 1);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      monthMap.set(key, { income: 0, expenses: 0, docCount: 0 });
+      monthMap.set(key, { income: 0, morningExpenses: 0, instructorPayments: 0, docCount: 0 });
+    }
+
+    for (const m of completedMeetings) {
+      const d = m.scheduledDate;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const entry = monthMap.get(key);
+      if (entry) entry.instructorPayments += Number(m.instructorPayment ?? 0);
     }
 
     function docDateToKey(raw: any): string | null {
@@ -226,23 +250,36 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       const key = docDateToKey(item.reportingDate ?? item.date);
       const entry = key ? monthMap.get(key) : null;
       if (entry) {
-        entry.expenses += Number(item.amountExcludeVat ?? 0);
+        entry.morningExpenses += Number(item.amountExcludeVat ?? 0);
       }
     }
 
+    const globalSalariesMonthly = GLOBAL_MONTHLY_SALARIES.reduce((s, e) => s + e.amount, 0);
+
     const result = Array.from(monthMap.entries()).map(([key, data]) => {
       const [year, month] = key.split('-').map(Number);
+      const morningExp = Math.round(data.morningExpenses);
+      const instructorPay = Math.round(data.instructorPayments);
+      const totalExpenses = morningExp + instructorPay + globalSalariesMonthly;
+      const income = Math.round(data.income);
       return {
         month: key,
         monthName: `${HEBREW_MONTHS[month - 1]} ${year}`,
-        income: Math.round(data.income),
-        expenses: Math.round(data.expenses),
-        profit: Math.round(data.income - data.expenses),
+        income,
+        morningExpenses: morningExp,
+        instructorPayments: instructorPay,
+        globalSalaries: globalSalariesMonthly,
+        expenses: totalExpenses,
+        profit: income - totalExpenses,
         docCount: data.docCount,
       };
     });
 
-    res.json({ months: result, hasExpenses: allExpenses.length > 0 });
+    res.json({
+      months: result,
+      hasExpenses: allExpenses.length > 0,
+      globalEmployees: GLOBAL_MONTHLY_SALARIES,
+    });
   } catch (err: any) {
     if (err.body) {
       return res.status(err.status || 500).json({ error: 'Morning API error', details: err.body });

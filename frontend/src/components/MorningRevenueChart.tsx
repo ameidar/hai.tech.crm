@@ -145,9 +145,9 @@ export default function MorningRevenueChart() {
   const globalEmpLabel = (globalEmployees ?? []).map(e => `${e.name} ₪${e.amount.toLocaleString()}`).join(' + ');
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-6">
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-6 space-y-4 md:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-emerald-50 rounded-lg">
             <Activity className="w-5 h-5 text-emerald-600" />
@@ -181,7 +181,7 @@ export default function MorningRevenueChart() {
       </div>
 
       {/* Summary Cards */}
-      <div className={`grid gap-4 ${hasExpenses ? 'grid-cols-3' : 'grid-cols-2'}`}>
+      <div className={`grid gap-3 md:gap-4 grid-cols-1 ${hasExpenses ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
         <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-xl p-4">
           <div className="flex items-center justify-between">
             <span className="text-sm text-emerald-700">סה״כ הכנסות</span>
@@ -227,9 +227,9 @@ export default function MorningRevenueChart() {
       </div>
 
       {/* Bar + Line Chart */}
-      <div className="h-72">
+      <div className="h-72 md:h-80">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={monthData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+          <ComposedChart data={monthData} margin={{ top: 10, right: 12, left: 0, bottom: 24 }}>
             <defs>
               <linearGradient id="mIncomeGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#10b981" stopOpacity={0.9} />
@@ -242,16 +242,26 @@ export default function MorningRevenueChart() {
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis
-              dataKey="monthName"
-              tick={{ fontSize: 11 }}
+              dataKey="month"
+              tick={{ fontSize: 10 }}
               tickLine={false}
-              interval={monthData.length > 12 ? 1 : 0}
+              interval={0}
+              angle={-40}
+              textAnchor="end"
+              height={50}
+              tickFormatter={(m: string) => {
+                if (!m || typeof m !== 'string') return m;
+                const [y, mm] = m.split('-');
+                const HEB = ['ינו', 'פבר', 'מרץ', 'אפר', 'מאי', 'יוני', 'יולי', 'אוג', 'ספט', 'אוק', 'נוב', 'דצמ'];
+                return `${HEB[Number(mm) - 1]} ${y.slice(2)}`;
+              }}
             />
             <YAxis
-              tick={{ fontSize: 11 }}
+              tick={{ fontSize: 10 }}
               tickFormatter={(v) => `₪${(v / 1000).toFixed(0)}K`}
               tickLine={false}
               axisLine={false}
+              width={48}
             />
             <Tooltip
               content={({ active, payload }) => {

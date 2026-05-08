@@ -131,6 +131,7 @@ type InstructorWithRates = {
   id: string;
   name: string;
   email: string | null;
+  employmentType: 'employee' | 'freelancer' | string | null;
   rateFrontal: { toString(): string } | null;
   rateOnline: { toString(): string } | null;
   ratePrivate: { toString(): string } | null;
@@ -204,11 +205,52 @@ export async function buildInstructorMonthlyReport(
   // 3. Build report per instructor
   const instructors: InstructorReportData[] = [];
 
+  // Normalize: treat 'private_lesson' (Prisma TS enum) same as 'private' (DB value)
+  const normalizeActKey = (k: string | null) => k === 'private_lesson' ? 'private' : (k ?? 'unknown');
+
   for (const [instructorId, mtgs] of byInstructor) {
     const instr = mtgs[0].instructor as InstructorWithRates;
-    const meetingDetails: MeetingDetail[] = [];
+    const isEmployee = instr.employmentType === 'employee';
+
+    // Pass 1 — aggregate hours and per-meeting unrounded share by activityType.
+    // Payment column reports BASE pay (hours × hourlyRate), without the 1.3 employer-cost
+    // multiplier that the stored instructorPayment carries for employees. We sum *unrounded*
+    // values across all activity types and floor once at the end (matches accounting convention).
+    type ActAgg = { hours: number; rate: number | null; label: string; rawType: string | null; unroundedSubtotal: number };
+    const actAgg = new Map<string, ActAgg>();
+    const perMeetingUnrounded = new Map<string, number>(); // meetingId -> unrounded base share
 
     for (const mtg of mtgs) {
+      const rawType = (mtg.activityType ?? (mtg.cycle as { activityType?: string | null }).activityType ?? null) as string | null;
+      const key = normalizeActKey(rawType);
+      const hourlyRate = getHourlyRate(instr, rawType);
+      const durationHours = calcDuration(mtg.startTime as unknown, mtg.endTime as unknown);
+      const stored = Number(mtg.instructorPayment);
+
+      // Per-meeting unrounded base: hours × rate when rate known; otherwise fallback (stored ÷ 1.3 for employees, stored as-is for freelancers).
+      const unroundedShare = (hourlyRate != null && durationHours > 0)
+        ? hourlyRate * durationHours
+        : (isEmployee ? stored / 1.3 : stored);
+      perMeetingUnrounded.set(mtg.id, unroundedShare);
+
+      const existing = actAgg.get(key) ?? { hours: 0, rate: hourlyRate, label: activityLabel(rawType), rawType, unroundedSubtotal: 0 };
+      existing.hours += durationHours;
+      existing.unroundedSubtotal += unroundedShare;
+      actAgg.set(key, existing);
+    }
+
+    // Total base = floor(sum of all unrounded shares) — single rounding at the end.
+    const totalUnrounded = Array.from(actAgg.values()).reduce((s, v) => s + v.unroundedSubtotal, 0);
+    const totalPayment = Math.floor(totalUnrounded);
+
+    // Pass 2 — distribute the (now-rounded) total back to individual meetings proportionally
+    // to each meeting's unrounded share. Last meeting absorbs any rounding remainder so the
+    // sum of per-meeting payments matches totalPayment exactly.
+    const meetingDetails: MeetingDetail[] = [];
+    let allocatedSoFar = 0;
+    for (let i = 0; i < mtgs.length; i++) {
+      const mtg = mtgs[i];
+      const isLast = i === mtgs.length - 1;
       const expenses: MeetingExpenseDetail[] = mtg.expenses.map((e: { type: string; amount: unknown; hours: unknown; rateType: string | null; description: string | null }) => ({
         type:        expenseTypeLabel(e.type),
         amount:      Number(e.amount),
@@ -216,15 +258,14 @@ export async function buildInstructorMonthlyReport(
         rateType:    e.rateType,
         description: e.description,
       }));
-
       const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
-      const instructorPayment = Number(mtg.instructorPayment);
-      // Fallback: if meeting has no activityType, use the cycle's activityType (same as UI behavior)
+
       const rawType = (mtg.activityType ?? (mtg.cycle as { activityType?: string | null }).activityType ?? null) as string | null;
+      const unrounded = perMeetingUnrounded.get(mtg.id) ?? 0;
+      const basePayment = isLast ? (totalPayment - allocatedSoFar) : Math.floor(unrounded);
+      allocatedSoFar += basePayment;
 
       const revenue = Number(mtg.revenue ?? 0);
-      const profit  = Number(mtg.profit ?? 0);
-
       meetingDetails.push({
         id:                mtg.id,
         date:              mtg.scheduledDate,
@@ -237,36 +278,24 @@ export async function buildInstructorMonthlyReport(
         activityTypeRaw:   rawType,
         topic:             mtg.topic ?? null,
         hourlyRate:        getHourlyRate(instr, rawType),
-        instructorPayment,
+        instructorPayment: basePayment,
         expenses,
         totalExpenses,
-        total:             instructorPayment + totalExpenses,
+        total:             basePayment + totalExpenses,
         revenue,
-        profit,
+        profit:            revenue - basePayment - totalExpenses,
       });
     }
 
-    const totalPayment  = meetingDetails.reduce((s, r) => s + r.instructorPayment, 0);
     const totalExpenses = meetingDetails.reduce((s, r) => s + r.totalExpenses, 0);
 
-    // Build byActivityType breakdown
-    // Normalize: treat 'private_lesson' (Prisma TS enum) same as 'private' (DB value)
-    const normalizeActKey = (k: string | null) => k === 'private_lesson' ? 'private' : (k ?? 'unknown');
-    const actMap = new Map<string, { hours: number; subtotal: number; rate: number | null; label: string }>();
-    for (const mtg of meetingDetails) {
-      const key = normalizeActKey(mtg.activityTypeRaw);
-      const existing = actMap.get(key) ?? { hours: 0, subtotal: 0, rate: mtg.hourlyRate, label: mtg.activityType ?? 'לא מוגדר' };
-      existing.hours   += mtg.durationHours;
-      existing.subtotal += mtg.instructorPayment;
-      actMap.set(key, existing);
-    }
-    const byActivityType: ActivityTypeSummary[] = Array.from(actMap.entries())
+    const byActivityType: ActivityTypeSummary[] = Array.from(actAgg.entries())
       .map(([raw, val]) => ({
         activityType:    ACTIVITY_TYPE_LABELS[raw] ?? val.label,
         activityTypeRaw: raw,
         hours:           parseFloat(val.hours.toFixed(2)),
         hourlyRate:      val.rate,
-        subtotal:        val.subtotal,
+        subtotal:        Math.floor(val.unroundedSubtotal),
       }))
       .sort((a, b) => b.subtotal - a.subtotal);
 

@@ -54,32 +54,47 @@ async function computeBillingLines(institutionalOrderId: string, month: BillingM
     const completedMeetings = cycle.meetings.length;
     if (completedMeetings === 0) continue;
 
+    // Each cycle type produces a single billing line whose `quantity × unitPrice` totals
+    // the gross revenue for the month. The convention differs:
+    //   - institutional_fixed:     qty = #meetings,            unitPrice = meetingRevenue
+    //   - institutional_per_child: qty = #meetings × students, unitPrice = pricePerStudent
+    // The per-student-meeting form for institutional_per_child matches what Morning's UI
+    // ends up rendering and gives the recipient line-level granularity to verify.
     let unitPrice = 0;
+    let quantity = 0;
     let descriptionDetail = '';
+    let studentCount = cycle.studentCount ?? 0;
 
     if (cycle.type === 'institutional_fixed') {
       unitPrice = Number(cycle.meetingRevenue ?? 0);
+      quantity = completedMeetings;
       descriptionDetail = `${completedMeetings} פגישות × ${unitPrice.toLocaleString('he-IL')} ₪`;
     } else if (cycle.type === 'institutional_per_child') {
       const perChild = Number(cycle.pricePerStudent ?? 0);
-      const studentCount = cycle.studentCount ?? 0;
-      unitPrice = perChild * studentCount;
-      descriptionDetail = `${completedMeetings} פגישות × ${studentCount} ילדים × ${perChild.toLocaleString('he-IL')} ₪`;
+      unitPrice = perChild;
+      quantity = completedMeetings * studentCount;
+      // Display the agreed gross (price × 1.18) when prices are stored net, otherwise
+      // the per-child price as-is. This keeps the description in the customer's mental
+      // model ("9 ילדים × ₪ 60") even when our DB carries the net (₪ 50.85).
+      const grossPerChild = cycle.revenueIncludesVat === false
+        ? Math.round(perChild * 1.18 * 100) / 100
+        : perChild;
+      descriptionDetail = `${completedMeetings} פגישות × ${studentCount} ילדים × ${grossPerChild.toLocaleString('he-IL')} ₪`;
     } else {
       // private/trial — should not be linked to institutional order, but skip safely
       continue;
     }
 
-    const total = unitPrice * completedMeetings;
+    const total = unitPrice * quantity;
     summaries.push({
       cycleId: cycle.id,
       cycleName: cycle.name,
       cycleType: cycle.type,
       pricePerMeeting: Number(cycle.meetingRevenue ?? 0),
-      studentCount: cycle.studentCount ?? 0,
+      studentCount,
       completedMeetings,
       unitPrice,
-      quantity: completedMeetings,
+      quantity,
       total,
       description: `${cycle.name} — ${hebrewLabel} (${descriptionDetail})`,
       meetingIds: cycle.meetings.map((m) => m.id),
@@ -255,29 +270,54 @@ async function buildMorningPayload(billingPeriodId: string): Promise<{
     where: { id: billingPeriodId },
     include: {
       institutionalOrder: { include: { branch: true } },
-      lines: { orderBy: { sortOrder: 'asc' } },
+      lines: {
+        orderBy: { sortOrder: 'asc' },
+        include: { cycle: { select: { revenueIncludesVat: true } } },
+      },
     },
   });
   if (!period) throw new Error('Billing period not found');
 
   const { client, discoveredId } = await resolveMorningClient(period.institutionalOrder);
 
-  const income: MorningIncomeItem[] = period.lines.map((l) => ({
+  // Per-line vatType: derive from the source cycle's `revenueIncludesVat` flag.
+  // Morning vatType: 0 = price excludes VAT (Morning adds 18% on top — the default for
+  // institutional clients that quote net prices); 2 = price already includes VAT (Morning
+  // extracts it). Manual lines without a cycle fall back to 0.
+  const lineVatTypes = period.lines.map((l) =>
+    l.cycle?.revenueIncludesVat === true ? 2 : 0
+  );
+  const allSameVatType = lineVatTypes.every((v) => v === lineVatTypes[0]);
+  const documentVatType: 0 | 2 = (lineVatTypes[0] ?? 0);
+
+  const income: MorningIncomeItem[] = period.lines.map((l, i) => ({
     description: l.description,
     quantity: Number(l.quantity),
     price: Number(l.unitPrice),
     currency: 'ILS',
+    // Only set per-line vatType when lines disagree — keeps the typical case
+    // (uniform document) clean and defers to the document-level vatType.
+    ...(allSameVatType ? {} : { vatType: lineVatTypes[i] as 0 | 2 }),
   }));
+
+  // Morning's PDF always shows the VAT line in the totals block, but we want a plain
+  // sentence on the document itself so the recipient sees "המחירים אינם כוללים מע״מ"
+  // (or "כוללים מע״מ") next to the lines, not just in the math at the bottom.
+  const effectiveVatType = allSameVatType ? documentVatType : 0;
+  const vatLabel = effectiveVatType === 2
+    ? 'המחירים בחשבון זה כוללים מע״מ.'
+    : 'המחירים בחשבון זה אינם כוללים מע״מ. סה״כ כולל מע״מ מצוין בסיכום.';
+  const remarks = [vatLabel, period.notes].filter(Boolean).join('\n');
 
   return {
     payload: {
       type: DOCUMENT_TYPES.PROFORMA,
       lang: 'he',
       currency: 'ILS',
-      vatType: 0, // Morning: 0=default (price excludes VAT, 18% added on top); 1=exempt; 2=included
+      vatType: effectiveVatType,
       client,
       income,
-      remarks: period.notes || undefined,
+      remarks,
     },
     discoveredMorningClientId: discoveredId,
   };

@@ -91,7 +91,7 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
     const historicalStart = new Date(currentMonth);
     historicalStart.setMonth(historicalStart.getMonth() - historicalMonths);
     
-    // Include current month's completed meetings (up to today)
+    // Include current month's real/past meetings (up to today)
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
@@ -104,19 +104,43 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
     // HISTORICAL DATA
     // ============================================
     
-    // Get completed meetings with expenses (including current month up to today)
+    // Get real/past meetings with expenses (including current month up to today).
+    // Some past meetings remain `scheduled` in the CRM even after their date passes;
+    // they still carry real/estimated revenue and should count in historical charts.
     const historicalMeetings = await prisma.meeting.findMany({
       where: {
         scheduledDate: {
           gte: historicalStart,
           lt: tomorrow,
         },
-        status: 'completed',
+        OR: [
+          { status: 'completed' },
+          { status: 'scheduled', scheduledDate: { lt: tomorrow } },
+        ],
         deletedAt: null,
       },
       include: {
         cycle: {
-          select: { id: true, name: true },
+          select: {
+            id: true,
+            name: true,
+            meetingRevenue: true,
+            pricePerStudent: true,
+            studentCount: true,
+            activityType: true,
+            isOnline: true,
+            type: true,
+            durationMinutes: true,
+          },
+        },
+        instructor: {
+          select: {
+            id: true,
+            rateFrontal: true,
+            rateOnline: true,
+            ratePrivate: true,
+            employmentType: true,
+          },
         },
         expenses: {
           where: { status: 'approved' },
@@ -147,7 +171,10 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
                   gte: historicalStart,
                   lt: tomorrow,
                 },
-                status: 'completed',
+                OR: [
+                  { status: 'completed' },
+                  { status: 'scheduled', scheduledDate: { lt: tomorrow } },
+                ],
                 deletedAt: null,
               },
               select: { id: true, scheduledDate: true },
@@ -179,13 +206,50 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
       });
     }
 
+    function estimateMeetingRevenue(meeting: any): number {
+      let revenue = toNumber(meeting.revenue);
+      if (revenue > 0) return revenue;
+
+      const cycle = meeting.cycle as any;
+      if (toNumber(cycle?.meetingRevenue) > 0) return toNumber(cycle.meetingRevenue);
+      if (toNumber(cycle?.pricePerStudent) > 0 && (cycle?.studentCount ?? 0) > 0) {
+        return toNumber(cycle.pricePerStudent) * (cycle.studentCount ?? 0);
+      }
+      return 0;
+    }
+
+    function estimateInstructorPayment(meeting: any): number {
+      let payment = toNumber(meeting.instructorPayment);
+      if (payment > 0) return payment;
+
+      const instructor = meeting.instructor as any;
+      if (!instructor) return 0;
+      const cycle = meeting.cycle as any;
+      const activityType = meeting.activityType ?? cycle?.activityType ?? (cycle?.isOnline ? 'online' : cycle?.type === 'private' ? 'private_lesson' : 'frontal');
+
+      let hourlyRate = 0;
+      if (activityType === 'online') hourlyRate = toNumber(instructor.rateOnline ?? instructor.rateFrontal);
+      else if (activityType === 'private_lesson') hourlyRate = toNumber(instructor.ratePrivate ?? instructor.rateFrontal);
+      else hourlyRate = toNumber(instructor.rateFrontal);
+
+      let durationMinutes = toNumber(cycle?.durationMinutes) || 60;
+      if (meeting.startTime && meeting.endTime) {
+        const calc = (meeting.endTime.getTime() - meeting.startTime.getTime()) / 60000;
+        if (calc > 0 && calc < 1440) durationMinutes = calc;
+      }
+
+      payment = Math.round(hourlyRate * (durationMinutes / 60));
+      if (instructor.employmentType === 'employee') payment = Math.round(payment * 1.3);
+      return payment;
+    }
+
     // Aggregate meeting data
     for (const meeting of historicalMeetings) {
       const monthKey = getMonthKey(new Date(meeting.scheduledDate));
       const data = historicalByMonth.get(monthKey);
       if (data) {
-        data.revenue += toNumber(meeting.revenue);
-        data.instructorPayments += toNumber(meeting.instructorPayment);
+        data.revenue += estimateMeetingRevenue(meeting);
+        data.instructorPayments += estimateInstructorPayment(meeting);
         data.meetingCount += 1;
         
         // Meeting expenses

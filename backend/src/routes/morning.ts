@@ -19,6 +19,20 @@ function salaryForMonth(emp: typeof GLOBAL_MONTHLY_SALARIES[number], month: stri
   return emp.monthOverrides?.[month] ?? emp.amount;
 }
 
+function morningDocumentIncomeAmount(doc: any): number {
+  const net = Number(doc.amountExcludeVat ?? 0);
+  if (net !== 0) return net;
+
+  // Receipt/payment docs (type 400) often arrive from Morning with amountExcludeVat=0
+  // even though the document itself has a paid amount. Use the document total for those
+  // so the drill-down row matches what the user sees when opening the Morning document.
+  if (Number(doc.type) === 400) {
+    return Number(doc.amount ?? doc.amountIncludeVat ?? doc.total ?? doc.totalAmount ?? 0);
+  }
+
+  return net;
+}
+
 export const morningRouter = Router();
 morningRouter.use(authenticate);
 
@@ -285,7 +299,7 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       const key = docDateToKey(item.documentDate ?? item.date);
       const entry = key ? monthMap.get(key) : null;
       if (entry) {
-        entry.income += Number(item.amountExcludeVat ?? 0);
+        entry.income += morningDocumentIncomeAmount(item);
         entry.docCount++;
       }
     }
@@ -295,7 +309,7 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       const key = docDateToKey(item.documentDate ?? item.date);
       const entry = key ? monthMap.get(key) : null;
       if (entry) {
-        entry.income -= Number(item.amountExcludeVat ?? 0);
+        entry.income -= morningDocumentIncomeAmount(item);
       }
     }
 
@@ -389,13 +403,13 @@ morningRouter.get('/financials/details', managerOrAdmin, async (req, res, next) 
         ...inc.map((d: any) => ({
           date: d.documentDate, type: d.type, number: String(d.number ?? ''),
           name: d.client?.name ?? '—',
-          amount: Math.round(Number(d.amountExcludeVat ?? 0)),
+          amount: Math.round(morningDocumentIncomeAmount(d)),
           url: d.url?.he ?? d.url?.origin ?? null,
         })),
         ...credits.map((d: any) => ({
           date: d.documentDate, type: d.type, number: String(d.number ?? ''),
           name: `${d.client?.name ?? '—'} (זיכוי)`,
-          amount: -Math.round(Number(d.amountExcludeVat ?? 0)),
+          amount: -Math.round(morningDocumentIncomeAmount(d)),
           url: d.url?.he ?? d.url?.origin ?? null,
         })),
       ].sort((a, b) => String(a.date).localeCompare(String(b.date)));

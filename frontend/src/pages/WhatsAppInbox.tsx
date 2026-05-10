@@ -728,9 +728,9 @@ export default function WhatsAppInbox() {
 
       {/* ── Template Manager View ── */}
       {viewMode === 'templates' && (
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-1 min-h-0 overflow-hidden flex-col md:flex-row">
           {/* Template list */}
-          <div className="w-72 bg-white border-l border-gray-200 flex flex-col flex-shrink-0">
+          <div className="w-full md:w-72 bg-white border-l border-gray-200 flex flex-col flex-shrink-0 min-h-0 max-h-[45%] md:max-h-none">
             <div className="p-3 border-b border-gray-100 flex items-center justify-between">
               <span className="text-xs font-medium text-gray-500">{templates.length} תבניות ({templates.filter(t => t.status === 'APPROVED').length} מאושרות)</span>
               <button
@@ -794,7 +794,7 @@ export default function WhatsAppInbox() {
           </div>
 
           {/* Template preview / create form */}
-          <div className="flex-1 bg-white overflow-y-auto p-6">
+          <div className="flex-1 min-h-0 bg-white overflow-y-auto p-4 md:p-6">
             {tmplMgrTab === 'create' ? (
               <div className="max-w-lg">
                 <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2">
@@ -1521,9 +1521,9 @@ export default function WhatsAppInbox() {
                   </button>
                 </div>
 
-                <div className="flex flex-1 overflow-hidden">
+                <div className="flex flex-1 min-h-0 overflow-hidden flex-col md:flex-row">
                   {/* Template list */}
-                  <div className="w-1/2 border-l border-gray-100 flex flex-col overflow-hidden">
+                  <div className="w-full md:w-1/2 border-l border-gray-100 flex flex-col overflow-hidden min-h-0 max-h-[45vh] md:max-h-none">
                     {/* Create new button */}
                     <button
                       onClick={() => { setShowCreateTemplate(true); setSelectedTemplate(null); setCreateResult(null); }}
@@ -1581,7 +1581,7 @@ export default function WhatsAppInbox() {
                   </div>
 
                   {/* Right panel — variables + preview OR create form */}
-                  <div className="w-1/2 flex flex-col overflow-y-auto">
+                  <div className="w-full md:w-1/2 flex flex-col overflow-y-auto min-h-0">
                     {showCreateTemplate ? (
                       <div className="flex flex-col p-4 gap-3 h-full">
                         <h4 className="font-semibold text-gray-700 flex items-center gap-2">

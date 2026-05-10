@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp, Search, PenSquare, Plus, CheckCircle, AlertCircle, CreditCard, Settings, Save } from 'lucide-react';
+import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp, ChevronRight, Search, PenSquare, Plus, CheckCircle, AlertCircle, CreditCard, Settings, Save } from 'lucide-react';
 import WaSendModal from '../components/WaSendModal';
 import WooPayModal from '../components/WooPayModal';
 import { useAuth } from '../context/AuthContext';
@@ -659,13 +659,13 @@ export default function WhatsAppInbox() {
   const totalUnread = conversations.reduce((s, c) => s + c.unreadCount, 0);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-50 overflow-hidden" dir="rtl">
+    <div className="flex flex-col h-[calc(100dvh-56px)] md:h-screen min-h-0 bg-gray-50 overflow-hidden" dir="rtl">
 
       {/* ── Top Tab Bar ── */}
-      <div className="bg-white border-b border-gray-200 flex items-center gap-1 px-4 flex-shrink-0">
+      <div className="bg-white border-b border-gray-200 flex items-center gap-1 px-2 md:px-4 flex-shrink-0 overflow-x-auto">
         <button
           onClick={() => setViewMode('inbox')}
-          className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'inbox' ? 'border-green-500 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          className={`flex items-center gap-1.5 px-3 md:px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${viewMode === 'inbox' ? 'border-green-500 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
         >
           <MessageCircle size={16} />
           שיחות
@@ -675,14 +675,14 @@ export default function WhatsAppInbox() {
         </button>
         <button
           onClick={() => { setViewMode('templates'); setTmplMgrTab('list'); if (templates.length === 0) loadTemplates(); }}
-          className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'templates' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          className={`flex items-center gap-1.5 px-3 md:px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${viewMode === 'templates' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
         >
           <FileText size={16} />
           ניהול תבניות
         </button>
         <button
           onClick={() => { setViewMode('callbacks'); loadCallbacks(); }}
-          className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'callbacks' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          className={`flex items-center gap-1.5 px-3 md:px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${viewMode === 'callbacks' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
         >
           📞 בקשות חזרה
           {callbackPending > 0 && (
@@ -693,7 +693,7 @@ export default function WhatsAppInbox() {
         {/* Broadcast tab */}
         <button
           onClick={() => { setViewMode('broadcast'); if (broadcastRecipients.length === 0) loadBroadcastRecipients(); if (broadcastTemplates.length === 0) loadBroadcastTemplates(); }}
-          className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'broadcast' ? 'border-red-500 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          className={`flex items-center gap-1.5 px-3 md:px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${viewMode === 'broadcast' ? 'border-red-500 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
         >
           📢 Broadcast
         </button>
@@ -702,7 +702,7 @@ export default function WhatsAppInbox() {
         {isAdmin && (
           <button
             onClick={() => { setViewMode('bot-settings'); if (!botSystemPrompt) loadBotConfig(); }}
-            className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${viewMode === 'bot-settings' ? 'border-purple-500 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+            className={`flex items-center gap-1.5 px-3 md:px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${viewMode === 'bot-settings' ? 'border-purple-500 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           >
             <Settings size={16} />
             הגדרות בוט
@@ -1183,7 +1183,7 @@ export default function WhatsAppInbox() {
       )}
 
       {/* ── Inbox View ── */}
-      <div className={`flex flex-1 overflow-hidden ${viewMode !== 'inbox' ? 'hidden' : ''}`} dir="rtl">
+      <div className={`flex flex-1 min-h-0 overflow-hidden flex-col md:flex-row ${viewMode !== 'inbox' ? 'hidden' : ''}`} dir="rtl">
 
       {/* ── New Conversation — Customer Search Modal ── */}
       {showNewConv && !newConvTarget && (
@@ -1274,7 +1274,7 @@ export default function WhatsAppInbox() {
       )}
 
       {/* ── Conversations List ── */}
-      <div className="w-80 bg-white border-l border-gray-200 flex flex-col flex-shrink-0">
+      <div className={`${selected ? 'hidden md:flex' : 'flex'} w-full md:w-80 bg-white border-l border-gray-200 flex-col flex-shrink-0 min-h-0`}>
         {/* Header */}
         <div className="p-4 border-b border-gray-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -1356,18 +1356,25 @@ export default function WhatsAppInbox() {
 
       {/* ── Chat Area ── */}
       {selected ? (
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 w-full flex flex-col min-w-0 min-h-0">
           {/* Chat Header */}
-          <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+          <div className="bg-white border-b border-gray-200 px-3 md:px-4 py-3 flex items-center justify-between gap-2 flex-shrink-0">
+            <div className="flex items-center gap-2 md:gap-3 min-w-0">
+              <button
+                onClick={() => setSelected(null)}
+                className="md:hidden p-2 -mr-2 hover:bg-gray-100 rounded-full text-gray-500 flex-shrink-0"
+                aria-label="חזרה לרשימת השיחות"
+              >
+                <ChevronRight size={20} />
+              </button>
+              <div className="w-9 h-9 md:w-10 md:h-10 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
                 <User size={20} className="text-green-600" />
               </div>
-              <div>
-                <p className="font-semibold text-gray-800">
+              <div className="min-w-0">
+                <p className="font-semibold text-gray-800 truncate">
                   {selected.contactName || selected.leadName || formatPhone(selected.phone)}
                 </p>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 truncate">
                   {selected.phone}
                   {selected.businessPhone && (
                     <span className="mr-2 text-green-600">→ {formatPhone(selected.businessPhone.replace('+', ''))}</span>
@@ -1375,29 +1382,29 @@ export default function WhatsAppInbox() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
               {/* AI toggle */}
               <button
                 onClick={() => toggleAI(selected)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                className={`flex items-center gap-1 md:gap-1.5 px-2 md:px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                   selected.aiEnabled
                     ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
                     : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                 }`}
               >
                 <Bot size={14} />
-                {selected.aiEnabled ? 'AI פעיל' : 'AI כבוי'}
+                <span className="hidden sm:inline">{selected.aiEnabled ? 'AI פעיל' : 'AI כבוי'}</span>
               </button>
               {/* Close/reopen */}
               <button
                 onClick={() => closeConversation(selected)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                className={`flex items-center gap-1 md:gap-1.5 px-2 md:px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                   selected.status === 'closed'
                     ? 'bg-green-100 text-green-700'
                     : 'bg-gray-100 text-gray-500'
                 }`}
               >
-                {selected.status === 'closed' ? 'פתח מחדש' : <><X size={12} /> סגור שיחה</>}
+                {selected.status === 'closed' ? <span className="hidden sm:inline">פתח מחדש</span> : <><X size={12} /> <span className="hidden sm:inline">סגור שיחה</span></>}
               </button>
             </div>
           </div>
@@ -1413,7 +1420,7 @@ export default function WhatsAppInbox() {
           )}
 
           {/* Messages */}
-          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-2">
+          <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-3 md:p-4 space-y-2">
             {messages.length === 0 && (
               <div className="text-center text-gray-400 text-sm mt-8">טוען הודעות...</div>
             )}
@@ -1423,7 +1430,7 @@ export default function WhatsAppInbox() {
                 className={`flex ${msg.direction === 'outbound' ? 'justify-start' : 'justify-end'}`}
               >
                 <div
-                  className={`max-w-[70%] px-3 py-2 rounded-2xl text-sm shadow-sm ${
+                  className={`max-w-[85%] md:max-w-[70%] px-3 py-2 rounded-2xl text-sm shadow-sm ${
                     msg.direction === 'outbound'
                       ? msg.isAiGenerated
                         ? 'bg-purple-100 text-purple-900 rounded-br-sm'
@@ -1700,7 +1707,7 @@ export default function WhatsAppInbox() {
           )}
         </div>
       ) : (
-        <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
+        <div className="hidden md:flex flex-1 flex-col items-center justify-center text-gray-400">
           <MessageCircle size={48} className="mb-3 text-gray-300" />
           <p className="text-lg font-medium">בחר שיחה</p>
           <p className="text-sm">בחר שיחה מהרשימה כדי להתחיל</p>

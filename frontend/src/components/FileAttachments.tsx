@@ -55,7 +55,7 @@ export default function FileAttachments({ entityType, entityId, canDelete = fals
       await uploadFile.mutateAsync({ file, label: uploadLabel || undefined });
       setUploadLabel('');
     } catch (err: any) {
-      alert(err?.response?.data?.message || 'שגיאה בהעלאת הקובץ');
+      alert(err?.response?.data?.message || err?.response?.data?.error || 'שגיאה בהעלאת הקובץ');
     }
   }, [uploadFile, uploadLabel]);
 
@@ -111,7 +111,7 @@ export default function FileAttachments({ entityType, entityId, canDelete = fals
           type="file"
           className="hidden"
           onChange={(e) => e.target.files && handleFiles(e.target.files)}
-          accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp,.txt,.zip,.rar"
+          accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.jpg,.jpeg,.png,.gif,.webp,.heic,.heif,.txt,.rtf,.zip,.rar"
         />
         {uploadFile.isPending ? (
           <div className="flex items-center justify-center gap-2 text-blue-600">
@@ -122,7 +122,7 @@ export default function FileAttachments({ entityType, entityId, canDelete = fals
           <>
             <Upload size={32} className="mx-auto mb-2 text-gray-400" />
             <p className="text-sm text-gray-600 font-medium">גרור קובץ לכאן או לחץ להעלאה</p>
-            <p className="text-xs text-gray-400 mt-1">PDF, Word, Excel, תמונות — עד 20MB</p>
+            <p className="text-xs text-gray-400 mt-1">PDF, Word, Excel, מצגות, CSV, תמונות — עד 20MB</p>
           </>
         )}
       </div>

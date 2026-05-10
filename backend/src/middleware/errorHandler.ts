@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 import { Prisma } from '@prisma/client';
+import multer from 'multer';
 
 export class AppError extends Error {
   constructor(
@@ -37,8 +38,17 @@ export const errorHandler = (
   if (err instanceof AppError) {
     return res.status(err.statusCode).json({
       error: err.message,
+      message: err.message,
       ...(err.data && { data: err.data }),
     });
+  }
+
+  // Multer upload errors
+  if (err instanceof multer.MulterError) {
+    const message = err.code === 'LIMIT_FILE_SIZE'
+      ? 'הקובץ גדול מדי. ניתן להעלות קבצים עד 20MB'
+      : `שגיאה בהעלאת הקובץ: ${err.message}`;
+    return res.status(400).json({ error: message, message });
   }
 
   // Prisma errors
@@ -46,17 +56,20 @@ export const errorHandler = (
     if (err.code === 'P2002') {
       return res.status(409).json({
         error: 'A record with this value already exists',
+        message: 'A record with this value already exists',
         field: (err.meta?.target as string[])?.join(', '),
       });
     }
     if (err.code === 'P2025') {
       return res.status(404).json({
         error: 'Record not found',
+        message: 'Record not found',
       });
     }
     if (err.code === 'P2003') {
       return res.status(400).json({
         error: 'Foreign key constraint violation',
+        message: 'Foreign key constraint violation',
       });
     }
   }
@@ -64,5 +77,6 @@ export const errorHandler = (
   // Default error
   return res.status(500).json({
     error: 'Internal server error',
+    message: 'Internal server error',
   });
 };

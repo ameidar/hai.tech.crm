@@ -37,26 +37,63 @@ const storage = multer.diskStorage({
   },
 });
 
+const ALLOWED_EXTENSIONS = new Set([
+  '.pdf',
+  '.doc',
+  '.docx',
+  '.xls',
+  '.xlsx',
+  '.csv',
+  '.ppt',
+  '.pptx',
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.gif',
+  '.webp',
+  '.heic',
+  '.heif',
+  '.txt',
+  '.rtf',
+  '.zip',
+  '.rar',
+]);
+
+const ALLOWED_MIMES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/csv',
+  'application/csv',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+  'text/plain',
+  'application/rtf',
+  'text/rtf',
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/x-rar-compressed',
+  'application/vnd.rar',
+]);
+
 const fileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  // Allow common document types
-  const allowedMimes = [
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'image/jpeg',
-    'image/png',
-    'image/gif',
-    'image/webp',
-    'text/plain',
-    'application/zip',
-    'application/x-rar-compressed',
-  ];
-  if (allowedMimes.includes(file.mimetype)) {
+  const ext = path.extname(file.originalname || '').toLowerCase();
+
+  // Some browsers/OSes upload valid documents with a generic MIME type.
+  // Accept when either MIME or extension is known, but reject unknown extensions.
+  const isGenericMime = ['application/octet-stream', 'binary/octet-stream'].includes(file.mimetype);
+  if (ALLOWED_MIMES.has(file.mimetype) || (isGenericMime && ALLOWED_EXTENSIONS.has(ext))) {
     cb(null, true);
   } else {
-    cb(new AppError(400, `סוג קובץ לא נתמך: ${file.mimetype}`));
+    cb(new AppError(400, `סוג קובץ לא נתמך: ${file.mimetype || ext || 'לא ידוע'}`));
   }
 };
 

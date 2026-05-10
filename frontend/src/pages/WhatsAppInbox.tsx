@@ -196,20 +196,6 @@ export default function WhatsAppInbox() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  // This page is an app-like inbox: keep the browser body fixed and let
-  // conversations/messages scroll internally, otherwise the CRM shell can scroll
-  // past the WhatsApp container and leave blank space under it.
-  useEffect(() => {
-    const previousBodyOverflow = document.body.style.overflow;
-    const previousHtmlOverflow = document.documentElement.style.overflow;
-    document.body.style.overflow = 'hidden';
-    document.documentElement.style.overflow = 'hidden';
-
-    return () => {
-      document.body.style.overflow = previousBodyOverflow;
-      document.documentElement.style.overflow = previousHtmlOverflow;
-    };
-  }, []);
 
   // Check if audio was already unlocked (e.g. from a previous interaction)
   useEffect(() => {
@@ -674,7 +660,7 @@ export default function WhatsAppInbox() {
   const totalUnread = conversations.reduce((s, c) => s + c.unreadCount, 0);
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-56px)] md:h-screen min-h-0 bg-gray-50 overflow-hidden" dir="rtl">
+    <div className="flex flex-col h-full min-h-0 bg-gray-50 overflow-hidden" dir="rtl">
 
       {/* ── Top Tab Bar ── */}
       <div className="bg-white border-b border-gray-200 flex items-center gap-1 px-2 md:px-4 flex-shrink-0 overflow-x-auto">

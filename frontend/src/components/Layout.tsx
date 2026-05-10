@@ -143,6 +143,7 @@ export default function Layout() {
   const isAdmin = user?.role === 'admin' || user?.role === 'manager';
   const isInstructor = user?.role === 'instructor';
   const isSales = user?.role === 'sales';
+  const isWhatsAppPage = location.pathname.startsWith('/whatsapp');
 
   // Flat items for non-admin roles
   const flatNavItems = isInstructor ? instructorNavItems : isSales ? salesNavItems : [];
@@ -278,7 +279,7 @@ export default function Layout() {
   );
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row">
+    <div className={`${isWhatsAppPage ? 'h-screen overflow-hidden' : 'min-h-screen'} flex flex-col md:flex-row`}>
       {/* Mobile Top Bar */}
       <div className="md:hidden bg-slate-800 text-white h-14 flex items-center justify-between px-4 sticky top-0 z-40">
         <button

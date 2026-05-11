@@ -131,6 +131,9 @@ export interface Instructor {
   userId?: string;
   isActive: boolean;
   notes?: string;
+  bankName?: string;
+  bankBranch?: string;
+  accountNumber?: string;
   createdAt: string;
   _count?: {
     cycles: number;

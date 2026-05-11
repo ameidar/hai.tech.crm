@@ -276,6 +276,9 @@ model Instructor {
   employmentType  String   @default("freelancer") @map("employment_type")  // freelancer or employee
   isActive        Boolean  @default(true) @map("is_active")
   notes           String?
+  bankName        String?  @map("bank_name")
+  bankBranch      String?  @map("bank_branch")
+  accountNumber   String?  @map("account_number")
   inviteToken     String?  @unique @map("invite_token")
   inviteExpiresAt DateTime? @map("invite_expires_at")
   createdAt       DateTime @default(now()) @map("created_at")

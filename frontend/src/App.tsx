@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
@@ -55,6 +55,11 @@ import MobileProfile from './pages/instructor/MobileProfile';
 import MobileCourseLibrary from './pages/instructor/MobileCourseLibrary';
 import MobileAiAssistant from './pages/instructor/MobileAiAssistant';
 import InstructorMagicMeeting from './pages/InstructorMagicMeeting';
+
+function MeetingRedirect() {
+  const { id } = useParams<{ id: string }>();
+  return <Navigate to={`/meetings?openMeeting=${id}`} replace />;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -173,6 +178,7 @@ function AppRoutes() {
             <Route path="cycles" element={<NonSalesRoute><Cycles /></NonSalesRoute>} />
             <Route path="cycles/:id" element={<NonSalesRoute><CycleDetail /></NonSalesRoute>} />
             <Route path="meetings" element={<NonSalesRoute><Meetings /></NonSalesRoute>} />
+            <Route path="meetings/:id" element={<NonSalesRoute><MeetingRedirect /></NonSalesRoute>} />
             <Route path="quotes" element={<NonSalesRoute><Quotes /></NonSalesRoute>} />
             <Route path="quotes/new" element={<NonSalesRoute><QuoteWizard /></NonSalesRoute>} />
             <Route path="quotes/:id" element={<NonSalesRoute><QuoteDetail /></NonSalesRoute>} />

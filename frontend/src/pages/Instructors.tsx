@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound, Trash2, AlertTriangle, Edit, CheckSquare, Paperclip, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound, Trash2, AlertTriangle, Edit, CheckSquare, Paperclip, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown, Landmark } from 'lucide-react';
 import { useInstructors, useCreateInstructor, useUpdateInstructor, useDeleteInstructor, useSendInstructorInvite, useResetInstructorPassword, useBulkUpdateInstructors } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import FileAttachments from '../components/FileAttachments';
@@ -679,6 +679,29 @@ function InstructorCard({ instructor, onEdit, onEditFiles, onDelete, onSendInvit
             <p className="font-semibold text-gray-900">{instructor.ratePreparation != null ? `₪${instructor.ratePreparation}` : '-'}</p>
           </div>
         </div>
+
+        {(instructor.bankName || instructor.bankBranch || instructor.accountNumber) && (
+          <div className="mb-4 p-3 bg-blue-50/50 rounded-xl border border-blue-100">
+            <div className="flex items-center gap-2 mb-2">
+              <Landmark size={14} className="text-blue-600" />
+              <span className="text-xs font-medium text-blue-700">פרטי חשבון בנק</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">בנק</p>
+                <p className="text-sm font-medium text-gray-900">{instructor.bankName || '-'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">סניף</p>
+                <p className="text-sm font-medium text-gray-900" dir="ltr">{instructor.bankBranch || '-'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">חשבון</p>
+                <p className="text-sm font-medium text-gray-900" dir="ltr">{instructor.accountNumber || '-'}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="pt-4 border-t border-gray-100 text-sm space-y-2">
           {/* Stats row */}

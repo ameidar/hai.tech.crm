@@ -1,6 +1,6 @@
 {
   "name": "haitech-crm-backend",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "HaiTech CRM - Backend API for managing coding education business",
   "main": "dist/index.js",
   "scripts": {
@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@google-analytics/data": "^5.2.1",
-    "@prisma/client": "^6.9.0",
+    "@prisma/client": "^6.19.2",
     "@types/exceljs": "^0.5.3",
     "axios": "^1.13.4",
     "bcrypt": "^5.1.1",

@@ -23,6 +23,12 @@ export interface User {
   isActive: boolean;
   lastLogin?: string;
   createdAt: string;
+  instructor?: {
+    id: string;
+    bankName?: string | null;
+    bankBranch?: string | null;
+    accountNumber?: string | null;
+  } | null;
 }
 
 export interface Customer {

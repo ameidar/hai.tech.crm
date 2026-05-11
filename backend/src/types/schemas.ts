@@ -92,6 +92,9 @@ export const createInstructorSchema = z.object({
   userId: z.string().uuid().optional().nullable(),
   isActive: z.boolean().default(true),
   notes: z.string().optional().nullable(),
+  bankName: z.string().optional().nullable(),
+  bankBranch: z.string().optional().nullable(),
+  accountNumber: z.string().optional().nullable(),
 });
 
 export const updateInstructorSchema = createInstructorSchema.partial();

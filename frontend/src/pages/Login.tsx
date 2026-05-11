@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { LogIn, Eye, EyeOff, AlertCircle } from 'lucide-react';
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -19,7 +20,8 @@ export default function Login() {
 
     try {
       await login(email, password);
-      navigate('/');
+      const from = (location.state as { from?: string })?.from || '/';
+      navigate(from, { replace: true });
     } catch (err: any) {
       setError(err.response?.data?.error || 'שגיאה בהתחברות. אנא בדקו את הפרטים ונסו שוב.');
     } finally {

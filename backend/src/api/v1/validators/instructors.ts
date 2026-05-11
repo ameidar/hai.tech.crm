@@ -56,6 +56,9 @@ export const updateInstructorSchema = z.object({
   ratePreparation: moneySchema.optional().nullable(),
   isActive: z.boolean().optional(),
   notes: z.string().optional().nullable(),
+  bankName: z.string().optional().nullable(),
+  bankBranch: z.string().optional().nullable(),
+  accountNumber: z.string().optional().nullable(),
 });
 
 /**

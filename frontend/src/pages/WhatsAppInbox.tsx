@@ -730,7 +730,7 @@ export default function WhatsAppInbox() {
       {viewMode === 'templates' && (
         <div className="flex flex-1 min-h-0 overflow-hidden flex-col md:flex-row">
           {/* Template list */}
-          <div className="w-full md:w-72 bg-white border-l border-gray-200 flex flex-col flex-shrink-0 min-h-0 max-h-[45%] md:max-h-none">
+          <div className="w-full md:w-72 bg-white border-l border-gray-200 flex flex-col flex-shrink-0 min-h-0 max-h-full md:max-h-none">
             <div className="p-3 border-b border-gray-100 flex items-center justify-between">
               <span className="text-xs font-medium text-gray-500">{templates.length} תבניות ({templates.filter(t => t.status === 'APPROVED').length} מאושרות)</span>
               <button
@@ -1275,7 +1275,7 @@ export default function WhatsAppInbox() {
       )}
 
       {/* ── Conversations List ── */}
-      <div className={`${selected ? 'hidden md:flex' : 'flex'} w-full md:w-80 bg-white border-l border-gray-200 flex-col flex-shrink-0 min-h-0`}>
+      <div className={`${selected ? 'hidden md:flex md:w-80 md:flex-shrink-0' : 'flex flex-1'} w-full bg-white border-l border-gray-200 flex-col min-h-0`}>
         {/* Header */}
         <div className="p-4 border-b border-gray-200 flex items-center justify-between">
           <div className="flex items-center gap-2">

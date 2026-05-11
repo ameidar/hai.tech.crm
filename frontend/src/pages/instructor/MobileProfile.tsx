@@ -1,12 +1,13 @@
 import { useNavigate } from 'react-router-dom';
-import { 
-  User, 
-  Phone, 
-  Mail, 
+import {
+  User,
+  Phone,
+  Mail,
   LogOut,
   Calendar,
   CheckCircle2,
-  Clock
+  Clock,
+  Landmark
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useMeetings } from '../../hooks/useApi';
@@ -66,6 +67,30 @@ export default function MobileProfile() {
           )}
         </div>
       </div>
+
+      {/* Bank Details */}
+      {user?.instructor && (user.instructor.bankName || user.instructor.bankBranch || user.instructor.accountNumber) && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <Landmark size={16} className="text-blue-600" />
+            <h2 className="text-sm font-medium text-gray-500">פרטי חשבון בנק</h2>
+          </div>
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <div className="bg-gray-50 rounded-xl p-3">
+              <p className="text-xs text-gray-500 mb-1">בנק</p>
+              <p className="text-sm font-semibold text-gray-800">{user.instructor.bankName || '-'}</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3">
+              <p className="text-xs text-gray-500 mb-1">סניף</p>
+              <p className="text-sm font-semibold text-gray-800" dir="ltr">{user.instructor.bankBranch || '-'}</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3">
+              <p className="text-xs text-gray-500 mb-1">חשבון</p>
+              <p className="text-sm font-semibold text-gray-800" dir="ltr">{user.instructor.accountNumber || '-'}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Monthly Stats */}
       <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-6">

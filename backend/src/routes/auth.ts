@@ -163,7 +163,17 @@ authRouter.get('/me', authenticate, async (req, res, next) => {
       throw new AppError(404, 'User not found');
     }
 
-    res.json(user);
+    const instructor = await prisma.instructor.findFirst({
+      where: { userId: user.id },
+      select: {
+        id: true,
+        bankName: true,
+        bankBranch: true,
+        accountNumber: true,
+      },
+    });
+
+    res.json({ ...user, instructor });
   } catch (error) {
     next(error);
   }

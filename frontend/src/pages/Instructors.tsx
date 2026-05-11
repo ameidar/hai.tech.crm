@@ -987,6 +987,9 @@ function InstructorForm({ instructor, initialTab = 'details', onSubmit, onCancel
     ratePreparation: instructor?.ratePreparation || 50,
     employmentType: instructor?.employmentType || 'freelancer',
     notes: instructor?.notes || '',
+    bankName: instructor?.bankName || '',
+    bankBranch: instructor?.bankBranch || '',
+    accountNumber: instructor?.accountNumber || '',
     isActive: instructor?.isActive ?? true,
   });
 
@@ -999,6 +1002,9 @@ function InstructorForm({ instructor, initialTab = 'details', onSubmit, onCancel
       ratePrivate: Number(formData.ratePrivate),
       ratePreparation: Number(formData.ratePreparation),
       employmentType: formData.employmentType,
+      bankName: formData.bankName || undefined,
+      bankBranch: formData.bankBranch || undefined,
+      accountNumber: formData.accountNumber || undefined,
     });
   };
 
@@ -1170,6 +1176,44 @@ function InstructorForm({ instructor, initialTab = 'details', onSubmit, onCancel
           className="form-input"
           rows={3}
         />
+      </div>
+
+      <div className="border-t pt-4">
+        <h4 className="font-medium text-gray-700 mb-4">פרטי חשבון בנק</h4>
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <label className="form-label">בנק</label>
+            <input
+              type="text"
+              value={formData.bankName}
+              onChange={(e) => setFormData({ ...formData, bankName: e.target.value })}
+              className="form-input"
+              placeholder="שם הבנק"
+            />
+          </div>
+
+          <div>
+            <label className="form-label">סניף</label>
+            <input
+              type="text"
+              value={formData.bankBranch}
+              onChange={(e) => setFormData({ ...formData, bankBranch: e.target.value })}
+              className="form-input"
+              placeholder="מספר סניף"
+            />
+          </div>
+
+          <div>
+            <label className="form-label">חשבון</label>
+            <input
+              type="text"
+              value={formData.accountNumber}
+              onChange={(e) => setFormData({ ...formData, accountNumber: e.target.value })}
+              className="form-input"
+              placeholder="מספר חשבון"
+            />
+          </div>
+        </div>
       </div>
 
       <div className="flex items-center gap-2">

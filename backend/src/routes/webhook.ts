@@ -491,6 +491,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
         interest: interest || undefined,
         source,
         customerId: customer.id,
+        leadAppointmentId: lead.id,
       }).catch(err => console.error('[WEBHOOK] Failed to notify admin (existing customer):', err));
 
       // Trigger Vapi AI call for returning customer with phone (not for WhatsApp leads)
@@ -582,6 +583,20 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       },
     });
 
+    // Create/find LeadAppointment record (idempotent — initiateVapiCall below
+    // calls findOrCreateLeadAppointment again and will reuse this same lead)
+    const { lead } = await findOrCreateLeadAppointment({
+      customerId: customer.id,
+      customerName: customer.name,
+      customerPhone: customer.phone || phone || '',
+      customerEmail: customer.email || null,
+      childName: childName || null,
+      interest: interest || null,
+      source,
+      appointmentStatus: 'pending',
+      appointmentNotes: noteText,
+    });
+
     // Send welcome notifications (async, don't block response)
     sendWelcomeNotifications({
       name: customer.name,
@@ -604,6 +619,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       interest: interest || undefined,
       source,
       customerId: customer.id,
+      leadAppointmentId: lead.id,
     }).catch(err => console.error('[WEBHOOK] Failed to notify admin:', err));
 
     // Trigger Vapi AI call for new customer with phone (not for WhatsApp leads)
@@ -731,12 +747,13 @@ webhookRouter.post('/whatsapp-summary', async (req, res, next) => {
     // Notify admin
     const count = results.filter(r => r.success).length;
     if (count > 0) {
-      const firstCustomerId = results.find(r => r.success && r.customerId)?.customerId;
+      const firstSuccess = results.find(r => r.success);
       notifyAdminNewLead({
         name: items[0]?.name || 'לא ידוע',
         phone: items[0]?.phone || null,
         source: 'whatsapp',
-        customerId: firstCustomerId,
+        customerId: firstSuccess?.customerId,
+        leadAppointmentId: firstSuccess?.leadId,
       }).catch(err => console.error('[WEBHOOK] Failed to notify admin:', err));
     }
 

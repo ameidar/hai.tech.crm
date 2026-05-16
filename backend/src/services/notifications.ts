@@ -106,11 +106,12 @@ export async function notifyAdminNewLead(lead: {
   interest?: string | null;
   source?: string;
   customerId?: string | null;
+  leadAppointmentId?: string | null;
 }): Promise<void> {
   const baseUrl = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
-  const leadLink = lead.customerId
-    ? `${baseUrl}/customers/${lead.customerId}`
-    : `${baseUrl}/customers`;
+  const leadLink = lead.leadAppointmentId
+    ? `${baseUrl}/lead-appointments?id=${lead.leadAppointmentId}`
+    : `${baseUrl}/lead-appointments`;
 
   const message = `🎯 *ליד חדש מהאתר!*
 
@@ -121,7 +122,7 @@ ${lead.childName ? `👧 *ילד/ה:* ${lead.childName}` : ''}
 ${lead.interest ? `🎓 *תחום עניין:* ${lead.interest}` : ''}
 📍 *מקור:* ${lead.source || 'website'}
 
-🔗 פתח את טופס הליד: ${leadLink}`;
+🔗 פתח ביומן הלידים: ${leadLink}`;
 
   await Promise.all([
     sendWhatsAppMessage(ADMIN_PHONE, message),

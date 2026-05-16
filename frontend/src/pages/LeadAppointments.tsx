@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Play, Trash2 } from 'lucide-react';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
@@ -67,6 +68,7 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function LeadAppointments() {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [fromDate, setFromDate] = useState('');
@@ -74,6 +76,32 @@ export default function LeadAppointments() {
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState<'createdAt' | 'updatedAt'>('createdAt');
   const [selectedLead, setSelectedLead] = useState<LeadAppointment | null>(null);
+
+  // Deep-link: if ?id=X is in the URL, fetch and auto-open that lead's modal.
+  // Only re-runs when the URL id changes — clicking a different lead in the
+  // table does NOT retrigger (otherwise it would overwrite the user's choice).
+  const deepLinkId = searchParams.get('id');
+  useEffect(() => {
+    if (!deepLinkId) return;
+    let cancelled = false;
+    api.get(`/lead-appointments/${deepLinkId}`)
+      .then(res => {
+        if (cancelled) return;
+        const lead = res.data?.data ?? res.data;
+        if (lead) setSelectedLead(lead);
+      })
+      .catch(err => console.error('[LeadAppointments] deep-link fetch failed:', err));
+    return () => { cancelled = true; };
+  }, [deepLinkId]);
+
+  // Strip the ?id= param when the modal is closed so refreshing doesn't reopen it
+  const closeModal = () => {
+    setSelectedLead(null);
+    if (deepLinkId) {
+      searchParams.delete('id');
+      setSearchParams(searchParams, { replace: true });
+    }
+  };
 
   // Fetch leads
   const params = new URLSearchParams();
@@ -277,10 +305,10 @@ export default function LeadAppointments() {
       {selectedLead && (
         <LeadDetailModal
           lead={selectedLead}
-          onClose={() => setSelectedLead(null)}
+          onClose={closeModal}
           onSaved={() => {
             queryClient.invalidateQueries({ queryKey: ['lead-appointments'] });
-            setSelectedLead(null);
+            closeModal();
           }}
         />
       )}

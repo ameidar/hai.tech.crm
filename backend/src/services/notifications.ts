@@ -93,6 +93,10 @@ export async function sendEmail(
   }
 }
 
+// Recipients for new-lead notifications
+const ADMIN_PHONE = '0528746137'; // Ami's phone
+const SALES_GROUP_CHAT_ID = '120363308669020817@g.us'; // Sales team WhatsApp group
+
 // Notify admin about new lead
 export async function notifyAdminNewLead(lead: {
   name: string;
@@ -101,9 +105,13 @@ export async function notifyAdminNewLead(lead: {
   childName?: string | null;
   interest?: string | null;
   source?: string;
+  customerId?: string | null;
 }): Promise<void> {
-  const adminPhone = '0528746137'; // Ami's phone
-  
+  const baseUrl = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
+  const leadLink = lead.customerId
+    ? `${baseUrl}/customers/${lead.customerId}`
+    : `${baseUrl}/customers`;
+
   const message = `🎯 *ליד חדש מהאתר!*
 
 👤 *שם:* ${lead.name}
@@ -113,9 +121,12 @@ ${lead.childName ? `👧 *ילד/ה:* ${lead.childName}` : ''}
 ${lead.interest ? `🎓 *תחום עניין:* ${lead.interest}` : ''}
 📍 *מקור:* ${lead.source || 'website'}
 
-🔗 ${process.env.FRONTEND_URL || 'https://crm.orma-ai.com'}/customers`;
+🔗 פתח את טופס הליד: ${leadLink}`;
 
-  await sendWhatsAppMessage(adminPhone, message);
+  await Promise.all([
+    sendWhatsAppMessage(ADMIN_PHONE, message),
+    sendWhatsAppMessage(SALES_GROUP_CHAT_ID, message),
+  ]);
 }
 
 // Welcome lead notification

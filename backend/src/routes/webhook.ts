@@ -490,6 +490,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
         childName: childName || undefined,
         interest: interest || undefined,
         source,
+        customerId: customer.id,
       }).catch(err => console.error('[WEBHOOK] Failed to notify admin (existing customer):', err));
 
       // Trigger Vapi AI call for returning customer with phone (not for WhatsApp leads)
@@ -602,6 +603,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       childName: childName || undefined,
       interest: interest || undefined,
       source,
+      customerId: customer.id,
     }).catch(err => console.error('[WEBHOOK] Failed to notify admin:', err));
 
     // Trigger Vapi AI call for new customer with phone (not for WhatsApp leads)
@@ -729,10 +731,12 @@ webhookRouter.post('/whatsapp-summary', async (req, res, next) => {
     // Notify admin
     const count = results.filter(r => r.success).length;
     if (count > 0) {
+      const firstCustomerId = results.find(r => r.success && r.customerId)?.customerId;
       notifyAdminNewLead({
         name: items[0]?.name || 'לא ידוע',
         phone: items[0]?.phone || null,
         source: 'whatsapp',
+        customerId: firstCustomerId,
       }).catch(err => console.error('[WEBHOOK] Failed to notify admin:', err));
     }
 

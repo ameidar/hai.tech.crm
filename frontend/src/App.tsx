@@ -187,7 +187,7 @@ function AppRoutes() {
             <Route path="institutional-orders" element={<NonSalesRoute><InstitutionalOrders /></NonSalesRoute>} />
             <Route path="billing" element={<NonSalesRoute><BillingPeriods /></NonSalesRoute>} />
             <Route path="billing/:id" element={<NonSalesRoute><BillingPeriodDetail /></NonSalesRoute>} />
-            <Route path="lead-appointments" element={<NonSalesRoute><LeadAppointments /></NonSalesRoute>} />
+            <Route path="lead-appointments" element={<LeadAppointments />} />
             <Route path="system-users" element={<NonSalesRoute><SystemUsers /></NonSalesRoute>} />
             <Route path="reports" element={<NonSalesRoute><Reports /></NonSalesRoute>} />
             <Route path="morning-invoice" element={<NonSalesRoute><MorningInvoiceTest /></NonSalesRoute>} />

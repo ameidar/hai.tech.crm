@@ -165,11 +165,11 @@ function AppRoutes() {
         {!isInstructor && (
           <>
             {/* Sales-accessible routes */}
-            <Route path="customers" element={<Customers />} />
-            <Route path="customers/:id" element={<CustomerDetail />} />
+            <Route path="customers" element={<NonSalesRoute><Customers /></NonSalesRoute>} />
+            <Route path="customers/:id" element={<NonSalesRoute><CustomerDetail /></NonSalesRoute>} />
             <Route path="whatsapp" element={<WhatsAppInbox />} />
-            <Route path="messenger" element={<MessengerInbox />} />
-            <Route path="instagram" element={<InstagramInbox />} />
+            <Route path="messenger" element={<NonSalesRoute><MessengerInbox /></NonSalesRoute>} />
+            <Route path="instagram" element={<NonSalesRoute><InstagramInbox /></NonSalesRoute>} />
 
             {/* Admin/Manager only routes — sales gets redirected to /whatsapp */}
             <Route path="students" element={<NonSalesRoute><Students /></NonSalesRoute>} />

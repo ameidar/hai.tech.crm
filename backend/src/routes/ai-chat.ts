@@ -1,6 +1,6 @@
 /**
  * AI Chat — Natural Language Interface to CRM Database
- * Role-based access: instructor (own data only), sales (leads/customers), manager (all)
+ * Role-based access: instructor (own data only), sales (leads/WhatsApp only), manager (all)
  */
 
 import { Router, Request, Response } from 'express';
@@ -100,7 +100,8 @@ ${DB_SCHEMA}
   if (role === 'sales') {
     return base + `
 ## הרשאות שלך: מכירות (${userName})
-- **מותר:** lead_appointments, wa_conversations, wa_messages, customers (קריאה בלבד)
+- **מותר:** lead_appointments, wa_conversations, wa_messages בלבד
+- **אסור:** customers / אובייקט לקוחות, גם לקריאה בלבד
 - **אסור:** פיננסים, ציוני מדריכים, תוכן שיעורים, נתוני רווח
 - אם שואלים על נתונים אסורים — ענה: "הנתונים האלה לא נגישים לתפקיד מכירות"
 `;
@@ -115,7 +116,7 @@ ${DB_SCHEMA}
 }
 
 // ─── Run SQL safely ─────────────────────────────────────────────────────────
-async function runSQL(sql: string): Promise<any[]> {
+async function runSQL(sql: string, role?: string): Promise<any[]> {
   // Safety: only allow SELECT
   const normalized = sql.trim().toUpperCase();
   if (!normalized.startsWith('SELECT')) {
@@ -128,6 +129,12 @@ async function runSQL(sql: string): Promise<any[]> {
       throw new Error(`Query contains forbidden keyword: ${kw.replace(/\\b/g, '')}`);
     }
   }
+
+  // Hard guard: sales users must not query the customers table, even read-only.
+  if (role === 'sales' && /\bcustomers\b/i.test(sql)) {
+    throw new Error('הנתונים האלה לא נגישים לתפקיד מכירות');
+  }
+
   return prisma.$queryRawUnsafe(sql);
 }
 
@@ -205,7 +212,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
       // Step 2: Run the SQL
       let rows: any[];
       try {
-        rows = await runSQL(parsed.sql);
+        rows = await runSQL(parsed.sql, role);
       } catch (e: any) {
         console.error('[AI-Chat] SQL error:', e.message, '\nSQL:', parsed.sql);
         return res.json({

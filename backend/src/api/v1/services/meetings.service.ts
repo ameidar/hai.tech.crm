@@ -264,6 +264,7 @@ export class MeetingsService {
    * Calculate meeting financials based on cycle type
    */
   private async calculateMeetingFinancials(meeting: {
+    id?: string;
     cycleId: string;
     instructorId: string;
     startTime: Date;
@@ -326,9 +327,22 @@ export class MeetingsService {
 
       const durationHours = durationMinutes / 60;
       instructorPayment = Math.round(hourlyRate * durationHours);
+
+      if (instructor.employmentType === 'employee') {
+        instructorPayment = Math.round(instructorPayment * 1.3);
+      }
     }
 
-    const profit = revenue - instructorPayment;
+    let expensesTotal = 0;
+    if (meeting.id) {
+      const approvedExpenses = await prisma.meetingExpense.aggregate({
+        where: { meetingId: meeting.id, status: 'approved' },
+        _sum: { amount: true },
+      });
+      expensesTotal = Number(approvedExpenses._sum.amount || 0);
+    }
+
+    const profit = revenue - instructorPayment - expensesTotal;
 
     return { revenue, instructorPayment, profit };
   }

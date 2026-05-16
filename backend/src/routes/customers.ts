@@ -10,8 +10,8 @@ export const customersRouter = Router();
 // All routes require authentication
 customersRouter.use(authenticate);
 
-// List customers
-customersRouter.get('/', async (req, res, next) => {
+// List customers — admin/manager only (sales users must not access the customer object)
+customersRouter.get('/', managerOrAdmin, async (req, res, next) => {
   try {
     const { page, limit } = paginationSchema.parse(req.query);
     const search = req.query.search as string | undefined;
@@ -130,8 +130,8 @@ customersRouter.get('/', async (req, res, next) => {
   }
 });
 
-// Get customer by ID
-customersRouter.get('/:id', async (req, res, next) => {
+// Get customer by ID — admin/manager only (sales users must not access the customer object)
+customersRouter.get('/:id', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
@@ -322,7 +322,7 @@ customersRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
 });
 
 // Get customer's students
-customersRouter.get('/:id/students', async (req, res, next) => {
+customersRouter.get('/:id/students', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 

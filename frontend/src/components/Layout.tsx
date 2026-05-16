@@ -97,11 +97,10 @@ const instructorNavItems = [
   { path: '/instructor', icon: LayoutDashboard, label: 'הפגישות שלי', testId: 'nav-instructor' },
 ];
 
-// Sales-only navigation (Leads + WhatsApp + Customers)
+// Sales-only navigation (Leads + WhatsApp)
 const salesNavItems = [
   { path: '/lead-appointments', icon: PhoneCall, label: 'יומן לידים', testId: 'nav-lead-appointments' },
   { path: '/whatsapp', icon: MessageCircle, label: 'WhatsApp', testId: 'nav-whatsapp' },
-  { path: '/customers', icon: Users, label: 'לקוחות', testId: 'nav-customers' },
 ];
 
 const COLLAPSED_KEY = 'nav-collapsed-sections';

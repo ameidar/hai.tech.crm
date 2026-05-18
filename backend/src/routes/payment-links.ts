@@ -2,7 +2,11 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { authenticate, salesOrAbove } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { prisma } from '../utils/prisma.js';
 import { createPaymentForm } from '../services/morning/payment-forms.js';
+import { DOCUMENT_TYPES } from '../services/morning/documents.js';
+import { createMorningClient, findClientForCustomer } from '../services/morning/clients.js';
+import { randomBytes } from 'crypto';
 
 export const paymentLinksRouter = Router();
 paymentLinksRouter.use(authenticate);
@@ -12,7 +16,8 @@ const createSchema = z.object({
   amount: z.number().positive('amount must be > 0'),
   maxPayments: z.number().int().min(1).max(36).optional(),
   vatType: z.union([z.literal(0), z.literal(1), z.literal(2)]).optional(),
-  type: z.number().int().optional(),
+  documentType: z.union([z.literal(400), z.literal(320), z.literal(305)]).optional(),
+  customerId: z.string().uuid().optional(),
   client: z.object({
     name: z.string().min(1, 'client.name required'),
     email: z.string().email().optional().or(z.literal('')),
@@ -20,6 +25,50 @@ const createSchema = z.object({
     taxId: z.string().optional(),
   }),
 });
+
+// Crockford-style base32, no ambiguous chars. 32^5 ≈ 33M combos.
+const SHORT_CODE_ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz';
+function generateShortCode(): string {
+  const bytes = randomBytes(5);
+  let out = '';
+  for (let i = 0; i < 5; i++) out += SHORT_CODE_ALPHABET[bytes[i] % SHORT_CODE_ALPHABET.length];
+  return out;
+}
+
+// Find or create the matching Morning client UUID for a CRM customer and cache
+// it on the customer row. Returns null if Morning is unreachable so the caller
+// can still issue the payment link with inline client info.
+async function ensureMorningClientId(customerId: string): Promise<string | null> {
+  const customer = await prisma.customer.findUnique({ where: { id: customerId } });
+  if (!customer) return null;
+  if (customer.morningClientId) return customer.morningClientId;
+
+  try {
+    const existing = await findClientForCustomer({
+      name: customer.name,
+      email: customer.email,
+      phone: customer.phone,
+    });
+    let morningId = existing?.id;
+    if (!morningId) {
+      const created = await createMorningClient({
+        name: customer.name,
+        emails: customer.email ? [customer.email] : undefined,
+        phone: customer.phone ?? undefined,
+        address: customer.address ?? undefined,
+        city: customer.city ?? undefined,
+      });
+      morningId = created.id;
+    }
+    await prisma.customer.update({
+      where: { id: customerId },
+      data: { morningClientId: morningId },
+    });
+    return morningId;
+  } catch {
+    return null;
+  }
+}
 
 // POST /api/payment-links — sales+ generates a Morning payment link
 paymentLinksRouter.post('/', salesOrAbove, async (req: Request, res: Response, next: NextFunction) => {
@@ -29,14 +78,22 @@ paymentLinksRouter.post('/', salesOrAbove, async (req: Request, res: Response, n
       throw new AppError(400, parsed.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('; '));
     }
     const input = parsed.data;
+    const documentType = input.documentType ?? DOCUMENT_TYPES.RECEIPT;
+
+    let morningClientId: string | undefined;
+    if (input.customerId) {
+      const resolved = await ensureMorningClientId(input.customerId);
+      if (resolved) morningClientId = resolved;
+    }
 
     const result = await createPaymentForm({
       description: input.description,
       amount: input.amount,
       maxPayments: input.maxPayments,
       vatType: input.vatType,
-      type: input.type,
+      type: documentType,
       client: {
+        id: morningClientId,
         name: input.client.name,
         emails: input.client.email ? [input.client.email] : undefined,
         phone: input.client.phone,
@@ -44,11 +101,48 @@ paymentLinksRouter.post('/', salesOrAbove, async (req: Request, res: Response, n
       },
     });
 
+    let saved: { code: string; id: string } | null = null;
+    for (let attempt = 0; attempt < 5 && !saved; attempt++) {
+      const code = generateShortCode();
+      try {
+        const created = await prisma.paymentLink.create({
+          data: {
+            code,
+            description: input.description,
+            amount: input.amount,
+            maxPayments: input.maxPayments ?? 1,
+            documentType,
+            vatType: input.vatType ?? 0,
+            morningUrl: result.url,
+            customerId: input.customerId,
+            clientName: input.client.name,
+            clientEmail: input.client.email || null,
+            clientPhone: input.client.phone || null,
+            clientTaxId: input.client.taxId || null,
+            createdBy: (req as any).user?.id ?? null,
+          },
+          select: { code: true, id: true },
+        });
+        saved = created;
+      } catch (e: any) {
+        if (e?.code !== 'P2002') throw e;
+      }
+    }
+    if (!saved) throw new AppError(500, 'Failed to allocate a unique short code — try again');
+
+    const host = req.get('host');
+    const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+    const shortUrl = `${proto}://${host}/pl/${saved.code}`;
+
     res.json({
       url: result.url,
+      shortUrl,
+      code: saved.code,
       description: input.description,
       amount: input.amount,
       maxPayments: input.maxPayments ?? 1,
+      documentType,
+      morningClientLinked: !!morningClientId,
     });
   } catch (err: any) {
     if (err?.status === 400 || err?.body?.errorCode) {
@@ -56,4 +150,19 @@ paymentLinksRouter.post('/', salesOrAbove, async (req: Request, res: Response, n
     }
     next(err);
   }
+});
+
+// GET /api/payment-links — list recent links (sales+)
+paymentLinksRouter.get('/', salesOrAbove, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const limit = Math.min(parseInt((req.query.limit as string) || '50', 10) || 50, 200);
+    const items = await prisma.paymentLink.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      include: {
+        customer: { select: { id: true, name: true, phone: true } },
+      },
+    });
+    res.json({ items });
+  } catch (err) { next(err); }
 });

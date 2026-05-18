@@ -245,6 +245,21 @@ app.use('/api/google-ads', googleAdsRouter);      // Google Ads campaigns
 // Error handling for API routes
 app.use('/api', errorHandler);
 
+// Public short-link redirect: /pl/<code> → Morning hosted payment URL.
+// No auth — this is the link we share with end-customers.
+app.get('/pl/:code', async (req, res, next) => {
+  try {
+    const code = String(req.params.code || '').toLowerCase().slice(0, 16);
+    if (!/^[a-z0-9]{3,16}$/.test(code)) return res.status(404).send('Not found');
+    const link = await prisma.paymentLink.findUnique({ where: { code } });
+    if (!link) return res.status(404).send('Not found');
+    prisma.paymentLink
+      .update({ where: { id: link.id }, data: { clicks: { increment: 1 }, lastClickedAt: new Date() } })
+      .catch(() => {}); // fire-and-forget; never block the redirect on stats
+    return res.redirect(302, link.morningUrl);
+  } catch (e) { next(e); }
+});
+
 // Serve static frontend files
 const frontendPath = path.join(process.cwd(), 'frontend-dist');
 app.use(express.static(frontendPath, {

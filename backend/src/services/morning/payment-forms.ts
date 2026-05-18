@@ -10,11 +10,13 @@ export interface CreatePaymentFormInput {
   amount: number;
   maxPayments?: number;          // 1..36 split-payments
   vatType?: VatType;             // see documents.ts — defaults to 0 (price excludes VAT)
-  type?: number;                 // document type Morning issues on success; default 320
+  type?: number;                 // document type Morning issues on success; default 400 (קבלה)
   lang?: 'he' | 'en';
   currency?: string;
   pluginId?: string;             // override the env default
   client: {
+    id?: string;                 // pre-resolved Morning client UUID — when set, Morning
+                                 // attaches the issued document to that client.
     name: string;
     emails?: string[];
     phone?: string;
@@ -43,16 +45,22 @@ export async function createPaymentForm(input: CreatePaymentFormInput): Promise<
     throw new Error('MORNING_PAYMENT_PLUGIN_ID is not configured (and no pluginId provided)');
   }
 
+  // When client.id is set, send only { id } — Morning rejects mixed payloads where
+  // both id and free-text identity fields are present.
+  const clientPayload: any = input.client.id
+    ? { id: input.client.id }
+    : { ...input.client };
+
   const body: any = {
     description: input.description,
-    type: input.type ?? DOCUMENT_TYPES.TAX_INVOICE_RECEIPT,
+    type: input.type ?? DOCUMENT_TYPES.RECEIPT,
     lang: input.lang ?? 'he',
     currency: input.currency ?? 'ILS',
     vatType: input.vatType ?? 0,
     amount: input.amount,
     maxPayments: input.maxPayments ?? 1,
     pluginId,
-    client: input.client,
+    client: clientPayload,
   };
   if (input.successUrl) body.successUrl = input.successUrl;
   if (input.failureUrl) body.failureUrl = input.failureUrl;

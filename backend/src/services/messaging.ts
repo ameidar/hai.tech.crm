@@ -94,6 +94,35 @@ export async function sendWhatsApp(params: SendWhatsAppParams): Promise<MessageR
 }
 
 /**
+ * Send WhatsApp message to a raw chatId (phone @c.us or group @g.us).
+ * Bypasses the Israel-phone formatter — caller must pass a fully-qualified chatId.
+ */
+export async function sendWhatsAppToChat(chatId: string, message: string): Promise<MessageResult> {
+  if (!GREEN_API_INSTANCE_ID || !GREEN_API_TOKEN) {
+    return { success: false, error: 'Green API not configured' };
+  }
+
+  try {
+    const response = await fetch(`${GREEN_API_BASE}/sendMessage/${GREEN_API_TOKEN}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chatId, message }),
+    });
+
+    const data = await response.json() as { idMessage?: string; message?: string };
+
+    if (data.idMessage) {
+      return { success: true, messageId: data.idMessage };
+    } else {
+      return { success: false, error: data.message || 'Unknown error' };
+    }
+  } catch (error: any) {
+    console.error('WhatsApp send error (chatId):', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Send email via Gmail
  */
 export async function sendEmail(params: SendEmailParams): Promise<MessageResult> {

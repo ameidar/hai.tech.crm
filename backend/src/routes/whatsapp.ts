@@ -15,6 +15,7 @@ import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
 import { sendEmail } from '../services/email/sender.js';
+import { sendWhatsAppToChat } from '../services/messaging.js';
 
 const router = Router();
 
@@ -26,6 +27,13 @@ const PHONE_NUMBER_ID = process.env.WA_PHONE_NUMBER_ID!;
 const ACCESS_TOKEN = process.env.WA_ACCESS_TOKEN!;
 const VERIFY_TOKEN = process.env.WA_VERIFY_TOKEN || 'haitech-wa-verify-2026';
 const AI_IDLE_MS = 10 * 60 * 1000; // 10 min after last message → extract lead summary
+
+// Inbound-message alert to a Green API group when a customer "wakes up" after silence.
+// Only fires when the conversation's prior activity was ≥ WA_QUIET_WAKEUP_HOURS ago
+// (or it's a brand-new conversation). Prevents alert spam during active back-and-forth.
+const WA_QUIET_WAKEUP_HOURS = parseFloat(process.env.WA_QUIET_WAKEUP_HOURS || '3');
+const WA_INBOUND_ALERT_GROUP_ID = process.env.WA_INBOUND_ALERT_GROUP_ID || '120363308669020817@g.us';
+const APP_URL = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
 
 // Multi-number support: phoneNumberId → wabaId mapping
 const PHONE_WABA_MAP: Record<string, string> = {
@@ -115,6 +123,40 @@ async function sendWhatsAppMessage(phone: string, text: string, phoneNumberId?: 
   } catch (err: any) {
     console.error('[WA] Send error:', err.response?.data || err.message);
     return null;
+  }
+}
+
+// ============================================================
+// Quiet-wakeup alert — notify management when a customer breaks silence
+// ============================================================
+async function maybeAlertQuietWakeup(
+  conversationId: string,
+  newMessageId: string,
+  text: string,
+  displayName: string
+): Promise<void> {
+  if (!WA_INBOUND_ALERT_GROUP_ID) return;
+
+  // Look at the message immediately before the one we just stored, in either direction.
+  const prior = await prisma.waMessage.findFirst({
+    where: { conversationId, NOT: { id: newMessageId } },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true },
+  });
+
+  const thresholdMs = WA_QUIET_WAKEUP_HOURS * 60 * 60 * 1000;
+  const isQuietWakeup = !prior || (Date.now() - prior.createdAt.getTime()) >= thresholdMs;
+  if (!isQuietWakeup) return;
+
+  const link = `${APP_URL}/whatsapp?conv=${conversationId}`;
+  const snippet = text.length > 200 ? text.slice(0, 200) + '…' : text;
+  const message = `🔔 לקוח חזר מהשקט\n\nמאת: ${displayName}\n"${snippet}"\n\n🔗 ${link}`;
+
+  const result = await sendWhatsAppToChat(WA_INBOUND_ALERT_GROUP_ID, message);
+  if (!result.success) {
+    console.error(`[WA] quiet-wakeup alert send failed: ${result.error}`);
+  } else {
+    console.log(`[WA] quiet-wakeup alert sent for conv ${conversationId} (prior=${prior?.createdAt?.toISOString() || 'none'})`);
   }
 }
 
@@ -620,6 +662,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
             phone,
             contactName
           });
+
+          // Quiet-wakeup alert — notify the management group via Green API when a
+          // customer breaks silence. New conversations (no prior message) always alert.
+          maybeAlertQuietWakeup(conv.id, newMsg.id, text, contactName || conv.contactName || phone).catch(err =>
+            console.error('[WA] quiet-wakeup alert failed:', err)
+          );
 
           // Callback request detection — takes priority over AI reply
           const isCallbackRequest = detectCallbackIntent(text);

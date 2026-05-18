@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
-import { authenticate, managerOrAdmin } from '../middleware/auth.js';
+import { authenticate, managerOrAdmin, salesOrAbove } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createCustomerSchema, updateCustomerSchema, createStudentSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
 import { logAudit } from '../utils/audit.js';
@@ -9,6 +9,30 @@ export const customersRouter = Router();
 
 // All routes require authentication
 customersRouter.use(authenticate);
+
+// Lightweight customer search for sales (used by payment-link picker). Returns
+// only the fields needed to identify a customer — no addresses, notes, lead
+// info, etc. — so sales users don't get access to the full customer object.
+customersRouter.get('/lookup', salesOrAbove, async (req, res, next) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) return res.json({ items: [] });
+    const items = await prisma.customer.findMany({
+      where: {
+        deletedAt: null,
+        OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          { phone: { contains: q } },
+          { email: { contains: q, mode: 'insensitive' } },
+        ],
+      },
+      select: { id: true, name: true, phone: true, email: true },
+      orderBy: { updatedAt: 'desc' },
+      take: 12,
+    });
+    res.json({ items });
+  } catch (err) { next(err); }
+});
 
 // List customers — admin/manager only (sales users must not access the customer object)
 customersRouter.get('/', managerOrAdmin, async (req, res, next) => {

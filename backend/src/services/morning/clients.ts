@@ -85,3 +85,67 @@ export async function findClientForInstitutionalOrder(order: {
 
   return null;
 }
+
+/**
+ * Create a new client in Morning. Returns the assigned UUID.
+ *
+ * Use this when we know there's no existing Morning client for a CRM customer
+ * (we've already searched by taxId / email / phone with no hit) and we want
+ * to link the customer to a real Morning client up-front rather than letting
+ * Morning create one implicitly during document issuance.
+ */
+export async function createMorningClient(input: {
+  name: string;
+  taxId?: string;
+  emails?: string[];
+  phone?: string;
+  address?: string;
+  city?: string;
+}): Promise<MorningClientRecord> {
+  const body: any = { name: input.name };
+  if (input.taxId) body.taxId = input.taxId;
+  if (input.emails?.length) body.emails = input.emails;
+  if (input.phone) body.phone = input.phone;
+  if (input.address) body.address = input.address;
+  if (input.city) body.city = input.city;
+  return morningRequest<MorningClientRecord>('POST', '/api/v1/clients', body);
+}
+
+/**
+ * Best-effort matcher for a personal CRM customer. Looks for the same person
+ * already in Morning by taxId → email → phone → name. Returns null when no
+ * confident match exists; callers should fall back to creating a new client.
+ */
+export async function findClientForCustomer(customer: {
+  name?: string | null;
+  taxId?: string | null;
+  email?: string | null;
+  phone?: string | null;
+}): Promise<MorningClientRecord | null> {
+  if (customer.taxId) {
+    const r = await searchClients({ taxId: customer.taxId });
+    const exact = r.filter(c => c.taxId === customer.taxId);
+    if (exact.length === 1) return exact[0];
+  }
+  if (customer.email) {
+    const local = customer.email.split('@')[0];
+    if (local) {
+      const r = await searchClients({ name: local });
+      const exact = r.filter(c =>
+        (c.emails || []).some(e => e.toLowerCase() === customer.email!.toLowerCase())
+      );
+      if (exact.length === 1) return exact[0];
+    }
+  }
+  if (customer.phone) {
+    const r = await searchClients({ name: customer.phone });
+    const exact = r.filter(c => (c.phone || '').replace(/\D/g, '') === customer.phone!.replace(/\D/g, ''));
+    if (exact.length === 1) return exact[0];
+  }
+  if (customer.name) {
+    const r = await searchClients({ name: customer.name });
+    const exact = r.filter(c => c.name === customer.name);
+    if (exact.length === 1) return exact[0];
+  }
+  return null;
+}

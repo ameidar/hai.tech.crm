@@ -85,19 +85,23 @@ export default function OnlineUsers() {
         <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 400 }}>מחוברים</span>
       </button>
 
-      {/* Dropdown */}
+      {/* Dropdown — opens upward (the badge sits near the bottom of the sidebar,
+          so a downward dropdown gets clipped by the viewport on mobile). */}
       {open && (
         <div style={{
           position: 'absolute',
-          top: '110%',
+          bottom: '110%',
           left: 0,
           background: '#fff',
           border: '1px solid #e5e7eb',
           borderRadius: 12,
           boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
           minWidth: 240,
+          maxHeight: 'calc(100vh - 120px)',
           zIndex: 9999,
           overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
           direction: 'rtl',
         }}>
           <div style={{
@@ -117,7 +121,7 @@ export default function OnlineUsers() {
               אין משתמשים מחוברים כרגע
             </div>
           ) : (
-            <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
               {users.map(u => (
                 <div key={u.id} style={{
                   padding: '10px 14px',

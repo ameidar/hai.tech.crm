@@ -266,9 +266,15 @@ export async function sendPreMeetingReminders(): Promise<void> {
       const meetingLink = generateMeetingMagicLink(m.instructor.id, m.id, APP_URL);
 
       // Pre-meeting context: lessons left in the cycle + previous lesson's summary.
-      // remainingMeetings on the cycle still counts THIS one, so display it as-is.
-      const remaining = m.cycle?.remainingMeetings;
+      // Compute remaining live as totalMeetings - completedCount.
+      // cycle.remainingMeetings is unreliable (drifts when one-off meetings are added).
       const totalMeetings = m.cycle?.totalMeetings;
+      const completedCount = await prisma.meeting.count({
+        where: { cycleId: m.cycleId, status: 'completed', deletedAt: null },
+      });
+      const remaining = typeof totalMeetings === 'number'
+        ? Math.max(0, totalMeetings - completedCount)
+        : undefined;
       const previous = await prisma.meeting.findFirst({
         where: {
           cycleId: m.cycleId,
@@ -286,7 +292,7 @@ export async function sendPreMeetingReminders(): Promise<void> {
       });
 
       const extras: MeetingExtras = {
-        remaining: typeof remaining === 'number' ? remaining : undefined,
+        remaining,
         totalMeetings: typeof totalMeetings === 'number' ? totalMeetings : undefined,
         lastSummary: previous ? previous.topic ?? null : null,
       };

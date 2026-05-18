@@ -16,6 +16,7 @@ import {
   FileText,
   Receipt,
   CreditCard,
+  Link2,
   PhoneCall,
   LogOut,
   Menu,
@@ -87,6 +88,7 @@ const adminNavGroups = [
       { path: '/system-users', icon: UserCog, label: 'ניהול הנהלה', testId: 'nav-system-users' },
       { path: '/reports', icon: BarChart3, label: 'דוחות', testId: 'nav-reports' },
       { path: '/morning-invoice', icon: Receipt, label: 'הוצאת חשבון עסקה', testId: 'nav-morning-invoice' },
+      { path: '/payment-link', icon: Link2, label: 'לינק לתשלום', testId: 'nav-payment-link' },
       { path: '/audit', icon: FileText, label: 'יומן פעילות', testId: 'nav-audit' },
     ],
   },
@@ -97,10 +99,11 @@ const instructorNavItems = [
   { path: '/instructor', icon: LayoutDashboard, label: 'הפגישות שלי', testId: 'nav-instructor' },
 ];
 
-// Sales-only navigation (Leads + WhatsApp)
+// Sales-only navigation (Leads + WhatsApp + Payment Links)
 const salesNavItems = [
   { path: '/lead-appointments', icon: PhoneCall, label: 'יומן לידים', testId: 'nav-lead-appointments' },
   { path: '/whatsapp', icon: MessageCircle, label: 'WhatsApp', testId: 'nav-whatsapp' },
+  { path: '/payment-link', icon: Link2, label: 'לינק לתשלום', testId: 'nav-payment-link' },
 ];
 
 const COLLAPSED_KEY = 'nav-collapsed-sections';

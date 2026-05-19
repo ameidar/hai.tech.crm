@@ -23,6 +23,7 @@ export interface CreatePaymentFormInput {
     taxId?: string;
     address?: string;
     city?: string;
+    add?: boolean;               // upsert into Morning's client directory ("הוספה ללקוחות")
   };
   successUrl?: string;
   failureUrl?: string;
@@ -46,10 +47,12 @@ export async function createPaymentForm(input: CreatePaymentFormInput): Promise<
   }
 
   // When client.id is set, send only { id } — Morning rejects mixed payloads where
-  // both id and free-text identity fields are present.
+  // both id and free-text identity fields are present. Otherwise default `add: true`
+  // so the inline client is also written to Morning's client directory (matches the
+  // hosted form's "הוספה ללקוחות" toggle).
   const clientPayload: any = input.client.id
     ? { id: input.client.id }
-    : { ...input.client };
+    : { ...input.client, add: input.client.add ?? true };
 
   const body: any = {
     description: input.description,

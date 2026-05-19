@@ -35,3 +35,6 @@ coverage/
 
 # Generated at build time
 src/version.json
+
+# Runtime state (whatsapp-auto-bot, etc.) — never committed
+data/

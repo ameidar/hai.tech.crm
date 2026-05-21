@@ -921,21 +921,52 @@ webhookRouter.post('/whatsapp-incoming', async (req: Request, res: Response) => 
     let rawMessage = '';
 
     if (msgType === 'pollUpdateMessage') {
-      // Handle poll vote
-      const votes = body?.messageData?.pollUpdateMessageData?.stateMessage?.votes || [];
+      // Green API has shipped at least two payload shapes for poll votes over
+      // time. The "votes" array lives under one of: pollMessageData,
+      // pollUpdateMessageData, or (legacy) pollUpdateMessageData.stateMessage.
+      // Voter entries are usually plain chatId strings ("9725...@c.us"), but
+      // we've also seen objects with id/chatId/voter fields. Try every shape
+      // before giving up — and log the raw payload if we still come up empty,
+      // so the next format change is one log line away from a fix.
+      const md = body?.messageData;
+      const votes: any[] =
+        md?.pollMessageData?.votes ||
+        md?.pollUpdateMessageData?.votes ||
+        md?.pollUpdateMessageData?.stateMessage?.votes ||
+        [];
+
+      const phoneDigits = phone.replace(/\D/g, '');
+      const voterMatches = (voter: unknown): boolean => {
+        const candidate =
+          typeof voter === 'string'
+            ? voter
+            : (voter as any)?.id || (voter as any)?.chatId || (voter as any)?.voter || '';
+        return typeof candidate === 'string' && candidate.replace(/\D/g, '').includes(phoneDigits);
+      };
+
       for (const vote of votes) {
-        const voters = vote?.optionVoters || [];
-        if (voters.some((v: string) => v.includes(phone))) {
-          rawMessage = vote?.optionName || '';
-          if (rawMessage.includes('כן') || rawMessage.toLowerCase().includes('yes')) {
-            isYes = true;
-          } else if (rawMessage.includes('לא') || rawMessage.toLowerCase().includes('no')) {
-            isYes = false;
-          }
+        const voters: any[] = vote?.optionVoters || vote?.voters || [];
+        if (!voters.some(voterMatches)) continue;
+        rawMessage = vote?.optionName || vote?.name || '';
+        if (rawMessage.includes('כן') || rawMessage.toLowerCase().includes('yes') || rawMessage.includes('✅')) {
+          isYes = true;
+        } else if (rawMessage.includes('לא') || rawMessage.toLowerCase().includes('no') || rawMessage.includes('❌')) {
+          isYes = false;
         }
+        break;
       }
-    } else if (msgType === 'textMessage') {
-      rawMessage = body?.messageData?.textMessageData?.textMessage || '';
+
+      if (isYes === null) {
+        // Parser couldn't extract a vote. Dump enough of the payload to
+        // diagnose without flooding logs.
+        const dump = JSON.stringify({ messageData: md }, null, 0).slice(0, 2000);
+        console.warn(`[WhatsApp] pollUpdateMessage parsed nothing for ${phone}. payload=${dump}`);
+      }
+    } else if (msgType === 'textMessage' || msgType === 'extendedTextMessage') {
+      rawMessage =
+        body?.messageData?.textMessageData?.textMessage ||
+        body?.messageData?.extendedTextMessageData?.text ||
+        '';
       const lower = rawMessage.toLowerCase().trim();
       if (/^(כן|כ|נכון|yes|y|עברתי|העברתי|✅)/.test(lower)) {
         isYes = true;

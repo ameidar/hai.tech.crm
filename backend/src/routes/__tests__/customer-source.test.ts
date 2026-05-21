@@ -33,6 +33,7 @@ vi.mock('../../utils/prisma.js', () => ({
 vi.mock('../../middleware/auth.js', () => ({
   authenticate: (_req: any, _res: any, next: any) => next(),
   managerOrAdmin: (_req: any, _res: any, next: any) => next(),
+  salesOrAbove: (_req: any, _res: any, next: any) => next(),
   requireRole: () => (_req: any, _res: any, next: any) => next(),
 }));
 

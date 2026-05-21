@@ -199,6 +199,9 @@ model Customer {
   payments           Payment[]
   campaignRecipients CampaignRecipient[]
   facebookLeads      FacebookLead[]
+  paymentLinks       PaymentLink[]
+
+  morningClientId    String?     @map("morning_client_id") // linked Morning (GreenInvoice) client UUID — populated lazily on first issue
 
   @@map("customers")
 }
@@ -1260,4 +1263,33 @@ model AiLessonLog {
   createdAt   DateTime @default(now()) @map("created_at")
 
   @@map("ai_lesson_logs")
+}
+
+// Every Morning hosted payment-form we generate. `code` is the 6-char short
+// identifier — /pl/<code> redirects to `morningUrl`. Customer link is optional
+// (sales may issue to a one-off contact who isn't in the CRM yet).
+model PaymentLink {
+  id            String    @id @default(uuid())
+  code          String    @unique
+  description   String
+  amount        Decimal   @db.Decimal(10, 2)
+  maxPayments   Int       @default(1) @map("max_payments")
+  documentType  Int       @default(400) @map("document_type")
+  vatType       Int       @default(0)   @map("vat_type")
+  morningUrl    String    @map("morning_url")
+  customerId    String?   @map("customer_id")
+  clientName    String    @map("client_name")
+  clientEmail   String?   @map("client_email")
+  clientPhone   String?   @map("client_phone")
+  clientTaxId   String?   @map("client_tax_id")
+  createdBy     String?   @map("created_by")
+  clicks        Int       @default(0)
+  lastClickedAt DateTime? @map("last_clicked_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([customerId])
+  @@index([createdAt(sort: Desc)])
+  @@map("payment_links")
 }

@@ -57,6 +57,7 @@ import waRouter from './routes/whatsapp.js';
 import { messengerRouter } from './routes/messenger.js';
 import { instagramRouter } from './routes/instagram.js';
 import { paymentsRouter } from './routes/payments.js';
+import { paymentLinksRouter } from './routes/payment-links.js';
 import { campaignsRouter } from './routes/campaigns.js';
 import { campaignLeadsRouter } from './routes/campaign-leads.js';
 import { facebookLeadsRouter } from './routes/facebook-leads.js';
@@ -229,6 +230,7 @@ app.use('/api/wa', waRouter); // WhatsApp Cloud API inbox
 app.use('/api/messenger', messengerRouter); // Facebook Messenger inbox
 app.use('/api/instagram', instagramRouter); // Instagram DM inbox
 app.use('/api/payments', paymentsRouter); // WooCommerce payment links
+app.use('/api/payment-links', paymentLinksRouter); // Morning hosted payment forms
 app.use('/api/system-users', systemUsersRouter); // System users management (admin/manager)
 app.use('/api/upsell-leads', upsellLeadsRouter); // Upsell leads from completed cycles
 app.use('/api/reports', reportsRouter); // Instructor activity reports
@@ -242,6 +244,21 @@ app.use('/api/google-ads', googleAdsRouter);      // Google Ads campaigns
 
 // Error handling for API routes
 app.use('/api', errorHandler);
+
+// Public short-link redirect: /pl/<code> → Morning hosted payment URL.
+// No auth — this is the link we share with end-customers.
+app.get('/pl/:code', async (req, res, next) => {
+  try {
+    const code = String(req.params.code || '').toLowerCase().slice(0, 16);
+    if (!/^[a-z0-9]{3,16}$/.test(code)) return res.status(404).send('Not found');
+    const link = await prisma.paymentLink.findUnique({ where: { code } });
+    if (!link) return res.status(404).send('Not found');
+    prisma.paymentLink
+      .update({ where: { id: link.id }, data: { clicks: { increment: 1 }, lastClickedAt: new Date() } })
+      .catch(() => {}); // fire-and-forget; never block the redirect on stats
+    return res.redirect(302, link.morningUrl);
+  } catch (e) { next(e); }
+});
 
 // Serve static frontend files
 const frontendPath = path.join(process.cwd(), 'frontend-dist');

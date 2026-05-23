@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { CreditCard, Copy, Check, Send, X, RefreshCw, ExternalLink, Link2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { CreditCard, Copy, Check, Send, X, RefreshCw, ExternalLink, Clock, FileText } from 'lucide-react';
 import api from '../api/client';
 
 interface Props {
@@ -11,7 +11,7 @@ interface Props {
   waConversationId?: string;
 }
 
-type Stage = 'form' | 'ready';
+type Stage = 'form' | 'waiting' | 'paid';
 
 interface Package {
   id: string;
@@ -40,9 +40,14 @@ export default function WooPayModal({ onClose, customerId, customerName = '', cu
   const [error, setError] = useState('');
 
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
-  const [morningUrl, setMorningUrl] = useState<string | null>(null);
+  const [directPaymentUrl, setDirectPaymentUrl] = useState<string | null>(null);
+  const [orderId, setOrderId] = useState<number | null>(null);
+  const [invoiceUrl, setInvoiceUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [waSent, setWaSent] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [pollCount, setPollCount] = useState(0);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isCustom = selectedPkg?.id === 'custom' || !selectedPkg;
   const maxInstallments = selectedPkg?.maxInstallments ?? 10;
@@ -61,29 +66,43 @@ export default function WooPayModal({ onClose, customerId, customerName = '', cu
     }
   };
 
+  // Auto-poll every 10s while waiting
+  useEffect(() => {
+    if (stage !== 'waiting' || !orderId) return;
+    const check = async () => {
+      try {
+        const r = await api.get(`/payments/order-status/${orderId}`);
+        setPollCount(c => c + 1);
+        if (r.data.paid) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          if (r.data.invoiceUrl) setInvoiceUrl(r.data.invoiceUrl);
+          setStage('paid');
+        }
+      } catch {}
+    };
+    pollRef.current = setInterval(check, 10000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [stage, orderId]);
+
   const createLink = async () => {
     if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) return setError('נא להזין סכום תקין');
     if (!description.trim()) return setError('נא להזין תיאור');
     setError('');
     setLoading(true);
     try {
-      const r = await api.post('/payment-links', {
+      const r = await api.post('/payments/create-link', {
         customerId: customerId || undefined,
-        description: description.trim(),
+        customerName, customerPhone, customerEmail,
         amount: Number(amount),
-        maxPayments: installments > 1 ? installments : 1,
-        documentType: 400,
-        client: {
-          name: customerName?.trim() || 'לקוח',
-          email: customerEmail?.trim() || undefined,
-          phone: customerPhone?.trim() || undefined,
-        },
+        description: description.trim(),
+        installments: installments > 1 ? installments : undefined,
       });
-      setPaymentUrl(r.data.shortUrl || r.data.url);
-      setMorningUrl(r.data.url);
-      setStage('ready');
+      setPaymentUrl(r.data.paymentUrl);
+      setDirectPaymentUrl(r.data.directPaymentUrl || r.data.paymentUrl);
+      setOrderId(r.data.orderId);
+      setStage('waiting');
     } catch (e: any) {
-      setError(e.response?.data?.message || e.response?.data?.error || e.message || 'שגיאה ביצירת הלינק');
+      setError(e.response?.data?.error || e.message || 'שגיאה ביצירת הלינק');
     } finally {
       setLoading(false);
     }
@@ -109,7 +128,19 @@ export default function WooPayModal({ onClose, customerId, customerName = '', cu
     }
   };
 
-
+  const checkNow = async () => {
+    if (!orderId) return;
+    setCheckingStatus(true);
+    setError('');
+    try {
+      const r = await api.get(`/payments/order-status/${orderId}`);
+      if (r.data.paid) {
+        if (r.data.invoiceUrl) setInvoiceUrl(r.data.invoiceUrl);
+        setStage('paid');
+      } else setError('התשלום טרם בוצע — המתן ולחץ שוב');
+    } catch { setError('שגיאה בבדיקת סטטוס'); }
+    finally { setCheckingStatus(false); }
+  };
 
   const installmentAmount = installments > 1 && amount ? Math.ceil(Number(amount) / installments) : null;
 
@@ -123,7 +154,8 @@ export default function WooPayModal({ onClose, customerId, customerName = '', cu
             <CreditCard size={20} className="text-purple-600" />
             <h2 className="text-lg font-semibold">
               {stage === 'form' && 'יצירת לינק תשלום'}
-              {stage === 'ready' && `🔗 לינק תשלום נוצר — ₪${Number(amount).toLocaleString()}`}
+              {stage === 'waiting' && `💳 ממתין לתשלום — ₪${Number(amount).toLocaleString()}`}
+              {stage === 'paid' && '✅ תשלום אושר!'}
             </h2>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg"><X size={18} /></button>
@@ -218,21 +250,21 @@ export default function WooPayModal({ onClose, customerId, customerName = '', cu
             <div className="flex gap-3 pt-1">
               <button onClick={onClose} className="btn btn-secondary flex-1">ביטול</button>
               <button onClick={createLink} disabled={loading || !amount || !description} className="btn btn-primary flex-1">
-                {loading ? <><RefreshCw size={14} className="animate-spin ml-1" />יוצר...</> : 'צור לינק Morning'}
+                {loading ? <><RefreshCw size={14} className="animate-spin ml-1" />יוצר...</> : 'צור לינק תשלום'}
               </button>
             </div>
           </div>
         )}
 
-        {/* ── Payment link ready ── */}
-        {stage === 'ready' && paymentUrl && (
+        {/* ── Waiting for payment ── */}
+        {stage === 'waiting' && paymentUrl && (
           <div className="p-6 space-y-5">
-            <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl p-4">
-              <Link2 size={20} className="text-green-600 flex-shrink-0" />
+            <div className="flex items-center gap-3 bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+              <Clock size={20} className="text-yellow-600 flex-shrink-0 animate-pulse" />
               <div>
-                <p className="font-medium text-green-800">לינק תשלום Morning נוצר</p>
-                <p className="text-xs text-green-600 mt-0.5">
-                  אפשר להעתיק, לפתוח או לשלוח ללקוח ב-WhatsApp. מעקב התשלום והמסמך מתבצעים דרך Morning.
+                <p className="font-medium text-yellow-800">ממתין לתשלום מהלקוח</p>
+                <p className="text-xs text-yellow-600 mt-0.5">
+                  בודק אוטומטית כל 10 שניות{pollCount > 0 ? ` · בדיקה ${pollCount}` : ''}
                 </p>
               </div>
             </div>
@@ -266,12 +298,30 @@ export default function WooPayModal({ onClose, customerId, customerName = '', cu
 
             {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
 
-            {morningUrl && morningUrl !== paymentUrl && (
-              <a href={morningUrl} target="_blank" rel="noreferrer"
-                className="w-full flex items-center justify-center gap-2 text-sm text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg px-4 py-2.5 transition-colors">
-                <ExternalLink size={14} />פתח לינק Morning המקורי
+            <button onClick={checkNow} disabled={checkingStatus}
+              className="w-full flex items-center justify-center gap-2 text-sm text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg px-4 py-2.5 transition-colors">
+              {checkingStatus ? <RefreshCw size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              בדוק אם התשלום בוצע עכשיו
+            </button>
+          </div>
+        )}
+
+        {/* ── Paid ── */}
+        {stage === 'paid' && (
+          <div className="p-8 text-center space-y-4">
+            <div className="text-5xl">🎉</div>
+            <h3 className="text-xl font-bold text-green-700">התשלום התקבל!</h3>
+            <p className="text-gray-600">{description}</p>
+            <p className="text-2xl font-bold text-green-600">₪{Number(amount).toLocaleString()}</p>
+            {customerName && <p className="text-sm text-gray-500">מאת: {customerName}</p>}
+            {invoiceUrl && (
+              <a href={invoiceUrl} target="_blank" rel="noreferrer"
+                className="inline-flex items-center gap-2 bg-green-50 text-green-700 border border-green-200 rounded-lg px-4 py-2.5 text-sm font-medium hover:bg-green-100 transition-colors">
+                <FileText size={16} />פתח חשבונית ירוקה
               </a>
             )}
+            {!invoiceUrl && <p className="text-xs text-gray-400">החשבונית תישלח אוטומטית במייל ע"י Morning</p>}
+            <button onClick={onClose} className="btn btn-primary w-full mt-2">סגור</button>
           </div>
         )}
       </div>

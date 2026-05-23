@@ -161,6 +161,40 @@ async function maybeAlertQuietWakeup(
 }
 
 // ============================================================
+// AI support guardrails
+// ============================================================
+function containsContactLoopReferral(replyText: string | null | undefined): boolean {
+  if (!replyText) return false;
+
+  const text = String(replyText).toLowerCase();
+
+  const whatsappLinkPattern = /wa\.me\/[\d+]*972\d+|api\.whatsapp\.com|צור קשר בוואטסאפ|קישור לוואטסאפ/;
+  const supportWhatsappPattern = /(פנה|לפנות|תפנה|צרו קשר|צור קשר|ממליץ).*?(תמיכה|צוות|נציג).*?(וואטסאפ|whatsapp)/s;
+  const siteOrWhatsappPattern = /(אתר|האתר).*?(או|\/).*?(וואטסאפ|whatsapp)|(וואטסאפ|whatsapp).*?(או|\/).*?(אתר|האתר)/s;
+
+  return whatsappLinkPattern.test(text) ||
+    supportWhatsappPattern.test(text) ||
+    siteOrWhatsappPattern.test(text);
+}
+
+function isExistingCustomerSupportRequest(userText: string | null | undefined): boolean {
+  if (!userText) return false;
+
+  const text = String(userText).toLowerCase();
+  return /(גישה|הרשאה|הרשאות|התחבר|התחברות|סיסמה|חשבון|הקורס נעלם|לא מופיע|לא מצליח|לא מצליחה|תקלה|בעיה|שילמתי|תשלום|רכשתי|קניתי|החזר)/.test(text);
+}
+
+function buildHumanEscalationReply(userText: string | null | undefined): string {
+  const hasEmail = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(userText || '');
+
+  if (hasEmail) {
+    return 'אני מבין/ה, זה באמת מתסכל.\nאני מעביר/ה את זה לנציג אנושי לבדיקה לפי הפרטים ששלחת. יחזרו אליך כאן בהקדם 🙏';
+  }
+
+  return 'אני מבין/ה, זה באמת מתסכל.\nאני מעביר/ה את זה לנציג אנושי לבדיקה — אין צורך לפנות שוב לוואטסאפ, זה כבר הערוץ הנכון.\n\nכדי שנאתר את החשבון מהר: מה המייל שאיתו נרשמת לקורס?';
+}
+
+// ============================================================
 // AI Response generation (mirrors bot logic)
 // ============================================================
 async function generateAIReply(conversationId: string): Promise<string | null> {
@@ -228,7 +262,15 @@ ${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}
     temperature: 0.7
   });
 
-  return completion.choices[0].message.content || null;
+  let replyText = completion.choices[0].message.content || null;
+  const latestInboundText = [...messages].reverse().find(m => m.direction === 'inbound')?.content || '';
+
+  if (replyText && containsContactLoopReferral(replyText) && isExistingCustomerSupportRequest(latestInboundText)) {
+    console.log('[WA Guardrail] Replaced WhatsApp contact-loop referral with human escalation reply');
+    replyText = buildHumanEscalationReply(latestInboundText);
+  }
+
+  return replyText;
 }
 
 // ============================================================

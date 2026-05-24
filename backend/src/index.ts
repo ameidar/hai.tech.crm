@@ -245,7 +245,9 @@ app.use('/api/google-ads', googleAdsRouter);      // Google Ads campaigns
 // Error handling for API routes
 app.use('/api', errorHandler);
 
-// Public short-link redirect: /pl/<code> → Morning hosted payment URL.
+// Public short-link landing: /pl/<code> → preview page with payment details,
+// then a "המשך לתשלום" button to the Morning/Meshulam hosted checkout URL.
+// `?go=1` keeps the legacy direct-redirect behavior for anyone who wants to skip the preview.
 // No auth — this is the link we share with end-customers.
 app.get('/pl/:code', async (req, res, next) => {
   try {
@@ -255,8 +257,157 @@ app.get('/pl/:code', async (req, res, next) => {
     if (!link) return res.status(404).send('Not found');
     prisma.paymentLink
       .update({ where: { id: link.id }, data: { clicks: { increment: 1 }, lastClickedAt: new Date() } })
-      .catch(() => {}); // fire-and-forget; never block the redirect on stats
-    return res.redirect(302, link.morningUrl);
+      .catch(() => {}); // fire-and-forget; never block on stats
+
+    if (req.query.go === '1') return res.redirect(302, link.morningUrl);
+
+    const escapeHtml = (s: string) => s.replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string
+    ));
+    const docTypeLabel: Record<number, string> = {
+      400: 'קבלה',
+      320: 'חשבונית מס + קבלה',
+      305: 'חשבונית מס',
+    };
+    const amountNum = Number(link.amount);
+    const amountStr = amountNum.toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const paymentsStr = link.maxPayments > 1 ? `עד ${link.maxPayments} תשלומים` : 'תשלום אחד';
+    const docStr = docTypeLabel[link.documentType] || `מסמך ${link.documentType}`;
+    const checkoutUrl = escapeHtml(link.morningUrl);
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(`<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>תשלום • דרך ההייטק</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Rubik", "Heebo", Arial, sans-serif;
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    color: #0f172a;
+  }
+  .card {
+    background: #ffffff;
+    border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(15, 23, 42, 0.08);
+    width: 100%;
+    max-width: 480px;
+    padding: 32px 28px;
+    text-align: center;
+  }
+  .logo {
+    max-width: 180px;
+    height: auto;
+    margin: 0 auto 20px;
+    display: block;
+  }
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0 0 6px;
+    color: #1e3a8a;
+  }
+  .subtitle {
+    font-size: 14px;
+    color: #64748b;
+    margin: 0 0 24px;
+  }
+  .amount-block {
+    background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
+    color: #ffffff;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .amount-label { font-size: 13px; opacity: 0.85; margin-bottom: 4px; }
+  .amount-value { font-size: 36px; font-weight: 700; line-height: 1.1; }
+  .amount-payments { font-size: 13px; opacity: 0.9; margin-top: 6px; }
+  .details {
+    text-align: right;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 24px;
+    background: #f8fafc;
+  }
+  .row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 8px 0;
+    border-bottom: 1px solid #e2e8f0;
+    gap: 12px;
+  }
+  .row:last-child { border-bottom: 0; }
+  .row .label { color: #64748b; font-size: 13px; flex-shrink: 0; }
+  .row .value { color: #0f172a; font-size: 14px; font-weight: 500; text-align: left; }
+  .cta {
+    display: block;
+    width: 100%;
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    color: #ffffff;
+    text-decoration: none;
+    padding: 14px 18px;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 600;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+  }
+  .cta:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45); }
+  .secure {
+    margin-top: 14px;
+    font-size: 12px;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  .secure svg { width: 14px; height: 14px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <img src="/logo.png" alt="דרך ההייטק" class="logo" />
+    <h1>פרטי התשלום</h1>
+    <p class="subtitle">שלום ${escapeHtml(link.clientName)}, להלן פרטי התשלום</p>
+
+    <div class="amount-block">
+      <div class="amount-label">סכום לתשלום</div>
+      <div class="amount-value">₪${amountStr}</div>
+      <div class="amount-payments">${paymentsStr}</div>
+    </div>
+
+    <div class="details">
+      <div class="row">
+        <span class="label">תיאור</span>
+        <span class="value">${escapeHtml(link.description)}</span>
+      </div>
+      <div class="row">
+        <span class="label">מסמך שיופק</span>
+        <span class="value">${escapeHtml(docStr)}</span>
+      </div>
+    </div>
+
+    <a class="cta" href="${checkoutUrl}">המשך לתשלום מאובטח ←</a>
+    <div class="secure">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+      סליקה מאובטחת באמצעות Meshulam
+    </div>
+  </div>
+</body>
+</html>`);
   } catch (e) { next(e); }
 });
 

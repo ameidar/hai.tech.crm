@@ -7,6 +7,8 @@
  */
 
 import { prisma } from '../utils/prisma.js';
+import { meetingRevenueFromRegistrations } from '../utils/revenue.js';
+import { syncCycleProgress } from '../utils/cycle-sync.js';
 import { sendWhatsApp, sendWhatsAppPoll } from './messaging.js';
 import { generateMeetingMagicLink } from './instructor-reminder.service.js';
 
@@ -372,6 +374,87 @@ function normalizePhone(phone: string): string[] {
   return Array.from(variants);
 }
 
+async function recalculateCompletedMeetingFinancials(meetingId: string): Promise<void> {
+  const meeting = await prisma.meeting.findUnique({
+    where: { id: meetingId },
+    include: {
+      cycle: {
+        include: {
+          registrations: {
+            where: { status: { in: ['registered', 'active'] } },
+          },
+        },
+      },
+      instructor: true,
+    },
+  });
+
+  if (!meeting) return;
+
+  await syncCycleProgress(meeting.cycleId);
+
+  if (meeting.status !== 'completed') return;
+
+  const cycleData = meeting.cycle;
+  const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
+
+  let revenue = 0;
+  if (cycleData.type === 'private') {
+    revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
+  } else if (cycleData.type === 'institutional_per_child') {
+    const pricePerStudent = Number(cycleData.pricePerStudent || 0);
+    const studentCount = cycleData.studentCount || activeRegistrations.length;
+    revenue = Math.round(pricePerStudent * studentCount);
+  } else if (cycleData.type === 'institutional_fixed') {
+    revenue = Number(cycleData.meetingRevenue || 0);
+  }
+
+  const activityType = meeting.activityType || cycleData.activityType ||
+    (cycleData.isOnline ? 'online' : (cycleData.type === 'private' ? 'private_lesson' : 'frontal'));
+
+  let instructorPayment = 0;
+  const instructor = meeting.instructor;
+  if (instructor) {
+    let hourlyRate = 0;
+    switch (activityType) {
+      case 'online':
+        hourlyRate = Number(instructor.rateOnline || instructor.rateFrontal || 0);
+        break;
+      case 'private_lesson':
+        hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
+        break;
+      case 'frontal':
+      default:
+        hourlyRate = Number(instructor.rateFrontal || 0);
+        break;
+    }
+
+    let durationMinutes = cycleData.durationMinutes;
+    if (meeting.startTime && meeting.endTime) {
+      durationMinutes = (meeting.endTime.getTime() - meeting.startTime.getTime()) / (1000 * 60);
+    }
+
+    instructorPayment = Math.round(hourlyRate * (durationMinutes / 60));
+    if (instructor.employmentType === 'employee') {
+      instructorPayment = Math.round(instructorPayment * 1.3);
+    }
+  }
+
+  const approvedExpenses = await prisma.meetingExpense.aggregate({
+    where: { meetingId, status: 'approved' },
+    _sum: { amount: true },
+  });
+  const expensesTotal = Number(approvedExpenses._sum.amount || 0);
+  const profit = revenue - instructorPayment - expensesTotal;
+
+  await prisma.meeting.update({
+    where: { id: meetingId },
+    data: { revenue, instructorPayment, profit },
+  });
+
+  console.log(`[WhatsApp] Meeting ${meetingId} financials recalculated after status reply: revenue=${revenue}, instructorPayment=${instructorPayment}, profit=${profit}`);
+}
+
 /**
  * Handle incoming WhatsApp status reply from instructor
  */
@@ -381,7 +464,7 @@ export async function handleStatusReply(phone: string, isYes: boolean): Promise<
     const reminders = await prisma.$queryRaw<any[]>`
       SELECT wsr.id, wsr.meeting_id, wsr.instructor_id,
              i.name as instructor_name, c.name as cycle_name,
-             m.notes as meeting_notes
+             m.notes as meeting_notes, m.cycle_id
       FROM whatsapp_status_reminders wsr
       JOIN meetings m ON m.id = wsr.meeting_id
       JOIN instructors i ON i.id = wsr.instructor_id
@@ -416,6 +499,8 @@ export async function handleStatusReply(phone: string, isYes: boolean): Promise<
         data: { status: 'completed', notes: newNotes },
       });
 
+      await recalculateCompletedMeetingFinancials(r.meeting_id);
+
       await sendWhatsApp({ phone, message: `תודה ${r.instructor_name}! רשמנו שהשיעור "${r.cycle_name}" התקיים 👍` });
       await sendWhatsApp({ phone: ADMIN_PHONE, message: `ℹ️ מדריך ${r.instructor_name} אישר שיעור "${r.cycle_name}" דרך וואטסאפ (לא מילא עצמאית)` });
 
@@ -434,6 +519,8 @@ export async function handleStatusReply(phone: string, isYes: boolean): Promise<
         where: { id: r.meeting_id },
         data: { status: 'cancelled', notes: cancelNotes },
       });
+
+      await syncCycleProgress(r.cycle_id);
 
       await sendWhatsApp({ phone: ADMIN_PHONE, message: `🚨 מדריך ${r.instructor_name} דיווח שלא העביר שיעור "${r.cycle_name}" היום — הפגישה עברה לסטטוס בוטל.` });
       await sendWhatsApp({ phone, message: `תודה על העדכון ${r.instructor_name}. נצור איתך קשר בנוגע לשיעור.` });

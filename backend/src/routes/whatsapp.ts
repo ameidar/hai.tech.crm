@@ -28,6 +28,14 @@ const ACCESS_TOKEN = process.env.WA_ACCESS_TOKEN!;
 const VERIFY_TOKEN = process.env.WA_VERIFY_TOKEN || 'haitech-wa-verify-2026';
 const AI_IDLE_MS = 10 * 60 * 1000; // 10 min after last message → extract lead summary
 
+// Optional inbound router: keep Meta webhook on the CRM, but forward selected
+// WhatsApp phone-number traffic to an external agent instead of processing it here.
+// Disabled by default until WA_INBOUND_FORWARD_WEBHOOK_URL is configured.
+const WA_INBOUND_FORWARD_PHONE_NUMBER_ID = process.env.WA_INBOUND_FORWARD_PHONE_NUMBER_ID || '';
+const WA_INBOUND_FORWARD_WEBHOOK_URL = process.env.WA_INBOUND_FORWARD_WEBHOOK_URL || '';
+const WA_INBOUND_FORWARD_SECRET = process.env.WA_INBOUND_FORWARD_SECRET || '';
+const WA_INBOUND_FORWARD_TIMEOUT_MS = parseInt(process.env.WA_INBOUND_FORWARD_TIMEOUT_MS || '5000', 10);
+
 // Inbound-message alert to a Green API group when a customer "wakes up" after silence.
 // Only fires when the conversation's prior activity was ≥ WA_QUIET_WAKEUP_HOURS ago
 // (or it's a brand-new conversation). Prevents alert spam during active back-and-forth.
@@ -43,6 +51,39 @@ const PHONE_WABA_MAP: Record<string, string> = {
 function getWabaId(phoneNumberId?: string | null): string {
   if (phoneNumberId && PHONE_WABA_MAP[phoneNumberId]) return PHONE_WABA_MAP[phoneNumberId];
   return process.env.WA_WABA_ID || process.env.WA_CLOUD_WABA_ID || '';
+}
+
+async function forwardInboundWebhookChangeToAgent(originalBody: any, entry: any, change: any): Promise<boolean> {
+  const phoneNumberId = change?.value?.metadata?.phone_number_id;
+  if (!WA_INBOUND_FORWARD_PHONE_NUMBER_ID || phoneNumberId !== WA_INBOUND_FORWARD_PHONE_NUMBER_ID) return false;
+
+  if (!WA_INBOUND_FORWARD_WEBHOOK_URL) {
+    console.warn(`[WA] Inbound forward target matched phoneNumberId=${phoneNumberId}, but WA_INBOUND_FORWARD_WEBHOOK_URL is not configured; processing in CRM`);
+    return false;
+  }
+
+  const forwardedBody = {
+    ...originalBody,
+    entry: [{
+      ...entry,
+      changes: [change],
+    }],
+  };
+
+  try {
+    await axios.post(WA_INBOUND_FORWARD_WEBHOOK_URL, forwardedBody, {
+      timeout: WA_INBOUND_FORWARD_TIMEOUT_MS,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(WA_INBOUND_FORWARD_SECRET ? { 'x-wa-router-secret': WA_INBOUND_FORWARD_SECRET } : {}),
+      },
+    });
+    console.log(`[WA] Forwarded inbound webhook change for phoneNumberId=${phoneNumberId} to external agent`);
+    return true;
+  } catch (err: any) {
+    console.error('[WA] Inbound forward error:', err.response?.data || err.message);
+    return false;
+  }
 }
 // All active phone numbers (for new conversation picker)
 const ACTIVE_PHONES: { phoneNumberId: string; businessPhone: string; label: string }[] = [
@@ -601,6 +642,9 @@ router.post('/webhook', async (req: Request, res: Response) => {
     for (const entry of body.entry || []) {
       for (const change of entry.changes || []) {
         const value = change.value;
+
+        // Route selected phone-number traffic to an external agent and skip CRM handling.
+        if (await forwardInboundWebhookChangeToAgent(body, entry, change)) continue;
 
         // Status updates (delivered/read)
         for (const status of value.statuses || []) {

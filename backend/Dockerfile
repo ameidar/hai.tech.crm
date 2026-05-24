@@ -3,6 +3,10 @@ FROM node:22-alpine AS base
 
 WORKDIR /app
 
+# bcrypt may need to compile from source when GitHub binary downloads fail.
+# Keep build tooling in the build stage only; production image copies node_modules.
+RUN apk add --no-cache python3 make g++
+
 # Install dependencies
 COPY package*.json ./
 RUN npm ci

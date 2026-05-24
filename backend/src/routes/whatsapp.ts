@@ -81,8 +81,12 @@ async function forwardInboundWebhookChangeToAgent(originalBody: any, entry: any,
     console.log(`[WA] Forwarded inbound webhook change for phoneNumberId=${phoneNumberId} to external agent`);
     return true;
   } catch (err: any) {
-    console.error('[WA] Inbound forward error:', err.response?.data || err.message);
-    return false;
+    // Fail closed for routed phone numbers: once this number is assigned to an
+    // external agent, the CRM must not also process/reply to the same inbound
+    // message. Log the failure and acknowledge the change as routed so Meta
+    // will not trigger duplicate CRM handling.
+    console.error('[WA] Inbound forward error; skipping CRM handling for routed phone number:', err.response?.data || err.message);
+    return true;
   }
 }
 // All active phone numbers (for new conversation picker)

@@ -250,6 +250,86 @@ app.use('/api', errorHandler);
 // then a "המשך לתשלום" button to the Morning/Meshulam hosted checkout URL.
 // `?go=1` keeps the legacy direct-redirect behavior for anyone who wants to skip the preview.
 // No auth — this is the link we share with end-customers.
+
+function normalizePaymentPhone(phone?: string | null): string {
+  if (!phone) return '';
+  const digits = phone.replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('972')) return digits;
+  if (digits.startsWith('0')) return `972${digits.slice(1)}`;
+  return `972${digits}`;
+}
+
+async function recordPaidPaymentLink(code: string) {
+  const link = await prisma.paymentLink.findUnique({ where: { code } });
+  if (!link) return null;
+
+  const marker = `[payment-link:${link.code}]`;
+  const existing = await prisma.payment.findFirst({
+    where: { description: { contains: marker } },
+    include: { customer: { select: { id: true, name: true } } },
+  });
+  if (existing) return { link, payment: existing, customer: existing.customer, created: false, duplicate: true };
+
+  const customerPhone = normalizePaymentPhone(link.clientPhone);
+  const customerEmail = (link.clientEmail || '').trim();
+  let customer = link.customerId
+    ? await prisma.customer.findUnique({ where: { id: link.customerId } })
+    : null;
+
+  if (!customer && customerPhone) {
+    customer = await prisma.customer.findFirst({
+      where: { deletedAt: null, phone: { contains: customerPhone.slice(-9) } },
+    });
+  }
+  if (!customer && customerEmail) {
+    customer = await prisma.customer.findFirst({
+      where: { deletedAt: null, email: customerEmail },
+    });
+  }
+
+  let createdCustomer = false;
+  if (!customer) {
+    createdCustomer = true;
+    customer = await prisma.customer.create({
+      data: {
+        name: link.clientName || 'לקוח',
+        phone: customerPhone || null,
+        email: customerEmail || null,
+        source: 'payment_link',
+      },
+    });
+  } else {
+    const patch: Record<string, string> = {};
+    if (!customer.phone && customerPhone) patch.phone = customerPhone;
+    if (!customer.email && customerEmail) patch.email = customerEmail;
+    if (Object.keys(patch).length > 0) {
+      customer = await prisma.customer.update({ where: { id: customer.id }, data: patch });
+    }
+  }
+
+  if (!link.customerId) {
+    await prisma.paymentLink.update({ where: { id: link.id }, data: { customerId: customer.id } });
+  }
+
+  const payment = await prisma.payment.create({
+    data: {
+      customerId: customer.id,
+      customerName: customer.name || link.clientName || 'לקוח',
+      customerPhone: customerPhone || null,
+      customerEmail: customerEmail || null,
+      description: `${link.description} ${marker}`,
+      amount: Number(link.amount),
+      currency: 'ILS',
+      status: 'paid',
+      paymentMethod: 'payment_link_success',
+      paidAt: new Date(),
+    },
+  });
+
+  return { link, payment, customer, created: createdCustomer, duplicate: false };
+}
+
 app.get('/pl/:code', async (req, res, next) => {
   try {
     const code = String(req.params.code || '').toLowerCase().slice(0, 16);
@@ -466,9 +546,56 @@ app.post('/pl/:code/pay', async (req, res, next) => {
         phone: link.clientPhone || undefined,
         taxId: link.clientTaxId || undefined,
       },
+      notifyUrl: `${(req.headers['x-forwarded-proto'] as string) || req.protocol}://${req.get('host')}/api/morning-webhook?paymentLinkCode=${encodeURIComponent(link.code)}`,
+      successUrl: `${(req.headers['x-forwarded-proto'] as string) || req.protocol}://${req.get('host')}/pl/${encodeURIComponent(link.code)}/success`,
+      failureUrl: `${(req.headers['x-forwarded-proto'] as string) || req.protocol}://${req.get('host')}/pl/${encodeURIComponent(link.code)}?failed=1`,
     });
 
     return res.redirect(302, result.url);
+  } catch (e) { next(e); }
+});
+
+app.get('/pl/:code/success', async (req, res, next) => {
+  try {
+    const code = String(req.params.code || '').toLowerCase().slice(0, 16);
+    if (!/^[a-z0-9]{3,16}$/.test(code)) return res.status(404).send('Not found');
+
+    const result = await recordPaidPaymentLink(code);
+    if (!result) return res.status(404).send('Not found');
+
+    const escapeHtml = (s: string) => s.replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string
+    ));
+    const amountStr = Number(result.link.amount).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(`<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>התשלום התקבל • דרך ההייטק</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: linear-gradient(135deg, #ecfdf5 0%, #dbeafe 100%); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; color: #0f172a; }
+  .card { width: 100%; max-width: 460px; background: white; border-radius: 18px; box-shadow: 0 10px 40px rgba(15, 23, 42, .10); padding: 34px 28px; text-align: center; }
+  .ok { width: 68px; height: 68px; border-radius: 999px; background: #dcfce7; color: #16a34a; display: flex; align-items: center; justify-content: center; margin: 0 auto 18px; font-size: 38px; }
+  h1 { margin: 0 0 8px; font-size: 24px; color: #166534; }
+  p { margin: 8px 0; color: #475569; }
+  .amount { margin: 18px 0; font-size: 30px; font-weight: 800; color: #2563eb; }
+  .small { font-size: 13px; color: #64748b; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="ok">✓</div>
+    <h1>התשלום התקבל</h1>
+    <p>תודה ${escapeHtml(result.customer?.name || result.link.clientName || '')}</p>
+    <div class="amount">₪${amountStr}</div>
+    <p>${escapeHtml(result.link.description)}</p>
+    <p class="small">התשלום עודכן במערכת דרך ההייטק.</p>
+  </div>
+</body>
+</html>`);
   } catch (e) { next(e); }
 });
 

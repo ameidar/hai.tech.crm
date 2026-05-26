@@ -17,13 +17,16 @@ const createSchema = z.object({
   maxPayments: z.number().int().min(1).max(36).optional(),
   vatType: z.union([z.literal(0), z.literal(1), z.literal(2)]).optional(),
   documentType: z.union([z.literal(400), z.literal(320), z.literal(305)]).optional(),
-  customerId: z.string().uuid().optional(),
+  // Customer IDs in this CRM are string IDs. Most new rows are UUIDs, but a
+  // large part of the Fireberry import kept legacy/cuid-like IDs, so requiring
+  // UUID here breaks valid customer selections from the CRM lookup.
+  customerId: z.string().min(1).max(64).optional(),
   client: z.object({
-    name: z.string().min(1, 'client.name required'),
+    name: z.string().optional().or(z.literal('')),
     email: z.string().email().optional().or(z.literal('')),
     phone: z.string().optional(),
     taxId: z.string().optional(),
-  }),
+  }).optional(),
 });
 
 // Crockford-style base32, no ambiguous chars. 32^5 ≈ 33M combos.
@@ -38,7 +41,7 @@ function generateShortCode(): string {
 // Find or create the matching Morning client UUID for a CRM customer and cache
 // it on the customer row. Returns null if Morning is unreachable so the caller
 // can still issue the payment link with inline client info.
-async function ensureMorningClientId(customerId: string): Promise<string | null> {
+export async function ensureMorningClientId(customerId: string): Promise<string | null> {
   const customer = await prisma.customer.findUnique({ where: { id: customerId } });
   if (!customer) return null;
   if (customer.morningClientId) return customer.morningClientId;
@@ -85,19 +88,27 @@ paymentLinksRouter.post('/', salesOrAbove, async (req: Request, res: Response, n
       const resolved = await ensureMorningClientId(input.customerId);
       if (resolved) morningClientId = resolved;
     }
+    const client = input.client ?? {};
+    const clientName = client.name?.trim() || 'לקוח';
+    const clientEmail = client.email?.trim() || '';
+    const clientPhone = client.phone?.trim() || '';
+    const clientTaxId = client.taxId?.trim() || '';
 
     const result = await createPaymentForm({
       description: input.description,
       amount: input.amount,
-      maxPayments: input.maxPayments,
+      // Morning's hosted form treats maxPayments as the exact installment count
+      // for this payment URL. The CRM short link handles "up to N" by letting
+      // the customer choose and then generating a URL for the chosen count.
+      maxPayments: 1,
       vatType: input.vatType,
       type: documentType,
       client: {
         id: morningClientId,
-        name: input.client.name,
-        emails: input.client.email ? [input.client.email] : undefined,
-        phone: input.client.phone,
-        taxId: input.client.taxId,
+        name: clientName,
+        emails: clientEmail ? [clientEmail] : undefined,
+        phone: clientPhone || undefined,
+        taxId: clientTaxId || undefined,
       },
     });
 
@@ -115,10 +126,10 @@ paymentLinksRouter.post('/', salesOrAbove, async (req: Request, res: Response, n
             vatType: input.vatType ?? 0,
             morningUrl: result.url,
             customerId: input.customerId,
-            clientName: input.client.name,
-            clientEmail: input.client.email || null,
-            clientPhone: input.client.phone || null,
-            clientTaxId: input.client.taxId || null,
+            clientName,
+            clientEmail: clientEmail || null,
+            clientPhone: clientPhone || null,
+            clientTaxId: clientTaxId || null,
             createdBy: (req as any).user?.id ?? null,
           },
           select: { code: true, id: true },

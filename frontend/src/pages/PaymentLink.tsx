@@ -108,7 +108,7 @@ export default function PaymentLink() {
     const amt = Number(amount);
     if (!Number.isFinite(amt) || amt <= 0) return setError('סכום חייב להיות מספר חיובי');
     if (!description.trim()) return setError('יש להזין תיאור לתשלום');
-    if (!clientName.trim()) return setError('יש להזין שם לקוח');
+    const normalizedClientName = clientName.trim() || 'לקוח';
 
     setSubmitting(true);
     try {
@@ -119,7 +119,7 @@ export default function PaymentLink() {
         documentType,
         customerId: customerId || undefined,
         client: {
-          name: clientName.trim(),
+          name: normalizedClientName,
           email: clientEmail.trim() || undefined,
           phone: clientPhone.trim() || undefined,
         },
@@ -150,7 +150,7 @@ export default function PaymentLink() {
 
   const shareUrl = result?.shortUrl || result?.url || '';
   const waMessage = result
-    ? `שלום ${clientName}!\n\nלינק לתשלום עבור: ${result.description}\nסכום: ₪${result.amount.toLocaleString('he-IL')}${result.maxPayments > 1 ? ` (עד ${result.maxPayments} תשלומים)` : ''}\n\n${shareUrl}`
+    ? `${clientName.trim() ? `שלום ${clientName.trim()}!\n\n` : ''}לינק לתשלום עבור: ${result.description}\nסכום: ₪${result.amount.toLocaleString('he-IL')}${result.maxPayments > 1 ? ` (עד ${result.maxPayments} תשלומים)` : ''}\n\n${shareUrl}`
     : '';
   const waUrl = result && clientPhone
     ? `https://wa.me/${clientPhone.replace(/\D/g, '').replace(/^0/, '972')}?text=${encodeURIComponent(waMessage)}`
@@ -290,14 +290,14 @@ export default function PaymentLink() {
             <hr className="border-gray-100" />
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">שם לקוח *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">שם לקוח</label>
               <input
                 type="text"
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
                 disabled={!!customerId}
+                placeholder="אופציונלי"
                 className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-600"
-                required
               />
             </div>
 

@@ -57,7 +57,7 @@ import waRouter from './routes/whatsapp.js';
 import { messengerRouter } from './routes/messenger.js';
 import { instagramRouter } from './routes/instagram.js';
 import { paymentsRouter } from './routes/payments.js';
-import { paymentLinksRouter } from './routes/payment-links.js';
+import { ensureMorningClientId, paymentLinksRouter } from './routes/payment-links.js';
 import { campaignsRouter } from './routes/campaigns.js';
 import { campaignLeadsRouter } from './routes/campaign-leads.js';
 import { facebookLeadsRouter } from './routes/facebook-leads.js';
@@ -66,6 +66,7 @@ import linkedinRouter from './routes/linkedin.js';
 import socialRouter from './routes/social.js';
 import { googleAdsRouter } from './routes/google-ads.js';
 import { devReadOnly } from './middleware/devReadOnly.js';
+import { createPaymentForm } from './services/morning/payment-forms.js';
 
 // API v1 Router
 import { apiV1Router } from './api/v1/index.js';
@@ -274,6 +275,7 @@ app.get('/pl/:code', async (req, res, next) => {
     const paymentsStr = link.maxPayments > 1 ? `עד ${link.maxPayments} תשלומים` : 'תשלום אחד';
     const docStr = docTypeLabel[link.documentType] || `מסמך ${link.documentType}`;
     const checkoutUrl = escapeHtml(link.morningUrl);
+    const installmentOptions = Array.from({ length: Math.max(1, Math.min(36, link.maxPayments)) }, (_, i) => i + 1);
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
@@ -375,6 +377,20 @@ app.get('/pl/:code', async (req, res, next) => {
     gap: 6px;
   }
   .secure svg { width: 14px; height: 14px; }
+  .installments { margin: 0 0 22px; text-align: right; }
+  .installments-label { font-size: 13px; font-weight: 600; color: #334155; margin: 0 0 10px; }
+  .installment-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); gap: 8px; }
+  .installment-option {
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-radius: 10px;
+    padding: 10px 8px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .installment-option:hover { background: #dbeafe; border-color: #93c5fd; }
 </style>
 </head>
 <body>
@@ -400,7 +416,14 @@ app.get('/pl/:code', async (req, res, next) => {
       </div>
     </div>
 
-    <a class="cta" href="${checkoutUrl}">המשך לתשלום מאובטח ←</a>
+    ${link.maxPayments > 1 ? `
+    <form class="installments" method="post" action="/pl/${escapeHtml(code)}/pay">
+      <p class="installments-label">בחר/י מספר תשלומים — עד ${link.maxPayments}</p>
+      <div class="installment-grid">
+        ${installmentOptions.map(n => `<button class="installment-option" type="submit" name="payments" value="${n}">${n === 1 ? 'תשלום אחד' : `${n} תשלומים`}</button>`).join('')}
+      </div>
+    </form>` : `
+    <a class="cta" href="${checkoutUrl}">המשך לתשלום מאובטח ←</a>`}
     <div class="secure">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
       סליקה מאובטחת באמצעות Meshulam
@@ -408,6 +431,44 @@ app.get('/pl/:code', async (req, res, next) => {
   </div>
 </body>
 </html>`);
+  } catch (e) { next(e); }
+});
+
+app.post('/pl/:code/pay', async (req, res, next) => {
+  try {
+    const code = String(req.params.code || '').toLowerCase().slice(0, 16);
+    if (!/^[a-z0-9]{3,16}$/.test(code)) return res.status(404).send('Not found');
+
+    const link = await prisma.paymentLink.findUnique({ where: { code } });
+    if (!link) return res.status(404).send('Not found');
+
+    const payments = Number(req.body?.payments || 1);
+    if (!Number.isInteger(payments) || payments < 1 || payments > link.maxPayments || payments > 36) {
+      return res.status(400).send('Invalid payment count');
+    }
+
+    let morningClientId: string | undefined;
+    if (link.customerId) {
+      const resolved = await ensureMorningClientId(link.customerId);
+      if (resolved) morningClientId = resolved;
+    }
+
+    const result = await createPaymentForm({
+      description: link.description,
+      amount: Number(link.amount),
+      maxPayments: payments,
+      vatType: link.vatType as 0 | 1 | 2,
+      type: link.documentType,
+      client: {
+        id: morningClientId,
+        name: link.clientName,
+        emails: link.clientEmail ? [link.clientEmail] : undefined,
+        phone: link.clientPhone || undefined,
+        taxId: link.clientTaxId || undefined,
+      },
+    });
+
+    return res.redirect(302, result.url);
   } catch (e) { next(e); }
 });
 

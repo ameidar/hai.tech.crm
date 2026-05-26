@@ -1,15 +1,17 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square, ArrowUpDown, ArrowUp, ArrowDown, Filter, Columns } from 'lucide-react';
-import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useBulkGenerateMeetings, useViewData, useSyncAllCycles } from '../hooks/useApi';
+import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square, ArrowUpDown, ArrowUp, ArrowDown, Filter, Columns, Download } from 'lucide-react';
+import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useBulkGenerateMeetings, useViewData, useSyncAllCycles, api } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading, { SkeletonTable } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
+import MeetingsExportModal from '../components/MeetingsExportModal';
 import ViewSelector from '../components/ViewSelector';
 import { cycleStatusHebrew, cycleTypeHebrew, dayOfWeekHebrew } from '../types';
 import type { Cycle, CycleType, CycleStatus, DayOfWeek, ActivityType } from '../types';
 import { activityTypeHebrew } from '../types';
+import { exportMeetingsToExcel } from '../utils/meetingsExcel';
 
 export default function Cycles() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -21,6 +23,8 @@ export default function Cycles() {
   const [viewMode, setViewMode] = useState<'filters' | 'view'>('filters');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showColumnPicker, setShowColumnPicker] = useState(false);
+  const [isExportingMeetings, setIsExportingMeetings] = useState(false);
+  const [showMeetingsExportModal, setShowMeetingsExportModal] = useState(false);
 
   // Column visibility
   const COLUMN_KEYS = ['name', 'course', 'branch', 'instructor', 'startDate', 'dayOfWeek', 'type', 'pricePerStudent', 'meetingRevenue', 'progress', 'status', 'zoom'] as const;
@@ -243,6 +247,35 @@ export default function Cycles() {
     } catch (error) {
       console.error('Failed to bulk update cycles:', error);
       alert('שגיאה בעדכון המחזורים');
+    }
+  };
+
+  const handleExportSelectedMeetings = async (month?: string) => {
+    if (selectedCycles.size === 0) return;
+    setIsExportingMeetings(true);
+    try {
+      const cycleDetails = await Promise.all(
+        Array.from(selectedCycles).map(async (cycleId) => {
+          const response = await api.get<Cycle>(`/cycles/${cycleId}`);
+          return response.data;
+        })
+      );
+
+      exportMeetingsToExcel(
+        cycleDetails.map((cycle) => ({
+          name: cycle.name,
+          meetings: cycle.meetings || [],
+        })),
+        `פגישות - ${cycleDetails.length} מחזורים${month ? ` - ${month}` : ''}`,
+        true,
+        month ? { month } : undefined
+      );
+      setShowMeetingsExportModal(false);
+    } catch (error) {
+      console.error('Failed to export meetings:', error);
+      alert('שגיאה בייצוא הפגישות לאקסל');
+    } finally {
+      setIsExportingMeetings(false);
     }
   };
 
@@ -486,6 +519,15 @@ export default function Cycles() {
                 {bulkGenerateMeetings.isPending ? 'יוצר...' : 'צור פגישות'}
               </button>
               <button
+                onClick={() => setShowMeetingsExportModal(true)}
+                disabled={isExportingMeetings}
+                className="btn btn-secondary flex items-center gap-2"
+                title="ייצוא פגישות המחזורים שנבחרו לאקסל"
+              >
+                <Download size={16} />
+                {isExportingMeetings ? 'מייצא...' : 'פלט פגישות'}
+              </button>
+              <button
                 onClick={() => setSelectedCycles(new Set())}
                 className="btn btn-secondary"
               >
@@ -494,6 +536,14 @@ export default function Cycles() {
             </div>
           </div>
         )}
+
+        <MeetingsExportModal
+          isOpen={showMeetingsExportModal}
+          onClose={() => setShowMeetingsExportModal(false)}
+          onExport={handleExportSelectedMeetings}
+          isExporting={isExportingMeetings}
+          title={`פלט פגישות - ${selectedCycles.size} מחזורים`}
+        />
 
         {displayLoading ? (
           <SkeletonTable rows={8} columns={11} />

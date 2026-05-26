@@ -30,8 +30,10 @@ import {
   Receipt,
   CalendarX,
   FileText,
+  Download,
 } from 'lucide-react';
 import MeetingExpenses from '../components/MeetingExpenses';
+import MeetingsExportModal from '../components/MeetingsExportModal';
 import {
   useCycle,
   useCycleMeetings,
@@ -73,6 +75,7 @@ import {
 } from '../types';
 import type { Meeting, MeetingStatus, Registration, RegistrationStatus, PaymentStatus, PaymentMethod, ActivityType, Cycle, Course, Branch, Instructor, CycleStatus, CycleType, DayOfWeek } from '../types';
 import { paymentStatusHebrew, activityTypeHebrew } from '../types';
+import { exportCycleMeetingsToExcel } from '../utils/meetingsExcel';
 
 // Add Student Modal with search + create new
 function AddStudentModal({
@@ -316,6 +319,7 @@ export default function CycleDetail() {
   const [attendanceMeeting, setAttendanceMeeting] = useState<Meeting | null>(null);
   const [showEditCycleModal, setShowEditCycleModal] = useState(false);
   const [showCreateMeetingModal, setShowCreateMeetingModal] = useState(false);
+  const [showMeetingsExportModal, setShowMeetingsExportModal] = useState(false);
   const [sendCancellationReg, setSendCancellationReg] = useState<Registration | null>(null);
 
   const { data: cycle, isLoading } = useCycle(id!);
@@ -411,6 +415,12 @@ export default function CycleDetail() {
       console.error('Failed to sync cycle progress:', error);
       alert('שגיאה בסנכרון התקדמות');
     }
+  };
+
+  const handleExportMeetings = (month?: string) => {
+    if (!cycle || !meetings || meetings.length === 0) return;
+    exportCycleMeetingsToExcel(cycle, meetings, month ? { month } : undefined);
+    setShowMeetingsExportModal(false);
   };
 
   const handleCreateMeeting = async (data: {
@@ -1192,6 +1202,15 @@ export default function CycleDetail() {
               <div className="card-header flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <h2 className="font-semibold">מפגשים ({meetings?.length || 0})</h2>
+                  <button
+                    onClick={() => setShowMeetingsExportModal(true)}
+                    disabled={!meetings || meetings.length === 0}
+                    className="btn btn-secondary text-sm"
+                    title="ייצוא רשימת המפגשים לאקסל"
+                  >
+                    <Download size={16} />
+                    ייצוא לאקסל
+                  </button>
                   {/* Generate meetings button - show when cycle has fewer meetings than totalMeetings */}
                   {isAdmin && cycle && (meetings?.length || 0) < cycle.totalMeetings && (
                     <button
@@ -1356,6 +1375,12 @@ export default function CycleDetail() {
           </div>
         </div>
       </div>
+
+      <MeetingsExportModal
+        isOpen={showMeetingsExportModal}
+        onClose={() => setShowMeetingsExportModal(false)}
+        onExport={handleExportMeetings}
+      />
 
       {/* Meeting Details Modal */}
       <Modal

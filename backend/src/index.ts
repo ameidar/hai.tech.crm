@@ -466,6 +466,7 @@ app.post('/pl/:code/pay', async (req, res, next) => {
         phone: link.clientPhone || undefined,
         taxId: link.clientTaxId || undefined,
       },
+      notifyUrl: `${(req.headers['x-forwarded-proto'] as string) || req.protocol}://${req.get('host')}/api/morning-webhook?paymentLinkCode=${encodeURIComponent(link.code)}`,
     });
 
     return res.redirect(302, result.url);

@@ -16,6 +16,7 @@ vi.mock('../../utils/prisma.js', () => ({
     paymentLink: {
       create: vi.fn(),
       findMany: vi.fn(),
+      findUnique: vi.fn(),
     },
   },
 }));
@@ -48,6 +49,7 @@ describe('payment links', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCreatePaymentForm.mockResolvedValue({ success: true, errorCode: 0, url: 'https://pay.example/form' });
+    mockPrisma.paymentLink.findUnique.mockResolvedValue(null);
     mockPrisma.paymentLink.create.mockResolvedValue({ id: 'payment-link-id', code: 'abc23' } as any);
   });
 

@@ -39,6 +39,14 @@ function normalizePhone(phone: string): string {
   return '972' + digits;
 }
 
+function firstText(...values: Array<unknown>): string {
+  for (const value of values) {
+    const text = String(value ?? '').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
 morningWebhookRouter.post('/', async (req, res) => {
   try {
     const payload = req.body;
@@ -62,14 +70,19 @@ morningWebhookRouter.post('/', async (req, res) => {
       return res.json({ ok: true, ignored: true });
     }
 
+    const paymentLinkCode = String(req.query.paymentLinkCode || '').trim().toLowerCase();
+    const paymentLink = paymentLinkCode
+      ? await prisma.paymentLink.findUnique({ where: { code: paymentLinkCode } })
+      : null;
+
     // Morning uses "client" object (not "customer")
     const client = data.client || data.customer || {};
     const customerName: string =
-      client.name || client.fullName || data.clientName || 'לקוח לא ידוע';
+      firstText(client.name, client.fullName, data.clientName, paymentLink?.clientName, 'לקוח לא ידוע');
     const customerPhone: string = normalizePhone(
-      client.mobile || client.phone || ''
+      firstText(client.mobile, client.phone, paymentLink?.clientPhone)
     );
-    const customerEmail: string = client.email || '';
+    const customerEmail: string = firstText(client.email, paymentLink?.clientEmail);
 
     // Amount: Morning uses different fields per event type
     const amount: number = Number(
@@ -98,18 +111,24 @@ morningWebhookRouter.post('/', async (req, res) => {
 
     let crmCustomer = null;
 
+    // Payment links are the strongest signal: if sales selected a CRM customer
+    // while creating the link, attach the received payment to that exact record.
+    if (paymentLink?.customerId) {
+      crmCustomer = await prisma.customer.findUnique({ where: { id: paymentLink.customerId } });
+    }
+
     // Try phone match first (last 9 digits)
-    if (customerPhone) {
+    if (!crmCustomer && customerPhone) {
       const last9 = customerPhone.slice(-9);
       crmCustomer = await prisma.customer.findFirst({
-        where: { phone: { contains: last9 } },
+        where: { deletedAt: null, phone: { contains: last9 } },
       });
     }
 
     // Try email match if phone didn't match
     if (!crmCustomer && customerEmail) {
       crmCustomer = await prisma.customer.findFirst({
-        where: { email: customerEmail },
+        where: { deletedAt: null, email: customerEmail },
       });
     }
 
@@ -118,30 +137,51 @@ morningWebhookRouter.post('/', async (req, res) => {
     if (!crmCustomer) {
       // Create new customer
       isNew = true;
-      // phone is required + unique — use placeholder if not provided
-      const phoneForCreate = customerPhone || `morning_${Date.now()}`;
       crmCustomer = await prisma.customer.create({
         data: {
           name: customerName,
-          phone: phoneForCreate,
+          phone: customerPhone || null,
           email: customerEmail || null,
-          source: 'website',
+          source: paymentLink ? 'payment_link' : 'website',
         },
       });
       console.log('[Morning Webhook] Created new customer:', crmCustomer.id);
     } else {
       console.log('[Morning Webhook] Matched customer:', crmCustomer.id);
+
+      const customerPatch: Record<string, string> = {};
+      if (!crmCustomer.phone && customerPhone) customerPatch.phone = customerPhone;
+      if (!crmCustomer.email && customerEmail) customerPatch.email = customerEmail;
+      if (Object.keys(customerPatch).length > 0) {
+        crmCustomer = await prisma.customer.update({
+          where: { id: crmCustomer.id },
+          data: customerPatch,
+        });
+      }
+    }
+
+    if (paymentLink && !paymentLink.customerId) {
+      await prisma.paymentLink.update({
+        where: { id: paymentLink.id },
+        data: { customerId: crmCustomer.id },
+      });
     }
 
     // ─── Create payment record ────────────────────────────────────────────────
 
     // Check for duplicate (same morningDocId)
-    if (morningDocId) {
+    const paymentLinkMarker = paymentLink ? `[payment-link:${paymentLink.code}]` : '';
+    if (morningDocId || paymentLinkMarker) {
       const existing = await prisma.payment.findFirst({
-        where: { description: { contains: morningDocId } },
+        where: {
+          OR: [
+            ...(morningDocId ? [{ description: { contains: morningDocId } }] : []),
+            ...(paymentLinkMarker ? [{ description: { contains: paymentLinkMarker } }] : []),
+          ],
+        },
       });
       if (existing) {
-        console.log('[Morning Webhook] Duplicate, skipping:', morningDocId);
+        console.log('[Morning Webhook] Duplicate, skipping:', morningDocId || paymentLinkMarker);
         return res.json({ ok: true, ignored: true, reason: 'duplicate' });
       }
     }
@@ -149,12 +189,12 @@ morningWebhookRouter.post('/', async (req, res) => {
     const payment = await prisma.payment.create({
       data: {
         customerId: crmCustomer.id,
-        customerName,
+        customerName: crmCustomer.name || customerName,
         customerPhone: customerPhone || null,
         customerEmail: customerEmail || null,
         description: morningDocId
-          ? `${description} [${morningDocId}]`
-          : description,
+          ? `${description} [${morningDocId}]${paymentLinkMarker ? ` ${paymentLinkMarker}` : ''}`
+          : `${description}${paymentLinkMarker ? ` ${paymentLinkMarker}` : ''}`,
         amount,
         currency: data.currency || 'ILS',
         status: 'paid',

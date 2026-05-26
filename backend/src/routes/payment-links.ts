@@ -107,6 +107,8 @@ paymentLinksRouter.post('/', salesOrAbove, async (req: Request, res: Response, n
     const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
     const code = await generateUniqueShortCode();
     const webhookUrl = `${proto}://${host}/api/morning-webhook?paymentLinkCode=${encodeURIComponent(code)}`;
+    const successUrl = `${proto}://${host}/pl/${encodeURIComponent(code)}/success`;
+    const failureUrl = `${proto}://${host}/pl/${encodeURIComponent(code)}?failed=1`;
 
     const result = await createPaymentForm({
       description: input.description,
@@ -125,6 +127,8 @@ paymentLinksRouter.post('/', salesOrAbove, async (req: Request, res: Response, n
         taxId: clientTaxId || undefined,
       },
       notifyUrl: webhookUrl,
+      successUrl,
+      failureUrl,
     });
 
     let saved: { code: string; id: string } | null = null;

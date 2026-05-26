@@ -38,6 +38,15 @@ function generateShortCode(): string {
   return out;
 }
 
+async function generateUniqueShortCode(): Promise<string> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const code = generateShortCode();
+    const existing = await prisma.paymentLink.findUnique({ where: { code }, select: { id: true } });
+    if (!existing) return code;
+  }
+  throw new AppError(500, 'Failed to allocate a unique short code — try again');
+}
+
 // Find or create the matching Morning client UUID for a CRM customer and cache
 // it on the customer row. Returns null if Morning is unreachable so the caller
 // can still issue the payment link with inline client info.
@@ -94,6 +103,11 @@ paymentLinksRouter.post('/', salesOrAbove, async (req: Request, res: Response, n
     const clientPhone = client.phone?.trim() || '';
     const clientTaxId = client.taxId?.trim() || '';
 
+    const host = req.get('host');
+    const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+    const code = await generateUniqueShortCode();
+    const webhookUrl = `${proto}://${host}/api/morning-webhook?paymentLinkCode=${encodeURIComponent(code)}`;
+
     const result = await createPaymentForm({
       description: input.description,
       amount: input.amount,
@@ -110,11 +124,11 @@ paymentLinksRouter.post('/', salesOrAbove, async (req: Request, res: Response, n
         phone: clientPhone || undefined,
         taxId: clientTaxId || undefined,
       },
+      notifyUrl: webhookUrl,
     });
 
     let saved: { code: string; id: string } | null = null;
-    for (let attempt = 0; attempt < 5 && !saved; attempt++) {
-      const code = generateShortCode();
+    for (let attempt = 0; attempt < 1 && !saved; attempt++) {
       try {
         const created = await prisma.paymentLink.create({
           data: {
@@ -141,8 +155,6 @@ paymentLinksRouter.post('/', salesOrAbove, async (req: Request, res: Response, n
     }
     if (!saved) throw new AppError(500, 'Failed to allocate a unique short code — try again');
 
-    const host = req.get('host');
-    const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
     const shortUrl = `${proto}://${host}/pl/${saved.code}`;
 
     res.json({

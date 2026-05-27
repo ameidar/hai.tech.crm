@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma.js';
-import { authenticate, managerOrAdmin } from '../middleware/auth.js';
+import { authenticate, adminOnly, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { logAudit } from '../utils/audit.js';
+import { sendEmail } from '../services/email/sender.js';
 import {
   generateBillingPeriod,
   generateAllBillingPeriodsForMonth,
@@ -199,13 +200,80 @@ billingRouter.post('/:id/cancel', managerOrAdmin, async (req, res, next) => {
   try {
     const existing = await prisma.billingPeriod.findUnique({ where: { id: req.params.id } });
     if (!existing) throw new AppError(404, 'Not found');
-    if (existing.status === 'issued') throw new AppError(400, 'Already issued — cancel via Morning UI');
+    if (existing.status === 'issued') throw new AppError(400, 'Already issued — use /unlock (admin) to release the lock');
 
     const period = await prisma.billingPeriod.update({
       where: { id: req.params.id },
       data: { status: 'cancelled' },
     });
     await logAudit({ req, action: 'UPDATE', entity: 'BillingPeriod', entityId: period.id, oldValue: { status: existing.status }, newValue: { status: 'cancelled' } });
+    res.json(period);
+  } catch (err) { next(err); }
+});
+
+// Admin-only: release the lock on an issued billing period. Flips status to 'cancelled'
+// (which automatically removes the meeting-edit lock for that month) and emails info@hai.tech
+// so the team knows to follow up on the Morning document — this endpoint does NOT cancel
+// the Morning invoice itself.
+const unlockSchema = z.object({ reason: z.string().min(1).max(500) });
+billingRouter.post('/:id/unlock', adminOnly, async (req, res, next) => {
+  try {
+    const { reason } = unlockSchema.parse(req.body);
+    const existing = await prisma.billingPeriod.findUnique({
+      where: { id: req.params.id },
+      include: { institutionalOrder: { select: { orderName: true } } },
+    });
+    if (!existing) throw new AppError(404, 'Not found');
+    if (existing.status !== 'issued') {
+      throw new AppError(400, `Cannot unlock — period status is ${existing.status}, not 'issued'`);
+    }
+
+    const period = await prisma.billingPeriod.update({
+      where: { id: req.params.id },
+      data: { status: 'cancelled' },
+    });
+    await logAudit({
+      req,
+      action: 'UPDATE',
+      entity: 'BillingPeriod',
+      entityId: period.id,
+      oldValue: { status: existing.status },
+      newValue: { status: 'cancelled', unlockReason: reason },
+    });
+
+    const monthLabel = (() => {
+      const months = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+      const d = new Date(existing.month);
+      return `${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+    })();
+    const docLine = existing.morningDocNumber
+      ? `מספר חשבונית במורנינג: <b>#${existing.morningDocNumber}</b>`
+      : 'אין מספר חשבונית במורנינג רשום במערכת.';
+    const orderName = existing.institutionalOrder?.orderName || '(ללא שם)';
+    const userName = req.user?.name || 'משתמש לא ידוע';
+    const userEmail = req.user?.email || '';
+
+    sendEmail({
+      to: 'info@hai.tech',
+      subject: `⚠️ בוטלה נעילה של חיוב חודשי — ${orderName} ${monthLabel}`,
+      html: `<div dir="rtl" style="font-family: Arial, sans-serif; line-height: 1.6;">
+        <h2>בוטלה נעילת חיוב חודשי</h2>
+        <p>אדמין שיחרר את הנעילה של חיוב חודשי שכבר הופק במורנינג. החיוב הועבר לסטטוס "בוטלה" במערכת ה-CRM, אך <b>החשבונית במורנינג עדיין קיימת</b> וצריך לטפל בה ידנית אם הסכום השתנה.</p>
+        <hr>
+        <p><b>מוסד:</b> ${orderName}<br>
+        <b>חודש:</b> ${monthLabel}<br>
+        ${docLine}<br>
+        <b>סכום שהיה רשום:</b> ₪${Number(existing.totalAmount).toLocaleString('he-IL')}<br>
+        <b>בוצע על-ידי:</b> ${userName} (${userEmail})<br>
+        <b>זמן:</b> ${new Date().toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' })}<br>
+        <b>סיבה:</b> ${reason}</p>
+        <hr>
+        <p style="color:#666;font-size:12px">הודעה אוטומטית מ-HaiTech CRM</p>
+      </div>`,
+    }).catch((err) => {
+      console.error('[billing/unlock] failed to send info@ notification:', err);
+    });
+
     res.json(period);
   } catch (err) { next(err); }
 });

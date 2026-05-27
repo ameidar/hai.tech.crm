@@ -9,6 +9,7 @@ import { zoomService } from '../services/zoom.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
 import { meetingRevenueFromRegistrations } from '../utils/revenue.js';
+import { assertCyclePeriodNotLocked, assertMeetingNotInIssuedPeriod } from '../services/billing-lock.js';
 
 // Send WhatsApp alert for negative profit
 async function sendNegativeProfitAlert(meetingData: {
@@ -264,6 +265,9 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
     if (!cycle) {
       throw new AppError(404, 'Cycle not found');
     }
+
+    // Block adding meetings into a month that already has an issued billing invoice.
+    await assertCyclePeriodNotLocked(cycleId, new Date(scheduledDate));
 
     // Get instructor for cost calculation
     const instructor = await prisma.instructor.findUnique({
@@ -850,6 +854,9 @@ meetingsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
     if (!meeting) {
       throw new AppError(404, 'Meeting not found');
     }
+
+    // Block deleting a meeting that is already part of an issued billing invoice.
+    await assertMeetingNotInIssuedPeriod(id);
 
     // Delete Zoom meeting if exists
     if (meeting.zoomMeetingId) {

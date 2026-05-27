@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowRight, Plus, Trash2, Eye, Send, AlertCircle, CheckCircle2, ExternalLink, X, MessageCircle, Wallet, FileCheck2 } from 'lucide-react';
+import { ArrowRight, Plus, Trash2, Eye, Send, AlertCircle, CheckCircle2, ExternalLink, X, MessageCircle, Wallet, FileCheck2, Unlock } from 'lucide-react';
 import { api } from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
+import { useAuth } from '../context/AuthContext';
 
 interface Line {
   id: string;
@@ -88,6 +89,8 @@ function monthLabel(iso: string) {
 
 export default function BillingPeriodDetail() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [period, setPeriod] = useState<Period | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -212,6 +215,22 @@ export default function BillingPeriodDetail() {
       await api.post(`/billing/${id}/cancel`);
       await load();
     } catch (err) { handleErr(err); }
+  }
+
+  async function unlockIssued() {
+    const reason = prompt(
+      'ביטול נעילה של חיוב חודשי שכבר הופק במורנינג.\n\n' +
+      '⚠️ הסטטוס במערכת ישתנה ל"בוטלה" וניתן יהיה להוסיף/למחוק פגישות בחודש הזה — אבל החשבונית במורנינג נשארת בתוקף וצריך לטפל בה ידנית.\n\n' +
+      'הודעת מייל תישלח ל-info@hai.tech עם פרטי הפעולה.\n\n' +
+      'אנא ציין סיבה לביטול הנעילה:'
+    );
+    if (!reason || !reason.trim()) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await api.post(`/billing/${id}/unlock`, { reason: reason.trim() });
+      await load();
+    } catch (err) { handleErr(err); } finally { setBusy(false); }
   }
 
   async function regenerate() {
@@ -352,6 +371,20 @@ export default function BillingPeriodDetail() {
                 </a>
               )}
             </div>
+            <p className="text-xs text-green-900/70 mt-3">
+              <b>החודש הזה נעול</b> — אי אפשר להוסיף/למחוק פגישות לחודש הזה במחזורים של המוסד עד שתבוטל הנעילה.
+            </p>
+            {isAdmin && (
+              <div className="mt-3">
+                <button
+                  onClick={unlockIssued}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1 text-sm bg-amber-100 hover:bg-amber-200 text-amber-900 px-3 py-1.5 rounded border border-amber-300 disabled:opacity-50"
+                >
+                  <Unlock size={14} /> בטל נעילה (אדמין)
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

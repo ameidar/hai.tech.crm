@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, ExternalLink, RefreshCcw, AlertCircle } from 'lucide-react';
+import { Plus, ExternalLink, RefreshCcw, AlertCircle, X, Search } from 'lucide-react';
 import { api } from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 
@@ -73,6 +73,37 @@ export default function BillingPeriods() {
   const [genMonth, setGenMonth] = useState(defaultMonth());
   const [genAll, setGenAll] = useState(false);
 
+  // Institution picker (searchable combobox)
+  const [orderSearch, setOrderSearch] = useState('');
+  const [orderPickerOpen, setOrderPickerOpen] = useState(false);
+  const orderPickerRef = useRef<HTMLDivElement>(null);
+
+  const filteredOrders = useMemo(() => {
+    const q = orderSearch.trim().toLowerCase();
+    if (!q) return orders;
+    return orders.filter((o) => {
+      const name = (o.orderName || '').toLowerCase();
+      const branch = (o.branch?.name || '').toLowerCase();
+      return name.includes(q) || branch.includes(q);
+    });
+  }, [orders, orderSearch]);
+
+  const selectedOrder = useMemo(
+    () => orders.find((o) => o.id === genOrderId) || null,
+    [orders, genOrderId]
+  );
+
+  useEffect(() => {
+    if (!orderPickerOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (orderPickerRef.current && !orderPickerRef.current.contains(e.target as Node)) {
+        setOrderPickerOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [orderPickerOpen]);
+
   async function load() {
     setLoading(true);
     try {
@@ -88,7 +119,7 @@ export default function BillingPeriods() {
   }
 
   useEffect(() => {
-    api.get('/institutional-orders?limit=200').then(({ data }) => {
+    api.get('/institutional-orders?limit=200&withRelevantCycles=true').then(({ data }) => {
       setOrders(data.data || data);
     }).catch(() => {});
   }, []);
@@ -125,14 +156,69 @@ export default function BillingPeriods() {
       <section className="bg-white rounded-xl border p-5 space-y-3">
         <h2 className="font-semibold text-gray-900">צור draft חדש</h2>
         <form onSubmit={generate} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-          <div className="md:col-span-2">
+          <div className="md:col-span-2 relative" ref={orderPickerRef}>
             <label className="form-label">מוסד</label>
-            <select className="form-input" value={genOrderId} onChange={(e) => setGenOrderId(e.target.value)} disabled={genAll}>
-              <option value="">— בחר מוסד —</option>
-              {orders.map((o) => (
-                <option key={o.id} value={o.id}>{o.orderName || o.branch?.name || o.id.slice(0, 8)}</option>
-              ))}
-            </select>
+            <div className="relative">
+              <button
+                type="button"
+                disabled={genAll}
+                onClick={() => setOrderPickerOpen((v) => !v)}
+                className="form-input w-full text-right disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between gap-2"
+              >
+                <span className={selectedOrder ? '' : 'text-gray-400'}>
+                  {selectedOrder
+                    ? selectedOrder.orderName || selectedOrder.branch?.name || selectedOrder.id.slice(0, 8)
+                    : '— בחר מוסד —'}
+                </span>
+                {selectedOrder && !genAll && (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); setGenOrderId(''); setOrderSearch(''); }}
+                    className="text-gray-400 hover:text-gray-700"
+                    aria-label="נקה בחירה"
+                  >
+                    <X size={14} />
+                  </span>
+                )}
+              </button>
+              {orderPickerOpen && !genAll && (
+                <div className="absolute z-10 mt-1 w-full bg-white border rounded-lg shadow-lg max-h-80 overflow-hidden flex flex-col">
+                  <div className="p-2 border-b flex items-center gap-2">
+                    <Search size={16} className="text-gray-400" />
+                    <input
+                      autoFocus
+                      type="text"
+                      placeholder="חפש מוסד..."
+                      value={orderSearch}
+                      onChange={(e) => setOrderSearch(e.target.value)}
+                      className="flex-1 outline-none text-sm"
+                    />
+                  </div>
+                  <div className="overflow-y-auto">
+                    {filteredOrders.length === 0 ? (
+                      <div className="p-3 text-sm text-gray-500 text-center">אין תוצאות</div>
+                    ) : (
+                      filteredOrders.map((o) => {
+                        const label = o.orderName || o.branch?.name || o.id.slice(0, 8);
+                        const sub = o.orderName && o.branch?.name && o.orderName !== o.branch.name ? o.branch.name : null;
+                        return (
+                          <button
+                            type="button"
+                            key={o.id}
+                            onClick={() => { setGenOrderId(o.id); setOrderPickerOpen(false); setOrderSearch(''); }}
+                            className={`w-full text-right px-3 py-2 hover:bg-blue-50 text-sm border-b last:border-b-0 ${o.id === genOrderId ? 'bg-blue-50 font-medium' : ''}`}
+                          >
+                            <div>{label}</div>
+                            {sub && <div className="text-xs text-gray-500">{sub}</div>}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
           <div>
             <label className="form-label">חודש לחיוב</label>

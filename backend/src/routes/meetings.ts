@@ -681,6 +681,7 @@ meetingsRouter.put('/:id', async (req, res, next) => {
       endTime: existingMeeting.endTime,
       instructorId: existingMeeting.instructorId,
       activityType: existingMeeting.activityType,
+      nature: existingMeeting.nature,
       topic: existingMeeting.topic,
       notes: existingMeeting.notes,
     };
@@ -691,6 +692,7 @@ meetingsRouter.put('/:id', async (req, res, next) => {
       endTime: meeting.endTime,
       instructorId: meeting.instructorId,
       activityType: meeting.activityType,
+      nature: meeting.nature,
       topic: meeting.topic,
       notes: meeting.notes,
     };

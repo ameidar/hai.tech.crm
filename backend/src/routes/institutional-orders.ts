@@ -14,7 +14,18 @@ institutionalOrdersRouter.get('/', async (req, res, next) => {
   try {
     const { page, limit } = paginationSchema.parse(req.query);
     const status = req.query.status as string | undefined;
+    const withCycles = req.query.withCycles === 'true';
     const withRelevantCycles = req.query.withRelevantCycles === 'true';
+
+    const linkedCyclesFilter = withCycles
+      ? {
+          cycles: {
+            some: {
+              deletedAt: null,
+            },
+          },
+        }
+      : {};
 
     // For billing flows we only want institutions that still have a billing-relevant cycle:
     // either an active cycle, or one that was touched in the last 12 months (so just-frozen
@@ -37,6 +48,7 @@ institutionalOrdersRouter.get('/', async (req, res, next) => {
 
     const where = {
       ...(status && { status: status as any }),
+      ...linkedCyclesFilter,
       ...relevantCyclesFilter,
     };
 

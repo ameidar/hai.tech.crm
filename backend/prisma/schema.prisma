@@ -113,6 +113,11 @@ enum MeetingStatus {
   pending_postponement
 }
 
+enum MeetingNature {
+  regular
+  no_revenue
+}
+
 enum AttendanceStatus {
   present
   absent
@@ -589,6 +594,7 @@ model Meeting {
   startTime         DateTime      @map("start_time") @db.Time
   endTime           DateTime      @map("end_time") @db.Time
   status            MeetingStatus @default(scheduled)
+  nature            MeetingNature @default(regular)
   statusUpdatedAt   DateTime?     @map("status_updated_at")
   statusUpdatedById String?       @map("status_updated_by")
   revenue           Decimal       @default(0) @db.Decimal(10, 2)

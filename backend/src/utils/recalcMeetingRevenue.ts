@@ -56,13 +56,15 @@ export async function recalcMeetingRevenue(cycleId: string): Promise<void> {
     },
   });
 
-  // Get future scheduled meetings
+  // Get future scheduled meetings — exclude no_revenue (internal/operational) meetings;
+  // their revenue must stay 0 regardless of registration changes on the cycle.
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const futureMeetings = await prisma.meeting.findMany({
     where: {
       cycleId,
       status: 'scheduled',
       scheduledDate: { gte: today },
+      nature: 'regular',
     },
     select: { id: true, instructorPayment: true, expenses: true },
   });

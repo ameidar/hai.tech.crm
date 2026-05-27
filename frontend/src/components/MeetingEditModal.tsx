@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { Receipt, Video, ExternalLink, Loader2 } from 'lucide-react';
 import Modal from './ui/Modal';
 import MeetingExpenses from './MeetingExpenses';
-import { meetingStatusHebrew, activityTypeHebrew } from '../types';
+import { meetingStatusHebrew, activityTypeHebrew, meetingNatureHebrew } from '../types';
 import { useInstructors } from '../hooks/useApi';
 import api from '../api/client';
-import type { Meeting, MeetingStatus, ActivityType } from '../types';
+import type { Meeting, MeetingStatus, ActivityType, MeetingNature } from '../types';
 
 interface MeetingEditModalProps {
   meeting: Meeting | null;
@@ -25,6 +25,7 @@ export default function MeetingEditModal({
   const { data: instructors } = useInstructors();
   const [formData, setFormData] = useState({
     status: 'scheduled' as MeetingStatus,
+    nature: 'regular' as MeetingNature,
     activityType: 'frontal' as ActivityType,
     instructorId: '',
     topic: '',
@@ -41,6 +42,7 @@ export default function MeetingEditModal({
     if (meeting) {
       setFormData({
         status: meeting.status,
+        nature: meeting.nature || 'regular',
         activityType: meeting.activityType || meeting.cycle?.activityType || 'frontal',
         instructorId: meeting.instructorId || '',
         topic: meeting.topic || '',
@@ -89,6 +91,7 @@ export default function MeetingEditModal({
 
     await onSave(meeting.id, {
       status: formData.status,
+      nature: formData.nature,
       activityType: formData.activityType,
       instructorId: formData.instructorId || undefined,
       topic: formData.topic || undefined,
@@ -141,6 +144,25 @@ export default function MeetingEditModal({
               <option key={value} value={value}>{label}</option>
             ))}
           </select>
+        </div>
+
+        {/* Meeting Nature — regular vs no-revenue (internal/operational) */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">אופי הפגישה</label>
+          <select
+            value={formData.nature}
+            onChange={(e) => setFormData({ ...formData, nature: e.target.value as MeetingNature })}
+            className="input w-full"
+          >
+            {Object.entries(meetingNatureHebrew).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+          {formData.nature === 'no_revenue' && (
+            <p className="mt-1 text-xs text-gray-500">
+              פגישה זו לא תייצר הכנסה. תשלום המדריך יחושב כרגיל כהוצאה.
+            </p>
+          )}
         </div>
 
         {/* Zoom — show when online */}

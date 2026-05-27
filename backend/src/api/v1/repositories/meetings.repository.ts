@@ -126,6 +126,7 @@ export class MeetingsRepository {
         startTime,
         endTime,
         status: 'scheduled',
+        ...(data.nature ? { nature: data.nature } : {}),
         activityType: data.activityType,
         topic: data.topic,
         notes: data.notes,
@@ -234,7 +235,7 @@ export class MeetingsRepository {
 
     if (!original) return null;
 
-    // Create new meeting
+    // Create new meeting (inherit nature so rescheduled internal meetings stay internal)
     const newMeeting = await prisma.meeting.create({
       data: {
         cycleId: original.cycleId,
@@ -243,6 +244,7 @@ export class MeetingsRepository {
         startTime: newStartTime || original.startTime,
         endTime: newEndTime || original.endTime,
         status: 'scheduled',
+        nature: original.nature,
         activityType: original.activityType,
       },
     });

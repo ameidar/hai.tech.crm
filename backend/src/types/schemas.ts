@@ -181,6 +181,8 @@ export const updateRegistrationSchema = createRegistrationSchema.partial().omit(
 });
 
 // Meeting schemas
+export const meetingNatureEnum = z.enum(['regular', 'no_revenue']);
+
 export const createMeetingSchema = z.object({
   cycleId: z.string().uuid('Invalid cycle ID'),
   instructorId: z.string().uuid('Invalid instructor ID'),
@@ -188,6 +190,7 @@ export const createMeetingSchema = z.object({
   startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format'),
   endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format'),
   status: z.enum(['scheduled', 'completed', 'cancelled', 'postponed']).default('scheduled'),
+  nature: meetingNatureEnum.optional(),
   activityType: z.enum(['online', 'frontal', 'private_lesson']).optional().nullable(),
   topic: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
@@ -198,6 +201,7 @@ export const createMeetingSchema = z.object({
 
 export const updateMeetingSchema = z.object({
   status: z.enum(['scheduled', 'completed', 'cancelled', 'postponed']).optional(),
+  nature: meetingNatureEnum.optional(),
   topic: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   instructorId: z.string().uuid().optional(),

@@ -261,7 +261,9 @@ export class MeetingsService {
   }
 
   /**
-   * Calculate meeting financials based on cycle type
+   * Calculate meeting financials based on cycle type.
+   * Meetings with nature='no_revenue' (internal/operational) get revenue=0 but still
+   * accrue instructor_payment as an expense.
    */
   private async calculateMeetingFinancials(meeting: {
     id?: string;
@@ -270,24 +272,27 @@ export class MeetingsService {
     startTime: Date;
     endTime: Date;
     activityType: string | null;
+    nature?: string | null;
   }) {
     const cycle = await this.repository.getCycleWithInstructor(meeting.cycleId);
     if (!cycle) {
       return { revenue: 0, instructorPayment: 0, profit: 0 };
     }
 
-    // Calculate revenue based on cycle type
+    // Calculate revenue based on cycle type — skipped entirely for no_revenue meetings
     let revenue = 0;
     const activeRegistrations = cycle.registrations.filter((reg) => reg.status === 'active');
 
-    if (cycle.type === 'private') {
-      revenue = meetingRevenueFromRegistrations(cycle.registrations, cycle.totalMeetings, cycle.type);
-    } else if (cycle.type === 'institutional_per_child') {
-      const pricePerStudent = Number(cycle.pricePerStudent || 0);
-      const studentCount = cycle.studentCount || activeRegistrations.length;
-      revenue = Math.round(pricePerStudent * studentCount);
-    } else if (cycle.type === 'institutional_fixed') {
-      revenue = Number(cycle.meetingRevenue || 0);
+    if (meeting.nature !== 'no_revenue') {
+      if (cycle.type === 'private') {
+        revenue = meetingRevenueFromRegistrations(cycle.registrations, cycle.totalMeetings, cycle.type);
+      } else if (cycle.type === 'institutional_per_child') {
+        const pricePerStudent = Number(cycle.pricePerStudent || 0);
+        const studentCount = cycle.studentCount || activeRegistrations.length;
+        revenue = Math.round(pricePerStudent * studentCount);
+      } else if (cycle.type === 'institutional_fixed') {
+        revenue = Number(cycle.meetingRevenue || 0);
+      }
     }
 
     // Calculate instructor payment

@@ -12,6 +12,11 @@ import { activityTypeEnum, timeStringSchema } from './cycles.js';
 export const meetingStatusEnum = z.enum(['scheduled', 'completed', 'cancelled', 'postponed']);
 
 /**
+ * Meeting nature enum — distinguishes revenue-generating meetings from internal/operational ones
+ */
+export const meetingNatureEnum = z.enum(['regular', 'no_revenue']);
+
+/**
  * Meeting query parameters
  */
 export const meetingQuerySchema = paginationSchema
@@ -37,6 +42,7 @@ export const createMeetingSchema = z.object({
   startTime: timeStringSchema,
   endTime: timeStringSchema,
   activityType: activityTypeEnum.optional(),
+  nature: meetingNatureEnum.optional(),
   topic: z.string().optional(),
   notes: z.string().optional(),
   withZoom: z.boolean().optional().default(false),
@@ -51,6 +57,7 @@ export const updateMeetingSchema = z.object({
   startTime: timeStringSchema.optional(),
   endTime: timeStringSchema.optional(),
   status: meetingStatusEnum.optional(),
+  nature: meetingNatureEnum.optional(),
   activityType: activityTypeEnum.optional(),
   topic: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),

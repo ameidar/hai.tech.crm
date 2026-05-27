@@ -120,7 +120,7 @@ export default function InstitutionalOrders() {
   const [form, setForm] = useState<Partial<InstitutionalOrderData>>(EMPTY_FORM);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const { data, isLoading } = useInstitutionalOrders({ status: statusFilter || undefined, page, limit: 50 });
+  const { data, isLoading } = useInstitutionalOrders({ status: statusFilter || undefined, page, limit: 50, withCycles: true });
   const { data: branchesData } = useBranches();
   const branches = branchesData || [];
 

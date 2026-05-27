@@ -1362,10 +1362,12 @@ export interface InstitutionalOrderData {
   createdBy?: string | null;
 }
 
-export const useInstitutionalOrders = (params?: { status?: string; page?: number; limit?: number }) => {
+export const useInstitutionalOrders = (params?: { status?: string; page?: number; limit?: number; withCycles?: boolean; withRelevantCycles?: boolean }) => {
   const queryString = new URLSearchParams();
   if (params?.status) queryString.set('status', params.status);
   if (params?.page) queryString.set('page', String(params.page));
+  if (params?.withCycles) queryString.set('withCycles', 'true');
+  if (params?.withRelevantCycles) queryString.set('withRelevantCycles', 'true');
   queryString.set('limit', String(params?.limit || 50));
   return useQuery({
     queryKey: ['institutional-orders', params],

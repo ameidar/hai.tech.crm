@@ -5,7 +5,7 @@ import Modal from './ui/Modal';
 import MeetingExpenses from './MeetingExpenses';
 import SendMessageModal from './SendMessageModal';
 import { useMeetingExpenses } from '../hooks/useExpenses';
-import { meetingStatusHebrew, cycleTypeHebrew, activityTypeHebrew } from '../types';
+import { meetingStatusHebrew, cycleTypeHebrew, activityTypeHebrew, meetingNatureHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
 interface MeetingDetailModalProps {
@@ -150,6 +150,10 @@ export default function MeetingDetailModal({
           <div>
             <span className="text-sm text-gray-500">סוג פעילות</span>
             <p className="font-medium">{meeting.activityType ? activityTypeHebrew[meeting.activityType] : (meeting.cycle?.activityType ? activityTypeHebrew[meeting.cycle.activityType] : '-')}</p>
+          </div>
+          <div>
+            <span className="text-sm text-gray-500">אופי הפגישה</span>
+            <p className="font-medium">{meetingNatureHebrew[meeting.nature || 'regular']}</p>
           </div>
           {meeting.topic && (
             <div className="col-span-2">

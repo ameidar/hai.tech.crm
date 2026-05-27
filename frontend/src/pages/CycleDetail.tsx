@@ -73,8 +73,8 @@ import {
   dayOfWeekHebrew,
   meetingStatusHebrew,
 } from '../types';
-import type { Meeting, MeetingStatus, Registration, RegistrationStatus, PaymentStatus, PaymentMethod, ActivityType, Cycle, Course, Branch, Instructor, CycleStatus, CycleType, DayOfWeek } from '../types';
-import { paymentStatusHebrew, activityTypeHebrew } from '../types';
+import type { Meeting, MeetingStatus, MeetingNature, Registration, RegistrationStatus, PaymentStatus, PaymentMethod, ActivityType, Cycle, Course, Branch, Instructor, CycleStatus, CycleType, DayOfWeek } from '../types';
+import { paymentStatusHebrew, activityTypeHebrew, meetingNatureHebrew } from '../types';
 import { exportCycleMeetingsToExcel } from '../utils/meetingsExcel';
 
 // Add Student Modal with search + create new
@@ -670,7 +670,7 @@ export default function CycleDetail() {
     }
   };
 
-  const handleUpdateMeetingData = async (meetingId: string, data: { status?: MeetingStatus; instructorId?: string; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; activityType?: ActivityType; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => {
+  const handleUpdateMeetingData = async (meetingId: string, data: { status?: MeetingStatus; nature?: MeetingNature; instructorId?: string; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; activityType?: ActivityType; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => {
     try {
       await updateMeeting.mutateAsync({
         id: meetingId,
@@ -2283,7 +2283,7 @@ interface MeetingUpdateFormProps {
   instructors: { id: string; name: string; isActive: boolean }[];
   defaultInstructorId?: string;
   defaultActivityType?: ActivityType;
-  onUpdate: (data: { status?: MeetingStatus; instructorId?: string; activityType?: ActivityType; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => void;
+  onUpdate: (data: { status?: MeetingStatus; nature?: MeetingNature; instructorId?: string; activityType?: ActivityType; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => void;
   onCancel: () => void;
   isLoading?: boolean;
   isAdmin?: boolean;
@@ -2309,6 +2309,7 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
   };
 
   const [status, setStatus] = useState(meeting.status);
+  const [nature, setNature] = useState<MeetingNature>(meeting.nature || 'regular');
   const [instructorId, setInstructorId] = useState(meeting.instructor?.id || defaultInstructorId || '');
   const [activityType, setActivityType] = useState<ActivityType>(meeting.activityType || defaultActivityType || 'frontal');
   const [topic, setTopic] = useState(meeting.topic || '');
@@ -2335,6 +2336,7 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
 
     onUpdate({
       status,
+      nature: nature !== (meeting.nature || 'regular') ? nature : undefined,
       instructorId: instructorId !== (meeting.instructor?.id || defaultInstructorId) ? instructorId : undefined,
       activityType: activityType !== (meeting.activityType || defaultActivityType) ? activityType : undefined,
       topic: topic || undefined,
@@ -2475,6 +2477,24 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
           <option value="private_lesson">פרטי</option>
         </select>
         <p className="text-xs text-gray-500 mt-1">משפיע על חישוב התשלום למדריך</p>
+      </div>
+
+      <div>
+        <label className="form-label">אופי הפגישה</label>
+        <select
+          value={nature}
+          onChange={(e) => setNature(e.target.value as MeetingNature)}
+          className="form-input"
+        >
+          {Object.entries(meetingNatureHebrew).map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </select>
+        {nature === 'no_revenue' && (
+          <p className="text-xs text-gray-500 mt-1">
+            פגישה ללא הכנסה — תשלום המדריך יחושב כרגיל כהוצאה.
+          </p>
+        )}
       </div>
 
       <div>

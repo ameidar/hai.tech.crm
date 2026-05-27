@@ -6,6 +6,7 @@ export type CycleType = 'private' | 'trial_private' | 'institutional_per_child' 
 export type CycleStatus = 'active' | 'completed' | 'cancelled' | 'frozen' | 'retainer';
 export type DayOfWeek = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday';
 export type MeetingStatus = 'scheduled' | 'completed' | 'cancelled' | 'postponed' | 'pending_cancellation' | 'pending_postponement';
+export type MeetingNature = 'regular' | 'no_revenue';
 export type RegistrationStatus = 'registered' | 'active' | 'completed' | 'pending_cancellation' | 'cancelled';
 export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
 export type PaymentMethod = 'credit' | 'transfer' | 'cash' | 'standing_order' | 'institutional';
@@ -203,6 +204,7 @@ export interface Meeting {
   startTime: string;
   endTime: string;
   status: MeetingStatus;
+  nature: MeetingNature;
   statusUpdatedAt?: string;
   statusUpdatedById?: string;
   revenue: number;
@@ -308,6 +310,11 @@ export const meetingStatusHebrew: Record<MeetingStatus, string> = {
   postponed: 'נדחה',
   pending_cancellation: 'בקשת ביטול',
   pending_postponement: 'בקשת דחיה',
+};
+
+export const meetingNatureHebrew: Record<MeetingNature, string> = {
+  regular: 'פגישה רגילה',
+  no_revenue: 'ללא הכנסה',
 };
 
 export const cycleStatusHebrew: Record<CycleStatus, string> = {

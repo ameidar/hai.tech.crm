@@ -407,8 +407,9 @@ async function buildMorningPayload(billingPeriodId: string): Promise<{
   const vatLabel = effectiveVatType === 2
     ? 'המחירים בחשבון זה כוללים מע״מ.'
     : 'המחירים בחשבון זה אינם כוללים מע״מ. סה״כ כולל מע״מ מצוין בסיכום.';
-  const description = period.notes?.trim() || undefined;
-  const remarks = vatLabel;
+  const description = period.documentTitle?.trim() || undefined;
+  const notes = period.notes?.trim();
+  const remarks = [vatLabel, notes].filter(Boolean).join('\n');
 
   return {
     payload: {

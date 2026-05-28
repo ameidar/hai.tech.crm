@@ -3,15 +3,52 @@ import { createDocument, previewDocument, createDraftDocument, deleteDraftDocume
 import type { CreateDocumentInput, MorningClient, MorningIncomeItem } from './morning/documents.js';
 import { findClientForInstitutionalOrder } from './morning/clients.js';
 
-export type BillingMonth = string; // 'YYYY-MM'
+export type BillingMonth = string; // 'YYYY-MM' — first day of that month, UTC
 
 const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 
-function monthBounds(month: BillingMonth) {
+function monthStartDate(month: BillingMonth): Date {
   const [y, m] = month.split('-').map(Number);
-  const start = new Date(Date.UTC(y, m - 1, 1));
-  const end = new Date(Date.UTC(y, m, 1)); // exclusive
-  return { start, end, hebrewLabel: `${HEBREW_MONTHS[m - 1]} ${y}` };
+  return new Date(Date.UTC(y, m - 1, 1));
+}
+
+function monthAfter(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1));
+}
+
+export function monthKey(d: Date): BillingMonth {
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth() + 1;
+  return `${y}-${String(m).padStart(2, '0')}`;
+}
+
+interface RangeBounds {
+  start: Date;          // first of monthStart (inclusive)
+  endExclusive: Date;   // first of the month AFTER monthEnd (exclusive)
+  hebrewLabel: string;  // e.g. "אפריל 2026" or "מרץ–מאי 2026"
+}
+
+function rangeBounds(monthStart: BillingMonth, monthEnd: BillingMonth): RangeBounds {
+  const start = monthStartDate(monthStart);
+  const end = monthStartDate(monthEnd);
+  if (end < start) throw new Error('monthEnd must be >= monthStart');
+  return {
+    start,
+    endExclusive: monthAfter(end),
+    hebrewLabel: formatHebrewRange(start, end),
+  };
+}
+
+export function formatHebrewRange(start: Date, end: Date): string {
+  const sm = HEBREW_MONTHS[start.getUTCMonth()];
+  const sy = start.getUTCFullYear();
+  const em = HEBREW_MONTHS[end.getUTCMonth()];
+  const ey = end.getUTCFullYear();
+  if (start.getUTCFullYear() === end.getUTCFullYear() && start.getUTCMonth() === end.getUTCMonth()) {
+    return `${sm} ${sy}`;
+  }
+  if (sy === ey) return `${sm}–${em} ${sy}`;
+  return `${sm} ${sy} – ${em} ${ey}`;
 }
 
 interface CycleBillingSummary {
@@ -29,11 +66,16 @@ interface CycleBillingSummary {
 }
 
 /**
- * Compute the per-cycle billing lines for a given institution and month.
- * Looks at completed meetings in that month and applies the cycle's pricing model.
+ * Compute the per-cycle billing lines for a given institution and range.
+ * Looks at completed meetings whose scheduledDate falls anywhere inside the range
+ * and applies the cycle's pricing model.
  */
-async function computeBillingLines(institutionalOrderId: string, month: BillingMonth): Promise<CycleBillingSummary[]> {
-  const { start, end, hebrewLabel } = monthBounds(month);
+async function computeBillingLines(
+  institutionalOrderId: string,
+  monthStart: BillingMonth,
+  monthEnd: BillingMonth,
+): Promise<CycleBillingSummary[]> {
+  const { start, endExclusive, hebrewLabel } = rangeBounds(monthStart, monthEnd);
 
   const cycles = await prisma.cycle.findMany({
     where: { institutionalOrderId, deletedAt: null },
@@ -41,7 +83,7 @@ async function computeBillingLines(institutionalOrderId: string, month: BillingM
       meetings: {
         where: {
           status: 'completed',
-          scheduledDate: { gte: start, lt: end },
+          scheduledDate: { gte: start, lt: endExclusive },
           deletedAt: null,
         },
         select: { id: true },
@@ -55,7 +97,7 @@ async function computeBillingLines(institutionalOrderId: string, month: BillingM
     if (completedMeetings === 0) continue;
 
     // Each cycle type produces a single billing line whose `quantity × unitPrice` totals
-    // the gross revenue for the month. The convention differs:
+    // the gross revenue for the range. The convention differs:
     //   - institutional_fixed:     qty = #meetings,            unitPrice = meetingRevenue
     //   - institutional_per_child: qty = #meetings × students, unitPrice = pricePerStudent
     // The per-student-meeting form for institutional_per_child matches what Morning's UI
@@ -104,23 +146,74 @@ async function computeBillingLines(institutionalOrderId: string, month: BillingM
 }
 
 /**
- * Generate (or upsert) a draft billing period for an institution and month.
- * If a period already exists with status=draft, replace its lines with fresh
- * data from the source-of-truth meetings. If status is `issued` or `cancelled`,
- * refuses to regenerate.
+ * Throw if any non-cancelled period for the same institutional order overlaps the
+ * requested range (excluding `excludePeriodId`, used when regenerating an existing
+ * draft against its own current row).
  */
-export async function generateBillingPeriod(institutionalOrderId: string, month: BillingMonth, generatedById?: string) {
-  const { start } = monthBounds(month);
+async function assertNoOverlap(
+  institutionalOrderId: string,
+  monthStart: Date,
+  monthEnd: Date,
+  excludePeriodId?: string,
+) {
+  const overlap = await prisma.billingPeriod.findFirst({
+    where: {
+      institutionalOrderId,
+      status: { not: 'cancelled' },
+      monthStart: { lte: monthEnd },
+      monthEnd: { gte: monthStart },
+      ...(excludePeriodId ? { NOT: { id: excludePeriodId } } : {}),
+    },
+    select: { id: true, monthStart: true, monthEnd: true, status: true, morningDocNumber: true },
+  });
+  if (overlap) {
+    const label = formatHebrewRange(overlap.monthStart, overlap.monthEnd);
+    const docPart = overlap.morningDocNumber ? ` (חשבונית #${overlap.morningDocNumber})` : '';
+    const err: any = new Error(`overlap with existing ${overlap.status} period ${label}${docPart}`);
+    err.status = 409;
+    err.code = 'BILLING_PERIOD_OVERLAP';
+    throw err;
+  }
+}
+
+/**
+ * Generate (or upsert) a draft billing period for an institution + range.
+ * If a draft already exists with the exact same range, its lines are replaced with
+ * fresh computed data — except lines whose admin has flagged `descriptionCustomized`,
+ * whose text is preserved (only quantity/unitPrice/total refresh).
+ * If a non-draft period exists at the same range, refuses to regenerate.
+ */
+export async function generateBillingPeriod(
+  institutionalOrderId: string,
+  monthStart: BillingMonth,
+  monthEnd: BillingMonth,
+  generatedById?: string,
+) {
+  const { start } = rangeBounds(monthStart, monthEnd);
+  const end = monthStartDate(monthEnd);
 
   const existing = await prisma.billingPeriod.findUnique({
-    where: { institutionalOrderId_month: { institutionalOrderId, month: start } },
+    where: { institutionalOrderId_monthStart_monthEnd: { institutionalOrderId, monthStart: start, monthEnd: end } },
+    include: { lines: true },
   });
   if (existing && existing.status !== 'draft') {
     throw new Error(`Billing period already ${existing.status} — cannot regenerate`);
   }
 
-  const summaries = await computeBillingLines(institutionalOrderId, month);
+  await assertNoOverlap(institutionalOrderId, start, end, existing?.id);
+
+  const summaries = await computeBillingLines(institutionalOrderId, monthStart, monthEnd);
   const totalAmount = summaries.reduce((s, l) => s + l.total, 0);
+
+  // Preserve any per-line description that the admin marked as customized — match by cycleId.
+  const customizedByCycle = new Map<string, string>();
+  if (existing) {
+    for (const line of existing.lines) {
+      if (line.descriptionCustomized && line.cycleId) {
+        customizedByCycle.set(line.cycleId, line.description);
+      }
+    }
+  }
 
   if (existing) {
     await prisma.billingPeriodLine.deleteMany({ where: { billingPeriodId: existing.id } });
@@ -133,7 +226,8 @@ export async function generateBillingPeriod(institutionalOrderId: string, month:
         lines: {
           create: summaries.map((s, i) => ({
             cycleId: s.cycleId,
-            description: s.description,
+            description: customizedByCycle.get(s.cycleId) ?? s.description,
+            descriptionCustomized: customizedByCycle.has(s.cycleId),
             quantity: s.quantity,
             unitPrice: s.unitPrice,
             total: s.total,
@@ -149,7 +243,8 @@ export async function generateBillingPeriod(institutionalOrderId: string, month:
   const period = await prisma.billingPeriod.create({
     data: {
       institutionalOrderId,
-      month: start,
+      monthStart: start,
+      monthEnd: end,
       status: 'draft',
       totalAmount,
       generatedById,
@@ -170,11 +265,11 @@ export async function generateBillingPeriod(institutionalOrderId: string, month:
 }
 
 /**
- * Generate drafts for ALL active institutions for the given month. Skips any
- * that already exist (in any status) so the cron is idempotent.
+ * Generate single-month drafts for ALL active institutions for the given month.
+ * Skips any that already exist (in any status) so the cron is idempotent. Multi-month
+ * ranges are admin-initiated only — the cron stays month-by-month.
  */
 export async function generateAllBillingPeriodsForMonth(month: BillingMonth, generatedById?: string) {
-  const { start } = monthBounds(month);
   const orders = await prisma.institutionalOrder.findMany({
     where: { status: { in: ['active', 'completed'] } },
     select: { id: true },
@@ -183,15 +278,20 @@ export async function generateAllBillingPeriodsForMonth(month: BillingMonth, gen
   const results = { created: 0, skipped: 0, empty: 0, errors: [] as string[] };
   for (const order of orders) {
     try {
-      const exists = await prisma.billingPeriod.findUnique({
-        where: { institutionalOrderId_month: { institutionalOrderId: order.id, month: start } },
+      const start = monthStartDate(month);
+      const exists = await prisma.billingPeriod.findFirst({
+        where: {
+          institutionalOrderId: order.id,
+          monthStart: { lte: start },
+          monthEnd: { gte: start },
+        },
       });
       if (exists) { results.skipped++; continue; }
 
-      const summaries = await computeBillingLines(order.id, month);
+      const summaries = await computeBillingLines(order.id, month, month);
       if (summaries.length === 0) { results.empty++; continue; }
 
-      await generateBillingPeriod(order.id, month, generatedById);
+      await generateBillingPeriod(order.id, month, month, generatedById);
       results.created++;
     } catch (err: any) {
       results.errors.push(`${order.id}: ${err.message}`);
@@ -341,8 +441,11 @@ export async function issueBillingPeriod(billingPeriodId: string, issuedById?: s
   const document = await createDocument(payload);
 
   // Snapshot meetings included in this issued invoice — used for drift detection later.
-  const month = monthKey(period.month);
-  const summaries = await computeBillingLines(period.institutionalOrderId, month);
+  const summaries = await computeBillingLines(
+    period.institutionalOrderId,
+    monthKey(period.monthStart),
+    monthKey(period.monthEnd),
+  );
   const cycleToLineId = new Map<string, string>();
   for (const line of period.lines) {
     if (line.cycleId) cycleToLineId.set(line.cycleId, line.id);
@@ -389,12 +492,6 @@ export async function issueBillingPeriod(billingPeriodId: string, issuedById?: s
       include: { lines: true, institutionalOrder: true },
     });
   });
-}
-
-function monthKey(d: Date): BillingMonth {
-  const y = d.getUTCFullYear();
-  const m = d.getUTCMonth() + 1;
-  return `${y}-${String(m).padStart(2, '0')}`;
 }
 
 /**
@@ -469,8 +566,11 @@ export async function markBillingPeriodIssuedManually(
   dueDate.setUTCDate(dueDate.getUTCDate() + 8);
 
   // Snapshot meetings — same as auto-issue path.
-  const month = monthKey(period.month);
-  const summaries = await computeBillingLines(period.institutionalOrderId, month);
+  const summaries = await computeBillingLines(
+    period.institutionalOrderId,
+    monthKey(period.monthStart),
+    monthKey(period.monthEnd),
+  );
   const cycleToLineId = new Map<string, string>();
   for (const line of period.lines) {
     if (line.cycleId) cycleToLineId.set(line.cycleId, line.id);
@@ -506,9 +606,9 @@ export async function markBillingPeriodIssuedManually(
 }
 
 /**
- * Find completed meetings for the period's institution + month that are NOT in
+ * Find completed meetings for the period's institution + range that are NOT in
  * the issued snapshot. Used to flag "we billed and then someone added more
- * billable activity for the same month." Drafts have no snapshot, so this is
+ * billable activity for the same range." Drafts have no snapshot, so this is
  * only meaningful for issued periods.
  */
 export async function detectDrift(billingPeriodId: string) {
@@ -519,14 +619,13 @@ export async function detectDrift(billingPeriodId: string) {
   if (!period) throw new Error('Billing period not found');
 
   const snapshotIds = new Set(period.meetings.map((m) => m.meetingId));
-  const month = monthKey(period.month);
-  const { start, end } = monthBounds(month);
+  const { start, endExclusive } = rangeBounds(monthKey(period.monthStart), monthKey(period.monthEnd));
 
   const currentMeetings = await prisma.meeting.findMany({
     where: {
       cycle: { institutionalOrderId: period.institutionalOrderId, deletedAt: null },
       status: 'completed',
-      scheduledDate: { gte: start, lt: end },
+      scheduledDate: { gte: start, lt: endExclusive },
       deletedAt: null,
     },
     select: {

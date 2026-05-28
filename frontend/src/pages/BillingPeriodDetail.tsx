@@ -9,6 +9,7 @@ interface Line {
   id: string;
   cycleId: string | null;
   description: string;
+  descriptionCustomized: boolean;
   quantity: string | number;
   unitPrice: string | number;
   total: string | number;
@@ -26,7 +27,8 @@ interface Payment {
 
 interface Period {
   id: string;
-  month: string;
+  monthStart: string;
+  monthEnd: string;
   status: 'draft' | 'issued' | 'cancelled';
   totalAmount: string | number;
   notes: string | null;
@@ -82,9 +84,15 @@ interface DriftReport {
 }
 
 const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
-function monthLabel(iso: string) {
-  const d = new Date(iso);
-  return `${HEBREW_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+
+function rangeLabel(startIso: string, endIso: string) {
+  const s = new Date(startIso);
+  const e = new Date(endIso);
+  const sm = HEBREW_MONTHS[s.getUTCMonth()], sy = s.getUTCFullYear();
+  const em = HEBREW_MONTHS[e.getUTCMonth()], ey = e.getUTCFullYear();
+  if (sy === ey && s.getUTCMonth() === e.getUTCMonth()) return `${sm} ${sy}`;
+  if (sy === ey) return `${sm}–${em} ${sy}`;
+  return `${sm} ${sy} – ${em} ${ey}`;
 }
 
 export default function BillingPeriodDetail() {
@@ -235,12 +243,17 @@ export default function BillingPeriodDetail() {
 
   async function regenerate() {
     if (!period) return;
-    if (!confirm('לרענן מתוך הפגישות? כל העריכות הידניות לשורות ימחקו.')) return;
+    if (!confirm('לרענן מתוך הפגישות? סכומי הכמות/מחיר/סה״כ ירעננו; תיאורים שעברו עריכה ידנית יישמרו.')) return;
     setError(null);
     setBusy(true);
     try {
-      const month = period.month.slice(0, 7); // YYYY-MM
-      await api.post('/billing/generate', { institutionalOrderId: period.institutionalOrder.id, month });
+      const monthStart = period.monthStart.slice(0, 7); // YYYY-MM
+      const monthEnd = period.monthEnd.slice(0, 7);
+      await api.post('/billing/generate', {
+        institutionalOrderId: period.institutionalOrder.id,
+        monthStart,
+        monthEnd,
+      });
       await load();
     } catch (err) { handleErr(err); } finally { setBusy(false); }
   }
@@ -287,8 +300,7 @@ export default function BillingPeriodDetail() {
     const phone = period.institutionalOrder.contactPhone || '';
     setWaPhone(phone);
     const orderName = period.institutionalOrder.orderName || 'מוסד';
-    const monthDate = new Date(period.month);
-    const monthLbl = `${HEBREW_MONTHS[monthDate.getUTCMonth()]} ${monthDate.getUTCFullYear()}`;
+    const monthLbl = rangeLabel(period.monthStart, period.monthEnd);
     const totalGross = (Number(period.totalAmount) * 1.18).toFixed(2);
     setWaMessage([
       `שלום,`,
@@ -340,7 +352,7 @@ export default function BillingPeriodDetail() {
 
       <PageHeader
         title={`חשבון חודשי — ${order.orderName || 'מוסד'}`}
-        subtitle={`${monthLabel(period.month)} · סטטוס: ${period.status === 'draft' ? 'טיוטה' : period.status === 'issued' ? 'הופק' : 'בוטלה'}`}
+        subtitle={`${rangeLabel(period.monthStart, period.monthEnd)} · סטטוס: ${period.status === 'draft' ? 'טיוטה' : period.status === 'issued' ? 'הופק' : 'בוטלה'}`}
       />
 
       {error && (
@@ -473,8 +485,17 @@ export default function BillingPeriodDetail() {
               <tr key={line.id} className="border-b last:border-b-0">
                 <td className="p-2">
                   {isDraft ? (
-                    <input className="form-input" defaultValue={line.description}
-                      onBlur={(e) => e.target.value !== line.description && updateLine(line.id, { description: e.target.value })} />
+                    <div>
+                      <input
+                        key={`${line.id}-${line.description}`}
+                        className="form-input"
+                        defaultValue={line.description}
+                        onBlur={(e) => e.target.value !== line.description && updateLine(line.id, { description: e.target.value })}
+                      />
+                      {line.descriptionCustomized && (
+                        <div className="text-xs text-amber-700 mt-1">✎ תיאור מותאם — לא יידרס בריענון מהפגישות</div>
+                      )}
+                    </div>
                   ) : <span>{line.description}</span>}
                 </td>
                 <td className="p-2">

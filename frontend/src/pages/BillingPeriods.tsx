@@ -6,7 +6,8 @@ import PageHeader from '../components/ui/PageHeader';
 
 interface BillingPeriod {
   id: string;
-  month: string;
+  monthStart: string;
+  monthEnd: string;
   status: 'draft' | 'issued' | 'cancelled';
   totalAmount: number | string;
   morningDocNumber: number | null;
@@ -46,9 +47,14 @@ const PAY_COLOR: Record<string, string> = {
 
 const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 
-function monthLabel(iso: string) {
-  const d = new Date(iso);
-  return `${HEBREW_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+function rangeLabel(startIso: string, endIso: string) {
+  const s = new Date(startIso);
+  const e = new Date(endIso);
+  const sm = HEBREW_MONTHS[s.getUTCMonth()], sy = s.getUTCFullYear();
+  const em = HEBREW_MONTHS[e.getUTCMonth()], ey = e.getUTCFullYear();
+  if (sy === ey && s.getUTCMonth() === e.getUTCMonth()) return `${sm} ${sy}`;
+  if (sy === ey) return `${sm}–${em} ${sy}`;
+  return `${sm} ${sy} – ${em} ${ey}`;
 }
 
 function defaultMonth() {
@@ -70,7 +76,8 @@ export default function BillingPeriods() {
 
   // Generation form
   const [genOrderId, setGenOrderId] = useState('');
-  const [genMonth, setGenMonth] = useState(defaultMonth());
+  const [genMonthStart, setGenMonthStart] = useState(defaultMonth());
+  const [genMonthEnd, setGenMonthEnd] = useState(defaultMonth());
   const [genAll, setGenAll] = useState(false);
 
   // Institution picker (searchable combobox)
@@ -129,14 +136,23 @@ export default function BillingPeriods() {
   async function generate(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (genMonthEnd < genMonthStart) {
+      setError('חודש סיום חייב להיות אחרי חודש התחלה');
+      return;
+    }
     setGenerating(true);
     try {
       if (genAll) {
-        const { data } = await api.post('/billing/generate-all', { month: genMonth });
+        // Bulk cron-equivalent runs single-month only; use monthStart as the target month.
+        const { data } = await api.post('/billing/generate-all', { month: genMonthStart });
         alert(`נוצרו: ${data.created} · דולגו (קיימים): ${data.skipped} · ריקים: ${data.empty} · שגיאות: ${data.errors.length}`);
       } else {
         if (!genOrderId) { setError('בחר מוסד'); return; }
-        await api.post('/billing/generate', { institutionalOrderId: genOrderId, month: genMonth });
+        await api.post('/billing/generate', {
+          institutionalOrderId: genOrderId,
+          monthStart: genMonthStart,
+          monthEnd: genMonthEnd,
+        });
       }
       await load();
     } catch (err: any) {
@@ -221,16 +237,38 @@ export default function BillingPeriods() {
             </div>
           </div>
           <div>
-            <label className="form-label">חודש לחיוב</label>
-            <input type="month" className="form-input" value={genMonth} onChange={(e) => setGenMonth(e.target.value)} required />
+            <label className="form-label">מחודש</label>
+            <input
+              type="month"
+              className="form-input"
+              value={genMonthStart}
+              onChange={(e) => {
+                setGenMonthStart(e.target.value);
+                if (genMonthEnd < e.target.value) setGenMonthEnd(e.target.value);
+              }}
+              required
+            />
           </div>
-          <div className="flex flex-col gap-2">
+          <div>
+            <label className="form-label">עד חודש</label>
+            <input
+              type="month"
+              className="form-input"
+              value={genMonthEnd}
+              min={genMonthStart}
+              onChange={(e) => setGenMonthEnd(e.target.value)}
+              required
+              disabled={genAll}
+              title={genAll ? 'יצירה גורפת תומכת רק בחודש בודד' : ''}
+            />
+          </div>
+          <div className="flex flex-col gap-2 md:col-span-4">
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={genAll} onChange={(e) => setGenAll(e.target.checked)} />
-              לכל המוסדות הפעילים
+              לכל המוסדות הפעילים (חודש בודד בלבד — לפי "מחודש")
             </label>
             <button type="submit" disabled={generating}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 justify-center disabled:opacity-50">
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 justify-center disabled:opacity-50 self-start">
               <Plus size={16} /> {generating ? 'יוצר...' : 'צור draft'}
             </button>
           </div>
@@ -268,7 +306,7 @@ export default function BillingPeriods() {
             <thead className="text-gray-600 border-b bg-gray-50">
               <tr>
                 <th className="text-right p-3">מוסד</th>
-                <th className="text-right p-3">חודש</th>
+                <th className="text-right p-3">תקופה</th>
                 <th className="text-right p-3">שורות</th>
                 <th className="text-right p-3">סכום (נטו)</th>
                 <th className="text-right p-3">סטטוס</th>
@@ -289,7 +327,7 @@ export default function BillingPeriods() {
                       <div className="text-xs text-amber-600 mt-1">⚠️ חסר ת.ז עוסק</div>
                     )}
                   </td>
-                  <td className="p-3">{monthLabel(p.month)}</td>
+                  <td className="p-3">{rangeLabel(p.monthStart, p.monthEnd)}</td>
                   <td className="p-3">{p._count.lines}</td>
                   <td className="p-3">{Number(p.totalAmount).toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}</td>
                   <td className="p-3">

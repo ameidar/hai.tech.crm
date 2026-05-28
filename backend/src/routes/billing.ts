@@ -17,6 +17,7 @@ import {
   issueTaxInvoice,
   sendBillingPeriodAsDraft,
   markBillingPeriodIssuedManually,
+  formatHebrewRange,
 } from '../services/billing.js';
 import { sendWhatsApp } from '../services/messaging.js';
 
@@ -24,6 +25,11 @@ export const billingRouter = Router();
 billingRouter.use(authenticate);
 
 const monthSchema = z.string().regex(/^\d{4}-\d{2}$/, 'month must be YYYY-MM');
+
+function monthToDate(m: string): Date {
+  const [y, mm] = m.split('-').map(Number);
+  return new Date(Date.UTC(y, mm - 1, 1));
+}
 
 billingRouter.get('/', async (req, res, next) => {
   try {
@@ -38,8 +44,10 @@ billingRouter.get('/', async (req, res, next) => {
     if (paymentStatus) where.paymentStatus = paymentStatus;
     if (orderId) where.institutionalOrderId = orderId;
     if (month) {
-      const [y, m] = month.split('-').map(Number);
-      where.month = new Date(Date.UTC(y, m - 1, 1));
+      // Match any range that contains the given month.
+      const m = monthToDate(month);
+      where.monthStart = { lte: m };
+      where.monthEnd = { gte: m };
     }
     if (overdue) {
       where.status = 'issued';
@@ -53,7 +61,7 @@ billingRouter.get('/', async (req, res, next) => {
         institutionalOrder: { select: { id: true, orderName: true, taxId: true } },
         _count: { select: { lines: true } },
       },
-      orderBy: [{ month: 'desc' }, { generatedAt: 'desc' }],
+      orderBy: [{ monthStart: 'desc' }, { generatedAt: 'desc' }],
     });
     res.json(periods);
   } catch (err) { next(err); }
@@ -80,18 +88,33 @@ billingRouter.get('/:id', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// Generate / regenerate a draft for one institution & month
+// Generate / regenerate a draft for one institution & month range.
+// Accepts either { month } (single-month shortcut) or { monthStart, monthEnd }.
 billingRouter.post('/generate', managerOrAdmin, async (req, res, next) => {
   try {
-    const { institutionalOrderId, month } = z.object({
+    const parsed = z.object({
       institutionalOrderId: z.string().uuid(),
-      month: monthSchema,
-    }).parse(req.body);
+      month: monthSchema.optional(),
+      monthStart: monthSchema.optional(),
+      monthEnd: monthSchema.optional(),
+    }).refine(
+      (v) => v.month || (v.monthStart && v.monthEnd),
+      { message: 'either month or both monthStart and monthEnd are required' },
+    ).parse(req.body);
 
-    const period = await generateBillingPeriod(institutionalOrderId, month, req.user?.userId);
-    await logAudit({ req, action: 'CREATE', entity: 'BillingPeriod', entityId: period.id, newValue: { month, totalAmount: period.totalAmount } });
+    const monthStart = parsed.monthStart ?? parsed.month!;
+    const monthEnd = parsed.monthEnd ?? parsed.month!;
+    if (monthStart > monthEnd) {
+      return res.status(400).json({ error: 'monthEnd must be >= monthStart' });
+    }
+
+    const period = await generateBillingPeriod(parsed.institutionalOrderId, monthStart, monthEnd, req.user?.userId);
+    await logAudit({ req, action: 'CREATE', entity: 'BillingPeriod', entityId: period.id, newValue: { monthStart, monthEnd, totalAmount: period.totalAmount } });
     res.json(period);
   } catch (err: any) {
+    if (err.code === 'BILLING_PERIOD_OVERLAP') {
+      return res.status(409).json({ error: err.message, code: err.code });
+    }
     if (err.message?.includes('cannot regenerate')) return res.status(409).json({ error: err.message });
     next(err);
   }
@@ -154,7 +177,8 @@ billingRouter.post('/:id/lines', managerOrAdmin, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// Update one line
+// Update one line. Editing the description sets `descriptionCustomized = true` so a
+// later `regenerate` keeps the admin's text and only refreshes quantity/unitPrice.
 billingRouter.put('/:id/lines/:lineId', managerOrAdmin, async (req, res, next) => {
   try {
     const data = z.object({
@@ -174,9 +198,17 @@ billingRouter.put('/:id/lines/:lineId', managerOrAdmin, async (req, res, next) =
     const unitPrice = data.unitPrice ?? Number(line.unitPrice);
     const total = quantity * unitPrice;
 
+    const descriptionChanged = data.description !== undefined && data.description !== line.description;
+
     const updated = await prisma.billingPeriodLine.update({
       where: { id: req.params.lineId },
-      data: { ...data, quantity, unitPrice, total },
+      data: {
+        ...data,
+        quantity,
+        unitPrice,
+        total,
+        ...(descriptionChanged ? { descriptionCustomized: true } : {}),
+      },
     });
     await recomputeTotal(req.params.id);
     res.json(updated);
@@ -241,11 +273,7 @@ billingRouter.post('/:id/unlock', adminOnly, async (req, res, next) => {
       newValue: { status: 'cancelled', unlockReason: reason },
     });
 
-    const monthLabel = (() => {
-      const months = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
-      const d = new Date(existing.month);
-      return `${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
-    })();
+    const monthLabel = formatHebrewRange(existing.monthStart, existing.monthEnd);
     const docLine = existing.morningDocNumber
       ? `מספר חשבונית במורנינג: <b>#${existing.morningDocNumber}</b>`
       : 'אין מספר חשבונית במורנינג רשום במערכת.';
@@ -411,9 +439,7 @@ billingRouter.post('/:id/send-whatsapp', managerOrAdmin, async (req, res, next) 
     if (!phone) throw new AppError(400, 'No phone number — set institution contact phone or pass phone in body');
 
     const orderName = period.institutionalOrder.orderName || 'מוסד';
-    const monthDate = new Date(period.month);
-    const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
-    const monthLabel = `${HEBREW_MONTHS[monthDate.getUTCMonth()]} ${monthDate.getUTCFullYear()}`;
+    const monthLabel = formatHebrewRange(period.monthStart, period.monthEnd);
     const totalGross = (Number(period.totalAmount) * 1.18).toFixed(2);
     const message = data.message || [
       `שלום,`,

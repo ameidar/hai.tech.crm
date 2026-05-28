@@ -3,7 +3,6 @@ import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { findOrCreateCustomer } from '../utils/lead-customer.js';
-import { initiateVapiCall } from '../services/vapi.js';
 
 export const facebookLeadsRouter = Router();
 
@@ -267,21 +266,8 @@ async function saveLead(lead: any, formId?: string) {
         console.log(`[FB] Lead ${lead.id} linked to ${isNew ? 'new' : 'existing'} customer ${customerId}`);
       }
 
-      // Trigger VAPI outbound call if we have enough info
-      if (phone && fullName) {
-        await initiateVapiCall({
-          customerId: customerId || undefined,
-          customerName: fullName,
-          customerPhone: phone,
-          customerEmail: email || undefined,
-          childName: childName || undefined,
-          interest: interest || undefined,
-          source: 'facebook',
-        });
-        console.log(`[FB] VAPI call initiated for lead ${lead.id}`);
-      }
     } catch (err) {
-      console.error('[FB] Customer linkage / VAPI error:', err);
+      console.error('[FB] Customer linkage error:', err);
     }
   }
 }

@@ -44,8 +44,6 @@ import { morningWebhookRouter } from './routes/morning-webhook.js';
 import { morningRouter } from './routes/morning.js';
 import { billingRouter } from './routes/billing.js';
 import { vapiToolsRouter } from './routes/vapi-tools.js';
-import { updateVapiAssistantDate, processPendingVapiCalls } from './services/vapi.js';
-import cron from 'node-cron';
 import { upsellLeadsRouter } from './routes/upsell-leads.js';
 import { reportsRouter } from './routes/reports.js';
 import { leadAppointmentsRouter } from './routes/lead-appointments.js';
@@ -646,17 +644,6 @@ const start = async () => {
       initEmailScheduler();
       initCancellationScheduler();
       initBillingScheduler();
-      // Update VAPI assistant date on startup + daily cron handles ongoing updates
-      updateVapiAssistantDate().catch((err: any) =>
-        console.error('[VAPI] Startup date update failed:', err)
-      );
-      // Process pending VAPI calls at 08:00 Israel time (06:00 UTC)
-      cron.schedule('0 6 * * *', () => {
-        console.log('[VAPI] Running morning pending calls cron...');
-        processPendingVapiCalls().catch((err: any) =>
-          console.error('[VAPI] processPendingVapiCalls failed:', err)
-        );
-      });
     }
 
     app.listen(config.port, () => {

@@ -31,6 +31,7 @@ interface Period {
   monthEnd: string;
   status: 'draft' | 'issued' | 'cancelled';
   totalAmount: string | number;
+  documentTitle: string | null;
   notes: string | null;
   sendByEmail: boolean;
   morningDocNumber: number | null;
@@ -182,7 +183,7 @@ export default function BillingPeriodDetail() {
     } catch (err) { handleErr(err); }
   }
 
-  async function updateNotesAndEmail(patch: { notes?: string; sendByEmail?: boolean }) {
+  async function updateNotesAndEmail(patch: { documentTitle?: string; notes?: string; sendByEmail?: boolean }) {
     setError(null);
     try {
       await api.put(`/billing/${id}`, patch);
@@ -571,10 +572,17 @@ export default function BillingPeriodDetail() {
 
       {isDraft && (
         <section className="bg-white rounded-xl border p-5 space-y-3">
-          <h2 className="font-semibold text-gray-900">הערות + הגדרות הפקה</h2>
+          <h2 className="font-semibold text-gray-900">כותרת, הערות + הגדרות הפקה</h2>
           <div>
-            <label className="form-label">הערות (יופיעו על המסמך)</label>
+            <label className="form-label">כותרת / תיאור במסמך (יופיע בחלק העליון)</label>
+            <textarea className="form-input" rows={2} defaultValue={period.documentTitle || ''}
+              placeholder="לדוגמה: תאריך 19.05.2026 — 3 קבוצות, 2 סדנאות לקבוצה"
+              onBlur={(e) => e.target.value !== (period.documentTitle || '') && updateNotesAndEmail({ documentTitle: e.target.value })} />
+          </div>
+          <div>
+            <label className="form-label">הערות בתחתית המסמך</label>
             <textarea className="form-input" rows={2} defaultValue={period.notes || ''}
+              placeholder="הערות שיופיעו בתחתית המסמך"
               onBlur={(e) => e.target.value !== (period.notes || '') && updateNotesAndEmail({ notes: e.target.value })} />
           </div>
           <label className="flex items-center gap-2 text-sm text-gray-700">

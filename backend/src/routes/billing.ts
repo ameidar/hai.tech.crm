@@ -130,10 +130,11 @@ billingRouter.post('/generate-all', managerOrAdmin, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// Update top-level fields (notes, sendByEmail) on a draft
+// Update top-level fields (documentTitle, notes, sendByEmail) on a draft
 billingRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
   try {
     const data = z.object({
+      documentTitle: z.string().optional().nullable(),
       notes: z.string().optional().nullable(),
       sendByEmail: z.boolean().optional(),
     }).parse(req.body);

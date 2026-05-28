@@ -373,6 +373,7 @@ model BillingPeriod {
   monthEnd             DateTime      @map("month_end") @db.Date
   status               BillingStatus @default(draft)
   totalAmount          Decimal       @default(0) @map("total_amount") @db.Decimal(10, 2)
+  documentTitle        String?       @map("document_title")
   notes                String?
   sendByEmail          Boolean       @default(false) @map("send_by_email")
 

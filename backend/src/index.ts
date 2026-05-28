@@ -44,7 +44,6 @@ import { morningWebhookRouter } from './routes/morning-webhook.js';
 import { morningRouter } from './routes/morning.js';
 import { billingRouter } from './routes/billing.js';
 import { vapiToolsRouter } from './routes/vapi-tools.js';
-import cron from 'node-cron';
 import { upsellLeadsRouter } from './routes/upsell-leads.js';
 import { reportsRouter } from './routes/reports.js';
 import { leadAppointmentsRouter } from './routes/lead-appointments.js';

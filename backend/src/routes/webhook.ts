@@ -6,7 +6,6 @@ import { sendWelcomeNotifications, notifyAdminNewLead } from '../services/notifi
 import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
 import { handleStatusReply } from '../services/whatsapp-reminder.service.js';
 import { logAudit } from '../utils/audit.js';
-import { initiateVapiCall } from '../services/vapi.js';
 import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
 import { meetingRevenueFromRegistrations } from '../utils/revenue.js';
 import rateLimit from 'express-rate-limit';
@@ -494,18 +493,6 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
         leadAppointmentId: lead.id,
       }).catch(err => console.error('[WEBHOOK] Failed to notify admin (existing customer):', err));
 
-      // Trigger Vapi AI call for returning customer with phone (not for WhatsApp leads)
-      if (customer.phone && source !== 'whatsapp') {
-        initiateVapiCall({
-          customerId: customer.id,
-          customerName: customer.name,
-          customerPhone: customer.phone,
-          customerEmail: customer.email || undefined,
-          childName: childName || undefined,
-          interest: interest || undefined,
-          source,
-        }).catch(err => console.error('[WEBHOOK] Failed to initiate Vapi call:', err));
-      }
 
       // Create audit log for repeat website lead activity as well
       logAudit({
@@ -622,18 +609,6 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       leadAppointmentId: lead.id,
     }).catch(err => console.error('[WEBHOOK] Failed to notify admin:', err));
 
-    // Trigger Vapi AI call for new customer with phone (not for WhatsApp leads)
-    if (customer.phone && source !== 'whatsapp') {
-      initiateVapiCall({
-        customerId: customer.id,
-        customerName: customer.name,
-        customerPhone: customer.phone,
-        customerEmail: customer.email || undefined,
-        childName: childName || undefined,
-        interest: interest || undefined,
-        source,
-      }).catch(err => console.error('[WEBHOOK] Failed to initiate Vapi call:', err));
-    }
 
     // Create audit log (includes IP + user-agent via req)
     logAudit({

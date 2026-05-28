@@ -5,23 +5,29 @@ function monthStart(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
 }
 
+/**
+ * Find the issued billing period (if any) whose range covers the meeting's scheduled month.
+ * A period covers month M when `monthStart <= M <= monthEnd` (both stored as first-of-month).
+ */
 export async function findIssuedPeriodForCycleMonth(
   cycleId: string,
   scheduledDate: Date
-): Promise<{ id: string; morningDocNumber: number | null; month: Date } | null> {
+): Promise<{ id: string; morningDocNumber: number | null; monthStart: Date; monthEnd: Date } | null> {
   const cycle = await prisma.cycle.findUnique({
     where: { id: cycleId },
     select: { institutionalOrderId: true },
   });
   if (!cycle?.institutionalOrderId) return null;
 
+  const meetingMonth = monthStart(scheduledDate);
   return prisma.billingPeriod.findFirst({
     where: {
       institutionalOrderId: cycle.institutionalOrderId,
-      month: monthStart(scheduledDate),
+      monthStart: { lte: meetingMonth },
+      monthEnd: { gte: meetingMonth },
       status: 'issued',
     },
-    select: { id: true, morningDocNumber: true, month: true },
+    select: { id: true, morningDocNumber: true, monthStart: true, monthEnd: true },
   });
 }
 

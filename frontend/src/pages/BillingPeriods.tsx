@@ -126,7 +126,7 @@ export default function BillingPeriods() {
   }
 
   useEffect(() => {
-    api.get('/institutional-orders?limit=200&withRelevantCycles=true').then(({ data }) => {
+    api.get('/institutional-orders?limit=5000&forBilling=true').then(({ data }) => {
       setOrders(data.data || data);
     }).catch(() => {});
   }, []);

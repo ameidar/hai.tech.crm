@@ -67,8 +67,11 @@ interface CycleBillingSummary {
 
 /**
  * Compute the per-cycle billing lines for a given institution and range.
- * Looks at completed meetings whose scheduledDate falls anywhere inside the range
- * and applies the cycle's pricing model.
+ * Looks at billable meetings whose scheduledDate falls anywhere inside the range
+ * and applies the cycle's pricing model. Most institutional meetings should be marked
+ * completed, but imported/legacy cycles sometimes leave already-held meetings as
+ * scheduled; include scheduled meetings whose date has already arrived so a multi-month
+ * invoice does not miss them.
  */
 async function computeBillingLines(
   institutionalOrderId: string,
@@ -76,15 +79,24 @@ async function computeBillingLines(
   monthEnd: BillingMonth,
 ): Promise<CycleBillingSummary[]> {
   const { start, endExclusive, hebrewLabel } = rangeBounds(monthStart, monthEnd);
+  const now = new Date();
+  const tomorrowUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
 
   const cycles = await prisma.cycle.findMany({
     where: { institutionalOrderId, deletedAt: null },
     include: {
       meetings: {
         where: {
-          status: 'completed',
-          scheduledDate: { gte: start, lt: endExclusive },
           deletedAt: null,
+          AND: [
+            { scheduledDate: { gte: start, lt: endExclusive } },
+            {
+              OR: [
+                { status: 'completed' },
+                { status: 'scheduled', scheduledDate: { lt: tomorrowUtc } },
+              ],
+            },
+          ],
         },
         select: { id: true },
       },

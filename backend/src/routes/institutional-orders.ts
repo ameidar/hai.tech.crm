@@ -16,6 +16,7 @@ institutionalOrdersRouter.get('/', async (req, res, next) => {
     const status = req.query.status as string | undefined;
     const withCycles = req.query.withCycles === 'true';
     const withRelevantCycles = req.query.withRelevantCycles === 'true';
+    const forBilling = req.query.forBilling === 'true';
 
     const linkedCyclesFilter = withCycles
       ? {
@@ -48,6 +49,7 @@ institutionalOrdersRouter.get('/', async (req, res, next) => {
 
     const where = {
       ...(status && { status: status as any }),
+      ...(forBilling && !status ? { status: { in: ['active', 'completed'] as const } } : {}),
       ...linkedCyclesFilter,
       ...relevantCyclesFilter,
     };

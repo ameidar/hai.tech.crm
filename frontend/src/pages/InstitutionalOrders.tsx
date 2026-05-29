@@ -99,6 +99,14 @@ const EMPTY_FORM: Partial<InstitutionalOrderData> = {
   createdBy: '',
 };
 
+export function getInstitutionalOrdersListParams(statusFilter: string, page: number) {
+  return {
+    status: statusFilter || undefined,
+    page,
+    limit: 50,
+  };
+}
+
 export default function InstitutionalOrders() {
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [searchFilter, setSearchFilter] = useState('');
@@ -121,7 +129,7 @@ export default function InstitutionalOrders() {
   const [form, setForm] = useState<Partial<InstitutionalOrderData>>(EMPTY_FORM);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const { data, isLoading } = useInstitutionalOrders({ status: statusFilter || undefined, page, limit: 50, withCycles: true });
+  const { data, isLoading } = useInstitutionalOrders(getInstitutionalOrdersListParams(statusFilter, page));
   const { data: branchesData } = useBranches();
   const branches = branchesData || [];
 

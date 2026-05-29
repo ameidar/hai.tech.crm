@@ -8,6 +8,7 @@ import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal';
+import SearchableSelect from '../components/ui/SearchableSelect';
 import type { OrderStatus } from '../types';
 
 interface InstitutionalOrderRow {
@@ -98,6 +99,14 @@ const EMPTY_FORM: Partial<InstitutionalOrderData> = {
   createdBy: '',
 };
 
+export function getInstitutionalOrdersListParams(statusFilter: string, page: number) {
+  return {
+    status: statusFilter || undefined,
+    page,
+    limit: 50,
+  };
+}
+
 export default function InstitutionalOrders() {
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [searchFilter, setSearchFilter] = useState('');
@@ -120,7 +129,7 @@ export default function InstitutionalOrders() {
   const [form, setForm] = useState<Partial<InstitutionalOrderData>>(EMPTY_FORM);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const { data, isLoading } = useInstitutionalOrders({ status: statusFilter || undefined, page, limit: 50, withCycles: true });
+  const { data, isLoading } = useInstitutionalOrders(getInstitutionalOrdersListParams(statusFilter, page));
   const { data: branchesData } = useBranches();
   const branches = branchesData || [];
 
@@ -237,7 +246,13 @@ export default function InstitutionalOrders() {
 
   const lbl = (text: string) => <label className="block text-sm font-medium text-gray-700 mb-1">{text}</label>;
 
-  const OrderForm = () => (
+  // OrderForm is intentionally inlined (not extracted into a child component) so the
+  // input elements keep stable identity across keystrokes. Defining it as
+  // `const OrderForm = () => (...)` inside this render body would re-create the
+  // component type on every setForm() call and remount every input — that's the
+  // focus-loss bug fixed here.
+  const branchOptions = branches.map((b: any) => ({ value: b.id, label: b.name }));
+  const orderForm = (
     <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
 
       {/* Section: פרטי הזמנה */}
@@ -249,10 +264,13 @@ export default function InstitutionalOrders() {
         </div>
         <div>
           {lbl('סניף')}
-          <select className="form-input w-full" value={form.branchId || ''} onChange={e => setForm(f => ({ ...f, branchId: e.target.value }))}>
-            <option value="">ללא סניף</option>
-            {branches.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
+          <SearchableSelect
+            options={branchOptions}
+            value={form.branchId || ''}
+            onChange={(v) => setForm(f => ({ ...f, branchId: v }))}
+            placeholder="ללא סניף"
+            searchPlaceholder="חפש סניף..."
+          />
         </div>
         <div>
           {lbl('גוף משלם')}
@@ -552,12 +570,12 @@ export default function InstitutionalOrders() {
 
       {/* Add Modal */}
       <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="הזמנה מוסדית חדשה">
-        <OrderForm />
+        {orderForm}
       </Modal>
 
       {/* Edit Modal */}
       <Modal isOpen={!!editItem} onClose={() => setEditItem(null)} title="עריכת הזמנה מוסדית">
-        <OrderForm />
+        {orderForm}
       </Modal>
 
       {/* Delete Confirm */}

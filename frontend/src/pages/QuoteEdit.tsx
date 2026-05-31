@@ -6,6 +6,7 @@ import { quotesApi } from '../api/quotes';
 import { fetchData } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
+import SearchableSelect from '../components/ui/SearchableSelect';
 import type { Course, Branch } from '../types';
 
 type ItemType = 'education' | 'project';
@@ -61,6 +62,18 @@ export default function QuoteEdit() {
     queryKey: ['branches'],
     queryFn: () => fetchData<Branch[]>('/branches'),
   });
+
+  const branchOptions = (branches || []).map((branch) => ({
+    value: branch.id,
+    label: branch.name,
+    sublabel: branch.city,
+  }));
+
+  const courseOptions = (courses || []).map((course) => ({
+    value: course.id,
+    label: course.name,
+    sublabel: course.category,
+  }));
 
   const updateQuote = useMutation({
     mutationFn: (data: any) => quotesApi.update(id!, data),
@@ -266,16 +279,13 @@ export default function QuoteEdit() {
                 </div>
                 <div>
                   <label className="form-label">קישור לסניף</label>
-                  <select
+                  <SearchableSelect
                     value={branchId}
-                    onChange={(e) => setBranchId(e.target.value)}
-                    className="form-input"
-                  >
-                    <option value="">ללא קישור</option>
-                    {branches?.map((branch) => (
-                      <option key={branch.id} value={branch.id}>{branch.name}</option>
-                    ))}
-                  </select>
+                    options={branchOptions}
+                    onChange={setBranchId}
+                    placeholder="ללא קישור / חפש סניף"
+                    searchPlaceholder="חפש סניף..."
+                  />
                 </div>
                 <div>
                   <label className="form-label">שם איש קשר *</label>
@@ -404,16 +414,14 @@ export default function QuoteEdit() {
                         <label className="form-label text-xs">{item.type === 'project' ? 'שם השירות / פרויקט *' : 'קורס / נושא *'}</label>
                         <div className="flex gap-2">
                           {item.type === 'education' && (
-                            <select
+                            <SearchableSelect
                               value={item.courseId}
-                              onChange={(e) => updateCourseItem(index, 'courseId', e.target.value)}
-                              className="form-input text-sm flex-1"
-                            >
-                              <option value="">בחר מהרשימה</option>
-                              {courses?.map((course) => (
-                                <option key={course.id} value={course.id}>{course.name}</option>
-                              ))}
-                            </select>
+                              options={courseOptions}
+                              onChange={(value) => updateCourseItem(index, 'courseId', value)}
+                              placeholder="חפש קורס מהרשימה"
+                              searchPlaceholder="חפש קורס..."
+                              className="flex-1"
+                            />
                           )}
                           <input
                             type="text"

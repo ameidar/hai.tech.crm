@@ -5,6 +5,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { quotesApi, type QuoteItem, type CreateQuoteData } from '../api/quotes';
 import { fetchData } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
+import SearchableSelect from '../components/ui/SearchableSelect';
 import type { Course, Branch, Customer } from '../types';
 
 const steps = [
@@ -98,6 +99,18 @@ export default function QuoteWizard() {
     enabled: institution.clientType === 'private' && customerSearch.length >= 2,
   });
   const customers = (customersData as any)?.data || customersData || [];
+
+  const branchOptions = (branches || []).map((branch) => ({
+    value: branch.id,
+    label: branch.name,
+    sublabel: [branch.city, branch.contactName].filter(Boolean).join(' · '),
+  }));
+
+  const courseOptions = (courses || []).map((course) => ({
+    value: course.id,
+    label: course.name,
+    sublabel: course.category,
+  }));
 
   const createQuote = useMutation({
     mutationFn: (data: CreateQuoteData) => quotesApi.create(data),
@@ -326,26 +339,23 @@ export default function QuoteWizard() {
                     {institution.clientType === 'institutional' && (
                       <div className="col-span-2 md:col-span-1">
                         <label className="form-label">סניף / מוסד</label>
-                        <select
+                        <SearchableSelect
                           value={institution.branchId}
-                          onChange={(e) => {
-                            const branch = branches?.find(b => b.id === e.target.value);
+                          options={branchOptions}
+                          placeholder="לקוח חדש / חפש סניף"
+                          searchPlaceholder="חפש לפי שם, עיר או איש קשר..."
+                          onChange={(value) => {
+                            const branch = branches?.find(b => b.id === value);
                             setInstitution({
                               ...institution,
-                              branchId: e.target.value,
+                              branchId: value,
                               institutionName: branch ? branch.name : institution.institutionName,
                               contactName: branch?.contactName || institution.contactName,
                               contactPhone: branch?.contactPhone || institution.contactPhone,
                               contactEmail: branch?.contactEmail || institution.contactEmail,
                             });
                           }}
-                          className="form-input"
-                        >
-                          <option value="">לקוח חדש / בחר סניף</option>
-                          {branches?.map((branch) => (
-                            <option key={branch.id} value={branch.id}>{branch.name} - {branch.city || ''}</option>
-                          ))}
-                        </select>
+                        />
                       </div>
                     )}
 
@@ -566,16 +576,14 @@ export default function QuoteWizard() {
                               <label className="form-label text-xs">{item.type === 'project' ? 'שם השירות / פרויקט *' : 'קורס / נושא *'}</label>
                               <div className="flex gap-2">
                                 {item.type === 'education' && (
-                                  <select
+                                  <SearchableSelect
                                     value={item.courseId}
-                                    onChange={(e) => updateCourseItem(index, 'courseId', e.target.value)}
-                                    className="form-input text-sm flex-1"
-                                  >
-                                    <option value="">בחר מהרשימה</option>
-                                    {courses?.map((course) => (
-                                      <option key={course.id} value={course.id}>{course.name}</option>
-                                    ))}
-                                  </select>
+                                    options={courseOptions}
+                                    onChange={(value) => updateCourseItem(index, 'courseId', value)}
+                                    placeholder="חפש קורס מהרשימה"
+                                    searchPlaceholder="חפש קורס..."
+                                    className="flex-1"
+                                  />
                                 )}
                                 <input
                                   type="text"

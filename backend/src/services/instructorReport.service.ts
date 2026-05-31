@@ -243,14 +243,25 @@ export async function buildInstructorMonthlyReport(
     const totalUnrounded = Array.from(actAgg.values()).reduce((s, v) => s + v.unroundedSubtotal, 0);
     const totalPayment = Math.floor(totalUnrounded);
 
-    // Pass 2 — distribute the (now-rounded) total back to individual meetings proportionally
-    // to each meeting's unrounded share. Last meeting absorbs any rounding remainder so the
-    // sum of per-meeting payments matches totalPayment exactly.
+    // Pass 2 — distribute the (now-rounded) total back to individual meetings fairly.
+    // Previously the last meeting absorbed the whole monthly rounding remainder, which made
+    // a normal 45-minute row jump from ₪63 to ₪94. Use largest-remainder allocation instead:
+    // every row gets floor(unrounded), then +₪1 is assigned to the rows with the largest
+    // fractional parts until the instructor's monthly total is reached.
+    const sortedRemainders = mtgs
+      .map((mtg, index) => {
+        const unrounded = perMeetingUnrounded.get(mtg.id) ?? 0;
+        return { id: mtg.id, index, remainder: unrounded - Math.floor(unrounded) };
+      })
+      .sort((a, b) => (b.remainder - a.remainder) || (a.index - b.index));
+
+    const baseFloorsTotal = mtgs.reduce((sum, mtg) => sum + Math.floor(perMeetingUnrounded.get(mtg.id) ?? 0), 0);
+    const wholeShekelRemainder = Math.max(0, Math.min(mtgs.length, totalPayment - baseFloorsTotal));
+    const remainderRecipients = new Set(sortedRemainders.slice(0, wholeShekelRemainder).map((r) => r.id));
+
     const meetingDetails: MeetingDetail[] = [];
-    let allocatedSoFar = 0;
     for (let i = 0; i < mtgs.length; i++) {
       const mtg = mtgs[i];
-      const isLast = i === mtgs.length - 1;
       const expenses: MeetingExpenseDetail[] = mtg.expenses.map((e: { type: string; amount: unknown; hours: unknown; rateType: string | null; description: string | null }) => ({
         type:        expenseTypeLabel(e.type),
         amount:      Number(e.amount),
@@ -262,8 +273,7 @@ export async function buildInstructorMonthlyReport(
 
       const rawType = (mtg.activityType ?? (mtg.cycle as { activityType?: string | null }).activityType ?? null) as string | null;
       const unrounded = perMeetingUnrounded.get(mtg.id) ?? 0;
-      const basePayment = isLast ? (totalPayment - allocatedSoFar) : Math.floor(unrounded);
-      allocatedSoFar += basePayment;
+      const basePayment = Math.floor(unrounded) + (remainderRecipients.has(mtg.id) ? 1 : 0);
 
       const revenue = Number(mtg.revenue ?? 0);
       meetingDetails.push({

@@ -14,9 +14,9 @@ reportsRouter.use(authenticate);
 reportsRouter.use(authorize('admin', 'manager'));
 
 // ─── GET /api/reports/instructors/months ──────────────────────────────────────
-// List available months (last 12)
+// List available months: current month as draft + last 12 closed months
 reportsRouter.get('/instructors/months', (_req: Request, res: Response) => {
-  const months: Array<{ value: string; label: string }> = [];
+  const months: Array<{ value: string; label: string; isDraft?: boolean }> = [];
   const now = new Date(
     new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }),
   );
@@ -25,6 +25,14 @@ reportsRouter.get('/instructors/months', (_req: Request, res: Response) => {
     'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
     'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר',
   ];
+
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  months.push({
+    value: `${currentYear}-${String(currentMonth).padStart(2, '0')}`,
+    label: `${HEBREW_MONTHS[currentMonth - 1]} ${currentYear} — טיוטה / בקרה מקדימה`,
+    isDraft: true,
+  });
 
   for (let i = 1; i <= 12; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);

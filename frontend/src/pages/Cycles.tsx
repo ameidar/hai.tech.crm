@@ -6,6 +6,7 @@ import PageHeader from '../components/ui/PageHeader';
 import Loading, { SkeletonTable } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
+import SearchableSelect from '../components/ui/SearchableSelect';
 import MeetingsExportModal from '../components/MeetingsExportModal';
 import ViewSelector from '../components/ViewSelector';
 import { cycleStatusHebrew, cycleTypeHebrew, dayOfWeekHebrew } from '../types';
@@ -429,23 +430,32 @@ export default function Cycles() {
 
           {/* Collapsible filters - hidden on mobile by default */}
           <div id="cycles-filters" className="hidden md:flex flex-wrap gap-3 items-center">
-            <div className="w-full md:w-36">
-              <select value={instructorFilter} onChange={(e) => setInstructorFilter(e.target.value)} className="form-input w-full">
-                <option value="">כל המדריכים</option>
-                {instructors?.map((instructor) => (<option key={instructor.id} value={instructor.id}>{instructor.name}</option>))}
-              </select>
+            <div className="w-full md:w-44">
+              <SearchableSelect
+                value={instructorFilter}
+                onChange={setInstructorFilter}
+                options={(instructors || []).map((instructor) => ({ value: instructor.id, label: instructor.name }))}
+                placeholder="כל המדריכים"
+                searchPlaceholder="חפש מדריך..."
+              />
             </div>
-            <div className="w-full md:w-36">
-              <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="form-input w-full">
-                <option value="">כל הסניפים</option>
-                {branches?.map((branch) => (<option key={branch.id} value={branch.id}>{branch.name}</option>))}
-              </select>
+            <div className="w-full md:w-44">
+              <SearchableSelect
+                value={branchFilter}
+                onChange={setBranchFilter}
+                options={(branches || []).map((branch) => ({ value: branch.id, label: branch.name }))}
+                placeholder="כל הסניפים"
+                searchPlaceholder="חפש סניף..."
+              />
             </div>
-            <div className="w-full md:w-36">
-              <select value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)} className="form-input w-full">
-                <option value="">כל הקורסים</option>
-                {courses?.map((course) => (<option key={course.id} value={course.id}>{course.name}</option>))}
-              </select>
+            <div className="w-full md:w-44">
+              <SearchableSelect
+                value={courseFilter}
+                onChange={setCourseFilter}
+                options={(courses || []).map((course) => ({ value: course.id, label: course.name }))}
+                placeholder="כל הקורסים"
+                searchPlaceholder="חפש קורס..."
+              />
             </div>
             <div className="w-1/2 md:w-28">
               <select value={dayFilter} onChange={(e) => setDayFilter(e.target.value as DayOfWeek | '')} className="form-input w-full">
@@ -865,6 +875,11 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!formData.courseId || !formData.branchId || !formData.instructorId) {
+      alert('יש לבחור קורס, סניף ומדריך');
+      return;
+    }
     
     // Validate VAT selection for institutional_fixed
     if (formData.type === 'institutional_fixed' && formData.includesVat === null) {
@@ -926,53 +941,38 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
 
         <div>
           <label className="form-label">קורס *</label>
-          <select
+          <SearchableSelect
             value={formData.courseId}
-            onChange={(e) => setFormData({ ...formData, courseId: e.target.value })}
-            className="form-input"
-            required
-          >
-            <option value="">בחר קורס</option>
-            {courses.map((course) => (
-              <option key={course.id} value={course.id}>
-                {course.name}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => setFormData({ ...formData, courseId: value })}
+            options={courses.map((course) => ({ value: course.id, label: course.name }))}
+            placeholder="חפש קורס"
+            searchPlaceholder="חפש קורס..."
+            allowClear={false}
+          />
         </div>
 
         <div>
           <label className="form-label">סניף *</label>
-          <select
+          <SearchableSelect
             value={formData.branchId}
-            onChange={(e) => setFormData({ ...formData, branchId: e.target.value })}
-            className="form-input"
-            required
-          >
-            <option value="">בחר סניף</option>
-            {branches.map((branch) => (
-              <option key={branch.id} value={branch.id}>
-                {branch.name}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => setFormData({ ...formData, branchId: value })}
+            options={branches.map((branch) => ({ value: branch.id, label: branch.name }))}
+            placeholder="חפש סניף"
+            searchPlaceholder="חפש סניף..."
+            allowClear={false}
+          />
         </div>
 
         <div>
           <label className="form-label">מדריך *</label>
-          <select
+          <SearchableSelect
             value={formData.instructorId}
-            onChange={(e) => setFormData({ ...formData, instructorId: e.target.value })}
-            className="form-input"
-            required
-          >
-            <option value="">בחר מדריך</option>
-            {instructors.map((instructor) => (
-              <option key={instructor.id} value={instructor.id}>
-                {instructor.name}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => setFormData({ ...formData, instructorId: value })}
+            options={instructors.map((instructor) => ({ value: instructor.id, label: instructor.name }))}
+            placeholder="חפש מדריך"
+            searchPlaceholder="חפש מדריך..."
+            allowClear={false}
+          />
         </div>
 
         <div>
@@ -1252,6 +1252,11 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!formData.courseId || !formData.branchId || !formData.instructorId) {
+      alert('יש לבחור קורס, סניף ומדריך');
+      return;
+    }
     
     // Validate VAT selection for institutional_fixed
     if (formData.type === 'institutional_fixed' && formData.includesVat === null) {
@@ -1314,53 +1319,38 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
 
         <div>
           <label className="form-label">קורס *</label>
-          <select
+          <SearchableSelect
             value={formData.courseId}
-            onChange={(e) => setFormData({ ...formData, courseId: e.target.value })}
-            className="form-input"
-            required
-          >
-            <option value="">בחר קורס</option>
-            {courses.map((course) => (
-              <option key={course.id} value={course.id}>
-                {course.name}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => setFormData({ ...formData, courseId: value })}
+            options={courses.map((course) => ({ value: course.id, label: course.name }))}
+            placeholder="חפש קורס"
+            searchPlaceholder="חפש קורס..."
+            allowClear={false}
+          />
         </div>
 
         <div>
           <label className="form-label">סניף *</label>
-          <select
+          <SearchableSelect
             value={formData.branchId}
-            onChange={(e) => setFormData({ ...formData, branchId: e.target.value })}
-            className="form-input"
-            required
-          >
-            <option value="">בחר סניף</option>
-            {branches.map((branch) => (
-              <option key={branch.id} value={branch.id}>
-                {branch.name}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => setFormData({ ...formData, branchId: value })}
+            options={branches.map((branch) => ({ value: branch.id, label: branch.name }))}
+            placeholder="חפש סניף"
+            searchPlaceholder="חפש סניף..."
+            allowClear={false}
+          />
         </div>
 
         <div>
           <label className="form-label">מדריך *</label>
-          <select
+          <SearchableSelect
             value={formData.instructorId}
-            onChange={(e) => setFormData({ ...formData, instructorId: e.target.value })}
-            className="form-input"
-            required
-          >
-            <option value="">בחר מדריך</option>
-            {instructors.map((instructor) => (
-              <option key={instructor.id} value={instructor.id}>
-                {instructor.name}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => setFormData({ ...formData, instructorId: value })}
+            options={instructors.map((instructor) => ({ value: instructor.id, label: instructor.name }))}
+            placeholder="חפש מדריך"
+            searchPlaceholder="חפש מדריך..."
+            allowClear={false}
+          />
         </div>
 
         <div>
@@ -1708,19 +1698,14 @@ function BulkEditForm({ selectedCount, instructors, courses, branches, onSubmit,
           />
           <div className="flex-1">
             <label className="form-label">מדריך</label>
-            <select
+            <SearchableSelect
               value={formData.instructorId || ''}
-              onChange={(e) => setFormData({ ...formData, instructorId: e.target.value })}
-              className="form-input"
+              onChange={(value) => setFormData({ ...formData, instructorId: value })}
+              options={instructors.map((instructor) => ({ value: instructor.id, label: instructor.name }))}
+              placeholder="חפש מדריך"
+              searchPlaceholder="חפש מדריך..."
               disabled={!enabledFields.has('instructorId')}
-            >
-              <option value="">בחר מדריך</option>
-              {instructors.map((instructor) => (
-                <option key={instructor.id} value={instructor.id}>
-                  {instructor.name}
-                </option>
-              ))}
-            </select>
+            />
           </div>
         </div>
 
@@ -1734,19 +1719,14 @@ function BulkEditForm({ selectedCount, instructors, courses, branches, onSubmit,
           />
           <div className="flex-1">
             <label className="form-label">קורס</label>
-            <select
+            <SearchableSelect
               value={formData.courseId || ''}
-              onChange={(e) => setFormData({ ...formData, courseId: e.target.value })}
-              className="form-input"
+              onChange={(value) => setFormData({ ...formData, courseId: value })}
+              options={courses.map((course) => ({ value: course.id, label: course.name }))}
+              placeholder="חפש קורס"
+              searchPlaceholder="חפש קורס..."
               disabled={!enabledFields.has('courseId')}
-            >
-              <option value="">בחר קורס</option>
-              {courses.map((course) => (
-                <option key={course.id} value={course.id}>
-                  {course.name}
-                </option>
-              ))}
-            </select>
+            />
           </div>
         </div>
 
@@ -1760,19 +1740,14 @@ function BulkEditForm({ selectedCount, instructors, courses, branches, onSubmit,
           />
           <div className="flex-1">
             <label className="form-label">סניף</label>
-            <select
+            <SearchableSelect
               value={formData.branchId || ''}
-              onChange={(e) => setFormData({ ...formData, branchId: e.target.value })}
-              className="form-input"
+              onChange={(value) => setFormData({ ...formData, branchId: value })}
+              options={branches.map((branch) => ({ value: branch.id, label: branch.name }))}
+              placeholder="חפש סניף"
+              searchPlaceholder="חפש סניף..."
               disabled={!enabledFields.has('branchId')}
-            >
-              <option value="">בחר סניף</option>
-              {branches.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
+            />
           </div>
         </div>
 

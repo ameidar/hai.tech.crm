@@ -114,11 +114,10 @@ publicCancelRouter.post('/:token', async (req, res, next) => {
     });
     if (activeCount === 0) {
       await prisma.cycle.update({ where: { id: cycleId }, data: { status: 'cancelled' } });
-      const today = new Date(); today.setHours(0, 0, 0, 0);
-      const futureMeetings = await prisma.meeting.findMany({
-        where: { cycleId, status: 'scheduled', scheduledDate: { gte: today } },
+      const meetingsToCancel = await prisma.meeting.findMany({
+        where: { cycleId, status: { not: 'cancelled' }, deletedAt: null },
       });
-      for (const m of futureMeetings) {
+      for (const m of meetingsToCancel) {
         await prisma.meeting.update({
           where: { id: m.id },
           data: { status: 'cancelled', zoomMeetingId: null, zoomJoinUrl: null, zoomStartUrl: null },

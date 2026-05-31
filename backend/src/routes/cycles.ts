@@ -384,9 +384,8 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     // Remove regenerateMeetings from updateData as it's not a Cycle field
     delete updateData.regenerateMeetings;
 
-    // If the cycle is being cancelled (transitioning into 'cancelled'), cascade to its
-    // open meetings — otherwise tomorrow morning's reminder cron will still ping
-    // instructors about a cycle that's been killed.
+    // If the cycle is being cancelled (transitioning into 'cancelled'), cascade to all
+    // of its meetings. Invariant: cancelled cycle => every meeting is cancelled too.
     const cancellingNow = data.status === 'cancelled' && existingCycle.status !== 'cancelled';
 
     const cycle = await prisma.$transaction(async (tx) => {
@@ -401,11 +400,11 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
       });
       if (cancellingNow) {
         const cascade = await tx.meeting.updateMany({
-          where: { cycleId: id, status: 'scheduled', deletedAt: null },
+          where: { cycleId: id, status: { not: 'cancelled' }, deletedAt: null },
           data: { status: 'cancelled', statusUpdatedAt: new Date(), statusUpdatedById: req.user?.userId ?? null },
         });
         if (cascade.count > 0) {
-          console.log(`[cycles.update] cascaded cancel to ${cascade.count} scheduled meetings of cycle ${id}`);
+          console.log(`[cycles.update] cascaded cancel to ${cascade.count} meetings of cycle ${id}`);
         }
       }
       return updated;
@@ -745,8 +744,9 @@ cyclesRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
       updateData.isOnline = data.activityType === 'online';
     }
 
-    // If we're bulk-cancelling, identify cycles whose meetings need to be cascaded too —
-    // skip cycles already cancelled to avoid noisy zero-row updates and duplicate audit lines.
+    // If we're bulk-cancelling, identify cycles whose meetings need to be cascaded too.
+    // Invariant: cancelled cycle => every meeting is cancelled too.
+    // Skip cycles already cancelled to avoid noisy zero-row updates and duplicate audit lines.
     const cancellingNow = data.status === 'cancelled';
     const cyclesNeedingCascade = cancellingNow
       ? (await prisma.cycle.findMany({
@@ -768,10 +768,10 @@ cyclesRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
       );
       if (cyclesNeedingCascade.length > 0) {
         const cascade = await tx.meeting.updateMany({
-          where: { cycleId: { in: cyclesNeedingCascade }, status: 'scheduled', deletedAt: null },
+          where: { cycleId: { in: cyclesNeedingCascade }, status: { not: 'cancelled' }, deletedAt: null },
           data: { status: 'cancelled', statusUpdatedAt: new Date(), statusUpdatedById: req.user?.userId ?? null },
         });
-        console.log(`[cycles.bulk-update] cascaded cancel to ${cascade.count} scheduled meetings across ${cyclesNeedingCascade.length} cycles`);
+        console.log(`[cycles.bulk-update] cascaded cancel to ${cascade.count} meetings across ${cyclesNeedingCascade.length} cycles`);
       }
       return cycles;
     });

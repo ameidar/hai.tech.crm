@@ -221,6 +221,17 @@ export default function QuoteDetail() {
               תצוגה מקדימה
             </a>
 
+            <a
+              href={`${publicUrl}?pdf=1`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-secondary"
+              title="פתיחת ההצעה במצב PDF להדפסה/שמירה"
+            >
+              <Download size={16} />
+              ייצוא PDF
+            </a>
+
             {/* Edit - always available for draft/sent */}
             {(quote.status === 'draft' || quote.status === 'sent') && (
               <Link to={`/quotes/${id}/edit`} className="btn btn-secondary">

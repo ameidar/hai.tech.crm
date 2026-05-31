@@ -73,6 +73,18 @@ export default function PublicQuoteView() {
       .finally(() => setLoading(false));
   }, [id]);
 
+  useEffect(() => {
+    if (!quote) return;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('pdf') && !params.has('print')) return;
+
+    const timeout = window.setTimeout(() => {
+      window.print();
+    }, 600);
+
+    return () => window.clearTimeout(timeout);
+  }, [quote]);
+
   const handleResponse = async (action: 'accept' | 'reject') => {
     if (!id) return;
     setSubmitting(true);
@@ -120,7 +132,28 @@ export default function PublicQuoteView() {
   const alreadyResponded = responseStatus !== null;
 
   return (
-    <div className="min-h-screen bg-gray-50" dir="rtl">
+    <div className="min-h-screen bg-gray-50 print-page" dir="rtl">
+      <style>{`
+        @media print {
+          @page { size: A4; margin: 12mm; }
+          body { background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .no-print { display: none !important; }
+          .print-page { background: #fff !important; }
+          .print-card { box-shadow: none !important; break-inside: avoid; page-break-inside: avoid; }
+          .print-section { padding-top: 12px !important; padding-bottom: 12px !important; }
+          header, section, footer { break-inside: avoid; }
+        }
+      `}</style>
+
+      <div className="no-print fixed bottom-5 left-5 z-50 flex flex-col gap-2">
+        <button
+          onClick={() => window.print()}
+          className="bg-blue-600 text-white font-bold px-5 py-3 rounded-xl shadow-lg hover:bg-blue-700 transition-colors"
+        >
+          📄 הורד / שמור PDF
+        </button>
+      </div>
+
       {/* Header */}
       <header className="bg-gradient-to-l from-blue-600 via-blue-700 to-cyan-600 text-white">
         <div className="max-w-5xl mx-auto px-4 py-6 flex items-center justify-between">
@@ -153,7 +186,7 @@ export default function PublicQuoteView() {
 
       {/* Video */}
       {(videoUrl || vimeoUrl) && (
-        <section className="max-w-5xl mx-auto px-4 py-8">
+        <section className="no-print max-w-5xl mx-auto px-4 py-8">
           <div className="bg-black rounded-2xl overflow-hidden shadow-2xl">
             {vimeoUrl ? (
               <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
@@ -180,8 +213,8 @@ export default function PublicQuoteView() {
       )}
 
       {/* About */}
-      <section className="max-w-5xl mx-auto px-4 py-12 md:py-16">
-        <div className="bg-white rounded-2xl shadow-lg p-8 md:p-12 border border-gray-100">
+      <section className="max-w-5xl mx-auto px-4 py-12 md:py-16 print-section">
+        <div className="bg-white rounded-2xl shadow-lg p-8 md:p-12 border border-gray-100 print-card">
           <h3 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
             <span className="w-8 h-1 bg-gradient-to-l from-blue-600 to-cyan-500 rounded-full inline-block"></span>
             מי אנחנו
@@ -195,13 +228,13 @@ export default function PublicQuoteView() {
       </section>
 
       {/* Services / Items */}
-      <section className="max-w-5xl mx-auto px-4 pb-12 md:pb-16">
+      <section className="max-w-5xl mx-auto px-4 pb-12 md:pb-16 print-section">
         <h3 className="text-2xl font-bold text-gray-800 mb-8 text-center">מה כלול בהצעה</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {quote.items.map((item, idx) => (
             <div
               key={item.id || idx}
-              className="bg-white rounded-2xl shadow-md border border-gray-100 p-6 hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
+              className="bg-white rounded-2xl shadow-md border border-gray-100 p-6 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 print-card"
             >
               <div className="flex items-start gap-4">
                 <div className="w-12 h-12 rounded-xl bg-gradient-to-bl from-blue-500 to-cyan-400 flex items-center justify-center flex-shrink-0">
@@ -232,8 +265,8 @@ export default function PublicQuoteView() {
       </section>
 
       {/* Pricing */}
-      <section className="max-w-5xl mx-auto px-4 pb-12 md:pb-16">
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+      <section className="max-w-5xl mx-auto px-4 pb-12 md:pb-16 print-section">
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden print-card">
           <div className="bg-gradient-to-l from-blue-600 to-cyan-500 text-white px-8 py-4">
             <h3 className="text-xl font-bold">סיכום מחירים</h3>
           </div>
@@ -284,8 +317,8 @@ export default function PublicQuoteView() {
 
       {/* AI Content */}
       {contentText && (
-        <section className="max-w-5xl mx-auto px-4 pb-12 md:pb-16">
-          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 md:p-12">
+        <section className="max-w-5xl mx-auto px-4 pb-12 md:pb-16 print-section">
+          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 md:p-12 print-card">
             <h3 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
               <span className="w-8 h-1 bg-gradient-to-l from-blue-600 to-cyan-500 rounded-full inline-block"></span>
               פרטים נוספים
@@ -309,8 +342,8 @@ export default function PublicQuoteView() {
 
       {/* Terms */}
       {(quote.cancellationTerms || quote.paymentTerms) && (
-        <section className="max-w-5xl mx-auto px-4 pb-12 md:pb-16">
-          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 md:p-12">
+        <section className="max-w-5xl mx-auto px-4 pb-12 md:pb-16 print-section">
+          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 md:p-12 print-card">
             <h3 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
               <span className="w-8 h-1 bg-gradient-to-l from-blue-600 to-cyan-500 rounded-full inline-block"></span>
               תנאים
@@ -334,8 +367,8 @@ export default function PublicQuoteView() {
       )}
 
       {/* Company Stamp */}
-      <section className="max-w-5xl mx-auto px-4 pb-12 md:pb-16">
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 text-center">
+      <section className="max-w-5xl mx-auto px-4 pb-12 md:pb-16 print-section">
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 text-center print-card">
           <div className="inline-block border-2 border-gray-300 rounded-xl px-8 py-4">
             <p className="text-xl font-bold text-gray-800">דרך ההייטק בע״מ</p>
             <p className="text-sm text-gray-500 mt-1">חינוך טכנולוגי מתקדם</p>
@@ -344,7 +377,7 @@ export default function PublicQuoteView() {
       </section>
 
       {/* CTA / Response Section */}
-      <section className="max-w-5xl mx-auto px-4 pb-12 md:pb-16">
+      <section className="no-print max-w-5xl mx-auto px-4 pb-12 md:pb-16">
         {alreadyResponded ? (
           <div className={`rounded-2xl p-10 md:p-16 text-center shadow-xl ${
             responseStatus === 'accepted'

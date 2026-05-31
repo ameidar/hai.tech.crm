@@ -10,6 +10,7 @@ import { prisma } from '../utils/prisma.js';
 import { meetingRevenueFromRegistrations } from '../utils/revenue.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
 import { sendWhatsApp, sendWhatsAppPoll } from './messaging.js';
+import { handleCycleCompletion } from './cycle-completion.js';
 import { generateMeetingMagicLink } from './instructor-reminder.service.js';
 
 const APP_URL = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
@@ -391,7 +392,7 @@ async function recalculateCompletedMeetingFinancials(meetingId: string): Promise
 
   if (!meeting) return;
 
-  await syncCycleProgress(meeting.cycleId);
+  const { remainingMeetings } = await syncCycleProgress(meeting.cycleId);
 
   if (meeting.status !== 'completed') return;
 
@@ -451,6 +452,10 @@ async function recalculateCompletedMeetingFinancials(meetingId: string): Promise
     where: { id: meetingId },
     data: { revenue, instructorPayment, profit },
   });
+
+  if (remainingMeetings <= 0 && !['completed', 'cancelled'].includes(cycleData.status)) {
+    await handleCycleCompletion(meeting.cycleId);
+  }
 
   console.log(`[WhatsApp] Meeting ${meetingId} financials recalculated after status reply: revenue=${revenue}, instructorPayment=${instructorPayment}, profit=${profit}`);
 }

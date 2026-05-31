@@ -496,6 +496,7 @@ export default function Reports() {
     from: dateRange.from,
     to: dateRange.to,
     branchId: branchFilter || undefined,
+    limit: 5000,
   });
   const { data: cycles, isLoading: loadingCycles } = useCycles({ 
     status: 'active',
@@ -511,6 +512,8 @@ export default function Reports() {
         completedMeetings: 0,
         cancelledMeetings: 0,
         totalRevenue: 0,
+        instructorPayments: 0,
+        additionalExpenses: 0,
         totalCosts: 0,
         profit: 0,
       };
@@ -519,13 +522,22 @@ export default function Reports() {
     const completed = meetings.filter((m) => m.status === 'completed');
     const cancelled = meetings.filter((m) => m.status === 'cancelled');
     const totalRevenue = completed.reduce((sum, m) => sum + Number(m.revenue || 0), 0);
-    const totalCosts = completed.reduce((sum, m) => sum + Number(m.instructorPayment || 0), 0);
+    const instructorPayments = completed.reduce((sum, m) => sum + Number(m.instructorPayment || 0), 0);
+    const meetingExpenses = completed.reduce(
+      (sum, m) => sum + (m.expenses || []).reduce((s, e) => s + Number(e.amount || 0), 0),
+      0,
+    );
+    const cycleExpenses = completed.reduce((sum, m) => sum + Number(m.cycleExpenseShare || 0), 0);
+    const additionalExpenses = meetingExpenses + cycleExpenses;
+    const totalCosts = instructorPayments + additionalExpenses;
 
     return {
       totalMeetings: meetings.length,
       completedMeetings: completed.length,
       cancelledMeetings: cancelled.length,
       totalRevenue,
+      instructorPayments,
+      additionalExpenses,
       totalCosts,
       profit: totalRevenue - totalCosts,
     };
@@ -803,9 +815,12 @@ export default function Reports() {
               <div className="bg-white rounded-lg p-6 shadow">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-500">הוצאות</p>
+                    <p className="text-sm text-gray-500">סה״כ עלויות</p>
                     <p className="text-3xl font-bold text-gray-900">
                       ₪{stats.totalCosts.toLocaleString()}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      מדריכים ₪{stats.instructorPayments.toLocaleString()} + נוספות ₪{stats.additionalExpenses.toLocaleString()}
                     </p>
                   </div>
                   <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
@@ -817,7 +832,7 @@ export default function Reports() {
               <div className="bg-white rounded-lg p-6 shadow">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-gray-500">רווח</p>
+                    <p className="text-sm text-gray-500">רווח אחרי הוצאות</p>
                     <p className={`text-3xl font-bold ${stats.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                       ₪{stats.profit.toLocaleString()}
                     </p>

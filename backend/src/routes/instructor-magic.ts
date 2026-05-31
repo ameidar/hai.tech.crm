@@ -16,7 +16,9 @@ import {
 import { authenticate, adminOnly } from '../middleware/auth.js';
 import { sendWhatsAppMessage } from '../services/notifications.js';
 import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
+import { handleCycleCompletion } from '../services/cycle-completion.js';
 import { meetingRevenueFromRegistrations } from '../utils/revenue.js';
+import { syncCycleProgress } from '../utils/cycle-sync.js';
 
 // WhatsApp group for pending meeting requests (postponements, cancellations)
 const ADMIN_PHONE = '120363353459332838@g.us';
@@ -316,16 +318,12 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
             data: { revenue, instructorPayment, profit },
           });
 
-          // Update cycle counters
-          const updatedCompleted = cycleData.completedMeetings + 1;
-          const newRemainingMeetings = cycleData.totalMeetings - updatedCompleted;
-          await prisma.cycle.update({
-            where: { id: meeting.cycleId },
-            data: {
-              completedMeetings: updatedCompleted,
-              remainingMeetings: newRemainingMeetings,
-            },
-          });
+          // Sync counters from actual meetings. If this instructor report completed the
+          // last required meeting, trigger the same cycle-completion flow as admin updates.
+          const { remainingMeetings } = await syncCycleProgress(meeting.cycleId);
+          if (meeting.status !== 'completed' && remainingMeetings <= 0 && !['completed', 'cancelled'].includes(cycleData.status)) {
+            await handleCycleCompletion(meeting.cycleId);
+          }
         }
       } catch (finErr) {
         console.error('Failed to calculate financials after instructor update:', finErr);

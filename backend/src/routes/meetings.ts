@@ -127,6 +127,10 @@ meetingsRouter.get('/', async (req, res, next) => {
             },
           },
           instructor: { select: { id: true, name: true, phone: true } },
+          expenses: {
+            where: { status: 'approved' },
+            select: { id: true, type: true, amount: true, description: true, status: true },
+          },
           _count: { select: { attendance: true } },
           changeRequests: {
             where: { status: 'pending' },

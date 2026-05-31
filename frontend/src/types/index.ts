@@ -210,6 +210,15 @@ export interface Meeting {
   revenue: number;
   instructorPayment: number;
   profit: number;
+  adjustedProfit?: number;
+  cycleExpenseShare?: number;
+  expenses?: {
+    id: string;
+    type: string;
+    amount: number;
+    description?: string;
+    status?: string;
+  }[];
   activityType?: ActivityType;
   topic?: string;
   notes?: string;

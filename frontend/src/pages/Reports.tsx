@@ -59,7 +59,7 @@ interface UnresolvedMeeting {
   instructorName: string;
   cycleName: string;
 }
-interface MonthOption { value: string; label: string; }
+interface MonthOption { value: string; label: string; isDraft?: boolean; }
 
 // ─── Instructor Report Tab ─────────────────────────────────────────────────────
 
@@ -203,7 +203,7 @@ function InstructorReportTab() {
 
         <p className="mt-3 text-xs text-gray-400">
           📅 הדוח נשלח אוטומטית ב-1 לכל חודש בשעה 08:00 לגבי החודש הקודם.
-          כאן ניתן לשלוח ידנית לפי בחירה.
+          החודש הנוכחי מופיע כטיוטה לבקרה מקדימה וכולל פגישות שהושלמו + פגישות ללא סטטוס לבדיקה.
         </p>
       </div>
 

@@ -333,15 +333,8 @@ async function resolveMorningClient(
     morningClientId: string | null;
   }
 ): Promise<{ client: MorningClient; discoveredId: string | null }> {
-  const payingBodyName = order.payingBody?.trim() || null;
-
-  // 1. Already linked — trust it, unless a paying body is set.
-  // For institutional billing, `payingBody` is the customer-facing "לכבוד" name.
-  // Sending only Morning's client id makes Morning render the stored client name,
-  // which can be the internal/order name (e.g. the branch/program). When a paying
-  // body exists, prefer resolving/sending by that name so the document addressee
-  // comes from CRM.
-  if (order.morningClientId && !payingBodyName) {
+  // 1. Already linked — trust it.
+  if (order.morningClientId) {
     return { client: { id: order.morningClientId }, discoveredId: null };
   }
 
@@ -364,7 +357,7 @@ async function resolveMorningClient(
 
   // 3. Fallback: send full client details with `add: true` so Morning upserts.
   const client: MorningClient = {
-    name: payingBodyName || order.orderName || order.branch?.name || 'מוסד',
+    name: order.orderName || order.branch?.name || 'מוסד',
     taxId: order.taxId || undefined,
     emails: order.contactEmail ? [order.contactEmail] : undefined,
     phone: order.contactPhone || undefined,

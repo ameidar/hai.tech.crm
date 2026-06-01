@@ -14,6 +14,7 @@ interface Line {
   unitPrice: string | number;
   total: string | number;
   sortOrder: number;
+  cycle?: { revenueIncludesVat: boolean | null } | null;
 }
 
 interface Payment {
@@ -85,6 +86,24 @@ interface DriftReport {
 }
 
 const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+
+function formatCurrency(amount: number) {
+  return amount.toLocaleString('he-IL', { style: 'currency', currency: 'ILS' });
+}
+
+function billingTotals(lines: Line[], fallbackTotal: string | number) {
+  const hasLines = lines.length > 0;
+  const vatIncluded = lines.filter((line) => line.cycle?.revenueIncludesVat === true)
+    .reduce((sum, line) => sum + Number(line.total || 0), 0);
+  const vatExcluded = lines.filter((line) => line.cycle?.revenueIncludesVat !== true)
+    .reduce((sum, line) => sum + Number(line.total || 0), 0);
+  const base = hasLines ? vatIncluded + vatExcluded : Number(fallbackTotal || 0);
+  const vatToAdd = vatExcluded * 0.18;
+  const totalDue = hasLines ? vatIncluded + vatExcluded + vatToAdd : Number(fallbackTotal || 0) * 1.18;
+  const allVatIncluded = hasLines && vatExcluded === 0;
+  const allVatExcluded = hasLines && vatIncluded === 0;
+  return { vatIncluded, vatExcluded, base, vatToAdd, totalDue, allVatIncluded, allVatExcluded };
+}
 
 function rangeLabel(startIso: string, endIso: string) {
   const s = new Date(startIso);
@@ -302,7 +321,7 @@ export default function BillingPeriodDetail() {
     setWaPhone(phone);
     const orderName = period.institutionalOrder.orderName || 'מוסד';
     const monthLbl = rangeLabel(period.monthStart, period.monthEnd);
-    const totalGross = (Number(period.totalAmount) * 1.18).toFixed(2);
+    const totalGross = billingTotals(period.lines, period.totalAmount).totalDue.toFixed(2);
     setWaMessage([
       `שלום,`,
       `מצורף חשבון עסקה מספר ${period.morningDocNumber} עבור ${orderName} — ${monthLbl}.`,
@@ -344,6 +363,7 @@ export default function BillingPeriodDetail() {
   const isDraft = period.status === 'draft';
   const order = period.institutionalOrder;
   const missingTaxId = !order.taxId;
+  const totals = billingTotals(period.lines, period.totalAmount);
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
@@ -528,15 +548,33 @@ export default function BillingPeriodDetail() {
             )}
           </tbody>
           <tfoot className="font-bold">
-            <tr><td colSpan={isDraft ? 3 : 2} className="p-3 text-left">סה״כ נטו (ללא מע״מ):</td>
-                <td className="p-3">{Number(period.totalAmount).toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}</td>
-                {isDraft && <td/>}</tr>
-            <tr className="text-gray-600"><td colSpan={isDraft ? 3 : 2} className="p-3 text-left">+ מע״מ 18%:</td>
-                <td className="p-3">{(Number(period.totalAmount) * 0.18).toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}</td>
-                {isDraft && <td/>}</tr>
-            <tr className="text-base"><td colSpan={isDraft ? 3 : 2} className="p-3 text-left">סה״כ לתשלום:</td>
-                <td className="p-3">{(Number(period.totalAmount) * 1.18).toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}</td>
-                {isDraft && <td/>}</tr>
+            {totals.allVatIncluded ? (
+              <>
+                <tr><td colSpan={isDraft ? 3 : 2} className="p-3 text-left">סה״כ (כולל מע״מ):</td>
+                    <td className="p-3">{formatCurrency(totals.totalDue)}</td>
+                    {isDraft && <td/>}</tr>
+                <tr className="text-gray-600 font-medium"><td colSpan={isDraft ? 3 : 2} className="p-3 text-left">מתוכו מע״מ 18%:</td>
+                    <td className="p-3">{formatCurrency(totals.totalDue - (totals.totalDue / 1.18))}</td>
+                    {isDraft && <td/>}</tr>
+              </>
+            ) : (
+              <>
+                <tr><td colSpan={isDraft ? 3 : 2} className="p-3 text-left">{totals.allVatExcluded ? 'סה״כ נטו (ללא מע״מ):' : 'סה״כ שורות:'}</td>
+                    <td className="p-3">{formatCurrency(totals.base)}</td>
+                    {isDraft && <td/>}</tr>
+                {!totals.allVatExcluded && totals.vatIncluded > 0 && (
+                  <tr className="text-gray-600 font-medium"><td colSpan={isDraft ? 3 : 2} className="p-3 text-left">מתוכן שורות כוללות מע״מ:</td>
+                      <td className="p-3">{formatCurrency(totals.vatIncluded)}</td>
+                      {isDraft && <td/>}</tr>
+                )}
+                <tr className="text-gray-600"><td colSpan={isDraft ? 3 : 2} className="p-3 text-left">+ מע״מ 18%:</td>
+                    <td className="p-3">{formatCurrency(totals.vatToAdd)}</td>
+                    {isDraft && <td/>}</tr>
+                <tr className="text-base"><td colSpan={isDraft ? 3 : 2} className="p-3 text-left">סה״כ לתשלום:</td>
+                    <td className="p-3">{formatCurrency(totals.totalDue)}</td>
+                    {isDraft && <td/>}</tr>
+              </>
+            )}
           </tfoot>
         </table>
       </section>
@@ -639,11 +677,11 @@ export default function BillingPeriodDetail() {
           <div className="text-sm text-gray-600">
             שולם: <b>{Number(period.paidAmount).toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}</b>
             {' '}מתוך{' '}
-            <b>{(Number(period.totalAmount) * 1.18).toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}</b>
+            <b>{formatCurrency(totals.totalDue)}</b>
             {' '}(כולל מע"מ)
-            {Number(period.paidAmount) > 0 && Number(period.paidAmount) < Number(period.totalAmount) * 1.18 && (
+            {Number(period.paidAmount) > 0 && Number(period.paidAmount) < totals.totalDue && (
               <span className="text-amber-700 mr-2">
-                · יתרה: {((Number(period.totalAmount) * 1.18) - Number(period.paidAmount)).toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}
+                · יתרה: {formatCurrency(totals.totalDue - Number(period.paidAmount))}
               </span>
             )}
           </div>

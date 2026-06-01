@@ -256,14 +256,20 @@ export async function buildInstructorMonthlyReport(
   const cycleExpensesRaw = await prisma.cycleExpense.findMany({
     where: {
       paymentDate: { gte: from, lt: to },
-      instructorId: { not: null },
     },
     include: {
       instructor: true,
-      cycle: { select: { name: true } },
+      cycle: { select: { name: true, instructorId: true, instructor: true } },
     },
     orderBy: { paymentDate: 'asc' },
   });
+
+  // A cycle expense without an explicit instructor is attributed to the cycle's
+  // primary instructor — that is who the cycle (and its costs) is paid to.
+  const effectiveInstructorId = (e: typeof cycleExpensesRaw[number]) =>
+    e.instructorId ?? e.cycle.instructorId;
+  const effectiveInstructor = (e: typeof cycleExpensesRaw[number]) =>
+    e.instructor ?? e.cycle.instructor;
 
   const toCycleExpenseDetail = (e: typeof cycleExpensesRaw[number]): CycleExpenseDetail => ({
     id:          e.id,
@@ -281,10 +287,11 @@ export async function buildInstructorMonthlyReport(
   // Group cycle expenses by instructor, keeping instructor info for entries with no meetings.
   const cycleExpensesByInstructor = new Map<string, { instructor: typeof cycleExpensesRaw[number]['instructor']; expenses: typeof cycleExpensesRaw }>();
   for (const e of cycleExpensesRaw) {
-    if (!e.instructorId) continue;
-    const entry = cycleExpensesByInstructor.get(e.instructorId) ?? { instructor: e.instructor, expenses: [] as typeof cycleExpensesRaw };
+    const insId = effectiveInstructorId(e);
+    if (!insId) continue;
+    const entry = cycleExpensesByInstructor.get(insId) ?? { instructor: effectiveInstructor(e), expenses: [] as typeof cycleExpensesRaw };
     entry.expenses.push(e);
-    cycleExpensesByInstructor.set(e.instructorId, entry);
+    cycleExpensesByInstructor.set(insId, entry);
   }
 
   // 2. Group by instructor

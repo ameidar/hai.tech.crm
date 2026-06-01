@@ -43,6 +43,7 @@ export interface InstructorReportData {
   instructorId: string;
   instructorName: string;
   instructorEmail: string | null;
+  employmentType: 'employee' | 'freelancer' | string | null;
   meetings: MeetingDetail[];
   byActivityType: ActivityTypeSummary[]; // breakdown by type
   totalMeetings: number;
@@ -50,6 +51,12 @@ export interface InstructorReportData {
   totalPayment: number;
   totalExpenses: number;
   grandTotal: number;
+}
+
+export interface FixedManagementSalary {
+  name: string;
+  role: string;
+  amount: number;
 }
 
 export interface UnresolvedMeeting {
@@ -67,6 +74,8 @@ export interface InstructorMonthlyReport {
   monthLabel: string; // "פברואר 2026"
   generatedAt: Date;
   instructors: InstructorReportData[];
+  fixedManagementSalaries: FixedManagementSalary[];
+  summaryTotalFixedSalaries: number;
   summaryTotalPayment: number;
   summaryTotalExpenses: number;
   summaryGrandTotal: number;
@@ -161,6 +170,19 @@ export const activityLabel = (t: string | null) =>
 export const expenseTypeLabel = (t: string) =>
   EXPENSE_TYPE_LABELS[t] ?? t;
 
+const FIXED_MANAGEMENT_SALARIES: FixedManagementSalary[] = [
+  { name: 'אור יוסף אשטמקר', role: 'הנהלה / מדריך קבוע', amount: 10_000 },
+  { name: 'הילה', role: 'הנהלה', amount: 11_100 },
+];
+
+const FIXED_MANAGEMENT_INSTRUCTOR_MATCHERS = [
+  'אור יוסף',
+  'אור המדריך',
+];
+
+const isFixedManagementInstructor = (name: string) =>
+  FIXED_MANAGEMENT_INSTRUCTOR_MATCHERS.some((matcher) => name.includes(matcher));
+
 // ─── Main service ─────────────────────────────────────────────────────────────
 
 /**
@@ -211,6 +233,9 @@ export async function buildInstructorMonthlyReport(
 
   for (const [instructorId, mtgs] of byInstructor) {
     const instr = mtgs[0].instructor as InstructorWithRates;
+    if (isFixedManagementInstructor(instr.name)) {
+      continue;
+    }
     const isEmployee = instr.employmentType === 'employee';
 
     // Pass 1 — aggregate hours and per-meeting unrounded share by activityType.
@@ -315,6 +340,7 @@ export async function buildInstructorMonthlyReport(
       instructorId,
       instructorName:  instr.name,
       instructorEmail: instr.email ?? null,
+      employmentType:  instr.employmentType ?? null,
       meetings:        meetingDetails,
       byActivityType,
       totalMeetings:   meetingDetails.length,
@@ -326,6 +352,8 @@ export async function buildInstructorMonthlyReport(
   }
 
   // 4. Grand totals
+  const fixedManagementSalaries = FIXED_MANAGEMENT_SALARIES;
+  const summaryTotalFixedSalaries = fixedManagementSalaries.reduce((s, i) => s + i.amount, 0);
   const summaryTotalPayment  = instructors.reduce((s, i) => s + i.totalPayment, 0);
   const summaryTotalExpenses = instructors.reduce((s, i) => s + i.totalExpenses, 0);
 
@@ -358,9 +386,11 @@ export async function buildInstructorMonthlyReport(
     monthLabel: getMonthLabel(month),
     generatedAt: new Date(),
     instructors,
+    fixedManagementSalaries,
+    summaryTotalFixedSalaries,
     summaryTotalPayment,
     summaryTotalExpenses,
-    summaryGrandTotal: summaryTotalPayment + summaryTotalExpenses,
+    summaryGrandTotal: summaryTotalPayment + summaryTotalExpenses + summaryTotalFixedSalaries,
     unresolvedMeetings,
   };
 }

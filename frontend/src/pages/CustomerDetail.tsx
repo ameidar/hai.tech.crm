@@ -1836,6 +1836,11 @@ function QuickCycleForm({ onClose, onCreated }: QuickCycleFormProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      if (!formData.branchId) {
+        alert('חובה לבחור סניף למחזור חדש');
+        return;
+      }
+
       // Calculate duration in minutes from start and end time
       const [startHour, startMin] = formData.startTime.split(':').map(Number);
       const [endHour, endMin] = formData.endTime.split(':').map(Number);

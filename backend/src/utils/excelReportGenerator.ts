@@ -57,6 +57,11 @@ const dateKey = (date: Date | string): string => {
   return d.toISOString().slice(0, 10);
 };
 
+const employmentTypeLabel = (employmentType: string | null | undefined) =>
+  employmentType === 'employee' ? 'מדריך שעתי' : 'פרילנסר';
+
+const missingLocationLabel = '⚠ חסר סניף/עיר';
+
 // ─── Summary sheet ────────────────────────────────────────────────────────────
 
 function buildSummarySheet(
@@ -67,7 +72,7 @@ function buildSummarySheet(
   ws.properties.defaultRowHeight = 22;
 
   // ── Title ──────────────────────────────────────────────────────────────────
-  ws.mergeCells('A1:F1');
+  ws.mergeCells('A1:H1');
   const titleCell = ws.getCell('A1');
   titleCell.value = `דוח פעילות מדריכים — ${report.monthLabel}`;
   titleCell.font  = font({ size: 16, bold: true, color: { argb: 'FF' + HEADER_FG } });
@@ -77,7 +82,7 @@ function buildSummarySheet(
   ws.getRow(1).height = 36;
 
   // ── Sub-title ──────────────────────────────────────────────────────────────
-  ws.mergeCells('A2:F2');
+  ws.mergeCells('A2:H2');
   const sub = ws.getCell('A2');
   sub.value = `הופק: ${report.generatedAt.toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' })}`;
   sub.font  = font({ size: 10, italic: true, color: { argb: 'FF6B7280' } });
@@ -85,12 +90,13 @@ function buildSummarySheet(
   ws.getRow(2).height = 18;
 
   // ── Headers ────────────────────────────────────────────────────────────────
-  const COLS = ['מדריך', 'פגישות', 'שעות', 'תשלום פגישות', 'הוצאות נוספות', 'סה"כ לתשלום'];
+  const COLS = ['סוג', 'מדריך / תפקיד', 'פגישות', 'שעות', 'תשלום פגישות', 'הוצאות נוספות', 'סה"כ לתשלום'];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (ws.getRow(3) as any).values = ['', ...COLS]; // col A is spacer
   ws.columns = [
     { key: 'spacer',   width: 3 },
-    { key: 'name',     width: 24 },
+    { key: 'type',     width: 16 },
+    { key: 'name',     width: 28 },
     { key: 'meetings', width: 10 },
     { key: 'hours',    width: 10 },
     { key: 'payment',  width: 18 },
@@ -109,10 +115,23 @@ function buildSummarySheet(
 
   // ── Data rows ──────────────────────────────────────────────────────────────
   let row = 4;
-  for (const instr of report.instructors) {
+
+  const addSectionTitle = (title: string, count: number) => {
+    ws.mergeCells(`B${row}:H${row}`);
+    const r = ws.getRow(row++);
+    r.height = 24;
+    r.getCell(2).value = `${title} (${count})`;
+    r.getCell(2).font = font({ bold: true, color: { argb: 'FF1E3A8A' } });
+    r.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } };
+    r.getCell(2).alignment = { ...center };
+    r.getCell(2).border = border;
+  };
+
+  const addInstructorRow = (instr: InstructorMonthlyReport['instructors'][number]) => {
     const r = ws.getRow(row++);
     r.values = [
       '',
+      employmentTypeLabel(instr.employmentType),
       instr.instructorName,
       instr.totalMeetings,
       instr.totalHours,
@@ -121,13 +140,13 @@ function buildSummarySheet(
       instr.grandTotal,
     ];
     r.height = 22;
-    r.getCell(2).font = font({ bold: true });
-    r.getCell(2).alignment = { ...right };
-    [3, 4].forEach(c => {
+    r.getCell(3).font = font({ bold: true });
+    r.getCell(3).alignment = { ...right };
+    [4, 5].forEach(c => {
       r.getCell(c).numFmt    = hoursFmt;
       r.getCell(c).alignment = { ...center };
     });
-    [5, 6, 7].forEach(c => {
+    [6, 7, 8].forEach(c => {
       r.getCell(c).numFmt    = moneyFmt;
       r.getCell(c).alignment = { ...center };
     });
@@ -140,10 +159,35 @@ function buildSummarySheet(
         fgColor: { argb: row % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF' },
       };
     });
+  };
+
+  const employees = report.instructors.filter(i => i.employmentType === 'employee');
+  const freelancers = report.instructors.filter(i => i.employmentType !== 'employee');
+
+  addSectionTitle('מדריכים שעתיים', employees.length);
+  employees.forEach(addInstructorRow);
+  addSectionTitle('פרילנסרים', freelancers.length);
+  freelancers.forEach(addInstructorRow);
+
+  addSectionTitle('שכר קבוע הנהלה', report.fixedManagementSalaries.length);
+  for (const item of report.fixedManagementSalaries) {
+    const r = ws.getRow(row++);
+    r.values = ['', 'שכר קבוע', `${item.name} — ${item.role}`, '', '', item.amount, '', item.amount];
+    r.height = 22;
+    r.getCell(3).font = font({ bold: true });
+    [6, 8].forEach(c => {
+      r.getCell(c).numFmt    = moneyFmt;
+      r.getCell(c).alignment = { ...center };
+    });
+    r.eachCell({ includeEmpty: true }, (cell, col) => {
+      if (col < 2) return;
+      cell.border = border;
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } };
+    });
   }
 
   // ── Grand total row ────────────────────────────────────────────────────────
-  ws.mergeCells(`B${row}:D${row}`);
+  ws.mergeCells(`B${row}:E${row}`);
   const totalRow = ws.getRow(row);
   totalRow.height = 28;
   totalRow.getCell(2).value     = 'סה"כ כולל';
@@ -152,9 +196,9 @@ function buildSummarySheet(
   totalRow.getCell(2).alignment = { ...center };
   totalRow.getCell(2).border    = thickBorder;
 
-  [5, 6, 7].forEach((col, i) => {
+  [6, 7, 8].forEach((col, i) => {
     const vals = [
-      report.summaryTotalPayment,
+      report.summaryTotalPayment + report.summaryTotalFixedSalaries,
       report.summaryTotalExpenses,
       report.summaryGrandTotal,
     ];
@@ -317,11 +361,11 @@ function buildInstructorSheet(
       ? mtg.date.toLocaleDateString('he-IL')
       : new Date(mtg.date).toLocaleDateString('he-IL');
 
+    const isFrontal = isFrontalActivity(mtg.activityTypeRaw);
     const locationName = mtg.locationName?.trim() || '';
-    const frontalLocationKey = `${dateKey(mtg.date)}|${locationName}`;
-    const shouldShowLocation = isFrontalActivity(mtg.activityTypeRaw)
-      && locationName !== ''
-      && !shownFrontalLocationKeys.has(frontalLocationKey);
+    const locationDisplay = locationName || missingLocationLabel;
+    const frontalLocationKey = `${dateKey(mtg.date)}|${locationName || '__missing__'}`;
+    const shouldShowLocation = isFrontal && !shownFrontalLocationKeys.has(frontalLocationKey);
     if (shouldShowLocation) {
       shownFrontalLocationKeys.add(frontalLocationKey);
     }
@@ -334,7 +378,7 @@ function buildInstructorSheet(
       parseFloat(mtg.durationHours.toFixed(2)),
       mtg.cycleName,
       mtg.activityType ?? '—',
-      shouldShowLocation ? locationName : '',
+      shouldShowLocation ? locationDisplay : '',
       mtg.topic ?? '—',
       mtg.hourlyRate ?? '—',   // col 9: rate/hour
       mtg.instructorPayment,   // col 10
@@ -372,6 +416,12 @@ function buildInstructorSheet(
         cell.alignment = { ...center };
       }
     });
+    if (shouldShowLocation && !locationName) {
+      const locationCell = r.getCell(7);
+      locationCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+      locationCell.font = font({ bold: true, color: { argb: 'FFB91C1C' } });
+      locationCell.alignment = { ...center };
+    }
 
     // If there are extra expenses, add a sub-row for each
     if (mtg.expenses.length > 0) {

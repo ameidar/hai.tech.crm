@@ -11,12 +11,25 @@ const DEFAULT_RECIPIENTS = [
 function buildEmailHtml(report: InstructorMonthlyReport): string {
   const rows = report.instructors.map(i => `
     <tr>
+      <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;text-align:center;color:#374151">${i.employmentType === 'employee' ? 'שעתי' : 'פרילנסר'}</td>
       <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;font-weight:600;color:#1e293b">${i.instructorName}</td>
       <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;text-align:center;color:#374151">${i.totalMeetings}</td>
       <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;text-align:center;color:#374151">${i.totalHours.toFixed(1)}</td>
       <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;text-align:center;color:#374151">₪${i.totalPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
       <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;text-align:center;color:#374151">${i.totalExpenses > 0 ? '₪' + i.totalExpenses.toLocaleString('he-IL', { minimumFractionDigits: 2 }) : '—'}</td>
       <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;text-align:center;font-weight:700;color:#1e40af">₪${i.grandTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+    </tr>
+  `).join('');
+
+  const fixedRows = report.fixedManagementSalaries.map(i => `
+    <tr style="background:#fffbeb">
+      <td style="padding:10px 14px;border-bottom:1px solid #fde68a;text-align:center;color:#92400e">קבוע</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #fde68a;font-weight:700;color:#92400e">${i.name} — ${i.role}</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #fde68a;text-align:center;color:#92400e">—</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #fde68a;text-align:center;color:#92400e">—</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #fde68a;text-align:center;color:#92400e">₪${i.amount.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #fde68a;text-align:center;color:#92400e">—</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #fde68a;text-align:center;font-weight:700;color:#92400e">₪${i.amount.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
     </tr>
   `).join('');
 
@@ -59,6 +72,7 @@ function buildEmailHtml(report: InstructorMonthlyReport): string {
       <table style="width:100%;border-collapse:collapse;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.06)">
         <thead>
           <tr style="background:#1e40af">
+            <th style="padding:12px 14px;text-align:center;color:#fff;font-size:13px;font-weight:700">סוג</th>
             <th style="padding:12px 14px;text-align:right;color:#fff;font-size:13px;font-weight:700">מדריך</th>
             <th style="padding:12px 14px;text-align:center;color:#fff;font-size:13px;font-weight:700">פגישות</th>
             <th style="padding:12px 14px;text-align:center;color:#fff;font-size:13px;font-weight:700">שעות</th>
@@ -69,9 +83,10 @@ function buildEmailHtml(report: InstructorMonthlyReport): string {
         </thead>
         <tbody>
           ${rows}
+          ${fixedRows}
           <tr style="background:#eff6ff">
-            <td colspan="3" style="padding:12px 14px;font-weight:700;color:#1e40af;font-size:14px">סה"כ כולל</td>
-            <td style="padding:12px 14px;text-align:center;font-weight:700;color:#1e40af">₪${report.summaryTotalPayment.toLocaleString('he-IL',{minimumFractionDigits:2})}</td>
+            <td colspan="4" style="padding:12px 14px;font-weight:700;color:#1e40af;font-size:14px">סה"כ כולל</td>
+            <td style="padding:12px 14px;text-align:center;font-weight:700;color:#1e40af">₪${(report.summaryTotalPayment + report.summaryTotalFixedSalaries).toLocaleString('he-IL',{minimumFractionDigits:2})}</td>
             <td style="padding:12px 14px;text-align:center;font-weight:700;color:#1e40af">₪${report.summaryTotalExpenses.toLocaleString('he-IL',{minimumFractionDigits:2})}</td>
             <td style="padding:12px 14px;text-align:center;font-weight:800;color:#1e40af;font-size:16px">₪${report.summaryGrandTotal.toLocaleString('he-IL',{minimumFractionDigits:2})}</td>
           </tr>

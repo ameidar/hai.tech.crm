@@ -71,7 +71,7 @@ export const cycleQuerySchema = paginationSchema
 export const createCycleSchema = z.object({
   name: nonEmptyStringSchema,
   courseId: uuidSchema,
-  branchId: uuidSchema,
+  branchId: uuidSchema.refine(Boolean, 'חובה לבחור סניף למחזור'),
   instructorId: uuidSchema,
   institutionalOrderId: uuidSchema.optional(),
   type: cycleTypeEnum,

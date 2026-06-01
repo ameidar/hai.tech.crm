@@ -122,7 +122,14 @@ async function computeBillingLines(
     if (cycle.type === 'institutional_fixed') {
       unitPrice = Number(cycle.meetingRevenue ?? 0);
       quantity = completedMeetings;
-      descriptionDetail = `${completedMeetings} פגישות × ${unitPrice.toLocaleString('he-IL')} ₪`;
+      // `meetingRevenue` is stored NET (the cycle form divides a VAT-inclusive entry by
+      // 1.18 on save). When the agreed price includes VAT, show the gross per-meeting
+      // price so the description matches the customer's quote — the document grosses the
+      // line up the same way (see buildMorningPayload).
+      const grossPerMeeting = cycle.revenueIncludesVat === true
+        ? Math.round(unitPrice * 1.18 * 100) / 100
+        : unitPrice;
+      descriptionDetail = `${completedMeetings} פגישות × ${grossPerMeeting.toLocaleString('he-IL')} ₪`;
     } else if (cycle.type === 'institutional_per_child') {
       const perChild = Number(cycle.pricePerStudent ?? 0);
       unitPrice = perChild;
@@ -441,7 +448,13 @@ async function buildMorningPayload(billingPeriodId: string): Promise<{
   const income: MorningIncomeItem[] = period.lines.map((l, i) => ({
     description: l.description,
     quantity: Number(l.quantity),
-    price: Number(l.unitPrice),
+    // `unitPrice` is stored NET. For VAT-inclusive cycles we send the GROSS price paired
+    // with vatType 2 (price includes VAT), so Morning renders the agreed gross and reports
+    // VAT as already included (total = gross). Sending the net price with vatType 2 would
+    // make Morning extract VAT from an already-net price and under-bill by ~18%.
+    price: lineVatTypes[i] === 2
+      ? Math.round(Number(l.unitPrice) * 1.18 * 100) / 100
+      : Number(l.unitPrice),
     currency: 'ILS',
     // Only set per-line vatType when lines disagree — keeps the typical case
     // (uniform document) clean and defers to the document-level vatType.

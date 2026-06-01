@@ -333,12 +333,35 @@ async function resolveMorningClient(
     morningClientId: string | null;
   }
 ): Promise<{ client: MorningClient; discoveredId: string | null }> {
-  // 1. Already linked — trust it.
+  const payingBodyName = order.payingBody?.trim() || null;
+
+  // 1. If a paying body is configured, it is the customer-facing "לכבוד" name
+  // for institutional billing. Do not send only Morning's stored client id in this
+  // case: Morning would render the client-directory name (often the internal
+  // branch/order name) instead of the payer name from CRM. Sending explicit
+  // client details keeps the document addressee controlled by CRM without
+  // changing the institutional order name.
+  if (payingBodyName) {
+    return {
+      client: {
+        name: payingBodyName,
+        taxId: order.taxId || undefined,
+        emails: order.contactEmail ? [order.contactEmail] : undefined,
+        phone: order.contactPhone || undefined,
+        address: order.address || undefined,
+        city: order.city || undefined,
+        zip: order.zip || undefined,
+      },
+      discoveredId: null,
+    };
+  }
+
+  // 2. Already linked — trust it when no paying body overrides the addressee.
   if (order.morningClientId) {
     return { client: { id: order.morningClientId }, discoveredId: null };
   }
 
-  // 2. Try to discover an existing Morning customer by taxId / email / payingBody / orderName.
+  // 3. Try to discover an existing Morning customer by taxId / email / payingBody / orderName.
   try {
     const match = await findClientForInstitutionalOrder({
       taxId: order.taxId,
@@ -355,7 +378,7 @@ async function resolveMorningClient(
     console.warn(`[billing] Morning client search failed for order ${order.id}:`, err.message || err);
   }
 
-  // 3. Fallback: send full client details with `add: true` so Morning upserts.
+  // 4. Fallback: send full client details with `add: true` so Morning upserts.
   const client: MorningClient = {
     name: order.orderName || order.branch?.name || 'מוסד',
     taxId: order.taxId || undefined,

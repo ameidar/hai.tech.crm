@@ -89,7 +89,7 @@ export const createInstructorSchema = z.object({
   ratePrivate: z.number().nonnegative().optional().nullable(),
   ratePreparation: z.number().nonnegative().optional().nullable(),
   employmentType: z.enum(['freelancer', 'employee']).default('freelancer'),
-  userId: z.string().uuid().optional().nullable(),
+  userId: z.string().min(1).optional().nullable(),
   isActive: z.boolean().default(true),
   notes: z.string().optional().nullable(),
   bankName: z.string().optional().nullable(),
@@ -101,7 +101,7 @@ export const updateInstructorSchema = createInstructorSchema.partial();
 
 // Institutional Order schemas
 export const createInstitutionalOrderSchema = z.object({
-  branchId: z.string().uuid('Invalid branch ID'),
+  branchId: z.string().min(1, 'Invalid branch ID'),
   orderNumber: z.string().optional().nullable(),
   orderDate: z.string().optional().nullable(),
   startDate: z.string(),
@@ -163,8 +163,8 @@ export const updateCycleSchema = createCycleSchema.partial().extend({
 
 // Registration schemas
 export const createRegistrationSchema = z.object({
-  studentId: z.string().uuid('Invalid student ID'),
-  cycleId: z.string().uuid('Invalid cycle ID'),
+  studentId: z.string().min(1, 'Invalid student ID'),
+  cycleId: z.string().min(1, 'Invalid cycle ID'),
   registrationDate: z.string().optional(),
   status: z.enum(['registered', 'active', 'completed', 'pending_cancellation', 'cancelled']).default('registered'),
   amount: z.number().positive().optional().nullable(),
@@ -184,8 +184,8 @@ export const updateRegistrationSchema = createRegistrationSchema.partial().omit(
 export const meetingNatureEnum = z.enum(['regular', 'no_revenue']);
 
 export const createMeetingSchema = z.object({
-  cycleId: z.string().uuid('Invalid cycle ID'),
-  instructorId: z.string().uuid('Invalid instructor ID'),
+  cycleId: z.string().min(1, 'Invalid cycle ID'),
+  instructorId: z.string().min(1, 'Invalid instructor ID'),
   scheduledDate: z.string(),
   startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format'),
   endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format'),
@@ -204,7 +204,7 @@ export const updateMeetingSchema = z.object({
   nature: meetingNatureEnum.optional(),
   topic: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
-  instructorId: z.string().uuid().optional(),
+  instructorId: z.string().min(1).optional(),
   activityType: z.enum(['online', 'frontal', 'private_lesson']).optional().nullable(),
   revenue: z.number().optional(),
   instructorPayment: z.number().optional(),
@@ -229,8 +229,8 @@ export const postponeMeetingSchema = z.object({
 
 // Attendance schemas
 export const createAttendanceSchema = z.object({
-  meetingId: z.string().uuid('Invalid meeting ID'),
-  registrationId: z.string().uuid('Invalid registration ID'),
+  meetingId: z.string().min(1, 'Invalid meeting ID'),
+  registrationId: z.string().min(1, 'Invalid registration ID'),
   status: z.enum(['present', 'absent', 'late']),
   notes: z.string().optional().nullable(),
 });
@@ -241,9 +241,9 @@ export const updateAttendanceSchema = z.object({
 });
 
 export const bulkAttendanceSchema = z.object({
-  meetingId: z.string().uuid('Invalid meeting ID'),
+  meetingId: z.string().min(1, 'Invalid meeting ID'),
   attendance: z.array(z.object({
-    registrationId: z.string().uuid('Invalid registration ID'),
+    registrationId: z.string().min(1, 'Invalid registration ID'),
     status: z.enum(['present', 'absent', 'late']),
     notes: z.string().optional().nullable(),
   })),

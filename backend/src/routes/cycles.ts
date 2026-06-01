@@ -8,6 +8,7 @@ import { zoomService, getHostKeyByEmail } from '../services/zoom.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
 import { meetingRevenueFromRegistrations, netAmount } from '../utils/revenue.js';
+import { recalculateInstructorPaymentsForCycle } from '../services/instructor-payment.js';
 
 // Make.com webhook removed — Zoom recordings handled directly via /api/zoom-webhook
 
@@ -300,6 +301,8 @@ cyclesRouter.post('/', managerOrAdmin, async (req, res, next) => {
       pricePerStudent: data.pricePerStudent,
       meetingRevenue: data.meetingRevenue,
       revenueIncludesVat: data.revenueIncludesVat,
+      instructorPaymentMode: data.instructorPaymentMode ?? 'hourly',
+      instructorDailyRate: data.instructorPaymentMode === 'daily' ? data.instructorDailyRate : null,
       studentCount: data.studentCount,
       maxStudents: data.maxStudents,
       sendParentReminders: data.sendParentReminders,
@@ -370,6 +373,9 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     if (data.endDate) updateData.endDate = new Date(data.endDate);
     if (data.startTime) updateData.startTime = new Date(`1970-01-01T${data.startTime}:00Z`);
     if (data.endTime) updateData.endTime = new Date(`1970-01-01T${data.endTime}:00Z`);
+    if (data.instructorPaymentMode === 'hourly') {
+      updateData.instructorDailyRate = null;
+    }
 
     // If totalMeetings or completedMeetings changed, recalculate remainingMeetings
     if (data.totalMeetings !== undefined || data.completedMeetings !== undefined) {
@@ -409,6 +415,8 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
       }
       return updated;
     });
+
+    await recalculateInstructorPaymentsForCycle(id);
 
     // Audit log for cycle update
     const oldRecord = {

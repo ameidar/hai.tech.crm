@@ -1,4 +1,5 @@
 import { prisma } from '../utils/prisma.js';
+import { usesDailyInstructorPayment } from './instructor-payment.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -23,6 +24,7 @@ export interface MeetingDetail {
   activityTypeRaw: string | null; // raw enum value: frontal/online/private
   topic: string | null;
   hourlyRate: number | null; // instructor's rate for this activity type
+  paymentNote: string | null;
   instructorPayment: number;
   expenses: MeetingExpenseDetail[];
   totalExpenses: number;
@@ -102,6 +104,8 @@ const formatTime = (t: unknown): string => {
   const m = String(d.getUTCMinutes()).padStart(2, '0');
   return `${h}:${m}`;
 };
+
+const dateKey = (d: Date): string => d.toISOString().split('T')[0];
 
 /** Duration between two Prisma time fields in decimal hours */
 const calcDuration = (start: unknown, end: unknown): number => {
@@ -245,6 +249,9 @@ export async function buildInstructorMonthlyReport(
     type ActAgg = { hours: number; rate: number | null; label: string; rawType: string | null; unroundedSubtotal: number };
     const actAgg = new Map<string, ActAgg>();
     const perMeetingUnrounded = new Map<string, number>(); // meetingId -> unrounded base share
+    const perMeetingNote = new Map<string, string | null>();
+    const perMeetingRate = new Map<string, number | null>();
+    const dailyPaymentKeys = new Set<string>();
 
     for (const mtg of mtgs) {
       const rawType = (mtg.activityType ?? (mtg.cycle as { activityType?: string | null }).activityType ?? null) as string | null;
@@ -252,12 +259,43 @@ export async function buildInstructorMonthlyReport(
       const hourlyRate = getHourlyRate(instr, rawType);
       const durationHours = calcDuration(mtg.startTime as unknown, mtg.endTime as unknown);
       const stored = Number(mtg.instructorPayment);
+      const cycle = mtg.cycle as typeof mtg.cycle & {
+        instructorId: string;
+        instructorPaymentMode?: string | null;
+        instructorDailyRate?: { toString(): string } | number | string | null;
+      };
+
+      if (usesDailyInstructorPayment(cycle, mtg.instructorId)) {
+        const dailyKey = `${mtg.cycleId}|${dateKey(mtg.scheduledDate)}`;
+        const isFirstDailyMeeting = !dailyPaymentKeys.has(dailyKey);
+        dailyPaymentKeys.add(dailyKey);
+        const dailyRate = Number(cycle.instructorDailyRate?.toString() ?? 0) || stored || 0;
+        const unroundedShare = isFirstDailyMeeting ? dailyRate : 0;
+        perMeetingUnrounded.set(mtg.id, unroundedShare);
+        perMeetingNote.set(mtg.id, isFirstDailyMeeting ? 'תשלום יומי' : 'כלול בתשלום יומי');
+        perMeetingRate.set(mtg.id, null);
+
+        const dailyAggKey = 'daily_global';
+        const existing = actAgg.get(dailyAggKey) ?? {
+          hours: 0,
+          rate: null,
+          label: 'יומי גלובלי',
+          rawType: dailyAggKey,
+          unroundedSubtotal: 0,
+        };
+        existing.hours += durationHours;
+        existing.unroundedSubtotal += unroundedShare;
+        actAgg.set(dailyAggKey, existing);
+        continue;
+      }
 
       // Per-meeting unrounded base: hours × rate when rate known; otherwise fallback (stored ÷ 1.3 for employees, stored as-is for freelancers).
       const unroundedShare = (hourlyRate != null && durationHours > 0)
         ? hourlyRate * durationHours
         : (isEmployee ? stored / 1.3 : stored);
       perMeetingUnrounded.set(mtg.id, unroundedShare);
+      perMeetingNote.set(mtg.id, null);
+      perMeetingRate.set(mtg.id, hourlyRate);
 
       const existing = actAgg.get(key) ?? { hours: 0, rate: hourlyRate, label: activityLabel(rawType), rawType, unroundedSubtotal: 0 };
       existing.hours += durationHours;
@@ -314,7 +352,8 @@ export async function buildInstructorMonthlyReport(
         activityType:      activityLabel(rawType),
         activityTypeRaw:   rawType,
         topic:             mtg.topic ?? null,
-        hourlyRate:        getHourlyRate(instr, rawType),
+        hourlyRate:        perMeetingRate.has(mtg.id) ? (perMeetingRate.get(mtg.id) ?? null) : getHourlyRate(instr, rawType),
+        paymentNote:       perMeetingNote.get(mtg.id) ?? null,
         instructorPayment: basePayment,
         expenses,
         totalExpenses,

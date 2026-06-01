@@ -10,7 +10,7 @@ import SearchableSelect from '../components/ui/SearchableSelect';
 import MeetingsExportModal from '../components/MeetingsExportModal';
 import ViewSelector from '../components/ViewSelector';
 import { cycleStatusHebrew, cycleTypeHebrew, dayOfWeekHebrew } from '../types';
-import type { Cycle, CycleType, CycleStatus, DayOfWeek, ActivityType } from '../types';
+import type { Cycle, CycleType, CycleStatus, DayOfWeek, ActivityType, InstructorPaymentMode } from '../types';
 import { activityTypeHebrew } from '../types';
 import { exportMeetingsToExcel } from '../utils/meetingsExcel';
 
@@ -866,6 +866,8 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     pricePerStudent: 0,
     meetingRevenue: 0,
     includesVat: null as boolean | null,
+    instructorPaymentMode: 'hourly' as InstructorPaymentMode,
+    instructorDailyRate: 0,
     studentCount: 0,
     maxStudents: 15,
     sendParentReminders: true,
@@ -884,6 +886,11 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     // Validate VAT selection for institutional_fixed
     if (formData.type === 'institutional_fixed' && formData.includesVat === null) {
       alert('יש לבחור האם הסכום כולל מע״מ או לא');
+      return;
+    }
+
+    if (formData.instructorPaymentMode === 'daily' && Number(formData.instructorDailyRate) <= 0) {
+      alert('יש להזין עלות יומית למדריך');
       return;
     }
     
@@ -909,6 +916,8 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
       totalMeetings: Number(formData.totalMeetings),
       pricePerStudent: (formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && priceValue > 0 ? priceValue : undefined,
       meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'trial_private') && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
+      instructorPaymentMode: formData.instructorPaymentMode,
+      instructorDailyRate: formData.instructorPaymentMode === 'daily' ? Number(formData.instructorDailyRate) : null,
       studentCount: formData.type === 'institutional_per_child' && studentCountValue > 0 ? studentCountValue : undefined,
       maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
     };
@@ -988,6 +997,31 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
             <option value="institutional_fixed">מוסדי (סכום קבוע)</option>
           </select>
         </div>
+
+        <div>
+          <label className="form-label">תשלום מדריך</label>
+          <select
+            value={formData.instructorPaymentMode}
+            onChange={(e) => setFormData({ ...formData, instructorPaymentMode: e.target.value as InstructorPaymentMode })}
+            className="form-input"
+          >
+            <option value="hourly">לפי שעות</option>
+            <option value="daily">יומי גלובלי</option>
+          </select>
+        </div>
+
+        {formData.instructorPaymentMode === 'daily' && (
+          <div>
+            <label className="form-label">עלות יומית למדריך</label>
+            <input
+              type="number"
+              value={formData.instructorDailyRate}
+              onChange={(e) => setFormData({ ...formData, instructorDailyRate: Number(e.target.value) })}
+              className="form-input"
+              min="1"
+            />
+          </div>
+        )}
       </div>
 
       <div className="border-t pt-4">
@@ -1243,6 +1277,8 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     pricePerStudent: cycle.pricePerStudent || 0,
     meetingRevenue: cycle.meetingRevenue || 0,
     includesVat: cycle.revenueIncludesVat ?? null,
+    instructorPaymentMode: (cycle.instructorPaymentMode || 'hourly') as InstructorPaymentMode,
+    instructorDailyRate: cycle.instructorDailyRate || 0,
     studentCount: cycle.studentCount || 0,
     maxStudents: cycle.maxStudents || 15,
     sendParentReminders: cycle.sendParentReminders,
@@ -1261,6 +1297,11 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     // Validate VAT selection for institutional_fixed
     if (formData.type === 'institutional_fixed' && formData.includesVat === null) {
       alert('יש לבחור האם הסכום כולל מע״מ או לא');
+      return;
+    }
+
+    if (formData.instructorPaymentMode === 'daily' && Number(formData.instructorDailyRate) <= 0) {
+      alert('יש להזין עלות יומית למדריך');
       return;
     }
     
@@ -1295,6 +1336,8 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
       pricePerStudent: (formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && priceValue > 0 ? priceValue : undefined,
       meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'trial_private') && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
       revenueIncludesVat: formData.type === 'institutional_fixed' ? formData.includesVat : undefined,
+      instructorPaymentMode: formData.instructorPaymentMode,
+      instructorDailyRate: formData.instructorPaymentMode === 'daily' ? Number(formData.instructorDailyRate) : null,
       studentCount: formData.type === 'institutional_per_child' && studentCountValue > 0 ? studentCountValue : undefined,
       maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
       sendParentReminders: formData.sendParentReminders,
@@ -1381,6 +1424,31 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
             <option value="retainer">💼 ריטיינר</option>
           </select>
         </div>
+
+        <div>
+          <label className="form-label">תשלום מדריך</label>
+          <select
+            value={formData.instructorPaymentMode}
+            onChange={(e) => setFormData({ ...formData, instructorPaymentMode: e.target.value as InstructorPaymentMode })}
+            className="form-input"
+          >
+            <option value="hourly">לפי שעות</option>
+            <option value="daily">יומי גלובלי</option>
+          </select>
+        </div>
+
+        {formData.instructorPaymentMode === 'daily' && (
+          <div>
+            <label className="form-label">עלות יומית למדריך</label>
+            <input
+              type="number"
+              value={formData.instructorDailyRate}
+              onChange={(e) => setFormData({ ...formData, instructorDailyRate: Number(e.target.value) })}
+              className="form-input"
+              min="1"
+            />
+          </div>
+        )}
       </div>
 
       <div className="border-t pt-4">

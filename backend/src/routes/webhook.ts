@@ -8,6 +8,7 @@ import { handleStatusReply } from '../services/whatsapp-reminder.service.js';
 import { logAudit } from '../utils/audit.js';
 import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
 import { meetingRevenueFromRegistrations } from '../utils/revenue.js';
+import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
 import rateLimit from 'express-rate-limit';
 
 // Rate limiter for public lead submission endpoint
@@ -784,36 +785,12 @@ async function recalculateMeetingFinancials(meetingId: string) {
     revenue = Number(cycleData.meetingRevenue || 0);
   }
 
-  // Calculate instructor payment based on activity type
-  const activityType = meeting.activityType || cycleData.activityType ||
-    (cycleData.isOnline ? 'online' : (cycleData.type === 'private' ? 'private_lesson' : 'frontal'));
-
-  const instructor = meeting.instructor;
-  let instructorPayment = 0;
-  if (instructor) {
-    let hourlyRate = 0;
-    switch (activityType) {
-      case 'online':
-        hourlyRate = Number(instructor.rateOnline || instructor.rateFrontal || 0);
-        break;
-      case 'private_lesson':
-        hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
-        break;
-      case 'frontal':
-      default:
-        hourlyRate = Number(instructor.rateFrontal || 0);
-        break;
-    }
-
-    const durationMinutes = cycleData.durationMinutes;
-    const durationHours = durationMinutes / 60;
-    instructorPayment = Math.round(hourlyRate * durationHours);
-  }
+  const instructorPayment = calculateInstructorPayment(cycleData, meeting.instructor, meeting);
 
   const profit = revenue - instructorPayment;
 
   // Update meeting with calculated values
-  return prisma.meeting.update({
+  const updatedMeeting = await prisma.meeting.update({
     where: { id: meetingId },
     data: {
       revenue,
@@ -821,6 +798,8 @@ async function recalculateMeetingFinancials(meetingId: string) {
       profit,
     },
   });
+  await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
+  return updatedMeeting;
 }
 
 // PATCH /api/webhook/meetings/:id

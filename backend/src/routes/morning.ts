@@ -6,6 +6,7 @@ import { logAudit } from '../utils/audit.js';
 import { createDocument, previewDocument, DOCUMENT_TYPES } from '../services/morning/documents.js';
 import { isMorningConfigured, morningRequest } from '../services/morning/client.js';
 import { prodPrisma as prisma } from '../utils/prodPrisma.js';
+import { calculateInstructorPayment } from '../services/instructor-payment.js';
 
 // Fixed monthly salaries for global employees (not paid via Morning or per-meeting).
 // `monthOverrides` lets specific months override the default (e.g. partial month,
@@ -222,6 +223,7 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
         ],
       },
       select: {
+        instructorId: true,
         scheduledDate: true,
         startTime: true,
         endTime: true,
@@ -229,6 +231,10 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
         activityType: true,
         cycle: {
           select: {
+            id: true,
+            instructorId: true,
+            instructorPaymentMode: true,
+            instructorDailyRate: true,
             activityType: true,
             isOnline: true,
             type: true,
@@ -244,25 +250,8 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
     function computeInstructorPayment(m: typeof meetingsForPayments[number]): number {
       const stored = Number(m.instructorPayment ?? 0);
       if (stored > 0) return stored;
-      // Fall back to live calculation: rate × duration (× 1.3 for employees).
-      const instr = m.instructor;
-      if (!instr) return 0;
-      const cycle = m.cycle;
-      const actType = m.activityType ?? cycle?.activityType ?? (cycle?.isOnline ? 'online' : cycle?.type === 'private' ? 'private_lesson' : 'frontal');
-      let hourlyRate = 0;
-      switch (actType) {
-        case 'online': hourlyRate = Number(instr.rateOnline ?? instr.rateFrontal ?? 0); break;
-        case 'private_lesson': hourlyRate = Number(instr.ratePrivate ?? instr.rateFrontal ?? 0); break;
-        default: hourlyRate = Number(instr.rateFrontal ?? 0);
-      }
-      let durationMinutes = Number(cycle?.durationMinutes ?? 60);
-      if (m.startTime && m.endTime) {
-        const calc = (m.endTime.getTime() - m.startTime.getTime()) / 60000;
-        if (calc > 0 && calc < 1440) durationMinutes = calc;
-      }
-      let payment = Math.round(hourlyRate * (durationMinutes / 60));
-      if (instr.employmentType === 'employee') payment = Math.round(payment * 1.3);
-      return payment;
+      if (!m.cycle || !m.instructor) return 0;
+      return calculateInstructorPayment(m.cycle, m.instructor, m);
     }
 
     // Build month map (last N months) — also tracks instructor payments + salaries
@@ -457,9 +446,21 @@ morningRouter.get('/financials/details', managerOrAdmin, async (req, res, next) 
           ],
         },
         select: {
-          id: true, scheduledDate: true, startTime: true, endTime: true, status: true,
+          id: true, instructorId: true, scheduledDate: true, startTime: true, endTime: true, status: true,
           instructorPayment: true, activityType: true,
-          cycle: { select: { name: true, activityType: true, isOnline: true, type: true, durationMinutes: true } },
+          cycle: {
+            select: {
+              id: true,
+              name: true,
+              instructorId: true,
+              instructorPaymentMode: true,
+              instructorDailyRate: true,
+              activityType: true,
+              isOnline: true,
+              type: true,
+              durationMinutes: true,
+            },
+          },
           instructor: { select: { name: true, rateFrontal: true, rateOnline: true, ratePrivate: true, employmentType: true } },
         },
         orderBy: { scheduledDate: 'asc' },
@@ -468,24 +469,8 @@ morningRouter.get('/financials/details', managerOrAdmin, async (req, res, next) 
       function compute(m: typeof meetings[number]): number {
         const stored = Number(m.instructorPayment ?? 0);
         if (stored > 0) return stored;
-        const instr = m.instructor;
-        if (!instr) return 0;
-        const cycle = m.cycle;
-        const actType = m.activityType ?? cycle?.activityType ?? (cycle?.isOnline ? 'online' : cycle?.type === 'private' ? 'private_lesson' : 'frontal');
-        let hourlyRate = 0;
-        switch (actType) {
-          case 'online': hourlyRate = Number(instr.rateOnline ?? instr.rateFrontal ?? 0); break;
-          case 'private_lesson': hourlyRate = Number(instr.ratePrivate ?? instr.rateFrontal ?? 0); break;
-          default: hourlyRate = Number(instr.rateFrontal ?? 0);
-        }
-        let durationMinutes = Number(cycle?.durationMinutes ?? 60);
-        if (m.startTime && m.endTime) {
-          const calc = (m.endTime.getTime() - m.startTime.getTime()) / 60000;
-          if (calc > 0 && calc < 1440) durationMinutes = calc;
-        }
-        let p = Math.round(hourlyRate * (durationMinutes / 60));
-        if (instr.employmentType === 'employee') p = Math.round(p * 1.3);
-        return p;
+        if (!m.cycle || !m.instructor) return 0;
+        return calculateInstructorPayment(m.cycle, m.instructor, m);
       }
 
       const items = meetings.map((m) => ({

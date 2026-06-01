@@ -12,6 +12,10 @@ import { syncCycleProgress } from '../utils/cycle-sync.js';
 import { sendWhatsApp, sendWhatsAppPoll } from './messaging.js';
 import { handleCycleCompletion } from './cycle-completion.js';
 import { generateMeetingMagicLink } from './instructor-reminder.service.js';
+import {
+  calculateInstructorPayment,
+  recalculateDailyInstructorPaymentsForMeeting,
+} from './instructor-payment.js';
 
 const APP_URL = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
 const TZ = 'Asia/Jerusalem';
@@ -410,36 +414,7 @@ async function recalculateCompletedMeetingFinancials(meetingId: string): Promise
     revenue = Number(cycleData.meetingRevenue || 0);
   }
 
-  const activityType = meeting.activityType || cycleData.activityType ||
-    (cycleData.isOnline ? 'online' : (cycleData.type === 'private' ? 'private_lesson' : 'frontal'));
-
-  let instructorPayment = 0;
-  const instructor = meeting.instructor;
-  if (instructor) {
-    let hourlyRate = 0;
-    switch (activityType) {
-      case 'online':
-        hourlyRate = Number(instructor.rateOnline || instructor.rateFrontal || 0);
-        break;
-      case 'private_lesson':
-        hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
-        break;
-      case 'frontal':
-      default:
-        hourlyRate = Number(instructor.rateFrontal || 0);
-        break;
-    }
-
-    let durationMinutes = cycleData.durationMinutes;
-    if (meeting.startTime && meeting.endTime) {
-      durationMinutes = (meeting.endTime.getTime() - meeting.startTime.getTime()) / (1000 * 60);
-    }
-
-    instructorPayment = Math.round(hourlyRate * (durationMinutes / 60));
-    if (instructor.employmentType === 'employee') {
-      instructorPayment = Math.round(instructorPayment * 1.3);
-    }
-  }
+  const instructorPayment = calculateInstructorPayment(cycleData, meeting.instructor, meeting);
 
   const approvedExpenses = await prisma.meetingExpense.aggregate({
     where: { meetingId, status: 'approved' },
@@ -448,10 +423,11 @@ async function recalculateCompletedMeetingFinancials(meetingId: string): Promise
   const expensesTotal = Number(approvedExpenses._sum.amount || 0);
   const profit = revenue - instructorPayment - expensesTotal;
 
-  await prisma.meeting.update({
+  const updatedMeeting = await prisma.meeting.update({
     where: { id: meetingId },
     data: { revenue, instructorPayment, profit },
   });
+  await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
 
   if (remainingMeetings <= 0 && !['completed', 'cancelled'].includes(cycleData.status)) {
     await handleCycleCompletion(meeting.cycleId);

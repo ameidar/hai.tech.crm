@@ -162,6 +162,8 @@ export class CyclesRepository {
         remainingMeetings: data.totalMeetings,
         pricePerStudent: data.pricePerStudent,
         meetingRevenue: data.meetingRevenue,
+        instructorPaymentMode: data.instructorPaymentMode ?? 'hourly',
+        instructorDailyRate: data.instructorPaymentMode === 'daily' ? data.instructorDailyRate : null,
         studentCount: data.studentCount,
         maxStudents: data.maxStudents,
         sendParentReminders: data.sendParentReminders,
@@ -196,6 +198,9 @@ export class CyclesRepository {
     // Update isOnline based on activityType
     if (data.activityType) {
       updateData.isOnline = data.activityType === 'online';
+    }
+    if (data.instructorPaymentMode === 'hourly') {
+      updateData.instructorDailyRate = null;
     }
 
     return prisma.cycle.update({

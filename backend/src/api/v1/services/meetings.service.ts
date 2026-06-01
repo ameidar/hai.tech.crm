@@ -15,6 +15,10 @@ import {
   CancelMeetingInput,
 } from '../validators/meetings.js';
 import { meetingRevenueFromRegistrations } from '../../../utils/revenue.js';
+import {
+  calculateInstructorPayment,
+  recalculateDailyInstructorPaymentsForMeeting,
+} from '../../../services/instructor-payment.js';
 
 /**
  * Meetings Service - Business logic layer
@@ -140,6 +144,16 @@ export class MeetingsService {
     }
 
     const meeting = await this.repository.update(id, data, req?.user?.userId);
+    await recalculateDailyInstructorPaymentsForMeeting({
+      cycleId: existing.cycleId,
+      instructorId: existing.instructorId,
+      scheduledDate: existing.scheduledDate,
+    });
+    await recalculateDailyInstructorPaymentsForMeeting({
+      cycleId: meeting.cycleId,
+      instructorId: meeting.instructorId,
+      scheduledDate: meeting.scheduledDate,
+    });
 
     // Audit log
     if (req) {
@@ -295,48 +309,10 @@ export class MeetingsService {
       }
     }
 
-    // Calculate instructor payment
-    const instructor = cycle.instructor;
-    let instructorPayment = 0;
-
-    if (instructor) {
-      const activityType =
-        meeting.activityType ||
-        cycle.activityType ||
-        (cycle.isOnline ? 'online' : cycle.type === 'private' ? 'private_lesson' : 'frontal');
-
-      let hourlyRate = 0;
-      switch (activityType) {
-        case 'online':
-          hourlyRate = Number(instructor.rateOnline || instructor.rateFrontal || 0);
-          break;
-        case 'private_lesson':
-          hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
-          break;
-        case 'frontal':
-        default:
-          hourlyRate = Number(instructor.rateFrontal || 0);
-          break;
-      }
-
-      // Calculate duration
-      let durationMinutes = cycle.durationMinutes;
-      if (meeting.startTime && meeting.endTime) {
-        const startMs = meeting.startTime.getTime();
-        const endMs = meeting.endTime.getTime();
-        const calculatedMinutes = (endMs - startMs) / (1000 * 60);
-        if (calculatedMinutes > 0 && calculatedMinutes < 1440) {
-          durationMinutes = calculatedMinutes;
-        }
-      }
-
-      const durationHours = durationMinutes / 60;
-      instructorPayment = Math.round(hourlyRate * durationHours);
-
-      if (instructor.employmentType === 'employee') {
-        instructorPayment = Math.round(instructorPayment * 1.3);
-      }
-    }
+    const instructor = meeting.instructorId === cycle.instructorId
+      ? cycle.instructor
+      : await prisma.instructor.findUnique({ where: { id: meeting.instructorId } });
+    const instructorPayment = calculateInstructorPayment(cycle, instructor, meeting);
 
     let expensesTotal = 0;
     if (meeting.id) {
@@ -377,6 +353,7 @@ export class MeetingsService {
       },
       req?.user?.userId
     );
+    await recalculateDailyInstructorPaymentsForMeeting(meeting);
 
     // Update cycle counters
     await prisma.cycle.update({
@@ -438,6 +415,7 @@ export class MeetingsService {
       },
       req?.user?.userId
     );
+    await recalculateDailyInstructorPaymentsForMeeting(existing);
 
     // Audit log
     if (req) {
@@ -472,6 +450,7 @@ export class MeetingsService {
     const financials = await this.calculateMeetingFinancials(existing);
 
     const meeting = await this.repository.update(id, financials, req?.user?.userId);
+    await recalculateDailyInstructorPaymentsForMeeting(meeting);
 
     // Audit log
     if (req) {
@@ -508,7 +487,8 @@ export class MeetingsService {
         }
 
         const financials = await this.calculateMeetingFinancials(meeting);
-        await this.repository.update(id, financials, req?.user?.userId);
+        const updated = await this.repository.update(id, financials, req?.user?.userId);
+        await recalculateDailyInstructorPaymentsForMeeting(updated);
         recalculated++;
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Unknown error';

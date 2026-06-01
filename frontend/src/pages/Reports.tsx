@@ -43,6 +43,7 @@ interface ActivityTypeSummary {
 
 interface InstructorReportSummary {
   instructorName: string;
+  employmentType?: 'employee' | 'freelancer' | string | null;
   totalMeetings: number;
   totalHours: number;
   totalPayment: number;
@@ -50,6 +51,11 @@ interface InstructorReportSummary {
   grandTotal: number;
   meetings?: MeetingDetail[];
   byActivityType?: ActivityTypeSummary[];
+}
+interface FixedManagementSalary {
+  name: string;
+  role: string;
+  amount: number;
 }
 interface UnresolvedMeeting {
   id: string;
@@ -67,7 +73,7 @@ function InstructorReportTab() {
   const [months, setMonths] = useState<MonthOption[]>([]);
   const [selectedMonth, setSelectedMonth] = useState('');
   const [loadingMonths, setLoadingMonths] = useState(false);
-  const [report, setReport] = useState<{ monthLabel: string; instructors: InstructorReportSummary[]; summaryTotalPayment: number; summaryTotalExpenses: number; summaryGrandTotal: number; unresolvedMeetings: UnresolvedMeeting[] } | null>(null);
+  const [report, setReport] = useState<{ monthLabel: string; instructors: InstructorReportSummary[]; fixedManagementSalaries?: FixedManagementSalary[]; summaryTotalFixedSalaries?: number; summaryTotalPayment: number; summaryTotalExpenses: number; summaryGrandTotal: number; unresolvedMeetings: UnresolvedMeeting[] } | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
   const [sending, setSending] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -75,6 +81,51 @@ function InstructorReportTab() {
   const [selectedInstructor, setSelectedInstructor] = useState<InstructorReportSummary | null>(null);
 
   const token = () => localStorage.getItem('accessToken') || '';
+
+  const employeeInstructors = report?.instructors.filter(instr => instr.employmentType === 'employee') ?? [];
+  const freelancerInstructors = report?.instructors.filter(instr => instr.employmentType !== 'employee') ?? [];
+  const fixedManagementSalaries = report?.fixedManagementSalaries ?? [];
+
+  const sumGrandTotal = (items: InstructorReportSummary[]) =>
+    items.reduce((sum, item) => sum + item.grandTotal, 0);
+
+  const renderInstructorRow = (instr: InstructorReportSummary, i: number) => {
+    const isSelected = selectedInstructor?.instructorName === instr.instructorName;
+    return (
+      <tr
+        key={`${instr.instructorName}-${i}`}
+        onClick={() => setSelectedInstructor(isSelected ? null : instr)}
+        className={`border-t cursor-pointer transition-colors ${isSelected ? 'bg-blue-100 hover:bg-blue-100' : 'hover:bg-blue-50'}`}
+        title="לחץ לצפייה בפירוט פגישות"
+      >
+        <td className="p-3 font-semibold text-gray-800 flex items-center gap-2">
+          <ChevronDown size={15} className={`text-blue-500 transition-transform ${isSelected ? 'rotate-180' : ''}`} />
+          {instr.instructorName}
+        </td>
+        <td className="p-3 text-center">
+          <span className={`px-2 py-1 rounded text-xs font-bold ${instr.employmentType === 'employee' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+            {instr.employmentType === 'employee' ? 'שכיר/שעתי' : 'פרילנסר'}
+          </span>
+        </td>
+        <td className="p-3 text-center text-gray-700">{instr.totalMeetings}</td>
+        <td className="p-3 text-center text-gray-700">{instr.totalHours.toFixed(1)}</td>
+        <td className="p-3 text-center text-gray-700">₪{instr.totalPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+        <td className="p-3 text-center text-gray-500 text-sm">{instr.totalExpenses > 0 ? `₪${instr.totalExpenses.toLocaleString('he-IL', { minimumFractionDigits: 2 })}` : '—'}</td>
+        <td className="p-3 text-center font-bold text-blue-700">₪{instr.grandTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+      </tr>
+    );
+  };
+
+  const renderInstructorSection = (title: string, items: InstructorReportSummary[], tone: 'blue' | 'emerald') => (
+    <>
+      <tr className={tone === 'blue' ? 'bg-blue-50' : 'bg-emerald-50'}>
+        <td colSpan={7} className={`p-3 font-bold ${tone === 'blue' ? 'text-blue-900' : 'text-emerald-900'}`}>
+          {title} ({items.length}) · סה"כ ₪{sumGrandTotal(items).toLocaleString('he-IL', { minimumFractionDigits: 2 })}
+        </td>
+      </tr>
+      {items.map(renderInstructorRow)}
+    </>
+  );
 
   const fetchMonths = async () => {
     setLoadingMonths(true);
@@ -230,6 +281,7 @@ function InstructorReportTab() {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="text-right p-3 font-medium text-gray-600 text-sm">מדריך</th>
+                    <th className="text-center p-3 font-medium text-gray-600 text-sm">סוג</th>
                     <th className="text-center p-3 font-medium text-gray-600 text-sm">פגישות</th>
                     <th className="text-center p-3 font-medium text-gray-600 text-sm">שעות</th>
                     <th className="text-center p-3 font-medium text-gray-600 text-sm">תשלום</th>
@@ -238,31 +290,34 @@ function InstructorReportTab() {
                   </tr>
                 </thead>
                 <tbody>
-                  {report.instructors.map((instr, i) => {
-                    const isSelected = selectedInstructor?.instructorName === instr.instructorName;
-                    return (
-                      <tr
-                        key={i}
-                        onClick={() => setSelectedInstructor(isSelected ? null : instr)}
-                        className={`border-t cursor-pointer transition-colors ${isSelected ? 'bg-blue-100 hover:bg-blue-100' : 'hover:bg-blue-50'}`}
-                        title="לחץ לצפייה בפירוט פגישות"
-                      >
-                        <td className="p-3 font-semibold text-gray-800 flex items-center gap-2">
-                          <ChevronDown size={15} className={`text-blue-500 transition-transform ${isSelected ? 'rotate-180' : ''}`} />
-                          {instr.instructorName}
+                  {employeeInstructors.length > 0 && renderInstructorSection('מדריכים שכירים / שעתיים', employeeInstructors, 'blue')}
+                  {freelancerInstructors.length > 0 && renderInstructorSection('פרילנסרים', freelancerInstructors, 'emerald')}
+                  {fixedManagementSalaries.length > 0 && (
+                    <>
+                      <tr className="bg-purple-50 border-t">
+                        <td colSpan={7} className="p-3 font-bold text-purple-900">
+                          שכר קבוע הנהלה ({fixedManagementSalaries.length}) · סה"כ ₪{(report.summaryTotalFixedSalaries ?? 0).toLocaleString('he-IL', { minimumFractionDigits: 2 })}
                         </td>
-                        <td className="p-3 text-center text-gray-700">{instr.totalMeetings}</td>
-                        <td className="p-3 text-center text-gray-700">{instr.totalHours.toFixed(1)}</td>
-                        <td className="p-3 text-center text-gray-700">₪{instr.totalPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
-                        <td className="p-3 text-center text-gray-500 text-sm">{instr.totalExpenses > 0 ? `₪${instr.totalExpenses.toLocaleString('he-IL', { minimumFractionDigits: 2 })}` : '—'}</td>
-                        <td className="p-3 text-center font-bold text-blue-700">₪{instr.grandTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
                       </tr>
-                    );
-                  })}
+                      {fixedManagementSalaries.map(item => (
+                        <tr key={item.name} className="border-t bg-white">
+                          <td className="p-3 font-semibold text-gray-800">{item.name}</td>
+                          <td className="p-3 text-center">
+                            <span className="px-2 py-1 rounded text-xs font-bold bg-purple-100 text-purple-700">{item.role}</span>
+                          </td>
+                          <td className="p-3 text-center text-gray-400">—</td>
+                          <td className="p-3 text-center text-gray-400">—</td>
+                          <td className="p-3 text-center text-gray-700">₪{item.amount.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                          <td className="p-3 text-center text-gray-400">—</td>
+                          <td className="p-3 text-center font-bold text-purple-700">₪{item.amount.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                      ))}
+                    </>
+                  )}
                 </tbody>
                 <tfoot className="bg-blue-100">
                   <tr>
-                    <td colSpan={3} className="p-3 font-bold text-blue-900">סה"כ כולל</td>
+                    <td colSpan={4} className="p-3 font-bold text-blue-900">סה"כ כולל</td>
                     <td className="p-3 text-center font-bold text-blue-900">₪{report.summaryTotalPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
                     <td className="p-3 text-center font-bold text-blue-900">{report.summaryTotalExpenses > 0 ? `₪${report.summaryTotalExpenses.toLocaleString('he-IL', { minimumFractionDigits: 2 })}` : '—'}</td>
                     <td className="p-3 text-center font-bold text-blue-900 text-lg">₪{report.summaryGrandTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>

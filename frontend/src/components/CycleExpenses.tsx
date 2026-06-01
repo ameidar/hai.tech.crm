@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Plus, Trash2, Clock, Package, Users, MoreHorizontal, Percent, Pencil, X } from 'lucide-react';
-import { 
-  useCycleExpenses, 
-  useCreateCycleExpense, 
+import { Plus, Trash2, Clock, Package, Users, MoreHorizontal, Percent, Pencil, X, Check, CircleAlert } from 'lucide-react';
+import {
+  useCycleExpenses,
+  useCreateCycleExpense,
   useUpdateCycleExpense,
   useDeleteCycleExpense,
+  useReviewCycleExpense,
 } from '../hooks/useExpenses';
 import { useInstructors } from '../hooks/useApi';
 import type { CycleExpense } from '../hooks/useExpenses';
@@ -40,11 +41,21 @@ const rateTypeLabels: Record<string, string> = {
   frontal: 'פרונטלי',
 };
 
+const statusBadge: Record<string, { label: string; className: string }> = {
+  pending:  { label: 'ממתין לאישור', className: 'bg-amber-100 text-amber-700' },
+  approved: { label: 'מאושר',        className: 'bg-green-100 text-green-700' },
+  rejected: { label: 'נדחה',         className: 'bg-red-100 text-red-700' },
+};
+
+const formatPaymentDate = (d?: string | null) =>
+  d ? new Date(d).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+
 export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, isAdmin }: CycleExpensesProps) {
   const { data: expenses, isLoading } = useCycleExpenses(cycleId);
   const { data: instructors } = useInstructors();
   const createExpense = useCreateCycleExpense();
   const deleteExpense = useDeleteCycleExpense();
+  const reviewExpense = useReviewCycleExpense();
 
   const updateExpense = useUpdateCycleExpense();
   const [showAddForm, setShowAddForm] = useState(false);
@@ -58,6 +69,7 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
     hours: '',
     rateType: 'preparation' as 'preparation' | 'online' | 'frontal',
     instructorId: '',
+    paymentDate: '',
   });
   const [newExpense, setNewExpense] = useState({
     type: 'wraparound_hours' as CycleExpense['type'],
@@ -68,9 +80,14 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
     hours: '',
     rateType: 'preparation' as 'preparation' | 'online' | 'frontal',
     instructorId: '',
+    paymentDate: '',
   });
 
   const handleAdd = async () => {
+    if (!newExpense.paymentDate) {
+      alert('יש להזין תאריך תשלום');
+      return;
+    }
     try {
       if (newExpense.isPercentage) {
         if (!newExpense.percentage || Number(newExpense.percentage) <= 0) return;
@@ -80,6 +97,7 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
           description: newExpense.description || undefined,
           isPercentage: true,
           percentage: Number(newExpense.percentage),
+          paymentDate: newExpense.paymentDate,
         });
       } else if (newExpense.hours && newExpense.instructorId) {
         await createExpense.mutateAsync({
@@ -89,6 +107,7 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
           hours: Number(newExpense.hours),
           rateType: newExpense.rateType,
           instructorId: newExpense.instructorId,
+          paymentDate: newExpense.paymentDate,
         });
       } else if (newExpense.amount) {
         await createExpense.mutateAsync({
@@ -96,11 +115,12 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
           type: newExpense.type,
           description: newExpense.description || undefined,
           amount: Number(newExpense.amount),
+          paymentDate: newExpense.paymentDate,
         });
       } else {
         return;
       }
-      setNewExpense({ type: 'wraparound_hours', description: '', amount: '', isPercentage: false, percentage: '', hours: '', rateType: 'preparation', instructorId: '' });
+      setNewExpense({ type: 'wraparound_hours', description: '', amount: '', isPercentage: false, percentage: '', hours: '', rateType: 'preparation', instructorId: '', paymentDate: '' });
       setShowAddForm(false);
     } catch (error) {
       console.error('Failed to add expense:', error);
@@ -118,10 +138,15 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
       hours: expense.hours ? String(expense.hours) : '',
       rateType: (expense.rateType as 'preparation' | 'online' | 'frontal') || 'preparation',
       instructorId: expense.instructorId || '',
+      paymentDate: expense.paymentDate ? expense.paymentDate.slice(0, 10) : '',
     });
   };
 
   const handleUpdate = async (id: string) => {
+    if (!editForm.paymentDate) {
+      alert('יש להזין תאריך תשלום');
+      return;
+    }
     try {
       await updateExpense.mutateAsync({
         id,
@@ -134,10 +159,23 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
         hours: editForm.hours ? Number(editForm.hours) : undefined,
         rateType: editForm.hours ? editForm.rateType : undefined,
         instructorId: editForm.instructorId || undefined,
+        paymentDate: editForm.paymentDate,
       });
       setEditingId(null);
     } catch (error) {
       console.error('Failed to update expense:', error);
+    }
+  };
+
+  const handleReview = async (id: string, status: 'approved' | 'rejected') => {
+    let rejectionReason: string | undefined;
+    if (status === 'rejected') {
+      rejectionReason = prompt('סיבת דחייה (אופציונלי):') || undefined;
+    }
+    try {
+      await reviewExpense.mutateAsync({ id, cycleId, status, rejectionReason });
+    } catch (error) {
+      console.error('Failed to review expense:', error);
     }
   };
 
@@ -209,6 +247,10 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
                       <input type="text" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} className="input w-full text-sm" placeholder="תיאור (אופציונלי)" />
                     </div>
                   </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">תאריך תשלום <span className="text-red-500">*</span></label>
+                    <input type="date" value={editForm.paymentDate} onChange={(e) => setEditForm({ ...editForm, paymentDate: e.target.value })} className="input w-full text-sm" required />
+                  </div>
                   <div className="flex gap-3">
                     <label className="flex items-center gap-1 text-sm"><input type="radio" checked={!editForm.isPercentage && !editForm.hours} onChange={() => setEditForm({ ...editForm, isPercentage: false, hours: '' })} /> סכום קבוע</label>
                     <label className="flex items-center gap-1 text-sm"><input type="radio" checked={!!editForm.hours} onChange={() => setEditForm({ ...editForm, isPercentage: false, hours: '1' })} /> לפי שעות</label>
@@ -246,16 +288,25 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
                   <div className="flex items-center gap-3">
                     <span className="text-gray-400">{expenseTypeIcons[expense.type]}</span>
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium">{expenseTypeLabels[expense.type]}</span>
                         {expense.instructor && <span className="text-sm text-blue-600">({expense.instructor.name})</span>}
+                        {expense.status && (
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusBadge[expense.status]?.className || ''}`}>
+                            {statusBadge[expense.status]?.label || expense.status}
+                          </span>
+                        )}
                       </div>
                       {expense.description && <p className="text-sm text-gray-500">{expense.description}</p>}
+                      <p className="text-xs text-gray-400">תאריך תשלום: {formatPaymentDate(expense.paymentDate)}</p>
                       {expense.hours && expense.rateType && (
                         <p className="text-xs text-gray-400">
                           {expense.hours} שעות × תעריף {rateTypeLabels[expense.rateType]}
                           {expense.instructor?.employmentType === 'employee' && ' × 1.3 (עלות מעסיק)'}
                         </p>
+                      )}
+                      {expense.status === 'rejected' && expense.rejectionReason && (
+                        <p className="text-xs text-red-500 flex items-center gap-1"><CircleAlert size={12} /> {expense.rejectionReason}</p>
                       )}
                     </div>
                   </div>
@@ -267,6 +318,16 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
                       </span>
                     ) : (
                       <span className="font-bold">{formatCurrency(Number(expense.amount || 0))}</span>
+                    )}
+                    {isAdmin && expense.status === 'pending' && (
+                      <>
+                        <button onClick={() => handleReview(expense.id, 'approved')} disabled={reviewExpense.isPending} className="text-gray-400 hover:text-green-600 p-1" title="אשר">
+                          <Check size={16} />
+                        </button>
+                        <button onClick={() => handleReview(expense.id, 'rejected')} disabled={reviewExpense.isPending} className="text-gray-400 hover:text-red-600 p-1" title="דחה">
+                          <X size={16} />
+                        </button>
+                      </>
                     )}
                     {isAdmin && (
                       <>
@@ -316,6 +377,19 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
                     className="input w-full"
                   />
                 </div>
+              </div>
+
+              {/* Payment date */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">תאריך תשלום <span className="text-red-500">*</span></label>
+                <input
+                  type="date"
+                  value={newExpense.paymentDate}
+                  onChange={(e) => setNewExpense({ ...newExpense, paymentDate: e.target.value })}
+                  className="input w-full"
+                  required
+                />
+                <p className="text-xs text-gray-400 mt-1">קובע באיזה חודש ההוצאה תיכלל בדוח התשלום</p>
               </div>
 
               {/* Calculation method */}

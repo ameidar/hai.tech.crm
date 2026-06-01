@@ -133,6 +133,47 @@ function buildEmailHtml(report: InstructorMonthlyReport): string {
     </div>
     `}
 
+    <!-- Pending cycle expenses awaiting manager approval -->
+    ${(() => {
+      const pending = report.instructors.flatMap(i =>
+        i.pendingCycleExpenses.map(e => ({ instructorName: i.instructorName, e })),
+      );
+      if (pending.length === 0) return '';
+      const pendingTotal = pending.reduce((s, p) => s + p.e.amount, 0);
+      return `
+    <div style="margin:0 36px 24px;padding:20px;background:#FEF3C7;border-radius:10px;border-right:4px solid #D97706">
+      <div style="font-weight:700;color:#92400E;font-size:15px;margin-bottom:12px">
+        ⏳ ${pending.length} הוצאות מחזור ממתינות לאישור מנהל — לא נכללו בסה"כ לתשלום
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="background:#D97706">
+            <th style="padding:8px;text-align:right;color:#fff">תאריך תשלום</th>
+            <th style="padding:8px;text-align:right;color:#fff">מדריך</th>
+            <th style="padding:8px;text-align:right;color:#fff">סוג</th>
+            <th style="padding:8px;text-align:right;color:#fff">מחזור</th>
+            <th style="padding:8px;text-align:center;color:#fff">סכום</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${pending.map((p, i) => `
+            <tr style="background:${i % 2 === 0 ? '#FFFBEB' : '#fff'}">
+              <td style="padding:7px 10px;border-bottom:1px solid #FDE68A">${p.e.paymentDate ? new Date(p.e.paymentDate).toLocaleDateString('he-IL') : '—'}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid #FDE68A;font-weight:600">${p.instructorName}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid #FDE68A">${p.e.typeLabel}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid #FDE68A">${p.e.cycleName}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid #FDE68A;text-align:center;font-weight:600">₪${p.e.amount.toLocaleString('he-IL',{minimumFractionDigits:2})}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      <div style="margin-top:10px;color:#92400E;font-size:12px;font-weight:600">
+        סה"כ ממתין לאישור: ₪${pendingTotal.toLocaleString('he-IL',{minimumFractionDigits:2})}
+      </div>
+    </div>
+      `;
+    })()}
+
     <!-- Note -->
     <div style="padding:0 36px 24px;color:#64748b;font-size:13px;text-align:center">
       הפירוט המלא מצורף כקובץ Excel לאימייל זה

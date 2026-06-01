@@ -55,7 +55,7 @@ const fetchDataWithPagination = async <T>(url: string): Promise<{ data: T; pagin
 };
 
 // Generic mutation function
-export const mutateData = async <T, D>(url: string, method: 'post' | 'put' | 'delete', data?: D): Promise<T> => {
+export const mutateData = async <T, D>(url: string, method: 'post' | 'put' | 'patch' | 'delete', data?: D): Promise<T> => {
   const response = await api[method]<T>(url, data);
   return response.data;
 };

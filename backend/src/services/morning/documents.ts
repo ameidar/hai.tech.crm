@@ -12,12 +12,13 @@ export const DOCUMENT_TYPES = {
   CREDIT_INVOICE: 330,    // חשבונית זיכוי
 } as const;
 
-// Morning vatType (verified empirically against doc 40839):
+// Morning vatType (verified empirically against the drafts endpoint):
 //   0 = default — price excludes VAT, Morning adds 18% on top (this is the regular case)
 //   1 = exempt — no VAT (e.g. עוסק פטור)
-//   2 = included — price already includes VAT, Morning extracts it
-// NOTE: Morning's docs label these confusingly; do not trust labels — see doc 40839 which
-// has vatType:0 and correctly applies 18% VAT.
+//   2 = included — price already includes VAT, Morning extracts it (line total = price × qty)
+// IMPORTANT: VAT handling is controlled by the PER-LINE vatType on each income item, not the
+// document-level vatType. A document-level vatType:2 with no per-line vatType still adds 18%
+// on top — only a per-line vatType:2 makes Morning treat that line's price as VAT-inclusive.
 export type VatType = 0 | 1 | 2;
 
 export interface MorningClient {

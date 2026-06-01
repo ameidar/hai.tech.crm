@@ -41,6 +41,19 @@ interface ActivityTypeSummary {
   subtotal: number;
 }
 
+interface CycleExpenseDetail {
+  id: string;
+  type: string;
+  typeLabel: string;
+  description: string | null;
+  amount: number;
+  hours: number | null;
+  rateType: string | null;
+  paymentDate: string | null;
+  status: string;
+  cycleName: string;
+}
+
 interface InstructorReportSummary {
   instructorName: string;
   employmentType?: 'employee' | 'freelancer' | string | null;
@@ -48,9 +61,13 @@ interface InstructorReportSummary {
   totalHours: number;
   totalPayment: number;
   totalExpenses: number;
+  totalCycleExpenses?: number;
+  pendingCycleExpensesTotal?: number;
   grandTotal: number;
   meetings?: MeetingDetail[];
   byActivityType?: ActivityTypeSummary[];
+  cycleExpenses?: CycleExpenseDetail[];
+  pendingCycleExpenses?: CycleExpenseDetail[];
 }
 interface FixedManagementSalary {
   name: string;
@@ -446,6 +463,51 @@ function InstructorReportTab() {
                 </table>
               ) : (
                 <div className="p-6 text-center text-gray-400 text-sm">אין פרטי פגישות זמינים</div>
+              )}
+
+              {/* Cycle expenses (by payment date) */}
+              {((selectedInstructor.cycleExpenses?.length ?? 0) > 0 || (selectedInstructor.pendingCycleExpenses?.length ?? 0) > 0) && (
+                <div className="p-4 border-t bg-emerald-50">
+                  <p className="text-xs font-semibold text-emerald-700 mb-2 uppercase tracking-wide">הוצאות מחזור — לפי תאריך תשלום</p>
+                  <table className="text-sm w-full">
+                    <thead>
+                      <tr className="text-emerald-800">
+                        <th className="text-right pb-1 font-semibold">תאריך תשלום</th>
+                        <th className="text-right pb-1 font-semibold">סוג</th>
+                        <th className="text-right pb-1 font-semibold">מחזור</th>
+                        <th className="text-center pb-1 font-semibold">סטטוס</th>
+                        <th className="text-center pb-1 font-semibold">סכום</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...(selectedInstructor.cycleExpenses ?? []), ...(selectedInstructor.pendingCycleExpenses ?? [])].map((exp) => (
+                        <tr key={exp.id} className="border-t border-emerald-100">
+                          <td className="py-1.5 text-gray-700">{exp.paymentDate ? new Date(exp.paymentDate).toLocaleDateString('he-IL') : '—'}</td>
+                          <td className="py-1.5 text-gray-800 font-medium">{exp.typeLabel}{exp.description && <span className="text-gray-400 text-xs"> ({exp.description})</span>}</td>
+                          <td className="py-1.5 text-gray-600">{exp.cycleName}</td>
+                          <td className="py-1.5 text-center">
+                            {exp.status === 'approved'
+                              ? <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">מאושר</span>
+                              : <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">ממתין לאישור</span>}
+                          </td>
+                          <td className="py-1.5 text-center font-bold text-emerald-800">₪{exp.amount.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="border-t-2 border-emerald-200">
+                      <tr>
+                        <td colSpan={4} className="py-1.5 font-bold text-emerald-900">סה"כ מאושר (נכלל בתשלום)</td>
+                        <td className="py-1.5 text-center font-bold text-emerald-900">₪{(selectedInstructor.totalCycleExpenses ?? 0).toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                      </tr>
+                      {(selectedInstructor.pendingCycleExpensesTotal ?? 0) > 0 && (
+                        <tr>
+                          <td colSpan={4} className="py-1.5 font-semibold text-amber-700">ממתין לאישור (לא נכלל)</td>
+                          <td className="py-1.5 text-center font-semibold text-amber-700">₪{(selectedInstructor.pendingCycleExpensesTotal ?? 0).toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                      )}
+                    </tfoot>
+                  </table>
+                </div>
               )}
             </div>
           )}

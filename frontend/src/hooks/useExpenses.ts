@@ -13,8 +13,13 @@ export interface CycleExpense {
   hours?: number | null;
   rateType?: 'preparation' | 'online' | 'frontal' | null;
   instructorId?: string;
-  instructor?: { 
-    id: string; 
+  paymentDate?: string | null;
+  status?: 'pending' | 'approved' | 'rejected';
+  reviewedAt?: string | null;
+  rejectionReason?: string | null;
+  reviewedBy?: { id: string; name: string } | null;
+  instructor?: {
+    id: string;
     name: string;
     ratePreparation?: number;
     rateOnline?: number;
@@ -62,16 +67,17 @@ export function useCycleExpenses(cycleId: string) {
 export function useCreateCycleExpense() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { 
-      cycleId: string; 
-      type: string; 
-      description?: string; 
-      amount?: number; 
+    mutationFn: (data: {
+      cycleId: string;
+      type: string;
+      description?: string;
+      amount?: number;
       instructorId?: string;
       isPercentage?: boolean;
       percentage?: number;
       hours?: number;
       rateType?: string;
+      paymentDate?: string;
     }) =>
       mutateData<CycleExpense, typeof data>('/expenses/cycle', 'post', data),
     onSuccess: (_, variables) => {
@@ -83,8 +89,19 @@ export function useCreateCycleExpense() {
 export function useUpdateCycleExpense() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, cycleId, ...data }: { id: string; cycleId: string; type: string; description?: string; amount?: number; instructorId?: string; isPercentage?: boolean; percentage?: number; hours?: number; rateType?: string; }) =>
+    mutationFn: ({ id, cycleId, ...data }: { id: string; cycleId: string; type: string; description?: string; amount?: number; instructorId?: string; isPercentage?: boolean; percentage?: number; hours?: number; rateType?: string; paymentDate?: string; }) =>
       mutateData<CycleExpense, Omit<typeof data, 'cycleId'>>(`/expenses/cycle/${id}`, 'put', data),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['cycle-expenses', variables.cycleId] });
+    },
+  });
+}
+
+export function useReviewCycleExpense() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status, rejectionReason }: { id: string; cycleId: string; status: 'approved' | 'rejected'; rejectionReason?: string }) =>
+      mutateData<CycleExpense, { status: string; rejectionReason?: string }>(`/expenses/cycle/${id}/review`, 'patch', { status, rejectionReason }),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['cycle-expenses', variables.cycleId] });
     },

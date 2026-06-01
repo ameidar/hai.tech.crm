@@ -285,7 +285,7 @@ export async function buildInstructorMonthlyReport(
         durationHours:     calcDuration(mtg.startTime as unknown, mtg.endTime as unknown),
         cycleName:         (mtg.cycle as { name: string; course: { name: string } }).name,
         courseName:        (mtg.cycle as { name: string; course: { name: string } }).course.name,
-        locationName:      (mtg.cycle as { branch?: { name?: string | null } | null }).branch?.name ?? null,
+        locationName:      (mtg.cycle as { branch?: { city?: string | null } | null }).branch?.city ?? null,
         activityType:      activityLabel(rawType),
         activityTypeRaw:   rawType,
         topic:             mtg.topic ?? null,

@@ -34,6 +34,7 @@ export const dayOfWeekEnum = z.enum([
  * Activity type enum
  */
 export const activityTypeEnum = z.enum(['online', 'frontal', 'private_lesson']);
+export const instructorPaymentModeEnum = z.enum(['hourly', 'daily']);
 
 /**
  * Time string schema (HH:MM format)
@@ -84,6 +85,8 @@ export const createCycleSchema = z.object({
   totalMeetings: z.number().int().positive(),
   pricePerStudent: z.number().nonnegative().optional(),
   meetingRevenue: z.number().nonnegative().optional(),
+  instructorPaymentMode: instructorPaymentModeEnum.optional().default('hourly'),
+  instructorDailyRate: z.number().nonnegative().optional().nullable(),
   studentCount: z.number().int().nonnegative().optional(),
   maxStudents: z.number().int().positive().optional(),
   sendParentReminders: z.boolean().optional().default(false),
@@ -112,6 +115,8 @@ export const updateCycleSchema = z.object({
   completedMeetings: z.number().int().nonnegative().optional(),
   pricePerStudent: z.number().nonnegative().optional().nullable(),
   meetingRevenue: z.number().nonnegative().optional().nullable(),
+  instructorPaymentMode: instructorPaymentModeEnum.optional(),
+  instructorDailyRate: z.number().nonnegative().optional().nullable(),
   studentCount: z.number().int().nonnegative().optional().nullable(),
   maxStudents: z.number().int().positive().optional().nullable(),
   sendParentReminders: z.boolean().optional(),

@@ -10,6 +10,10 @@ import { handleCycleCompletion } from '../services/cycle-completion.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
 import { meetingRevenueFromRegistrations } from '../utils/revenue.js';
 import { assertCyclePeriodNotLocked, assertMeetingNotInIssuedPeriod } from '../services/billing-lock.js';
+import {
+  calculateInstructorPayment,
+  recalculateDailyInstructorPaymentsForMeeting,
+} from '../services/instructor-payment.js';
 
 // Send WhatsApp alert for negative profit
 async function sendNegativeProfitAlert(meetingData: {
@@ -304,22 +308,12 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
       }
     }
 
-    // Calculate instructor payment based on activity type
-    const meetingActivityType = activityType || cycle.activityType || 'frontal';
-    let hourlyRate = 0;
-    if (meetingActivityType === 'online') {
-      hourlyRate = Number(instructor.rateOnline) || Number(instructor.rateFrontal) || 0;
-    } else if (meetingActivityType === 'private_lesson') {
-      hourlyRate = Number(instructor.ratePrivate) || Number(instructor.rateFrontal) || 0;
-    } else {
-      hourlyRate = Number(instructor.rateFrontal) || 0;
-    }
-    let instructorPayment = Math.round(hourlyRate * (durationMinutes / 60));
-    
-    // Apply employer cost multiplier (1.3) for employees
-    if (instructor.employmentType === 'employee') {
-      instructorPayment = Math.round(instructorPayment * 1.3);
-    }
+    const instructorPayment = calculateInstructorPayment(cycle, instructor, {
+      instructorId,
+      startTime: new Date(`1970-01-01T${startTime}:00Z`),
+      endTime: new Date(`1970-01-01T${endTime}:00Z`),
+      activityType: activityType || cycle.activityType || 'frontal',
+    });
     
     const profit = revenue - instructorPayment;
 
@@ -532,52 +526,14 @@ meetingsRouter.put('/:id', async (req, res, next) => {
             revenue = Number(cycleData.meetingRevenue || 0);
           }
 
-          // Calculate instructor payment based on rate and duration
-          // Use the MEETING's instructor (might be different from cycle default)
           const meetingInstructorId = data.instructorId || existingMeeting.instructorId;
           const instructor = await prisma.instructor.findUnique({ where: { id: meetingInstructorId } });
-          
-          let instructorPayment = 0;
-          if (instructor) {
-            // Determine rate based on activity type
-            // Priority: meeting.activityType > cycle.activityType > fallback to cycle.isOnline
-            const activityType = data.activityType || existingMeeting.activityType || cycleData.activityType || 
-              (cycleData.isOnline ? 'online' : ((['private', 'trial_private'].includes(String(cycleData.type))) ? 'private_lesson' : 'frontal'));
-            
-            let hourlyRate = 0;
-            switch (activityType) {
-              case 'online':
-                hourlyRate = Number(instructor.rateOnline || instructor.rateFrontal || 0);
-                break;
-              case 'private_lesson':
-                hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
-                break;
-              case 'frontal':
-              default:
-                hourlyRate = Number(instructor.rateFrontal || 0);
-                break;
-            }
-            
-            // Calculate duration from meeting's actual times, or fall back to cycle default
-            const meetingStart = existingMeeting.startTime;
-            const meetingEnd = existingMeeting.endTime;
-            let durationMinutes = cycleData.durationMinutes;
-            
-            if (meetingStart && meetingEnd) {
-              // Calculate from actual meeting times
-              const startMs = meetingStart.getTime();
-              const endMs = meetingEnd.getTime();
-              durationMinutes = (endMs - startMs) / (1000 * 60);
-            }
-            
-            const durationHours = durationMinutes / 60;
-            instructorPayment = Math.round(hourlyRate * durationHours);
-            
-            // Apply employer cost multiplier (1.3) for employees
-            if (instructor.employmentType === 'employee') {
-              instructorPayment = Math.round(instructorPayment * 1.3);
-            }
-          }
+          const instructorPayment = calculateInstructorPayment(cycleData, instructor, {
+            instructorId: meetingInstructorId,
+            startTime: updateData.startTime || existingMeeting.startTime,
+            endTime: updateData.endTime || existingMeeting.endTime,
+            activityType: data.activityType || existingMeeting.activityType,
+          });
 
           // Get approved meeting expenses
           const approvedExpenses = await prisma.meetingExpense.aggregate({
@@ -663,6 +619,8 @@ meetingsRouter.put('/:id', async (req, res, next) => {
         instructor: { select: { id: true, name: true } },
       },
     });
+    await recalculateDailyInstructorPaymentsForMeeting(existingMeeting);
+    await recalculateDailyInstructorPaymentsForMeeting(meeting);
 
     // Sync cycle progress AFTER meeting is updated (accurate DB count)
     if (statusChangedToCompleted || statusChangedFromCompleted) {
@@ -1009,47 +967,7 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
       revenue = Number(cycleData.meetingRevenue || 0);
     }
 
-    // Calculate instructor payment based on activity type
-    const activityType = meeting.activityType || cycleData.activityType ||
-      (cycleData.isOnline ? 'online' : ((['private', 'trial_private'].includes(String(cycleData.type))) ? 'private_lesson' : 'frontal'));
-
-    const instructor = meeting.instructor;
-    let instructorPayment = 0;
-    if (instructor) {
-      let hourlyRate = 0;
-      switch (activityType) {
-        case 'online':
-          hourlyRate = Number(instructor.rateOnline || instructor.rateFrontal || 0);
-          break;
-        case 'private_lesson':
-          hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
-          break;
-        case 'frontal':
-        default:
-          hourlyRate = Number(instructor.rateFrontal || 0);
-          break;
-      }
-
-      // Calculate duration from actual meeting times, or fall back to cycle default
-      let durationMinutes = cycleData.durationMinutes;
-      if (meeting.startTime && meeting.endTime) {
-        const startMs = meeting.startTime.getTime();
-        const endMs = meeting.endTime.getTime();
-        const calculatedMinutes = (endMs - startMs) / (1000 * 60);
-        // Only use calculated if it's positive and reasonable (< 24 hours)
-        if (calculatedMinutes > 0 && calculatedMinutes < 1440) {
-          durationMinutes = calculatedMinutes;
-        }
-      }
-      
-      const durationHours = durationMinutes / 60;
-      instructorPayment = Math.round(hourlyRate * durationHours);
-      
-      // Apply employer cost multiplier (1.3) for employees
-      if (instructor.employmentType === 'employee') {
-        instructorPayment = Math.round(instructorPayment * 1.3);
-      }
-    }
+    const instructorPayment = calculateInstructorPayment(cycleData, meeting.instructor, meeting);
 
     // Get approved meeting expenses
     const approvedExpenses = await prisma.meetingExpense.aggregate({
@@ -1083,6 +1001,7 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
         instructor: { select: { id: true, name: true } },
       },
     });
+    await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
 
     res.json(updatedMeeting);
   } catch (error) {
@@ -1147,54 +1066,15 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
         revenue = Number(cycleData.meetingRevenue || 0);
       }
 
-      // Calculate instructor payment
-      const activityType = meeting.activityType || cycleData.activityType ||
-        (cycleData.isOnline ? 'online' : ((['private', 'trial_private'].includes(String(cycleData.type))) ? 'private_lesson' : 'frontal'));
-
-      const instructor = meeting.instructor;
-      let instructorPayment = 0;
-      if (instructor) {
-        let hourlyRate = 0;
-        switch (activityType) {
-          case 'online':
-            hourlyRate = Number(instructor.rateOnline || instructor.rateFrontal || 0);
-            break;
-          case 'private_lesson':
-            hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
-            break;
-          case 'frontal':
-          default:
-            hourlyRate = Number(instructor.rateFrontal || 0);
-            break;
-        }
-
-        // Calculate duration from actual meeting times, or fall back to cycle default
-        let durationMinutes = cycleData.durationMinutes;
-        if (meeting.startTime && meeting.endTime) {
-          const startMs = meeting.startTime.getTime();
-          const endMs = meeting.endTime.getTime();
-          const calculatedMinutes = (endMs - startMs) / (1000 * 60);
-          // Only use calculated if it's positive and reasonable (< 24 hours)
-          if (calculatedMinutes > 0 && calculatedMinutes < 1440) {
-            durationMinutes = calculatedMinutes;
-          }
-        }
-        
-        const durationHours = durationMinutes / 60;
-        instructorPayment = Math.round(hourlyRate * durationHours);
-        
-        // Apply employer cost multiplier (1.3) for employees
-        if (instructor.employmentType === 'employee') {
-          instructorPayment = Math.round(instructorPayment * 1.3);
-        }
-      }
+      const instructorPayment = calculateInstructorPayment(cycleData, meeting.instructor, meeting);
 
       const profit = revenue - instructorPayment;
 
-      await prisma.meeting.update({
+      const updatedMeeting = await prisma.meeting.update({
         where: { id },
         data: { revenue, instructorPayment, profit },
       });
+      await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
 
       recalculated++;
     }
@@ -1270,44 +1150,9 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
               revenue = Number(cycleData.meetingRevenue || 0);
             }
 
-            // Calculate instructor payment
             const meetingInstructorId = existingMeeting.instructorId;
             const instructor = await prisma.instructor.findUnique({ where: { id: meetingInstructorId } });
-            
-            let instructorPayment = 0;
-            if (instructor) {
-              const activityType = existingMeeting.activityType || cycleData.activityType || 
-                (cycleData.isOnline ? 'online' : ((['private', 'trial_private'].includes(String(cycleData.type))) ? 'private_lesson' : 'frontal'));
-              
-              let hourlyRate = 0;
-              switch (activityType) {
-                case 'online':
-                  hourlyRate = Number(instructor.rateOnline || instructor.rateFrontal || 0);
-                  break;
-                case 'private_lesson':
-                  hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
-                  break;
-                case 'frontal':
-                default:
-                  hourlyRate = Number(instructor.rateFrontal || 0);
-                  break;
-              }
-              
-              let durationMinutes = cycleData.durationMinutes;
-              if (existingMeeting.startTime && existingMeeting.endTime) {
-                const startMs = existingMeeting.startTime.getTime();
-                const endMs = existingMeeting.endTime.getTime();
-                durationMinutes = (endMs - startMs) / (1000 * 60);
-              }
-              
-              const durationHours = durationMinutes / 60;
-              instructorPayment = Math.round(hourlyRate * durationHours);
-              
-              // Apply employer cost multiplier (1.3) for employees
-              if (instructor.employmentType === 'employee') {
-                instructorPayment = Math.round(instructorPayment * 1.3);
-              }
-            }
+            const instructorPayment = calculateInstructorPayment(cycleData, instructor, existingMeeting);
 
             const profit = revenue - instructorPayment;
 
@@ -1366,10 +1211,12 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
           updateData.profit = 0;
         }
 
-        await prisma.meeting.update({
+        const updatedMeeting = await prisma.meeting.update({
           where: { id },
           data: updateData,
         });
+        await recalculateDailyInstructorPaymentsForMeeting(existingMeeting);
+        await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
 
         // Audit log
         await logAudit({
@@ -1499,27 +1346,13 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
               revenue = Number(cycleData.meetingRevenue || 0);
             }
 
-            const activityType = meeting.activityType || cycleData.activityType || ((['private', 'trial_private'].includes(String(cycleData.type))) ? 'private_lesson' : 'frontal');
-            let instructorPayment = 0;
-            if (meeting.instructor) {
-              let rate = 0;
-              switch (activityType) {
-                case 'online': rate = Number(meeting.instructor.rateOnline || meeting.instructor.rateFrontal || 0); break;
-                case 'private_lesson': rate = Number(meeting.instructor.ratePrivate || meeting.instructor.rateFrontal || 0); break;
-                default: rate = Number(meeting.instructor.rateFrontal || 0);
-              }
-              instructorPayment = Math.round(rate * (cycleData.durationMinutes / 60));
-              
-              // Apply employer cost multiplier (1.3) for employees
-              if (meeting.instructor.employmentType === 'employee') {
-                instructorPayment = Math.round(instructorPayment * 1.3);
-              }
-            }
+            const instructorPayment = calculateInstructorPayment(cycleData, meeting.instructor, meeting);
 
-            await prisma.meeting.update({
+            const updatedMeeting = await prisma.meeting.update({
               where: { id },
               data: { revenue, instructorPayment, profit: revenue - instructorPayment },
             });
+            await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
           }
         }
 
@@ -1551,7 +1384,7 @@ meetingsRouter.post('/bulk-delete', managerOrAdmin, async (req, res, next) => {
     // Get meetings to check their status and cycle
     const meetings = await prisma.meeting.findMany({
       where: { id: { in: ids } },
-      select: { id: true, cycleId: true, status: true },
+      select: { id: true, cycleId: true, instructorId: true, scheduledDate: true, status: true },
     });
 
     // Group completed meetings by cycle to update counters
@@ -1577,6 +1410,12 @@ meetingsRouter.post('/bulk-delete', managerOrAdmin, async (req, res, next) => {
     const result = await prisma.meeting.deleteMany({
       where: { id: { in: ids } },
     });
+
+    for (const meeting of meetings) {
+      if (meeting.status === 'completed') {
+        await recalculateDailyInstructorPaymentsForMeeting(meeting);
+      }
+    }
 
     res.json({ success: true, deleted: result.count });
   } catch (error) {

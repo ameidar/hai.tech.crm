@@ -142,6 +142,8 @@ export const createCycleSchema = z.object({
   pricePerStudent: z.number().nonnegative().optional().nullable(),
   meetingRevenue: z.number().nonnegative().optional().nullable(),
   revenueIncludesVat: z.boolean().optional().nullable(),
+  instructorPaymentMode: z.enum(['hourly', 'daily']).default('hourly'),
+  instructorDailyRate: z.number().nonnegative().optional().nullable(),
   studentCount: z.number().int().nonnegative().optional().nullable(),
   maxStudents: z.number().int().nonnegative().optional().nullable(),
   sendParentReminders: z.boolean().default(false),

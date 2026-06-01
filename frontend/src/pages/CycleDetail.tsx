@@ -73,7 +73,7 @@ import {
   dayOfWeekHebrew,
   meetingStatusHebrew,
 } from '../types';
-import type { Meeting, MeetingStatus, MeetingNature, Registration, RegistrationStatus, PaymentStatus, PaymentMethod, ActivityType, Cycle, Course, Branch, Instructor, CycleStatus, CycleType, DayOfWeek } from '../types';
+import type { Meeting, MeetingStatus, MeetingNature, Registration, RegistrationStatus, PaymentStatus, PaymentMethod, ActivityType, Cycle, Course, Branch, Instructor, CycleStatus, CycleType, DayOfWeek, InstructorPaymentMode } from '../types';
 import { paymentStatusHebrew, activityTypeHebrew, meetingNatureHebrew } from '../types';
 import { exportCycleMeetingsToExcel } from '../utils/meetingsExcel';
 
@@ -2794,6 +2794,8 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     pricePerStudent: cycle.pricePerStudent || 0,
     meetingRevenue: cycle.meetingRevenue || 0,
     includesVat: cycle.revenueIncludesVat ?? null,
+    instructorPaymentMode: (cycle.instructorPaymentMode || 'hourly') as InstructorPaymentMode,
+    instructorDailyRate: cycle.instructorDailyRate || 0,
     studentCount: cycle.studentCount || 0,
     maxStudents: cycle.maxStudents || 15,
     activityType: cycle.activityType || 'frontal',
@@ -2830,6 +2832,11 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     // Validate VAT selection for institutional_fixed
     if (formData.type === 'institutional_fixed' && formData.includesVat === null) {
       alert('יש לבחור האם הסכום כולל מע״מ או לא');
+      return;
+    }
+
+    if (formData.instructorPaymentMode === 'daily' && Number(formData.instructorDailyRate) <= 0) {
+      alert('יש להזין עלות יומית למדריך');
       return;
     }
     
@@ -2869,6 +2876,8 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
       pricePerStudent: (formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') ? Number(formData.pricePerStudent) : undefined,
       meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'trial_private') ? meetingRevenueValue : undefined,
       revenueIncludesVat: formData.type === 'institutional_fixed' ? formData.includesVat : undefined,
+      instructorPaymentMode: formData.instructorPaymentMode,
+      instructorDailyRate: formData.instructorPaymentMode === 'daily' ? Number(formData.instructorDailyRate) : null,
       studentCount: formData.type === 'institutional_per_child' ? Number(formData.studentCount) : undefined,
       maxStudents: Number(formData.maxStudents),
       activityType: formData.activityType as ActivityType,
@@ -2975,6 +2984,31 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
             <option value="cancelled">בוטל</option>
           </select>
         </div>
+
+        <div>
+          <label className="form-label">תשלום מדריך</label>
+          <select
+            value={formData.instructorPaymentMode}
+            onChange={(e) => setFormData({ ...formData, instructorPaymentMode: e.target.value as InstructorPaymentMode })}
+            className="form-input"
+          >
+            <option value="hourly">לפי שעות</option>
+            <option value="daily">יומי גלובלי</option>
+          </select>
+        </div>
+
+        {formData.instructorPaymentMode === 'daily' && (
+          <div>
+            <label className="form-label">עלות יומית למדריך</label>
+            <input
+              type="number"
+              value={formData.instructorDailyRate}
+              onChange={(e) => setFormData({ ...formData, instructorDailyRate: Number(e.target.value) })}
+              className="form-input"
+              min="1"
+            />
+          </div>
+        )}
 
         <div>
           <label className="form-label">תאריך התחלה {scheduleFieldsLocked && <span className="text-red-500 text-xs">(נעול - יש זום)</span>}</label>

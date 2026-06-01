@@ -3,6 +3,10 @@ import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
 import { meetingRevenueFromRegistrations } from '../utils/revenue.js';
+import {
+  calculateInstructorPayment,
+  recalculateDailyInstructorPaymentsForMeeting,
+} from '../services/instructor-payment.js';
 import crypto from 'crypto';
 
 const MEETING_TOKEN_SECRET = process.env.MEETING_TOKEN_SECRET || 'haitech-meeting-status-2026';
@@ -124,31 +128,7 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
         revenue = Number(cycleData.meetingRevenue || 0);
       }
 
-      // Calculate instructor payment based on activity type
-      // Priority: meeting.activityType > cycle.activityType > fallback to cycle.isOnline
-      const activityType = existingMeeting.activityType || cycleData.activityType || 
-        (cycleData.isOnline ? 'online' : (cycleData.type === 'private' ? 'private_lesson' : 'frontal'));
-      
-      const instructor = existingMeeting.instructor;
-      let instructorPayment = 0;
-      if (instructor) {
-        let hourlyRate = 0;
-        switch (activityType) {
-          case 'online':
-            hourlyRate = Number(instructor.rateOnline || instructor.rateFrontal || 0);
-            break;
-          case 'private_lesson':
-            hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
-            break;
-          case 'frontal':
-          default:
-            hourlyRate = Number(instructor.rateFrontal || 0);
-            break;
-        }
-        
-        const durationHours = cycleData.durationMinutes / 60;
-        instructorPayment = Math.round(hourlyRate * durationHours);
-      }
+      const instructorPayment = calculateInstructorPayment(cycleData, existingMeeting.instructor, existingMeeting);
 
       updateData.revenue = revenue;
       updateData.instructorPayment = instructorPayment;
@@ -163,6 +143,8 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
       where: { id: meetingId },
       data: updateData,
     });
+    await recalculateDailyInstructorPaymentsForMeeting(existingMeeting);
+    await recalculateDailyInstructorPaymentsForMeeting(meeting);
 
     // Sync cycle progress from actual DB counts after meeting update
     if (willStatusChange) {

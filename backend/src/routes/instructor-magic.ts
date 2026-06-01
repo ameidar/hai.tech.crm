@@ -19,6 +19,7 @@ import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.
 import { handleCycleCompletion } from '../services/cycle-completion.js';
 import { meetingRevenueFromRegistrations } from '../utils/revenue.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
+import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
 
 // WhatsApp group for pending meeting requests (postponements, cancellations)
 const ADMIN_PHONE = '120363353459332838@g.us';
@@ -272,37 +273,8 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
             revenue = Number(cycleData.meetingRevenue || 0);
           }
 
-          // Calculate instructor payment
           const instructor = await prisma.instructor.findUnique({ where: { id: meeting.instructorId! } });
-          let instructorPayment = 0;
-          if (instructor) {
-            const activityType = meeting.activityType || cycleData.activityType ||
-              (cycleData.isOnline ? 'online' : (cycleData.type === 'private' ? 'private_lesson' : 'frontal'));
-
-            let hourlyRate = 0;
-            switch (activityType) {
-              case 'online':
-                hourlyRate = Number(instructor.rateOnline || instructor.rateFrontal || 0);
-                break;
-              case 'private_lesson':
-                hourlyRate = Number(instructor.ratePrivate || instructor.rateFrontal || 0);
-                break;
-              case 'frontal':
-              default:
-                hourlyRate = Number(instructor.rateFrontal || 0);
-                break;
-            }
-
-            let durationMinutes = cycleData.durationMinutes;
-            if (meeting.startTime && meeting.endTime) {
-              durationMinutes = (meeting.endTime.getTime() - meeting.startTime.getTime()) / (1000 * 60);
-            }
-
-            instructorPayment = Math.round(hourlyRate * (durationMinutes / 60));
-            if (instructor.employmentType === 'employee') {
-              instructorPayment = Math.round(instructorPayment * 1.3);
-            }
-          }
+          const instructorPayment = calculateInstructorPayment(cycleData, instructor, meeting);
 
           // Get approved expenses
           const approvedExpenses = await prisma.meetingExpense.aggregate({
@@ -313,10 +285,11 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
 
           const profit = revenue - instructorPayment - expensesTotal;
 
-          await prisma.meeting.update({
+          const updatedMeeting = await prisma.meeting.update({
             where: { id: meetingId },
             data: { revenue, instructorPayment, profit },
           });
+          await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
 
           // Sync counters from actual meetings. If this instructor report completed the
           // last required meeting, trigger the same cycle-completion flow as admin updates.

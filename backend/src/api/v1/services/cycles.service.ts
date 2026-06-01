@@ -12,6 +12,7 @@ import {
   BulkUpdateCyclesInput,
 } from '../validators/cycles.js';
 import { fetchHolidays, dayNameToNumber } from '../../../utils/holidays.js';
+import { recalculateInstructorPaymentsForCycle } from '../../../services/instructor-payment.js';
 
 /**
  * Cycles Service - Business logic layer
@@ -111,6 +112,7 @@ export class CyclesService {
     }
 
     const cycle = await this.repository.update(id, data);
+    await recalculateInstructorPaymentsForCycle(id);
 
     // Audit log
     if (req) {

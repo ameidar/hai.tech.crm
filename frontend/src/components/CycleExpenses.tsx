@@ -15,6 +15,7 @@ interface CycleExpensesProps {
   totalMeetings: number;
   meetingRevenue: number;
   isAdmin: boolean;
+  defaultInstructorId?: string;
 }
 
 const expenseTypeLabels: Record<CycleExpense['type'], string> = {
@@ -50,7 +51,7 @@ const statusBadge: Record<string, { label: string; className: string }> = {
 const formatPaymentDate = (d?: string | null) =>
   d ? new Date(d).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
 
-export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, isAdmin }: CycleExpensesProps) {
+export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, isAdmin, defaultInstructorId }: CycleExpensesProps) {
   const { data: expenses, isLoading } = useCycleExpenses(cycleId);
   const { data: instructors } = useInstructors();
   const createExpense = useCreateCycleExpense();
@@ -97,6 +98,7 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
           description: newExpense.description || undefined,
           isPercentage: true,
           percentage: Number(newExpense.percentage),
+          instructorId: newExpense.instructorId || undefined,
           paymentDate: newExpense.paymentDate,
         });
       } else if (newExpense.hours && newExpense.instructorId) {
@@ -115,6 +117,7 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
           type: newExpense.type,
           description: newExpense.description || undefined,
           amount: Number(newExpense.amount),
+          instructorId: newExpense.instructorId || undefined,
           paymentDate: newExpense.paymentDate,
         });
       } else {
@@ -251,6 +254,13 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
                     <label className="block text-xs text-gray-500 mb-1">תאריך תשלום <span className="text-red-500">*</span></label>
                     <input type="date" value={editForm.paymentDate} onChange={(e) => setEditForm({ ...editForm, paymentDate: e.target.value })} className="input w-full text-sm" required />
                   </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">מדריך לתשלום</label>
+                    <select value={editForm.instructorId} onChange={(e) => setEditForm({ ...editForm, instructorId: e.target.value })} className="input w-full text-sm">
+                      <option value="">מדריך המחזור (ברירת מחדל)</option>
+                      {instructors?.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                    </select>
+                  </div>
                   <div className="flex gap-3">
                     <label className="flex items-center gap-1 text-sm"><input type="radio" checked={!editForm.isPercentage && !editForm.hours} onChange={() => setEditForm({ ...editForm, isPercentage: false, hours: '' })} /> סכום קבוע</label>
                     <label className="flex items-center gap-1 text-sm"><input type="radio" checked={!!editForm.hours} onChange={() => setEditForm({ ...editForm, isPercentage: false, hours: '1' })} /> לפי שעות</label>
@@ -260,12 +270,8 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
                     <input type="number" value={editForm.amount} onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })} className="input w-full text-sm" placeholder="סכום ₪" />
                   )}
                   {!!editForm.hours && (
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 gap-2">
                       <input type="number" step="0.5" value={editForm.hours} onChange={(e) => setEditForm({ ...editForm, hours: e.target.value })} className="input text-sm" placeholder="שעות" />
-                      <select value={editForm.instructorId} onChange={(e) => setEditForm({ ...editForm, instructorId: e.target.value })} className="input text-sm">
-                        <option value="">מדריך</option>
-                        {instructors?.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
-                      </select>
                       <select value={editForm.rateType} onChange={(e) => setEditForm({ ...editForm, rateType: e.target.value as 'preparation' | 'online' | 'frontal' })} className="input text-sm">
                         {Object.entries(rateTypeLabels).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                       </select>
@@ -392,6 +398,22 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
                 <p className="text-xs text-gray-400 mt-1">קובע באיזה חודש ההוצאה תיכלל בדוח התשלום</p>
               </div>
 
+              {/* Instructor — who the expense is paid to */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">מדריך לתשלום</label>
+                <select
+                  value={newExpense.instructorId}
+                  onChange={(e) => setNewExpense({ ...newExpense, instructorId: e.target.value })}
+                  className="input w-full"
+                >
+                  <option value="">מדריך המחזור (ברירת מחדל)</option>
+                  {instructors?.map((instructor) => (
+                    <option key={instructor.id} value={instructor.id}>{instructor.name}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">המדריך שעבורו ההוצאה תופיע בדוח התשלום</p>
+              </div>
+
               {/* Calculation method */}
               <div className="space-y-2">
                 <div className="flex gap-4">
@@ -399,7 +421,7 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
                     <input
                       type="radio"
                       checked={!newExpense.isPercentage && !newExpense.hours}
-                      onChange={() => setNewExpense({ ...newExpense, isPercentage: false, hours: '', instructorId: '' })}
+                      onChange={() => setNewExpense({ ...newExpense, isPercentage: false, hours: '' })}
                     />
                     <span className="text-sm">סכום קבוע</span>
                   </label>
@@ -415,7 +437,7 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
                     <input
                       type="radio"
                       checked={newExpense.isPercentage}
-                      onChange={() => setNewExpense({ ...newExpense, isPercentage: true, amount: '', hours: '', instructorId: '' })}
+                      onChange={() => setNewExpense({ ...newExpense, isPercentage: true, amount: '', hours: '' })}
                     />
                     <span className="text-sm">אחוז מהכנסה</span>
                   </label>
@@ -432,9 +454,9 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
                   />
                 )}
 
-                {/* Hours and rate */}
+                {/* Hours and rate (instructor selected above) */}
                 {!!newExpense.hours && (
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">שעות</label>
                       <input
@@ -444,21 +466,6 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
                         onChange={(e) => setNewExpense({ ...newExpense, hours: e.target.value })}
                         className="input w-full"
                       />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">מדריך</label>
-                      <select
-                        value={newExpense.instructorId}
-                        onChange={(e) => setNewExpense({ ...newExpense, instructorId: e.target.value })}
-                        className="input w-full"
-                      >
-                        <option value="">בחר מדריך</option>
-                        {instructors?.map((instructor) => (
-                          <option key={instructor.id} value={instructor.id}>
-                            {instructor.name}
-                          </option>
-                        ))}
-                      </select>
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">תעריף</label>
@@ -473,6 +480,9 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
                       </select>
                     </div>
                   </div>
+                )}
+                {!!newExpense.hours && !newExpense.instructorId && (
+                  <p className="text-xs text-red-500">חישוב לפי שעות מחייב בחירת מדריך למעלה</p>
                 )}
 
                 {/* Percentage */}
@@ -508,7 +518,10 @@ export default function CycleExpenses({ cycleId, totalMeetings, meetingRevenue, 
             </div>
           ) : (
             <button
-              onClick={() => setShowAddForm(true)}
+              onClick={() => {
+                setNewExpense((prev) => ({ ...prev, instructorId: defaultInstructorId || '' }));
+                setShowAddForm(true);
+              }}
               className="btn btn-secondary btn-sm w-full flex items-center justify-center gap-2"
             >
               <Plus size={16} />

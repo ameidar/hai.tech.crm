@@ -18,6 +18,7 @@ export interface MeetingDetail {
   durationHours: number;
   cycleName: string;
   courseName: string;
+  locationName: string | null;
   activityType: string | null;
   activityTypeRaw: string | null; // raw enum value: frontal/online/private
   topic: string | null;
@@ -182,7 +183,7 @@ export async function buildInstructorMonthlyReport(
     },
     include: {
       instructor: true,
-      cycle: { include: { course: true } },
+      cycle: { include: { course: true, branch: true } },
       expenses: {
         where: { status: 'approved' },
       },
@@ -284,6 +285,7 @@ export async function buildInstructorMonthlyReport(
         durationHours:     calcDuration(mtg.startTime as unknown, mtg.endTime as unknown),
         cycleName:         (mtg.cycle as { name: string; course: { name: string } }).name,
         courseName:        (mtg.cycle as { name: string; course: { name: string } }).course.name,
+        locationName:      (mtg.cycle as { branch?: { city?: string | null } | null }).branch?.city ?? null,
         activityType:      activityLabel(rawType),
         activityTypeRaw:   rawType,
         topic:             mtg.topic ?? null,

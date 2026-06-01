@@ -50,6 +50,13 @@ const thickBorder: Partial<ExcelJS.Borders> = {
 const moneyFmt = '#,##0.00 ₪';
 const hoursFmt = '0.00';
 
+const isFrontalActivity = (activityTypeRaw: string | null | undefined) => activityTypeRaw === 'frontal';
+
+const dateKey = (date: Date | string): string => {
+  const d = date instanceof Date ? date : new Date(date);
+  return d.toISOString().slice(0, 10);
+};
+
 // ─── Summary sheet ────────────────────────────────────────────────────────────
 
 function buildSummarySheet(
@@ -270,6 +277,7 @@ function buildInstructorSheet(
     { key: 'duration',    width: 10, header: 'משך (שעות)' },
     { key: 'course',      width: 22, header: 'מחזור / קורס' },
     { key: 'activity',    width: 14, header: 'סוג פעילות' },
+    { key: 'location',    width: 24, header: 'מיקום' },
     { key: 'topic',       width: 20, header: 'נושא' },
     { key: 'rate',        width: 14, header: 'תעריף/שעה' },
     { key: 'payment',     width: 16, header: 'תשלום' },
@@ -278,7 +286,7 @@ function buildInstructorSheet(
   ];
 
   // ── Title ──────────────────────────────────────────────────────────────────
-  ws.mergeCells('A1:K1');
+  ws.mergeCells('A1:L1');
   const title = ws.getCell('A1');
   title.value = `${instr.instructorName} — פעילות ${monthLabel}`;
   title.font  = font({ size: 15, bold: true, color: { argb: 'FF' + HEADER_FG } });
@@ -303,10 +311,20 @@ function buildInstructorSheet(
 
   // ── Data rows ──────────────────────────────────────────────────────────────
   let rowIdx = meetingsStartRow + 1;
+  const shownFrontalLocationKeys = new Set<string>();
   for (const mtg of instr.meetings) {
     const dateStr = mtg.date instanceof Date
       ? mtg.date.toLocaleDateString('he-IL')
       : new Date(mtg.date).toLocaleDateString('he-IL');
+
+    const locationName = mtg.locationName?.trim() || '';
+    const frontalLocationKey = `${dateKey(mtg.date)}|${locationName}`;
+    const shouldShowLocation = isFrontalActivity(mtg.activityTypeRaw)
+      && locationName !== ''
+      && !shownFrontalLocationKeys.has(frontalLocationKey);
+    if (shouldShowLocation) {
+      shownFrontalLocationKeys.add(frontalLocationKey);
+    }
 
     const r = ws.getRow(rowIdx);
     r.values = [
@@ -316,11 +334,12 @@ function buildInstructorSheet(
       parseFloat(mtg.durationHours.toFixed(2)),
       mtg.cycleName,
       mtg.activityType ?? '—',
+      shouldShowLocation ? locationName : '',
       mtg.topic ?? '—',
-      mtg.hourlyRate ?? '—',   // col 8: rate/hour
-      mtg.instructorPayment,   // col 9
-      mtg.totalExpenses,       // col 10
-      mtg.total,               // col 11
+      mtg.hourlyRate ?? '—',   // col 9: rate/hour
+      mtg.instructorPayment,   // col 10
+      mtg.totalExpenses,       // col 11
+      mtg.total,               // col 12
     ];
     r.height = 22;
 
@@ -338,7 +357,7 @@ function buildInstructorSheet(
         cell.numFmt    = hoursFmt;
         cell.alignment = { ...center };
       }
-      if (col === 8) {
+      if (col === 9) {
         // rate column — number only if we have a rate
         if (typeof cell.value === 'number') {
           cell.numFmt = moneyFmt;
@@ -348,7 +367,7 @@ function buildInstructorSheet(
         }
         cell.alignment = { ...center };
       }
-      if (col >= 9) {
+      if (col >= 10) {
         cell.numFmt    = moneyFmt;
         cell.alignment = { ...center };
       }
@@ -369,6 +388,7 @@ function buildInstructorSheet(
           '',
           '',
           '',
+          '',
           exp.amount,
           '',
         ];
@@ -379,8 +399,8 @@ function buildInstructorSheet(
           cell.border = border;
           cell.alignment = { ...right };
         });
-        er.getCell(10).numFmt    = moneyFmt;
-        er.getCell(10).alignment = { ...center };
+        er.getCell(11).numFmt    = moneyFmt;
+        er.getCell(11).alignment = { ...center };
       }
     }
 
@@ -388,7 +408,7 @@ function buildInstructorSheet(
   }
 
   // ── Totals row ─────────────────────────────────────────────────────────────
-  ws.mergeCells(`A${rowIdx}:H${rowIdx}`);
+  ws.mergeCells(`A${rowIdx}:I${rowIdx}`);
   const totalsRow = ws.getRow(rowIdx);
   totalsRow.height = 28;
   totalsRow.getCell(1).value     = `סה"כ — ${instr.instructorName}`;
@@ -398,9 +418,9 @@ function buildInstructorSheet(
   totalsRow.getCell(1).border    = thickBorder;
 
   [
-    [9,  instr.totalPayment],
-    [10, instr.totalExpenses],
-    [11, instr.grandTotal],
+    [10, instr.totalPayment],
+    [11, instr.totalExpenses],
+    [12, instr.grandTotal],
   ].forEach(([col, val]) => {
     const cell = totalsRow.getCell(col as number);
     cell.value     = val;
@@ -419,12 +439,12 @@ function buildInstructorSheet(
     ['סה"כ לתשלום:', `₪${instr.grandTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}`],
   ].forEach(([label, val], i) => {
     const r = statsRow + i;
-    ws.getCell(`I${r}`).value      = label;
-    ws.getCell(`I${r}`).font       = font({ bold: true });
-    ws.getCell(`I${r}`).alignment  = { ...right };
-    ws.getCell(`J${r}`).value      = val;
-    ws.getCell(`J${r}`).font       = font({ color: { argb: 'FF1E40AF' } });
-    ws.getCell(`J${r}`).alignment  = { ...center };
+    ws.getCell(`J${r}`).value      = label;
+    ws.getCell(`J${r}`).font       = font({ bold: true });
+    ws.getCell(`J${r}`).alignment  = { ...right };
+    ws.getCell(`K${r}`).value      = val;
+    ws.getCell(`K${r}`).font       = font({ color: { argb: 'FF1E40AF' } });
+    ws.getCell(`K${r}`).alignment  = { ...center };
   });
 }
 

@@ -208,7 +208,14 @@ export async function generateBillingPeriod(
     where: { institutionalOrderId_monthStart_monthEnd: { institutionalOrderId, monthStart: start, monthEnd: end } },
     include: { lines: true },
   });
-  if (existing && existing.status !== 'draft') {
+  const canReviveCancelledDraft = Boolean(
+    existing &&
+    existing.status === 'cancelled' &&
+    !existing.issuedAt &&
+    !existing.morningDocNumber &&
+    !existing.morningDocId
+  );
+  if (existing && existing.status !== 'draft' && !canReviveCancelledDraft) {
     throw new Error(`Billing period already ${existing.status} — cannot regenerate`);
   }
 
@@ -232,9 +239,15 @@ export async function generateBillingPeriod(
     const period = await prisma.billingPeriod.update({
       where: { id: existing.id },
       data: {
+        status: 'draft',
         totalAmount,
         generatedAt: new Date(),
         generatedById,
+        morningDraftId: null,
+        sentAt: null,
+        sentChannel: null,
+        sentToEmail: null,
+        sentToPhone: null,
         lines: {
           create: summaries.map((s, i) => ({
             cycleId: s.cycleId,

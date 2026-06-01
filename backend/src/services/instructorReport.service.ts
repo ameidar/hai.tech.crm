@@ -33,6 +33,19 @@ export interface MeetingDetail {
   profit: number;    // revenue - instructorPayment - totalExpenses
 }
 
+export interface CycleExpenseDetail {
+  id: string;
+  type: string;        // raw enum value
+  typeLabel: string;   // Hebrew label
+  description: string | null;
+  amount: number;
+  hours: number | null;
+  rateType: string | null;
+  paymentDate: Date | null;
+  status: 'pending' | 'approved' | 'rejected' | string;
+  cycleName: string;
+}
+
 export interface ActivityTypeSummary {
   activityType: string;    // translated label: פרונטלי / אונליין / פרטי
   activityTypeRaw: string; // raw: frontal / online / private
@@ -48,10 +61,14 @@ export interface InstructorReportData {
   employmentType: 'employee' | 'freelancer' | string | null;
   meetings: MeetingDetail[];
   byActivityType: ActivityTypeSummary[]; // breakdown by type
+  cycleExpenses: CycleExpenseDetail[]; // approved cycle expenses paid this month
+  pendingCycleExpenses: CycleExpenseDetail[]; // awaiting manager approval — shown but not paid yet
   totalMeetings: number;
   totalHours: number;
   totalPayment: number;
-  totalExpenses: number;
+  totalExpenses: number; // meeting expenses + approved cycle expenses
+  totalCycleExpenses: number; // approved cycle expenses only
+  pendingCycleExpensesTotal: number; // pending cycle expenses (not included in grandTotal)
   grandTotal: number;
 }
 
@@ -168,11 +185,23 @@ const EXPENSE_TYPE_LABELS: Record<string, string> = {
   other:            'אחר',
 };
 
+const CYCLE_EXPENSE_TYPE_LABELS: Record<string, string> = {
+  materials:             'הכנת חומרים',
+  wraparound_hours:      'שעות מעטפת',
+  equipment:             'ציוד',
+  travel_fixed:          'נסיעות קבועות',
+  additional_instructor: 'מדריך נוסף',
+  other:                 'אחר',
+};
+
 export const activityLabel = (t: string | null) =>
   t ? (ACTIVITY_TYPE_LABELS[t] ?? t) : '—';
 
 export const expenseTypeLabel = (t: string) =>
   EXPENSE_TYPE_LABELS[t] ?? t;
+
+export const cycleExpenseTypeLabel = (t: string) =>
+  CYCLE_EXPENSE_TYPE_LABELS[t] ?? t;
 
 const FIXED_MANAGEMENT_SALARIES: FixedManagementSalary[] = [
   { name: 'אור יוסף אשטמקר', role: 'הנהלה / מדריך קבוע', amount: 10_000 },
@@ -220,6 +249,50 @@ export async function buildInstructorMonthlyReport(
       { startTime: 'asc' },
     ],
   });
+
+  // 1b. Fetch instructor-linked cycle expenses whose payment date falls in this month.
+  // These are amounts paid to the instructor (wraparound hours, materials, etc.) and are
+  // attributed to the month of paymentDate — not the months of the cycle's meetings.
+  const cycleExpensesRaw = await prisma.cycleExpense.findMany({
+    where: {
+      paymentDate: { gte: from, lt: to },
+    },
+    include: {
+      instructor: true,
+      cycle: { select: { name: true, instructorId: true, instructor: true } },
+    },
+    orderBy: { paymentDate: 'asc' },
+  });
+
+  // A cycle expense without an explicit instructor is attributed to the cycle's
+  // primary instructor — that is who the cycle (and its costs) is paid to.
+  const effectiveInstructorId = (e: typeof cycleExpensesRaw[number]) =>
+    e.instructorId ?? e.cycle.instructorId;
+  const effectiveInstructor = (e: typeof cycleExpensesRaw[number]) =>
+    e.instructor ?? e.cycle.instructor;
+
+  const toCycleExpenseDetail = (e: typeof cycleExpensesRaw[number]): CycleExpenseDetail => ({
+    id:          e.id,
+    type:        e.type,
+    typeLabel:   cycleExpenseTypeLabel(e.type),
+    description: e.description,
+    amount:      Number(e.amount ?? 0),
+    hours:       e.hours ? Number(e.hours) : null,
+    rateType:    e.rateType,
+    paymentDate: e.paymentDate,
+    status:      e.status,
+    cycleName:   e.cycle?.name ?? '',
+  });
+
+  // Group cycle expenses by instructor, keeping instructor info for entries with no meetings.
+  const cycleExpensesByInstructor = new Map<string, { instructor: typeof cycleExpensesRaw[number]['instructor']; expenses: typeof cycleExpensesRaw }>();
+  for (const e of cycleExpensesRaw) {
+    const insId = effectiveInstructorId(e);
+    if (!insId) continue;
+    const entry = cycleExpensesByInstructor.get(insId) ?? { instructor: effectiveInstructor(e), expenses: [] as typeof cycleExpensesRaw };
+    entry.expenses.push(e);
+    cycleExpensesByInstructor.set(insId, entry);
+  }
 
   // 2. Group by instructor
   const byInstructor = new Map<string, typeof meetings>();
@@ -375,6 +448,16 @@ export async function buildInstructorMonthlyReport(
       }))
       .sort((a, b) => b.subtotal - a.subtotal);
 
+    // Attach instructor-linked cycle expenses paid this month (approved counted, pending flagged).
+    const cycleEntry = cycleExpensesByInstructor.get(instructorId);
+    cycleExpensesByInstructor.delete(instructorId); // mark as handled
+    const cycleExpenseDetails = (cycleEntry?.expenses ?? []).map(toCycleExpenseDetail);
+    const approvedCycle = cycleExpenseDetails.filter(e => e.status === 'approved');
+    const pendingCycle  = cycleExpenseDetails.filter(e => e.status === 'pending');
+    const totalCycleExpenses = approvedCycle.reduce((s, e) => s + e.amount, 0);
+    const pendingCycleExpensesTotal = pendingCycle.reduce((s, e) => s + e.amount, 0);
+    const combinedExpenses = totalExpenses + totalCycleExpenses;
+
     instructors.push({
       instructorId,
       instructorName:  instr.name,
@@ -382,11 +465,47 @@ export async function buildInstructorMonthlyReport(
       employmentType:  instr.employmentType ?? null,
       meetings:        meetingDetails,
       byActivityType,
+      cycleExpenses:        approvedCycle,
+      pendingCycleExpenses: pendingCycle,
       totalMeetings:   meetingDetails.length,
       totalHours:      parseFloat(meetingDetails.reduce((s, r) => s + r.durationHours, 0).toFixed(2)),
       totalPayment,
-      totalExpenses,
-      grandTotal:      totalPayment + totalExpenses,
+      totalExpenses:   combinedExpenses,
+      totalCycleExpenses,
+      pendingCycleExpensesTotal,
+      grandTotal:      totalPayment + combinedExpenses,
+    });
+  }
+
+  // 3b. Instructors with cycle expenses this month but no completed meetings — add minimal entries
+  // so their payable amount still appears in the report.
+  for (const [instructorId, entry] of cycleExpensesByInstructor) {
+    const instr = entry.instructor;
+    if (!instr) continue;
+    if (isFixedManagementInstructor(instr.name)) continue;
+
+    const cycleExpenseDetails = entry.expenses.map(toCycleExpenseDetail);
+    const approvedCycle = cycleExpenseDetails.filter(e => e.status === 'approved');
+    const pendingCycle  = cycleExpenseDetails.filter(e => e.status === 'pending');
+    const totalCycleExpenses = approvedCycle.reduce((s, e) => s + e.amount, 0);
+    const pendingCycleExpensesTotal = pendingCycle.reduce((s, e) => s + e.amount, 0);
+
+    instructors.push({
+      instructorId,
+      instructorName:  instr.name,
+      instructorEmail: instr.email ?? null,
+      employmentType:  instr.employmentType ?? null,
+      meetings:        [],
+      byActivityType:  [],
+      cycleExpenses:        approvedCycle,
+      pendingCycleExpenses: pendingCycle,
+      totalMeetings:   0,
+      totalHours:      0,
+      totalPayment:    0,
+      totalExpenses:   totalCycleExpenses,
+      totalCycleExpenses,
+      pendingCycleExpensesTotal,
+      grandTotal:      totalCycleExpenses,
     });
   }
 

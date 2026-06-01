@@ -156,9 +156,10 @@ model User {
   meetingUpdates    Meeting[]        @relation("MeetingStatusUpdater")
   attendanceRecords Attendance[]
   savedViews        SavedView[]
-  cycleExpenses     CycleExpense[]
-  submittedExpenses MeetingExpense[] @relation("ExpenseSubmitter")
-  reviewedExpenses  MeetingExpense[] @relation("ExpenseReviewer")
+  cycleExpenses         CycleExpense[]   @relation("CycleExpenseCreator")
+  reviewedCycleExpenses CycleExpense[]   @relation("CycleExpenseReviewer")
+  submittedExpenses     MeetingExpense[] @relation("ExpenseSubmitter")
+  reviewedExpenses      MeetingExpense[] @relation("ExpenseReviewer")
   quotes            Quote[]
   uploadedFiles     FileAttachment[]
   campaigns         Campaign[]
@@ -830,15 +831,27 @@ model CycleExpense {
   createdAt    DateTime         @default(now()) @map("created_at")
   updatedAt    DateTime         @default(now()) @map("updated_at")
 
+  // Payment date — determines which month the expense is attributed to in payment reports
+  paymentDate DateTime? @map("payment_date") @db.Date
+
+  // Manager approval (admin/manager). Unapproved expenses show as "pending" in reports.
+  status          ExpenseStatus @default(pending)
+  reviewedById    String?       @map("reviewed_by")
+  reviewedAt      DateTime?     @map("reviewed_at")
+  rejectionReason String?       @map("rejection_reason")
+
   // Optional: link to instructor for materials/wraparound_hours
   instructorId String? @map("instructor_id")
 
   // Relations
   cycle      Cycle       @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  createdBy  User        @relation(fields: [createdById], references: [id])
+  createdBy  User        @relation("CycleExpenseCreator", fields: [createdById], references: [id])
+  reviewedBy User?       @relation("CycleExpenseReviewer", fields: [reviewedById], references: [id])
   instructor Instructor? @relation(fields: [instructorId], references: [id])
 
   @@index([cycleId])
+  @@index([status])
+  @@index([paymentDate])
   @@map("cycle_expenses")
 }
 

@@ -1186,11 +1186,12 @@ export default function CycleDetail() {
                 <h2 className="font-semibold">הוצאות מחזור</h2>
               </div>
               <div className="p-4">
-                <CycleExpenses 
-                  cycleId={id!} 
+                <CycleExpenses
+                  cycleId={id!}
                   totalMeetings={cycle?.totalMeetings || 0}
                   meetingRevenue={Number(cycle?.meetingRevenue) || 0}
                   isAdmin={isAdmin}
+                  defaultInstructorId={cycle?.instructorId || ''}
                 />
               </div>
             </div>

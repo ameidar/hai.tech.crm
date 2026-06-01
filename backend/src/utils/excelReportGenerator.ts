@@ -463,6 +463,55 @@ function buildInstructorSheet(
     rowIdx++;
   }
 
+  // ── Cycle expenses (paid this month, by payment date) ───────────────────────
+  const renderCycleExpenseBlock = (
+    title: string,
+    items: InstructorMonthlyReport['instructors'][number]['cycleExpenses'],
+    titleColor: string,
+    titleBg: string,
+  ) => {
+    if (items.length === 0) return;
+    ws.mergeCells(`A${rowIdx}:M${rowIdx}`);
+    const tr = ws.getRow(rowIdx++);
+    tr.height = 22;
+    tr.getCell(1).value = title;
+    tr.getCell(1).font = font({ bold: true, color: { argb: 'FF' + titleColor } });
+    tr.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + titleBg } };
+    tr.getCell(1).alignment = { ...center };
+    tr.getCell(1).border = border;
+
+    for (const exp of items) {
+      const dateStr = exp.paymentDate
+        ? (exp.paymentDate instanceof Date ? exp.paymentDate : new Date(exp.paymentDate)).toLocaleDateString('he-IL')
+        : '—';
+      const r = ws.getRow(rowIdx++);
+      r.values = [
+        dateStr,                                   // 1 date (= payment date)
+        '', '',                                    // 2,3
+        exp.hours ? parseFloat(exp.hours.toFixed(2)) : '', // 4 hours
+        exp.cycleName,                             // 5 cycle
+        exp.typeLabel,                             // 6 type
+        '',                                        // 7
+        exp.description ?? '',                     // 8 description
+        '', '',                                    // 9,10
+        '',                                        // 11 payment
+        exp.amount,                                // 12 expenses
+        exp.amount,                                // 13 total
+      ];
+      r.height = 20;
+      r.eachCell({ includeEmpty: false }, (cell, col) => {
+        cell.border = border;
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+        cell.alignment = { ...right };
+        if (col === 4) { cell.numFmt = hoursFmt; cell.alignment = { ...center }; }
+        if (col >= 12) { cell.numFmt = moneyFmt; cell.alignment = { ...center }; }
+      });
+    }
+  };
+
+  renderCycleExpenseBlock('הוצאות מחזור — שולם החודש (לפי תאריך תשלום)', instr.cycleExpenses ?? [], '065F46', 'D1FAE5');
+  renderCycleExpenseBlock('הוצאות מחזור — ממתין לאישור מנהל (לא נכלל בסה"כ)', instr.pendingCycleExpenses ?? [], '92400E', 'FEF3C7');
+
   // ── Totals row ─────────────────────────────────────────────────────────────
   ws.mergeCells(`A${rowIdx}:J${rowIdx}`);
   const totalsRow = ws.getRow(rowIdx);

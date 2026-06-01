@@ -13,6 +13,7 @@ import { prisma } from '../utils/prisma.js';
 import { zoomService } from './zoom.js';
 import { isHoliday, isShabbat } from '../utils/holidays.js';
 import { sendWhatsAppMessage } from './notifications.js';
+import { calculateInstructorPayment } from './instructor-payment.js';
 
 const ADMIN_PHONE = process.env.ADMIN_PHONE || '0528746137';
 
@@ -105,17 +106,12 @@ export async function addReplacementMeeting(postponedMeetingId: string, _actorUs
     }
   }
 
-  let instructorPayment = 0;
-  if (instructor) {
-    let hourlyRate = 0;
-    if (activityType === 'online') hourlyRate = Number(instructor.rateOnline) || Number(instructor.rateFrontal) || 0;
-    else if (activityType === 'private_lesson') hourlyRate = Number(instructor.ratePrivate) || Number(instructor.rateFrontal) || 0;
-    else hourlyRate = Number(instructor.rateFrontal) || 0;
-
-    const durationMin = cycle.durationMinutes || 60;
-    instructorPayment = Math.round(hourlyRate * (durationMin / 60));
-    if (instructor.employmentType === 'employee') instructorPayment = Math.round(instructorPayment * 1.3);
-  }
+  const instructorPayment = calculateInstructorPayment(cycle, instructor, {
+    instructorId,
+    startTime,
+    endTime,
+    activityType,
+  });
 
   const profit = revenue - instructorPayment;
 

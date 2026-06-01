@@ -324,13 +324,14 @@ function buildInstructorSheet(
     { key: 'location',    width: 24, header: 'מיקום' },
     { key: 'topic',       width: 20, header: 'נושא' },
     { key: 'rate',        width: 14, header: 'תעריף/שעה' },
+    { key: 'paymentMode', width: 18, header: 'אופן תשלום' },
     { key: 'payment',     width: 16, header: 'תשלום' },
     { key: 'expenses',    width: 16, header: 'הוצאות נוספות' },
     { key: 'total',       width: 16, header: 'סה"כ' },
   ];
 
   // ── Title ──────────────────────────────────────────────────────────────────
-  ws.mergeCells('A1:L1');
+  ws.mergeCells('A1:M1');
   const title = ws.getCell('A1');
   title.value = `${instr.instructorName} — פעילות ${monthLabel}`;
   title.font  = font({ size: 15, bold: true, color: { argb: 'FF' + HEADER_FG } });
@@ -381,9 +382,10 @@ function buildInstructorSheet(
       shouldShowLocation ? locationDisplay : '',
       mtg.topic ?? '—',
       mtg.hourlyRate ?? '—',   // col 9: rate/hour
-      mtg.instructorPayment,   // col 10
-      mtg.totalExpenses,       // col 11
-      mtg.total,               // col 12
+      mtg.paymentNote ?? 'שעתי', // col 10
+      mtg.instructorPayment,   // col 11
+      mtg.totalExpenses,       // col 12
+      mtg.total,               // col 13
     ];
     r.height = 22;
 
@@ -411,7 +413,10 @@ function buildInstructorSheet(
         }
         cell.alignment = { ...center };
       }
-      if (col >= 10) {
+      if (col === 10) {
+        cell.alignment = { ...center };
+      }
+      if (col >= 11) {
         cell.numFmt    = moneyFmt;
         cell.alignment = { ...center };
       }
@@ -439,6 +444,7 @@ function buildInstructorSheet(
           '',
           '',
           '',
+          '',
           exp.amount,
           '',
         ];
@@ -449,8 +455,8 @@ function buildInstructorSheet(
           cell.border = border;
           cell.alignment = { ...right };
         });
-        er.getCell(11).numFmt    = moneyFmt;
-        er.getCell(11).alignment = { ...center };
+        er.getCell(12).numFmt    = moneyFmt;
+        er.getCell(12).alignment = { ...center };
       }
     }
 
@@ -458,7 +464,7 @@ function buildInstructorSheet(
   }
 
   // ── Totals row ─────────────────────────────────────────────────────────────
-  ws.mergeCells(`A${rowIdx}:I${rowIdx}`);
+  ws.mergeCells(`A${rowIdx}:J${rowIdx}`);
   const totalsRow = ws.getRow(rowIdx);
   totalsRow.height = 28;
   totalsRow.getCell(1).value     = `סה"כ — ${instr.instructorName}`;
@@ -468,9 +474,9 @@ function buildInstructorSheet(
   totalsRow.getCell(1).border    = thickBorder;
 
   [
-    [10, instr.totalPayment],
-    [11, instr.totalExpenses],
-    [12, instr.grandTotal],
+    [11, instr.totalPayment],
+    [12, instr.totalExpenses],
+    [13, instr.grandTotal],
   ].forEach(([col, val]) => {
     const cell = totalsRow.getCell(col as number);
     cell.value     = val;

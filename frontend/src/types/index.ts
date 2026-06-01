@@ -124,6 +124,7 @@ export interface InstitutionalOrder {
 }
 
 export type EmploymentType = 'freelancer' | 'employee';
+export type InstructorPaymentMode = 'hourly' | 'daily';
 
 export interface Instructor {
   id: string;
@@ -167,6 +168,8 @@ export interface Cycle {
   meetingRevenue?: number;
   revenuePerMeeting?: number;
   revenueIncludesVat?: boolean | null;
+  instructorPaymentMode?: InstructorPaymentMode;
+  instructorDailyRate?: number | null;
   studentCount?: number;
   maxStudents?: number;
   sendParentReminders: boolean;

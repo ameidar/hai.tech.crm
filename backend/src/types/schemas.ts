@@ -128,7 +128,7 @@ export const updateInstitutionalOrderSchema = createInstitutionalOrderSchema.par
 export const createCycleSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   courseId: z.string().min(1, 'Course ID is required'),
-  branchId: z.string().min(1, 'Branch ID is required'),
+  branchId: z.string().min(1, 'חובה לבחור סניף למחזור'),
   instructorId: z.string().min(1, 'Instructor ID is required'),
   institutionalOrderId: z.string().optional().nullable(),
   type: z.enum(['private', 'trial_private', 'institutional_per_child', 'institutional_fixed']),

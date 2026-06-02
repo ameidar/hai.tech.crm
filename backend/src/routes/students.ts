@@ -18,7 +18,11 @@ studentsRouter.get('/', async (req, res, next) => {
 
     const where = {
       ...(search && {
-        name: { contains: search, mode: 'insensitive' as const },
+        OR: [
+          { name: { contains: search, mode: 'insensitive' as const } },
+          { customer: { is: { name: { contains: search, mode: 'insensitive' as const } } } },
+          { customer: { is: { phone: { contains: search } } } },
+        ],
       }),
       ...(customerId && { customerId }),
     };

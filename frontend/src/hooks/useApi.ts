@@ -115,12 +115,20 @@ export const useDeleteCustomer = () => {
 };
 
 // ==================== Students ====================
-export const useStudents = (customerId?: string, limit: number = 500) => {
+export const useStudents = (
+  customerId?: string,
+  limit: number = 500,
+  search?: string,
+  enabled: boolean = true
+) => {
   const baseUrl = customerId ? `/customers/${customerId}/students` : '/students';
-  const url = `${baseUrl}?limit=${limit}`;
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (search?.trim()) params.set('search', search.trim());
+  const url = `${baseUrl}?${params.toString()}`;
   return useQuery({
-    queryKey: ['students', customerId, limit],
+    queryKey: ['students', customerId, limit, search?.trim() || ''],
     queryFn: () => fetchData<Student[]>(url),
+    enabled,
   });
 };
 

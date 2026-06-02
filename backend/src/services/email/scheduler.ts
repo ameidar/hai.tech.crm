@@ -78,10 +78,10 @@ const sendInstructorReminders = async () => {
         status: 'scheduled',
       },
       include: {
+        instructor: true,
         cycle: {
           include: {
             course: true,
-            instructor: true,
             branch: true,
             registrations: {
               where: { status: 'active' },
@@ -94,7 +94,9 @@ const sendInstructorReminders = async () => {
     console.log(`Found ${meetings.length} meetings for today`);
 
     for (const meeting of meetings) {
-      const instructor = meeting.cycle.instructor;
+      // Use the meeting-level instructor (may differ from the cycle default,
+      // e.g. a substitute assigned to this specific meeting).
+      const instructor = meeting.instructor;
       if (!instructor?.email) continue;
 
       const data: InstructorReminderData = {

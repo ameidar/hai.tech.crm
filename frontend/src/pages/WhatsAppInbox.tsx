@@ -195,6 +195,9 @@ export default function WhatsAppInbox() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  // Only auto-scroll to bottom when the user is already near the bottom,
+  // so scrolling up to read history isn't yanked back down by status/SSE updates.
+  const shouldAutoScrollRef = useRef(true);
 
 
   // Check if audio was already unlocked (e.g. from a previous interaction)
@@ -492,12 +495,16 @@ export default function WhatsAppInbox() {
   }, []);
 
   useEffect(() => {
-    if (selected) loadMessages(selected.id);
+    if (selected) {
+      // New conversation opened — always jump to the newest message.
+      shouldAutoScrollRef.current = true;
+      loadMessages(selected.id);
+    }
   }, [selected, loadMessages]);
 
   useEffect(() => {
     const container = messagesContainerRef.current;
-    if (container) container.scrollTop = container.scrollHeight;
+    if (container && shouldAutoScrollRef.current) container.scrollTop = container.scrollHeight;
   }, [messages]);
 
   const selectConversation = (conv: WaConversation) => {
@@ -1421,7 +1428,15 @@ export default function WhatsAppInbox() {
           )}
 
           {/* Messages */}
-          <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto p-3 md:p-4 space-y-2">
+          <div
+            ref={messagesContainerRef}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+              shouldAutoScrollRef.current = distanceFromBottom < 120;
+            }}
+            className="flex-1 min-h-0 overflow-y-auto p-3 md:p-4 space-y-2"
+          >
             {messages.length === 0 && (
               <div className="text-center text-gray-400 text-sm mt-8">טוען הודעות...</div>
             )}

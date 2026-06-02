@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -81,19 +81,20 @@ import { exportCycleMeetingsToExcel } from '../utils/meetingsExcel';
 function AddStudentModal({
   isOpen,
   onClose,
-  availableStudents,
+  registeredStudentIds,
   onSelectStudent,
   isLoading,
   cycleId,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  availableStudents: any[];
+  registeredStudentIds: string[];
   onSelectStudent: (studentId: string) => void;
   isLoading: boolean;
   cycleId: string;
 }) {
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState('');
   const [newCustomerPhone, setNewCustomerPhone] = useState('');
@@ -102,16 +103,30 @@ function AddStudentModal({
   const [newStudentGrade, setNewStudentGrade] = useState('');
   const [creating, setCreating] = useState(false);
 
-  const filtered = useMemo(() => {
-    if (!search.trim()) return availableStudents;
-    const q = search.trim().toLowerCase();
-    return availableStudents.filter(
-      (s) =>
-        s.name.toLowerCase().includes(q) ||
-        s.customer?.name?.toLowerCase().includes(q) ||
-        s.customer?.phone?.includes(q)
-    );
-  }, [search, availableStudents]);
+  // Debounce the search term to avoid a request on every keystroke
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Server-side search: the CRM has thousands of students, so we cannot load
+  // them all into the client. Query the backend by name/customer/phone instead.
+  const { data: searchResults, isFetching: isSearching } = useStudents(
+    undefined,
+    100,
+    debouncedSearch,
+    isOpen
+  );
+
+  const registeredSet = useMemo(
+    () => new Set(registeredStudentIds),
+    [registeredStudentIds]
+  );
+
+  const filtered = useMemo(
+    () => (searchResults || []).filter((s) => !registeredSet.has(s.id)),
+    [searchResults, registeredSet]
+  );
 
   const handleCreate = async () => {
     if (!newStudentName.trim() || !newCustomerName.trim()) return;
@@ -202,7 +217,11 @@ function AddStudentModal({
             ) : (
               <div className="text-center py-6">
                 <p className="text-gray-500 mb-2">
-                  {search ? 'לא נמצאו תלמידים תואמים' : 'כל התלמידים כבר רשומים למחזור'}
+                  {isSearching
+                    ? 'מחפש...'
+                    : debouncedSearch
+                    ? 'לא נמצאו תלמידים תואמים'
+                    : 'התחל להקליד שם תלמיד, הורה או טלפון לחיפוש'}
                 </p>
               </div>
             )}
@@ -326,7 +345,6 @@ export default function CycleDetail() {
   const { data: meetings } = useCycleMeetings(id!);
   const { data: registrations } = useCycleRegistrations(id!);
   const { data: cycleExpenses } = useCycleExpenses(id!);
-  const { data: allStudents } = useStudents();
   const { data: instructors } = useInstructors();
   const { data: courses } = useCourses();
   const { data: branches } = useBranches();
@@ -618,10 +636,11 @@ export default function CycleDetail() {
     }
   };
 
-  // Filter out already registered students
-  const availableStudents = allStudents?.filter(
-    (student) => !registrations?.some((reg) => reg.studentId === student.id)
-  ) || [];
+  // Already-registered student IDs are excluded from the add-student search
+  const registeredStudentIds = useMemo(
+    () => (registrations || []).map((reg) => reg.studentId),
+    [registrations]
+  );
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('he-IL', {
@@ -1681,7 +1700,7 @@ export default function CycleDetail() {
       <AddStudentModal
         isOpen={showAddStudentModal}
         onClose={() => setShowAddStudentModal(false)}
-        availableStudents={availableStudents}
+        registeredStudentIds={registeredStudentIds}
         onSelectStudent={handleAddStudent}
         isLoading={createRegistration.isPending}
         cycleId={id!}

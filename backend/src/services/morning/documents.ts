@@ -21,6 +21,25 @@ export const DOCUMENT_TYPES = {
 // on top — only a per-line vatType:2 makes Morning treat that line's price as VAT-inclusive.
 export type VatType = 0 | 1 | 2;
 
+// Morning payment-line types (for receipt documents like 320/400). Values verified
+// against Green Invoice's published PaymentType enum.
+export const PAYMENT_TYPES = {
+  DEDUCTION_AT_SOURCE: 0, // ניכוי מס במקור
+  CASH: 1,                // מזומן
+  CHEQUE: 2,              // צ׳ק
+  CREDIT_CARD: 3,         // כרטיס אשראי
+  BANK_TRANSFER: 4,       // העברה בנקאית
+  PAYPAL: 5,              // PayPal
+  PAYMENT_APP: 10,        // אפליקציית תשלום (ביט / פייבוקס)
+} as const;
+
+export interface MorningPaymentItem {
+  date: string;           // ISO date YYYY-MM-DD
+  type: number;           // see PAYMENT_TYPES
+  price: number;          // gross amount actually received
+  currency?: string;
+}
+
 export interface MorningClient {
   id?: string;              // existing Morning client UUID — when set, Morning links the
                             // new document to this client instead of creating/upserting,
@@ -56,6 +75,7 @@ export interface CreateDocumentInput {
   remarks?: string;
   description?: string;
   dueDate?: string;         // ISO date — for proforma/quote
+  payment?: MorningPaymentItem[]; // receipt lines — required for receipt docs (320/400)
 }
 
 export interface MorningDocument {

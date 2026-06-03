@@ -15,6 +15,7 @@ import {
   deletePayment,
   markBillingSent,
   issueTaxInvoice,
+  previewTaxInvoice,
   sendBillingPeriodAsDraft,
   markBillingPeriodIssuedManually,
   formatHebrewRange,
@@ -460,10 +461,36 @@ billingRouter.post('/:id/send-whatsapp', managerOrAdmin, async (req, res, next) 
   } catch (err) { next(err); }
 });
 
-// Issue a binding tax invoice (Morning type 305) alongside the proforma.
+// Receipt lines for a tax invoice + receipt (Morning type 320). Optional — when omitted,
+// the service seeds them from the payments already recorded on the period.
+const taxReceiptPaymentsSchema = z
+  .array(
+    z.object({
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD'),
+      type: z.number().int(),
+      amount: z.number().positive(),
+    }),
+  )
+  .optional();
+
+// Preview a tax invoice + receipt (type 320) — returns base64 PDF without touching Morning.
+billingRouter.post('/:id/preview-tax-invoice', managerOrAdmin, async (req, res, next) => {
+  try {
+    const payments = taxReceiptPaymentsSchema.parse(req.body?.payments);
+    const result = await previewTaxInvoice(req.params.id, payments);
+    res.json({ success: true, fileBase64: result.file });
+  } catch (err: any) {
+    if (err.body) return res.status(err.status || 500).json({ error: 'Morning API error', details: err.body });
+    if (err.message === 'Billing period not found') return res.status(404).json({ error: err.message });
+    next(err);
+  }
+});
+
+// Issue a binding tax invoice + receipt (Morning type 320) alongside the proforma.
 billingRouter.post('/:id/issue-tax-invoice', managerOrAdmin, async (req, res, next) => {
   try {
-    const period = await issueTaxInvoice(req.params.id, req.user?.userId);
+    const payments = taxReceiptPaymentsSchema.parse(req.body?.payments);
+    const period = await issueTaxInvoice(req.params.id, req.user?.userId, payments);
     await logAudit({ req, action: 'UPDATE', entity: 'BillingPeriod', entityId: period.id, newValue: { taxInvoiceNumber: period.taxInvoiceNumber } });
     res.json(period);
   } catch (err: any) {

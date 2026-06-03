@@ -1,6 +1,6 @@
 import { prisma } from '../utils/prisma.js';
-import { createDocument, previewDocument, createDraftDocument, deleteDraftDocument, DOCUMENT_TYPES } from './morning/documents.js';
-import type { CreateDocumentInput, MorningClient, MorningIncomeItem } from './morning/documents.js';
+import { createDocument, previewDocument, createDraftDocument, deleteDraftDocument, DOCUMENT_TYPES, PAYMENT_TYPES } from './morning/documents.js';
+import type { CreateDocumentInput, MorningClient, MorningIncomeItem, MorningPaymentItem } from './morning/documents.js';
 import { findClientForInstitutionalOrder } from './morning/clients.js';
 
 export type BillingMonth = string; // 'YYYY-MM' — first day of that month, UTC
@@ -794,18 +794,78 @@ export async function markBillingSent(
   });
 }
 
+/** A single receipt line for a tax-invoice/receipt (320) document. */
+export interface TaxReceiptPaymentInput {
+  date: string;   // YYYY-MM-DD
+  type: number;   // see PAYMENT_TYPES
+  amount: number; // gross amount received
+}
+
+/** Best-effort map a free-text payment method to a Morning payment type. */
+function methodToMorningType(method?: string | null): number {
+  const m = (method || '').toLowerCase();
+  if (/מזומן|cash/.test(m)) return PAYMENT_TYPES.CASH;
+  if (/צ['׳]?ק|שיק|check|cheque/.test(m)) return PAYMENT_TYPES.CHEQUE;
+  if (/אשראי|כרטיס|credit|card/.test(m)) return PAYMENT_TYPES.CREDIT_CARD;
+  if (/העברה|בנק|transfer|wire|bank/.test(m)) return PAYMENT_TYPES.BANK_TRANSFER;
+  if (/paypal|פייפל/.test(m)) return PAYMENT_TYPES.PAYPAL;
+  if (/ביט|bit|פייבוקס|paybox|app/.test(m)) return PAYMENT_TYPES.PAYMENT_APP;
+  return PAYMENT_TYPES.BANK_TRANSFER; // institutional default
+}
+
+/** Seed receipt lines from the payments already recorded on the period. */
+async function defaultTaxReceiptPayments(billingPeriodId: string): Promise<TaxReceiptPaymentInput[]> {
+  const payments = await prisma.billingPayment.findMany({
+    where: { billingPeriodId },
+    orderBy: { paidAt: 'asc' },
+  });
+  return payments.map((p) => ({
+    date: new Date(p.paidAt).toISOString().slice(0, 10),
+    type: methodToMorningType(p.method),
+    amount: Number(p.amount),
+  }));
+}
+
+function toMorningPaymentArray(payments: TaxReceiptPaymentInput[]): MorningPaymentItem[] {
+  return payments.map((p) => ({
+    date: p.date,
+    type: p.type,
+    price: p.amount,
+    currency: 'ILS',
+  }));
+}
+
+/** Build a 320 (tax invoice + receipt) payload from a period, attaching receipt lines. */
+async function buildTaxReceiptPayload(billingPeriodId: string, payments?: TaxReceiptPaymentInput[]) {
+  const built = await buildMorningPayload(billingPeriodId);
+  built.payload.type = DOCUMENT_TYPES.TAX_INVOICE_RECEIPT; // 320
+  const pays = payments ?? await defaultTaxReceiptPayments(billingPeriodId);
+  built.payload.payment = toMorningPaymentArray(pays);
+  return built;
+}
+
+/** Render a 320 preview PDF (base64) without creating anything in Morning. */
+export async function previewTaxInvoice(billingPeriodId: string, payments?: TaxReceiptPaymentInput[]) {
+  const { payload } = await buildTaxReceiptPayload(billingPeriodId, payments);
+  return previewDocument(payload);
+}
+
 /**
- * Issue a binding tax invoice (חשבונית מס, type 305) in Morning, alongside the proforma.
- * The proforma stays linked on the period; this only adds tax-invoice fields.
+ * Issue a binding tax invoice + receipt (חשבונית מס/קבלה, type 320) in Morning, alongside
+ * the proforma. The proforma stays linked on the period; this only adds tax-invoice fields.
+ * Receipt lines default to the payments recorded on the period, but can be overridden.
  */
-export async function issueTaxInvoice(billingPeriodId: string, issuedById?: string) {
+export async function issueTaxInvoice(
+  billingPeriodId: string,
+  issuedById?: string,
+  payments?: TaxReceiptPaymentInput[],
+) {
   const period = await prisma.billingPeriod.findUnique({ where: { id: billingPeriodId } });
   if (!period) throw new Error('Billing period not found');
   if (period.status !== 'issued') throw new Error('Proforma must be issued first');
   if (period.taxInvoiceId) throw new Error('Tax invoice already issued for this period');
 
-  const { payload, discoveredMorningClientId } = await buildMorningPayload(billingPeriodId);
-  payload.type = 305; // חשבונית מס
+  const { payload, discoveredMorningClientId } = await buildTaxReceiptPayload(billingPeriodId, payments);
   const document = await createDocument(payload);
 
   return prisma.$transaction(async (tx) => {

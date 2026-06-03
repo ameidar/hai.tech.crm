@@ -87,6 +87,29 @@ interface DriftReport {
 
 const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 
+// Morning payment-line types (for receipt documents like 320)
+const PAYMENT_TYPE_OPTIONS = [
+  { value: 1, label: 'מזומן' },
+  { value: 2, label: 'צ׳ק' },
+  { value: 3, label: 'כרטיס אשראי' },
+  { value: 4, label: 'העברה בנקאית' },
+  { value: 5, label: 'PayPal' },
+  { value: 10, label: 'אפליקציית תשלום (ביט)' },
+  { value: 0, label: 'ניכוי מס במקור' },
+];
+
+// Best-effort map a free-text payment method to a Morning payment type — mirrors the backend.
+function methodToMorningType(method?: string | null): number {
+  const m = (method || '').toLowerCase();
+  if (/מזומן|cash/.test(m)) return 1;
+  if (/צ['׳]?ק|שיק|check|cheque/.test(m)) return 2;
+  if (/אשראי|כרטיס|credit|card/.test(m)) return 3;
+  if (/העברה|בנק|transfer|wire|bank/.test(m)) return 4;
+  if (/paypal|פייפל/.test(m)) return 5;
+  if (/ביט|bit|פייבוקס|paybox|app/.test(m)) return 10;
+  return 4;
+}
+
 function formatCurrency(amount: number) {
   return amount.toLocaleString('he-IL', { style: 'currency', currency: 'ILS' });
 }
@@ -136,6 +159,11 @@ export default function BillingPeriodDetail() {
   const [showWhatsAppForm, setShowWhatsAppForm] = useState(false);
   const [waPhone, setWaPhone] = useState('');
   const [waMessage, setWaMessage] = useState('');
+
+  // Tax invoice + receipt (320) modal state
+  const [showTaxModal, setShowTaxModal] = useState(false);
+  const [taxPayments, setTaxPayments] = useState<{ date: string; type: number; amount: string }[]>([]);
+  const [taxBusy, setTaxBusy] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -347,14 +375,64 @@ export default function BillingPeriodDetail() {
     } catch (err) { handleErr(err); } finally { setBusy(false); }
   }
 
-  async function issueTaxInvoice() {
-    if (!confirm('להפיק חשבונית מס מחייבת (305) במורנינג? המסמך לא ניתן לביטול.')) return;
+  function openTaxModal() {
+    if (!period) return;
+    const rows = period.payments.length > 0
+      ? period.payments.map((p) => ({
+          date: new Date(p.paidAt).toISOString().slice(0, 10),
+          type: methodToMorningType(p.method),
+          amount: String(Number(p.amount)),
+        }))
+      : [{
+          date: new Date().toISOString().slice(0, 10),
+          type: 4,
+          amount: billingTotals(period.lines, period.totalAmount).totalDue.toFixed(2),
+        }];
+    setTaxPayments(rows);
     setError(null);
-    setBusy(true);
+    setShowTaxModal(true);
+  }
+
+  function updateTaxRow(i: number, patch: Partial<{ date: string; type: number; amount: string }>) {
+    setTaxPayments((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+  function addTaxRow() {
+    setTaxPayments((rows) => [...rows, { date: new Date().toISOString().slice(0, 10), type: 4, amount: '' }]);
+  }
+  function removeTaxRow(i: number) {
+    setTaxPayments((rows) => rows.filter((_, idx) => idx !== i));
+  }
+  function taxPaymentsPayload() {
+    return taxPayments
+      .filter((r) => Number(r.amount) > 0)
+      .map((r) => ({ date: r.date, type: r.type, amount: Number(r.amount) }));
+  }
+
+  async function previewTaxInvoice() {
+    setError(null);
+    setTaxBusy(true);
     try {
-      await api.post(`/billing/${id}/issue-tax-invoice`);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      const { data } = await api.post(`/billing/${id}/preview-tax-invoice`, { payments: taxPaymentsPayload() });
+      const binary = atob(data.fileBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      setPreviewUrl(url);
+      window.open(url, '_blank');
+    } catch (err) { handleErr(err); } finally { setTaxBusy(false); }
+  }
+
+  async function confirmIssueTaxInvoice() {
+    if (!confirm('להפיק חשבונית מס/קבלה מחייבת (320) במורנינג? המסמך לא ניתן לביטול.')) return;
+    setError(null);
+    setTaxBusy(true);
+    try {
+      await api.post(`/billing/${id}/issue-tax-invoice`, { payments: taxPaymentsPayload() });
+      setShowTaxModal(false);
       await load();
-    } catch (err) { handleErr(err); } finally { setBusy(false); }
+    } catch (err) { handleErr(err); } finally { setTaxBusy(false); }
   }
 
   if (loading) return <div className="p-6 text-center text-gray-500">טוען...</div>;
@@ -400,7 +478,7 @@ export default function BillingPeriodDetail() {
               )}
               {period.taxInvoiceUrl && (
                 <a href={period.taxInvoiceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-green-700 hover:underline">
-                  <ExternalLink size={14} /> חשבונית מס #{period.taxInvoiceNumber} (PDF)
+                  <ExternalLink size={14} /> חשבונית מס/קבלה #{period.taxInvoiceNumber} (PDF)
                 </a>
               )}
             </div>
@@ -781,15 +859,15 @@ export default function BillingPeriodDetail() {
             </button>
 
             {!period.taxInvoiceId && (
-              <button onClick={issueTaxInvoice} disabled={busy}
+              <button onClick={openTaxModal} disabled={busy}
                 className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm disabled:opacity-50">
-                <FileCheck2 size={15} /> הפק חשבונית מס (305)
+                <FileCheck2 size={15} /> הפק חשבונית מס/קבלה (320)
               </button>
             )}
             {period.taxInvoiceId && period.taxInvoiceUrl && (
               <a href={period.taxInvoiceUrl} target="_blank" rel="noreferrer"
                 className="inline-flex items-center gap-2 border text-indigo-700 hover:bg-indigo-50 px-4 py-2 rounded text-sm">
-                <FileCheck2 size={15} /> חשבונית מס #{period.taxInvoiceNumber}
+                <FileCheck2 size={15} /> חשבונית מס/קבלה #{period.taxInvoiceNumber}
               </a>
             )}
           </div>
@@ -820,6 +898,90 @@ export default function BillingPeriodDetail() {
           )}
         </section>
       )}
+
+      {/* ── Tax invoice + receipt (320) preview & edit modal ──────────────── */}
+      {showTaxModal && period && (() => {
+        const documentGross = billingTotals(period.lines, period.totalAmount).totalDue;
+        const paymentsSum = taxPayments.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+        const mismatch = Math.abs(paymentsSum - documentGross) > 0.01;
+        return (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between border-b p-4">
+                <h3 className="font-semibold text-gray-900">הפקת חשבונית מס/קבלה (320)</h3>
+                <button onClick={() => setShowTaxModal(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+              </div>
+
+              <div className="p-4 space-y-4">
+                <p className="text-sm text-gray-600">
+                  פירוט התקבולים יופיע בקבלה. ברירת המחדל נטענה מהתשלומים שתועדו במערכת — ניתן לערוך, להוסיף או למחוק לפני ההפקה.
+                </p>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="form-label mb-0">פירוט תקבולים</label>
+                    <button type="button" onClick={addTaxRow}
+                      className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800">
+                      <Plus size={14} /> הוסף תקבול
+                    </button>
+                  </div>
+
+                  {taxPayments.length === 0 && (
+                    <p className="text-sm text-gray-400 py-2">אין תקבולים. הוסף לפחות תקבול אחד.</p>
+                  )}
+
+                  {taxPayments.map((row, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input type="date" className="form-input flex-shrink-0" value={row.date}
+                        onChange={(e) => updateTaxRow(i, { date: e.target.value })} />
+                      <select className="form-input" value={row.type}
+                        onChange={(e) => updateTaxRow(i, { type: Number(e.target.value) })}>
+                        {PAYMENT_TYPE_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                      <input type="number" step="0.01" min="0" dir="ltr" placeholder="סכום"
+                        className="form-input w-32 flex-shrink-0" value={row.amount}
+                        onChange={(e) => updateTaxRow(i, { amount: e.target.value })} />
+                      <button type="button" onClick={() => removeTaxRow(i)} className="text-red-500 hover:text-red-700 flex-shrink-0">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="bg-gray-50 rounded-lg border p-3 text-sm space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">סה״כ מסמך (כולל מע״מ)</span>
+                    <b>{formatCurrency(documentGross)}</b>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">סה״כ תקבולים</span>
+                    <b className={mismatch ? 'text-red-600' : 'text-green-700'}>{formatCurrency(paymentsSum)}</b>
+                  </div>
+                  {mismatch && (
+                    <div className="flex items-center gap-1 text-red-600 pt-1">
+                      <AlertCircle size={14} />
+                      <span>סכום התקבולים אינו תואם לסכום המסמך — מורנינג עלול לדחות את ההפקה.</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 border-t p-4">
+                <button onClick={previewTaxInvoice} disabled={taxBusy}
+                  className="inline-flex items-center gap-2 border text-gray-700 hover:bg-gray-50 px-4 py-2 rounded text-sm disabled:opacity-50">
+                  <Eye size={16} /> תצוגה מקדימה
+                </button>
+                <button onClick={confirmIssueTaxInvoice} disabled={taxBusy || taxPayments.length === 0}
+                  className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm disabled:opacity-50">
+                  <FileCheck2 size={16} /> הפק חשבונית מס/קבלה
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

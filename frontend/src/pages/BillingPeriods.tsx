@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, ExternalLink, RefreshCcw, AlertCircle, X, Search } from 'lucide-react';
+import { Plus, ExternalLink, RefreshCcw, AlertCircle, X, Search, ChevronDown, ChevronLeft } from 'lucide-react';
 import { api } from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 
@@ -65,6 +65,12 @@ function defaultMonth() {
   return `${y}-${String(m).padStart(2, '0')}`;
 }
 
+function periodOverdue(p: BillingPeriod) {
+  return p.status === 'issued' && !!p.dueDate && new Date(p.dueDate) < new Date() && p.paymentStatus !== 'paid';
+}
+
+const ILS = (n: number) => n.toLocaleString('he-IL', { style: 'currency', currency: 'ILS' });
+
 export default function BillingPeriods() {
   const [periods, setPeriods] = useState<BillingPeriod[]>([]);
   const [orders, setOrders] = useState<InstitutionalOrder[]>([]);
@@ -99,6 +105,37 @@ export default function BillingPeriods() {
     () => orders.find((o) => o.id === genOrderId) || null,
     [orders, genOrderId]
   );
+
+  // Group periods by institution (מוסד). Each group carries aggregates for its header.
+  const groups = useMemo(() => {
+    const map = new Map<string, {
+      id: string; name: string; taxId: string | null; periods: BillingPeriod[];
+    }>();
+    for (const p of periods) {
+      const key = p.institutionalOrder.id;
+      let g = map.get(key);
+      if (!g) {
+        g = { id: key, name: p.institutionalOrder.orderName || '—', taxId: p.institutionalOrder.taxId, periods: [] };
+        map.set(key, g);
+      }
+      g.periods.push(p);
+    }
+    return Array.from(map.values()).map((g) => ({
+      ...g,
+      count: g.periods.length,
+      draftCount: g.periods.filter((p) => p.status === 'draft').length,
+      total: g.periods.reduce((s, p) => s + Number(p.totalAmount), 0),
+      hasOverdue: g.periods.some(periodOverdue),
+    })).sort((a, b) => a.name.localeCompare(b.name, 'he'));
+  }, [periods]);
+
+  // Collapse overrides keyed by institution id; falls back to a data-driven default
+  // (open when the group has drafts or overdue charges that need attention).
+  const [collapseOverrides, setCollapseOverrides] = useState<Record<string, boolean>>({});
+  const isOpen = (g: { id: string; draftCount: number; hasOverdue: boolean }) =>
+    collapseOverrides[g.id] ?? (g.draftCount > 0 || g.hasOverdue);
+  const toggleGroup = (g: { id: string; draftCount: number; hasOverdue: boolean }) =>
+    setCollapseOverrides((prev) => ({ ...prev, [g.id]: !isOpen(g) }));
 
   useEffect(() => {
     if (!orderPickerOpen) return;
@@ -294,6 +331,18 @@ export default function BillingPeriods() {
               <input type="checkbox" checked={overdueOnly} onChange={(e) => { setOverdueOnly(e.target.checked); if (e.target.checked) setStatusFilter(''); }} />
               פגי תוקף
             </label>
+            {groups.length > 0 && (
+              <>
+                <button
+                  onClick={() => setCollapseOverrides(Object.fromEntries(groups.map((g) => [g.id, true])))}
+                  className="text-xs text-blue-600 hover:underline whitespace-nowrap"
+                >פתח הכל</button>
+                <button
+                  onClick={() => setCollapseOverrides(Object.fromEntries(groups.map((g) => [g.id, false])))}
+                  className="text-xs text-blue-600 hover:underline whitespace-nowrap"
+                >כווץ הכל</button>
+              </>
+            )}
             <button onClick={load} className="text-gray-600 hover:text-gray-900 p-2"><RefreshCcw size={18} /></button>
           </div>
         </div>
@@ -305,7 +354,6 @@ export default function BillingPeriods() {
           <table className="w-full text-sm">
             <thead className="text-gray-600 border-b bg-gray-50">
               <tr>
-                <th className="text-right p-3">מוסד</th>
                 <th className="text-right p-3">תקופה</th>
                 <th className="text-right p-3">שורות</th>
                 <th className="text-right p-3">סכום (נטו)</th>
@@ -317,53 +365,74 @@ export default function BillingPeriods() {
               </tr>
             </thead>
             <tbody>
-              {periods.map((p) => {
-                const isOverdue = p.status === 'issued' && p.dueDate && new Date(p.dueDate) < new Date() && p.paymentStatus !== 'paid';
+              {groups.map((g) => {
+                const open = isOpen(g);
                 return (
-                <tr key={p.id} className={`border-b last:border-b-0 hover:bg-gray-50 ${isOverdue ? 'bg-red-50' : ''}`}>
-                  <td className="p-3">
-                    <div className="font-medium">{p.institutionalOrder.orderName || '—'}</div>
-                    {!p.institutionalOrder.taxId && (
-                      <div className="text-xs text-amber-600 mt-1">⚠️ חסר ת.ז עוסק</div>
-                    )}
-                  </td>
-                  <td className="p-3">{rangeLabel(p.monthStart, p.monthEnd)}</td>
-                  <td className="p-3">{p._count.lines}</td>
-                  <td className="p-3">{Number(p.totalAmount).toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}</td>
-                  <td className="p-3">
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${STATUS_COLOR[p.status]}`}>{STATUS_HE[p.status]}</span>
-                  </td>
-                  <td className="p-3">
-                    {p.status === 'issued' ? (
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${PAY_COLOR[p.paymentStatus]}`}>
-                        {PAY_HE[p.paymentStatus]}
-                      </span>
-                    ) : '—'}
-                  </td>
-                  <td className="p-3 text-sm">
-                    {p.dueDate ? (
-                      <span className={isOverdue ? 'text-red-700 font-semibold' : ''}>
-                        {new Date(p.dueDate).toLocaleDateString('he-IL')}
-                        {isOverdue && ' ⚠️'}
-                      </span>
-                    ) : '—'}
-                  </td>
-                  <td className="p-3">
-                    {p.morningDocNumber ? (
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">#{p.morningDocNumber}</span>
-                        {p.morningDocUrl && (
-                          <a href={p.morningDocUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
-                            <ExternalLink size={14} />
-                          </a>
+                <Fragment key={g.id}>
+                  <tr
+                    className="border-b bg-gray-50/70 hover:bg-gray-100 cursor-pointer select-none"
+                    onClick={() => toggleGroup(g)}
+                  >
+                    <td className="p-3" colSpan={8}>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {open ? <ChevronDown size={16} className="text-gray-500" /> : <ChevronLeft size={16} className="text-gray-500" />}
+                        <span className="font-semibold text-gray-900">{g.name}</span>
+                        {!g.taxId && <span className="text-xs text-amber-600">⚠️ חסר ת.ז עוסק</span>}
+                        <span className="text-xs bg-gray-200 text-gray-700 rounded-full px-2 py-0.5">{g.count} חשבונות</span>
+                        {g.draftCount > 0 && (
+                          <span className="text-xs bg-gray-100 text-gray-700 rounded-full px-2 py-0.5">{g.draftCount} טיוטות</span>
                         )}
+                        {g.hasOverdue && (
+                          <span className="text-xs bg-red-100 text-red-700 rounded-full px-2 py-0.5 font-medium">פגי תוקף</span>
+                        )}
+                        <span className="text-xs text-gray-600 mr-auto">סה״כ {ILS(g.total)}</span>
                       </div>
-                    ) : '—'}
-                  </td>
-                  <td className="p-3 text-left">
-                    <Link to={`/billing/${p.id}`} className="text-blue-600 hover:underline text-sm">פתח →</Link>
-                  </td>
-                </tr>
+                    </td>
+                  </tr>
+                  {open && g.periods.map((p) => {
+                    const isOverdue = periodOverdue(p);
+                    return (
+                    <tr key={p.id} className={`border-b last:border-b-0 hover:bg-gray-50 ${isOverdue ? 'bg-red-50' : ''}`}>
+                      <td className="p-3 pr-8">{rangeLabel(p.monthStart, p.monthEnd)}</td>
+                      <td className="p-3">{p._count.lines}</td>
+                      <td className="p-3">{ILS(Number(p.totalAmount))}</td>
+                      <td className="p-3">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${STATUS_COLOR[p.status]}`}>{STATUS_HE[p.status]}</span>
+                      </td>
+                      <td className="p-3">
+                        {p.status === 'issued' ? (
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${PAY_COLOR[p.paymentStatus]}`}>
+                            {PAY_HE[p.paymentStatus]}
+                          </span>
+                        ) : '—'}
+                      </td>
+                      <td className="p-3 text-sm">
+                        {p.dueDate ? (
+                          <span className={isOverdue ? 'text-red-700 font-semibold' : ''}>
+                            {new Date(p.dueDate).toLocaleDateString('he-IL')}
+                            {isOverdue && ' ⚠️'}
+                          </span>
+                        ) : '—'}
+                      </td>
+                      <td className="p-3">
+                        {p.morningDocNumber ? (
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">#{p.morningDocNumber}</span>
+                            {p.morningDocUrl && (
+                              <a href={p.morningDocUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                                <ExternalLink size={14} />
+                              </a>
+                            )}
+                          </div>
+                        ) : '—'}
+                      </td>
+                      <td className="p-3 text-left">
+                        <Link to={`/billing/${p.id}`} className="text-blue-600 hover:underline text-sm">פתח →</Link>
+                      </td>
+                    </tr>
+                    );
+                  })}
+                </Fragment>
                 );
               })}
             </tbody>

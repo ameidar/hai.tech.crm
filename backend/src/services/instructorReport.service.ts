@@ -70,6 +70,13 @@ export interface InstructorReportData {
   totalCycleExpenses: number; // approved cycle expenses only
   pendingCycleExpensesTotal: number; // pending cycle expenses (not included in grandTotal)
   grandTotal: number;
+  workDays: number;       // distinct activity days this month (one per day, online + frontal combined)
+  frontalHours: number;   // hours billed at the frontal rate
+  frontalPayment: number; // base payment for frontal-rate activity
+  onlineHours: number;    // hours billed at the online rate — private lessons counted as online
+  onlinePayment: number;  // base payment for online-rate activity — private lessons counted as online
+  travelTotal: number;    // all travel-related expenses (travel + taxi + fixed travel)
+  otherExpenses: number;  // all non-travel expenses (materials, extra instructor, etc.)
 }
 
 export interface FixedManagementSalary {
@@ -184,6 +191,10 @@ const EXPENSE_TYPE_LABELS: Record<string, string> = {
   materials:        'חומרים',
   other:            'אחר',
 };
+
+// All expense types that count as "travel" — consolidated into a single travel column.
+const TRAVEL_MEETING_EXPENSE_TYPES = new Set(['travel', 'taxi']);
+const TRAVEL_CYCLE_EXPENSE_TYPES = new Set(['travel_fixed']);
 
 const CYCLE_EXPENSE_TYPE_LABELS: Record<string, string> = {
   materials:             'הכנת חומרים',
@@ -458,6 +469,29 @@ export async function buildInstructorMonthlyReport(
     const pendingCycleExpensesTotal = pendingCycle.reduce((s, e) => s + e.amount, 0);
     const combinedExpenses = totalExpenses + totalCycleExpenses;
 
+    // Distinct activity days (one per calendar day with at least one completed meeting).
+    const workDays = new Set(mtgs.map(mtg => dateKey(mtg.scheduledDate))).size;
+
+    // Frontal / online breakdown — straight from the per-activity aggregation.
+    // Private lessons are billed like online, so they are folded into the online bucket.
+    const frontalAgg = byActivityType.find(a => a.activityTypeRaw === 'frontal');
+    const onlineAgg  = byActivityType.find(a => a.activityTypeRaw === 'online');
+    const privateAgg = byActivityType.find(a => a.activityTypeRaw === 'private');
+    const onlineHours   = (onlineAgg?.hours ?? 0) + (privateAgg?.hours ?? 0);
+    const onlinePayment = (onlineAgg?.subtotal ?? 0) + (privateAgg?.subtotal ?? 0);
+
+    // All travel-related money in one bucket: meeting travel + taxi, plus fixed-travel cycle expenses.
+    const meetingTravel = mtgs.reduce(
+      (s, mtg) => s + mtg.expenses
+        .filter((e: { type: string }) => TRAVEL_MEETING_EXPENSE_TYPES.has(e.type))
+        .reduce((es: number, e: { amount: unknown }) => es + Number(e.amount), 0),
+      0,
+    );
+    const cycleTravel = approvedCycle
+      .filter(e => TRAVEL_CYCLE_EXPENSE_TYPES.has(e.type))
+      .reduce((s, e) => s + e.amount, 0);
+    const travelTotal = meetingTravel + cycleTravel;
+
     instructors.push({
       instructorId,
       instructorName:  instr.name,
@@ -474,6 +508,13 @@ export async function buildInstructorMonthlyReport(
       totalCycleExpenses,
       pendingCycleExpensesTotal,
       grandTotal:      totalPayment + combinedExpenses,
+      workDays,
+      frontalHours:    frontalAgg?.hours ?? 0,
+      frontalPayment:  frontalAgg?.subtotal ?? 0,
+      onlineHours,
+      onlinePayment,
+      travelTotal,
+      otherExpenses:   combinedExpenses - travelTotal,
     });
   }
 
@@ -489,6 +530,9 @@ export async function buildInstructorMonthlyReport(
     const pendingCycle  = cycleExpenseDetails.filter(e => e.status === 'pending');
     const totalCycleExpenses = approvedCycle.reduce((s, e) => s + e.amount, 0);
     const pendingCycleExpensesTotal = pendingCycle.reduce((s, e) => s + e.amount, 0);
+    const travelTotal = approvedCycle
+      .filter(e => TRAVEL_CYCLE_EXPENSE_TYPES.has(e.type))
+      .reduce((s, e) => s + e.amount, 0);
 
     instructors.push({
       instructorId,
@@ -506,6 +550,13 @@ export async function buildInstructorMonthlyReport(
       totalCycleExpenses,
       pendingCycleExpensesTotal,
       grandTotal:      totalCycleExpenses,
+      workDays:        0,
+      frontalHours:    0,
+      frontalPayment:  0,
+      onlineHours:     0,
+      onlinePayment:   0,
+      travelTotal,
+      otherExpenses:   totalCycleExpenses - travelTotal,
     });
   }
 

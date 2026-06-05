@@ -35,6 +35,7 @@ import {
   Youtube,
   Video,
   Share2,
+  Clock,
 } from 'lucide-react';
 
 // Admin/Manager navigation — grouped
@@ -87,6 +88,7 @@ const adminNavGroups = [
     items: [
       { path: '/system-users', icon: UserCog, label: 'ניהול הנהלה', testId: 'nav-system-users' },
       { path: '/reports', icon: BarChart3, label: 'דוחות', testId: 'nav-reports' },
+      { path: '/work-hours', icon: Clock, label: 'אישור שעות תפעול', testId: 'nav-work-hours' },
       { path: '/morning-invoice', icon: Receipt, label: 'הוצאת חשבון עסקה', testId: 'nav-morning-invoice' },
       { path: '/payment-link', icon: Link2, label: 'לינק לתשלום', testId: 'nav-payment-link' },
       { path: '/audit', icon: FileText, label: 'יומן פעילות', testId: 'nav-audit' },
@@ -104,6 +106,11 @@ const salesNavItems = [
   { path: '/lead-appointments', icon: PhoneCall, label: 'יומן לידים', testId: 'nav-lead-appointments' },
   { path: '/whatsapp', icon: MessageCircle, label: 'WhatsApp', testId: 'nav-whatsapp' },
   { path: '/payment-link', icon: Link2, label: 'לינק לתשלום', testId: 'nav-payment-link' },
+];
+
+// Operations staff navigation (self-reported work hours)
+const operationsNavItems = [
+  { path: '/operations', icon: Clock, label: 'דיווח שעות', testId: 'nav-operations' },
 ];
 
 const COLLAPSED_KEY = 'nav-collapsed-sections';
@@ -146,10 +153,11 @@ export default function Layout() {
   const isAdmin = user?.role === 'admin' || user?.role === 'manager';
   const isInstructor = user?.role === 'instructor';
   const isSales = user?.role === 'sales';
+  const isOperations = user?.role === 'operations';
   const isWhatsAppPage = location.pathname.startsWith('/whatsapp');
 
   // Flat items for non-admin roles
-  const flatNavItems = isInstructor ? instructorNavItems : isSales ? salesNavItems : [];
+  const flatNavItems = isInstructor ? instructorNavItems : isOperations ? operationsNavItems : isSales ? salesNavItems : [];
 
   const renderNavItem = (item: { path: string; icon: any; label: string; testId: string }) => (
     <NavLink

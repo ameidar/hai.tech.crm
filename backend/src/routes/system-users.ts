@@ -173,6 +173,22 @@ systemUsersRouter.put('/:id', adminOnly, async (req, res, next) => {
 
     const { hourlyRate, bankName, bankBranch, accountNumber, ...userData } = data;
 
+    // Promoting an existing managed user (e.g. manager/sales) to operations needs a
+    // linked Instructor record created — which requires a unique phone.
+    const needsNewOpsInstructor = data.role === 'operations' && !existing.instructor;
+    const opsPhone = (userData.phone ?? existing.phone ?? '').trim();
+    if (needsNewOpsInstructor) {
+      if (!opsPhone) {
+        throw new AppError(400, 'Phone is required for operations staff');
+      }
+      const phoneTaken = await prisma.instructor.findFirst({
+        where: { phone: opsPhone, NOT: { userId: id } },
+      });
+      if (phoneTaken) {
+        throw new AppError(409, 'Phone already registered to another instructor');
+      }
+    }
+
     const user = await prisma.$transaction(async (tx) => {
       const updated = await tx.user.update({
         where: { id },
@@ -189,8 +205,8 @@ systemUsersRouter.put('/:id', adminOnly, async (req, res, next) => {
         },
       });
 
-      // Keep the linked operations Instructor in sync
       if (existing.instructor && existing.instructor.kind === 'operations') {
+        // Keep the linked operations Instructor in sync
         await tx.instructor.update({
           where: { id: existing.instructor.id },
           data: {
@@ -200,6 +216,22 @@ systemUsersRouter.put('/:id', adminOnly, async (req, res, next) => {
             ...(bankName !== undefined && { bankName }),
             ...(bankBranch !== undefined && { bankBranch }),
             ...(accountNumber !== undefined && { accountNumber }),
+            ...(userData.isActive !== undefined && { isActive: userData.isActive }),
+          },
+        });
+      } else if (needsNewOpsInstructor) {
+        // Create the linked operations Instructor for a user that didn't have one
+        await tx.instructor.create({
+          data: {
+            userId: id,
+            kind: 'operations',
+            name: userData.name ?? existing.name,
+            phone: opsPhone,
+            email: existing.email,
+            hourlyRate: hourlyRate ?? 50,
+            bankName: bankName ?? null,
+            bankBranch: bankBranch ?? null,
+            accountNumber: accountNumber ?? null,
             ...(userData.isActive !== undefined && { isActive: userData.isActive }),
           },
         });

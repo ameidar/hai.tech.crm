@@ -192,7 +192,7 @@ export default function SystemUsers() {
     return u.name.toLowerCase().includes(s) || u.email.toLowerCase().includes(s);
   });
 
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'operations';
 
   const openAdd = () => {
     setFormData({ name: '', email: '', phone: '', role: 'manager', hourlyRate: 50, bankName: '', bankBranch: '', accountNumber: '' });

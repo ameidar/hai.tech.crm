@@ -28,7 +28,7 @@ instructorsRouter.get('/', async (req, res, next) => {
         ],
       }),
       ...(isActive !== undefined && { isActive }),
-      ...(kind && { kind }),
+      kind: kind || 'instructor', // exclude operations staff from the instructor list by default
     };
 
     const [instructors, total] = await Promise.all([

@@ -29,13 +29,17 @@ const ROLE_LABELS: Record<string, string> = {
   admin: 'מנהל מערכת',
   manager: 'מנהל',
   sales: 'מכירות',
+  operations: 'מנהל/ת תפעול',
 };
 
 const ROLE_COLORS: Record<string, string> = {
   admin: 'bg-red-100 text-red-700',
   manager: 'bg-blue-100 text-blue-700',
   sales: 'bg-green-100 text-green-700',
+  operations: 'bg-teal-100 text-teal-700',
 };
+
+type ManagedRole = 'admin' | 'manager' | 'sales' | 'operations';
 
 // ===== Invite / Reset Modal =====
 interface LinkModalProps {
@@ -173,9 +177,14 @@ export default function SystemUsers() {
     name: '',
     email: '',
     phone: '',
-    role: 'manager' as 'admin' | 'manager' | 'sales',
+    role: 'manager' as ManagedRole,
+    hourlyRate: 50,
+    bankName: '',
+    bankBranch: '',
+    accountNumber: '',
   });
   const [formError, setFormError] = useState('');
+  const isOperations = formData.role === 'operations';
 
   const filtered = (users || []).filter((u) => {
     if (!search) return true;
@@ -186,13 +195,22 @@ export default function SystemUsers() {
   const isAdmin = currentUser?.role === 'admin';
 
   const openAdd = () => {
-    setFormData({ name: '', email: '', phone: '', role: 'manager' });
+    setFormData({ name: '', email: '', phone: '', role: 'manager', hourlyRate: 50, bankName: '', bankBranch: '', accountNumber: '' });
     setFormError('');
     setShowAddModal(true);
   };
 
   const openEdit = (u: User) => {
-    setFormData({ name: u.name, email: u.email, phone: u.phone || '', role: u.role as 'admin' | 'manager' | 'sales' });
+    setFormData({
+      name: u.name,
+      email: u.email,
+      phone: u.phone || '',
+      role: u.role as ManagedRole,
+      hourlyRate: u.instructor?.hourlyRate != null ? Number(u.instructor.hourlyRate) : 50,
+      bankName: u.instructor?.bankName || '',
+      bankBranch: u.instructor?.bankBranch || '',
+      accountNumber: u.instructor?.accountNumber || '',
+    });
     setFormError('');
     setEditingUser(u);
   };
@@ -203,12 +221,22 @@ export default function SystemUsers() {
       setFormError('שם ואימייל הם שדות חובה');
       return;
     }
+    if (formData.role === 'operations' && !formData.phone.trim()) {
+      setFormError('טלפון הוא שדה חובה עבור מנהל/ת תפעול');
+      return;
+    }
     try {
       const result = await createUser.mutateAsync({
         name: formData.name,
         email: formData.email,
         phone: formData.phone || undefined,
         role: formData.role,
+        ...(formData.role === 'operations' && {
+          hourlyRate: Number(formData.hourlyRate),
+          bankName: formData.bankName || undefined,
+          bankBranch: formData.bankBranch || undefined,
+          accountNumber: formData.accountNumber || undefined,
+        }),
       });
       setShowAddModal(false);
       // Show invite link modal
@@ -232,6 +260,12 @@ export default function SystemUsers() {
           name: formData.name,
           phone: formData.phone || undefined,
           role: formData.role,
+          ...(formData.role === 'operations' && {
+            hourlyRate: Number(formData.hourlyRate),
+            bankName: formData.bankName || undefined,
+            bankBranch: formData.bankBranch || undefined,
+            accountNumber: formData.accountNumber || undefined,
+          }),
         },
       });
       setEditingUser(null);
@@ -474,18 +508,70 @@ export default function SystemUsers() {
             <div className="flex-1">
               <select
                 value={formData.role}
-                onChange={(e) => setFormData((p) => ({ ...p, role: e.target.value as 'admin' | 'manager' | 'sales' }))}
+                onChange={(e) => setFormData((p) => ({ ...p, role: e.target.value as ManagedRole }))}
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="manager">מנהל</option>
                 <option value="admin">מנהל מערכת</option>
                 <option value="sales">מכירות</option>
+                <option value="operations">מנהל/ת תפעול</option>
               </select>
               <p className="text-xs text-slate-400 mt-1">
                 מנהל מערכת — ניהול מלא. מנהל — גישה לכל. <strong>מכירות</strong> — WhatsApp + לקוחות בלבד.
+                <strong> תפעול</strong> — דיווח שעות, ללא ניהול משתמשים ודוחות כספיים.
               </p>
             </div>
           </div>
+
+          {/* Operations-staff config */}
+          {isOperations && (
+            <>
+              <div className="flex items-center gap-3">
+                <label className="w-20 text-sm font-medium text-slate-600 text-right flex-shrink-0">תעריף שעתי</label>
+                <div className="flex-1 relative">
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">₪</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={formData.hourlyRate}
+                    onChange={(e) => setFormData((p) => ({ ...p, hourlyRate: Number(e.target.value) }))}
+                    className="w-full pr-7 pl-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="w-20 text-sm font-medium text-slate-600 text-right flex-shrink-0">שם בנק</label>
+                <input
+                  type="text"
+                  value={formData.bankName}
+                  onChange={(e) => setFormData((p) => ({ ...p, bankName: e.target.value }))}
+                  className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="שם הבנק"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="w-20 text-sm font-medium text-slate-600 text-right flex-shrink-0">סניף</label>
+                <input
+                  type="text"
+                  value={formData.bankBranch}
+                  onChange={(e) => setFormData((p) => ({ ...p, bankBranch: e.target.value }))}
+                  className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="מספר סניף"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="w-20 text-sm font-medium text-slate-600 text-right flex-shrink-0">חשבון</label>
+                <input
+                  type="text"
+                  value={formData.accountNumber}
+                  onChange={(e) => setFormData((p) => ({ ...p, accountNumber: e.target.value }))}
+                  className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="מספר חשבון"
+                />
+              </div>
+            </>
+          )}
 
           {/* Invite hint */}
           {!editingUser && (

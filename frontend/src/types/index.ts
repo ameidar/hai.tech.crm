@@ -26,6 +26,7 @@ export interface User {
   createdAt: string;
   instructor?: {
     id: string;
+    hourlyRate?: number | null;
     bankName?: string | null;
     bankBranch?: string | null;
     accountNumber?: string | null;

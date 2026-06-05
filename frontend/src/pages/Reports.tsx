@@ -94,6 +94,7 @@ function InstructorReportTab() {
   const [loadingReport, setLoadingReport] = useState(false);
   const [sending, setSending] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [downloadingAccounting, setDownloadingAccounting] = useState(false);
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [selectedInstructor, setSelectedInstructor] = useState<InstructorReportSummary | null>(null);
 
@@ -191,6 +192,26 @@ function InstructorReportTab() {
     } finally { setDownloading(false); }
   };
 
+  const downloadAccountingExcel = async () => {
+    if (!selectedMonth) return;
+    setDownloadingAccounting(true);
+    try {
+      const res = await fetch(`/api/reports/instructors/accounting-excel?month=${selectedMonth}`, { headers: { Authorization: `Bearer ${token()}` } });
+      if (!res.ok) throw new Error('שגיאה בהורדה');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const cd = res.headers.get('Content-Disposition') || '';
+      const fn = decodeURIComponent(cd.split("filename*=UTF-8''")[1] || 'accounting-report.xlsx');
+      a.download = fn;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: unknown) {
+      setMsg({ type: 'error', text: e instanceof Error ? e.message : 'שגיאת הורדה' });
+    } finally { setDownloadingAccounting(false); }
+  };
+
   const sendReport = async () => {
     if (!selectedMonth) return;
     setSending(true);
@@ -251,6 +272,16 @@ function InstructorReportTab() {
           >
             {downloading ? <Loader2 size={15} className="animate-spin" /> : <FileSpreadsheet size={15} />}
             הורד Excel
+          </button>
+
+          <button
+            onClick={downloadAccountingExcel}
+            disabled={!selectedMonth || downloadingAccounting}
+            className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 disabled:opacity-50 transition-colors"
+            title="דוח שטוח להנהלת חשבונות — מדריכים שעתיים בלבד, עמודות מוסכמות"
+          >
+            {downloadingAccounting ? <Loader2 size={15} className="animate-spin" /> : <FileSpreadsheet size={15} />}
+            דוח הנהלת חשבונות
           </button>
 
           <button

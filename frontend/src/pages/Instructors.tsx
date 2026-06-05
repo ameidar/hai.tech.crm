@@ -1102,6 +1102,7 @@ function InstructorForm({ instructor, initialTab = 'details', onSubmit, onCancel
             required
           />
         </div>
+
       </div>
 
       <div className="border-t pt-4">

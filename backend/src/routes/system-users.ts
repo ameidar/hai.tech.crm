@@ -15,23 +15,34 @@ const createUserSchema = z.object({
   email: z.string().email('Invalid email').transform(v => v.trim().toLowerCase()),
   name: z.string().min(2, 'Name must be at least 2 characters'),
   phone: z.string().optional().nullable(),
-  role: z.enum(['admin', 'manager', 'sales']),
+  role: z.enum(['admin', 'manager', 'sales', 'operations']),
   password: z.string().min(6).optional(), // optional — auto-generated if not provided
+  // Operations-staff config (creates a linked Instructor record)
+  hourlyRate: z.number().nonnegative().optional().nullable(),
+  bankName: z.string().optional().nullable(),
+  bankBranch: z.string().optional().nullable(),
+  accountNumber: z.string().optional().nullable(),
 });
 
 const updateUserSchema = z.object({
   name: z.string().min(2).optional(),
   phone: z.string().optional().nullable(),
-  role: z.enum(['admin', 'manager', 'sales']).optional(),
+  role: z.enum(['admin', 'manager', 'sales', 'operations']).optional(),
   isActive: z.boolean().optional(),
+  hourlyRate: z.number().nonnegative().optional().nullable(),
+  bankName: z.string().optional().nullable(),
+  bankBranch: z.string().optional().nullable(),
+  accountNumber: z.string().optional().nullable(),
 });
+
+const MANAGED_ROLES = ['admin', 'manager', 'sales', 'operations'] as const;
 
 // List system users (admin + manager)
 systemUsersRouter.get('/', adminOnly, async (_req, res, next) => {
   try {
     const users = await prisma.user.findMany({
       where: {
-        role: { in: ['admin', 'manager', 'sales'] },
+        role: { in: [...MANAGED_ROLES] },
       },
       select: {
         id: true,
@@ -42,6 +53,15 @@ systemUsersRouter.get('/', adminOnly, async (_req, res, next) => {
         isActive: true,
         lastLogin: true,
         createdAt: true,
+        instructor: {
+          select: {
+            id: true,
+            hourlyRate: true,
+            bankName: true,
+            bankBranch: true,
+            accountNumber: true,
+          },
+        },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -62,6 +82,18 @@ systemUsersRouter.post('/', adminOnly, async (req, res, next) => {
       throw new AppError(409, 'Email already registered');
     }
 
+    // Operations staff are backed by an Instructor record (kind='operations'),
+    // which requires a unique phone number.
+    if (data.role === 'operations') {
+      if (!data.phone || !data.phone.trim()) {
+        throw new AppError(400, 'Phone is required for operations staff');
+      }
+      const phoneTaken = await prisma.instructor.findUnique({ where: { phone: data.phone.trim() } });
+      if (phoneTaken) {
+        throw new AppError(409, 'Phone already registered to another instructor');
+      }
+    }
+
     // Use provided password or generate a random one
     const plainPassword = data.password || crypto.randomBytes(16).toString('hex');
     const passwordHash = await bcrypt.hash(plainPassword, 10);
@@ -70,25 +102,45 @@ systemUsersRouter.post('/', adminOnly, async (req, res, next) => {
     const inviteToken = crypto.randomBytes(32).toString('hex');
     const inviteExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-    const user = await prisma.user.create({
-      data: {
-        email: data.email,
-        name: data.name,
-        phone: data.phone,
-        role: data.role,
-        passwordHash,
-        resetToken: inviteToken,
-        resetTokenExpiry: inviteExpiry,
-      },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        phone: true,
-        role: true,
-        isActive: true,
-        createdAt: true,
-      },
+    const user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          email: data.email,
+          name: data.name,
+          phone: data.phone,
+          role: data.role,
+          passwordHash,
+          resetToken: inviteToken,
+          resetTokenExpiry: inviteExpiry,
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          phone: true,
+          role: true,
+          isActive: true,
+          createdAt: true,
+        },
+      });
+
+      if (data.role === 'operations') {
+        await tx.instructor.create({
+          data: {
+            userId: created.id,
+            kind: 'operations',
+            name: data.name,
+            phone: data.phone!.trim(),
+            email: data.email,
+            hourlyRate: data.hourlyRate ?? 50,
+            bankName: data.bankName ?? null,
+            bankBranch: data.bankBranch ?? null,
+            accountNumber: data.accountNumber ?? null,
+          },
+        });
+      }
+
+      return created;
     });
 
     const envUrl = process.env.FRONTEND_URL;
@@ -114,24 +166,46 @@ systemUsersRouter.put('/:id', adminOnly, async (req, res, next) => {
       throw new AppError(400, 'You cannot deactivate your own account');
     }
 
-    const existing = await prisma.user.findUnique({ where: { id } });
-    if (!existing || !['admin', 'manager', 'sales'].includes(existing.role)) {
+    const existing = await prisma.user.findUnique({ where: { id }, include: { instructor: true } });
+    if (!existing || !MANAGED_ROLES.includes(existing.role as typeof MANAGED_ROLES[number])) {
       throw new AppError(404, 'User not found');
     }
 
-    const user = await prisma.user.update({
-      where: { id },
-      data,
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        phone: true,
-        role: true,
-        isActive: true,
-        lastLogin: true,
-        createdAt: true,
-      },
+    const { hourlyRate, bankName, bankBranch, accountNumber, ...userData } = data;
+
+    const user = await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id },
+        data: userData,
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          phone: true,
+          role: true,
+          isActive: true,
+          lastLogin: true,
+          createdAt: true,
+        },
+      });
+
+      // Keep the linked operations Instructor in sync
+      if (existing.instructor && existing.instructor.kind === 'operations') {
+        await tx.instructor.update({
+          where: { id: existing.instructor.id },
+          data: {
+            ...(userData.name !== undefined && { name: userData.name }),
+            ...(userData.phone !== undefined && userData.phone && { phone: userData.phone }),
+            ...(hourlyRate !== undefined && { hourlyRate }),
+            ...(bankName !== undefined && { bankName }),
+            ...(bankBranch !== undefined && { bankBranch }),
+            ...(accountNumber !== undefined && { accountNumber }),
+            ...(userData.isActive !== undefined && { isActive: userData.isActive }),
+          },
+        });
+      }
+
+      return updated;
     });
 
     await logAudit({ req, action: 'UPDATE', entity: 'SystemUser', entityId: user.id, oldValue: existing, newValue: data });
@@ -148,7 +222,7 @@ systemUsersRouter.post('/:id/reset-password', adminOnly, async (req, res, next) 
     const { id } = req.params;
 
     const existing = await prisma.user.findUnique({ where: { id } });
-    if (!existing || !['admin', 'manager', 'sales'].includes(existing.role)) {
+    if (!existing || !MANAGED_ROLES.includes(existing.role as typeof MANAGED_ROLES[number])) {
       throw new AppError(404, 'User not found');
     }
 
@@ -192,12 +266,18 @@ systemUsersRouter.delete('/:id', adminOnly, async (req, res, next) => {
       throw new AppError(400, 'You cannot delete your own account');
     }
 
-    const existing = await prisma.user.findUnique({ where: { id } });
-    if (!existing || !['admin', 'manager', 'sales'].includes(existing.role)) {
+    const existing = await prisma.user.findUnique({ where: { id }, include: { instructor: true } });
+    if (!existing || !MANAGED_ROLES.includes(existing.role as typeof MANAGED_ROLES[number])) {
       throw new AppError(404, 'User not found');
     }
 
-    await prisma.user.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      // Remove the linked operations Instructor (and its work-hour entries via cascade)
+      if (existing.instructor && existing.instructor.kind === 'operations') {
+        await tx.instructor.delete({ where: { id: existing.instructor.id } });
+      }
+      await tx.user.delete({ where: { id } });
+    });
 
     await logAudit({ req, action: 'DELETE', entity: 'SystemUser', entityId: id, oldValue: existing });
 

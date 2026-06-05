@@ -16,6 +16,8 @@ import CycleDetail from './pages/CycleDetail';
 import Meetings from './pages/Meetings';
 import Reports from './pages/Reports';
 import InstructorDashboard from './pages/InstructorDashboard';
+import OperationsHours from './pages/OperationsHours';
+import WorkHoursApproval from './pages/WorkHoursApproval';
 import InviteSetup from './pages/InviteSetup';
 import ResetPassword from './pages/ResetPassword';
 import MeetingStatus from './pages/MeetingStatus';
@@ -110,10 +112,12 @@ function AppRoutes() {
   const isMobile = useIsMobile();
   const isInstructor = user?.role === 'instructor';
   const isSales = user?.role === 'sales';
+  const isOperations = user?.role === 'operations';
 
   // Redirect based on role
   const getDefaultRoute = () => {
     if (isInstructor) return '/instructor';
+    if (isOperations) return '/operations';
     if (isSales) return '/whatsapp';
     return '/';
   };
@@ -162,8 +166,9 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route index element={isInstructor ? <Navigate to="/instructor" replace /> : isSales ? <Navigate to="/whatsapp" replace /> : <Dashboard />} />
-        {!isInstructor && (
+        <Route index element={isInstructor ? <Navigate to="/instructor" replace /> : isOperations ? <Navigate to="/operations" replace /> : isSales ? <Navigate to="/whatsapp" replace /> : <Dashboard />} />
+        <Route path="operations" element={<OperationsHours />} />
+        {!isInstructor && !isOperations && (
           <>
             {/* Sales-accessible routes */}
             <Route path="customers" element={<NonSalesRoute><Customers /></NonSalesRoute>} />
@@ -191,6 +196,7 @@ function AppRoutes() {
             <Route path="lead-appointments" element={<LeadAppointments />} />
             <Route path="system-users" element={<NonSalesRoute><SystemUsers /></NonSalesRoute>} />
             <Route path="reports" element={<NonSalesRoute><Reports /></NonSalesRoute>} />
+            <Route path="work-hours" element={<NonSalesRoute><WorkHoursApproval /></NonSalesRoute>} />
             <Route path="morning-invoice" element={<NonSalesRoute><MorningInvoiceTest /></NonSalesRoute>} />
             <Route path="payment-link" element={<PaymentLink />} />
             <Route path="audit" element={<NonSalesRoute><AuditLog /></NonSalesRoute>} />

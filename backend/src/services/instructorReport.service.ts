@@ -85,6 +85,26 @@ export interface FixedManagementSalary {
   amount: number;
 }
 
+export interface OperationsHourEntry {
+  id: string;
+  date: Date;
+  hours: number;
+  description: string | null;
+  status: 'pending' | 'approved' | 'rejected' | string;
+}
+
+export interface OperationsStaffReport {
+  instructorId: string;
+  name: string;
+  email: string | null;
+  hourlyRate: number;
+  entries: OperationsHourEntry[];
+  approvedHours: number;
+  pendingHours: number;
+  approvedPayment: number;       // approvedHours × hourlyRate — counted in the grand total
+  pendingPayment: number;        // pendingHours × hourlyRate — shown but not yet payable
+}
+
 export interface UnresolvedMeeting {
   id: string;
   date: Date;
@@ -100,6 +120,8 @@ export interface InstructorMonthlyReport {
   monthLabel: string; // "פברואר 2026"
   generatedAt: Date;
   instructors: InstructorReportData[];
+  operationsStaff: OperationsStaffReport[];
+  summaryTotalOperationsPayment: number;
   fixedManagementSalaries: FixedManagementSalary[];
   summaryTotalFixedSalaries: number;
   summaryTotalPayment: number;
@@ -560,6 +582,47 @@ export async function buildInstructorMonthlyReport(
     });
   }
 
+  // 3c. Operations staff — self-reported hours paid at a single hourly rate.
+  // Only approved hours count toward the payable total; pending hours are shown separately.
+  const opsStaff = await prisma.instructor.findMany({
+    where: { kind: 'operations' },
+    include: {
+      workHourEntries: {
+        where: { workDate: { gte: from, lt: to } },
+        orderBy: { workDate: 'asc' },
+      },
+    },
+    orderBy: { name: 'asc' },
+  });
+
+  const operationsStaff: OperationsStaffReport[] = opsStaff
+    .filter((s) => s.workHourEntries.length > 0)
+    .map((s) => {
+      const rate = Number(s.hourlyRate ?? 0);
+      const entries: OperationsHourEntry[] = s.workHourEntries.map((e) => ({
+        id: e.id,
+        date: e.workDate,
+        hours: Number(e.hours),
+        description: e.description,
+        status: e.status,
+      }));
+      const approvedHours = entries.filter((e) => e.status === 'approved').reduce((sum, e) => sum + e.hours, 0);
+      const pendingHours = entries.filter((e) => e.status === 'pending').reduce((sum, e) => sum + e.hours, 0);
+      return {
+        instructorId: s.id,
+        name: s.name,
+        email: s.email ?? null,
+        hourlyRate: rate,
+        entries,
+        approvedHours: parseFloat(approvedHours.toFixed(2)),
+        pendingHours: parseFloat(pendingHours.toFixed(2)),
+        approvedPayment: Math.round(approvedHours * rate),
+        pendingPayment: Math.round(pendingHours * rate),
+      };
+    });
+
+  const summaryTotalOperationsPayment = operationsStaff.reduce((s, o) => s + o.approvedPayment, 0);
+
   // 4. Grand totals
   const fixedManagementSalaries = FIXED_MANAGEMENT_SALARIES;
   const summaryTotalFixedSalaries = fixedManagementSalaries.reduce((s, i) => s + i.amount, 0);
@@ -595,11 +658,13 @@ export async function buildInstructorMonthlyReport(
     monthLabel: getMonthLabel(month),
     generatedAt: new Date(),
     instructors,
+    operationsStaff,
+    summaryTotalOperationsPayment,
     fixedManagementSalaries,
     summaryTotalFixedSalaries,
     summaryTotalPayment,
     summaryTotalExpenses,
-    summaryGrandTotal: summaryTotalPayment + summaryTotalExpenses + summaryTotalFixedSalaries,
+    summaryGrandTotal: summaryTotalPayment + summaryTotalExpenses + summaryTotalFixedSalaries + summaryTotalOperationsPayment,
     unresolvedMeetings,
   };
 }

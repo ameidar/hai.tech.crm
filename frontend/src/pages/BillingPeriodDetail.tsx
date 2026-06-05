@@ -141,7 +141,7 @@ function rangeLabel(startIso: string, endIso: string) {
 export default function BillingPeriodDetail() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'operations';
   const [period, setPeriod] = useState<Period | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

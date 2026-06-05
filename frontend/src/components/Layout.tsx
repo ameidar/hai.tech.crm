@@ -150,14 +150,25 @@ export default function Layout() {
     navigate('/login');
   };
 
-  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
   const isInstructor = user?.role === 'instructor';
   const isSales = user?.role === 'sales';
   const isOperations = user?.role === 'operations';
+  // Operations managers see the full admin nav (plus their own "דיווח שעות" item).
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || isOperations;
   const isWhatsAppPage = location.pathname.startsWith('/whatsapp');
 
   // Flat items for non-admin roles
-  const flatNavItems = isInstructor ? instructorNavItems : isOperations ? operationsNavItems : isSales ? salesNavItems : [];
+  const flatNavItems = isInstructor ? instructorNavItems : isSales ? salesNavItems : [];
+
+  // Operations managers get every admin group, with their own work-hours reporting
+  // item appended to the "system" group.
+  const navGroups = isOperations
+    ? adminNavGroups.map((group) =>
+        group.key === 'system'
+          ? { ...group, items: [...group.items, operationsNavItems[0]] }
+          : group
+      )
+    : adminNavGroups;
 
   const renderNavItem = (item: { path: string; icon: any; label: string; testId: string }) => (
     <NavLink
@@ -205,8 +216,8 @@ export default function Layout() {
       {/* Navigation */}
       <nav className="flex-1 py-2 overflow-y-auto" data-testid="main-nav">
         {isAdmin ? (
-          // Grouped navigation for admin/manager
-          adminNavGroups.map((group) => {
+          // Grouped navigation for admin/manager (and operations managers)
+          navGroups.map((group) => {
             const isCollapsed = !!collapsedSections[group.key];
             return (
               <div key={group.key} className="mb-1">

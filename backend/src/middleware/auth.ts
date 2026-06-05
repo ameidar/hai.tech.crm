@@ -71,11 +71,13 @@ export const authorize = (...roles: UserRole[]) => {
   };
 };
 
+// Operations managers (מנהלת תפעול) have full admin-level access across the app,
+// in addition to their own work-hours reporting — so they are included everywhere admin is.
 // Middleware for admin-only routes
-export const adminOnly = authorize('admin');
+export const adminOnly = authorize('admin', 'operations');
 
 // Middleware for admin or manager routes
-export const managerOrAdmin = authorize('admin', 'manager');
+export const managerOrAdmin = authorize('admin', 'manager', 'operations');
 
 // Middleware for sales + above (all non-instructor roles)
-export const salesOrAbove = authorize('admin', 'manager', 'sales');
+export const salesOrAbove = authorize('admin', 'manager', 'sales', 'operations');

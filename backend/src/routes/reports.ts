@@ -9,9 +9,9 @@ import { sendInstructorMonthlyReportEmail } from '../services/email/instructorRe
 
 export const reportsRouter = Router();
 
-// All routes require auth + admin/manager
+// All routes require auth + admin/manager (operations managers have full access too)
 reportsRouter.use(authenticate);
-reportsRouter.use(authorize('admin', 'manager'));
+reportsRouter.use(authorize('admin', 'manager', 'operations'));
 
 // ─── GET /api/reports/instructors/months ──────────────────────────────────────
 // List available months: current month as draft + last 12 closed months

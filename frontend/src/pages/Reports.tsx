@@ -74,6 +74,15 @@ interface FixedManagementSalary {
   role: string;
   amount: number;
 }
+interface OperationsStaffSummary {
+  instructorId: string;
+  name: string;
+  hourlyRate: number;
+  approvedHours: number;
+  pendingHours: number;
+  approvedPayment: number;
+  pendingPayment: number;
+}
 interface UnresolvedMeeting {
   id: string;
   date: string;
@@ -90,7 +99,7 @@ function InstructorReportTab() {
   const [months, setMonths] = useState<MonthOption[]>([]);
   const [selectedMonth, setSelectedMonth] = useState('');
   const [loadingMonths, setLoadingMonths] = useState(false);
-  const [report, setReport] = useState<{ monthLabel: string; instructors: InstructorReportSummary[]; fixedManagementSalaries?: FixedManagementSalary[]; summaryTotalFixedSalaries?: number; summaryTotalPayment: number; summaryTotalExpenses: number; summaryGrandTotal: number; unresolvedMeetings: UnresolvedMeeting[] } | null>(null);
+  const [report, setReport] = useState<{ monthLabel: string; instructors: InstructorReportSummary[]; operationsStaff?: OperationsStaffSummary[]; summaryTotalOperationsPayment?: number; fixedManagementSalaries?: FixedManagementSalary[]; summaryTotalFixedSalaries?: number; summaryTotalPayment: number; summaryTotalExpenses: number; summaryGrandTotal: number; unresolvedMeetings: UnresolvedMeeting[] } | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
   const [sending, setSending] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -358,6 +367,31 @@ function InstructorReportTab() {
                           <td className="p-3 text-center text-gray-700">₪{item.amount.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
                           <td className="p-3 text-center text-gray-400">—</td>
                           <td className="p-3 text-center font-bold text-purple-700">₪{item.amount.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                      ))}
+                    </>
+                  )}
+                  {(report.operationsStaff?.length ?? 0) > 0 && (
+                    <>
+                      <tr className="bg-teal-50 border-t">
+                        <td colSpan={7} className="p-3 font-bold text-teal-900">
+                          תפעול ({report.operationsStaff!.length}) · סה"כ ₪{(report.summaryTotalOperationsPayment ?? 0).toLocaleString('he-IL', { minimumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                      {report.operationsStaff!.map(item => (
+                        <tr key={item.instructorId} className="border-t bg-white">
+                          <td className="p-3 font-semibold text-gray-800">{item.name}</td>
+                          <td className="p-3 text-center">
+                            <span className="px-2 py-1 rounded text-xs font-bold bg-teal-100 text-teal-700">תפעול</span>
+                          </td>
+                          <td className="p-3 text-center text-gray-400">—</td>
+                          <td className="p-3 text-center text-gray-700">
+                            {item.approvedHours}
+                            {item.pendingHours > 0 && <span className="text-amber-600 text-xs"> (+{item.pendingHours} ממתין)</span>}
+                          </td>
+                          <td className="p-3 text-center text-gray-700">₪{item.approvedPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                          <td className="p-3 text-center text-gray-400">—</td>
+                          <td className="p-3 text-center font-bold text-teal-700">₪{item.approvedPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
                         </tr>
                       ))}
                     </>

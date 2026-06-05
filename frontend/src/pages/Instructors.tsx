@@ -1004,10 +1004,12 @@ function InstructorForm({ instructor, initialTab = 'details', onSubmit, onCancel
     name: instructor?.name || '',
     phone: instructor?.phone || '',
     email: instructor?.email || '',
+    kind: instructor?.kind || 'instructor',
     rateFrontal: instructor?.rateFrontal || 150,
     rateOnline: instructor?.rateOnline || 120,
     ratePrivate: instructor?.ratePrivate || 150,
     ratePreparation: instructor?.ratePreparation || 50,
+    hourlyRate: instructor?.hourlyRate ?? 50,
     employmentType: instructor?.employmentType || 'freelancer',
     notes: instructor?.notes || '',
     bankName: instructor?.bankName || '',
@@ -1016,14 +1018,18 @@ function InstructorForm({ instructor, initialTab = 'details', onSubmit, onCancel
     isActive: instructor?.isActive ?? true,
   });
 
+  const isOperations = formData.kind === 'operations';
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit({
       ...formData,
+      kind: formData.kind,
       rateFrontal: Number(formData.rateFrontal),
       rateOnline: Number(formData.rateOnline),
       ratePrivate: Number(formData.ratePrivate),
       ratePreparation: Number(formData.ratePreparation),
+      hourlyRate: Number(formData.hourlyRate),
       employmentType: formData.employmentType,
       bankName: formData.bankName || undefined,
       bankBranch: formData.bankBranch || undefined,
@@ -1102,8 +1108,55 @@ function InstructorForm({ instructor, initialTab = 'details', onSubmit, onCancel
             required
           />
         </div>
+
+        <div className="col-span-2">
+          <label className="form-label">סוג עובד</label>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="kind"
+                checked={formData.kind === 'instructor'}
+                onChange={() => setFormData({ ...formData, kind: 'instructor' })}
+                className="text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm">מדריך</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="kind"
+                checked={formData.kind === 'operations'}
+                onChange={() => setFormData({ ...formData, kind: 'operations' })}
+                className="text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm">מנהל/ת תפעול (דיווח שעות)</span>
+            </label>
+          </div>
+        </div>
       </div>
 
+      {isOperations ? (
+      <div className="border-t pt-4">
+        <h4 className="font-medium text-gray-700 mb-4">תעריף שעתי</h4>
+        <div className="grid grid-cols-4 gap-4">
+          <div>
+            <label className="form-label">לשעה</label>
+            <div className="relative">
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+              <input
+                type="number"
+                value={formData.hourlyRate}
+                onChange={(e) => setFormData({ ...formData, hourlyRate: Number(e.target.value) })}
+                className="form-input pr-8"
+                min="0"
+              />
+            </div>
+          </div>
+        </div>
+        <p className="text-xs text-gray-500 mt-2">השעות מדווחות ע"י העובד/ת ונכנסות לדוח השכר החודשי לאחר אישור מנהל.</p>
+      </div>
+      ) : (
       <div className="border-t pt-4">
         <h4 className="font-medium text-gray-700 mb-4">תעריפים (לשעה)</h4>
         <div className="grid grid-cols-4 gap-4">
@@ -1164,6 +1217,7 @@ function InstructorForm({ instructor, initialTab = 'details', onSubmit, onCancel
           </div>
         </div>
       </div>
+      )}
 
       <div>
         <label className="form-label">סוג העסקה</label>

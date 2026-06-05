@@ -46,6 +46,7 @@ import { billingRouter } from './routes/billing.js';
 import { vapiToolsRouter } from './routes/vapi-tools.js';
 import { upsellLeadsRouter } from './routes/upsell-leads.js';
 import { reportsRouter } from './routes/reports.js';
+import { workHoursRouter } from './routes/work-hours.js';
 import { leadAppointmentsRouter } from './routes/lead-appointments.js';
 import { institutionalOrdersRouter } from './routes/institutional-orders.js';
 import { meetingRequestsRouter } from './routes/meeting-requests.js';
@@ -233,6 +234,7 @@ app.use('/api/payment-links', paymentLinksRouter); // Morning hosted payment for
 app.use('/api/system-users', systemUsersRouter); // System users management (admin/manager)
 app.use('/api/upsell-leads', upsellLeadsRouter); // Upsell leads from completed cycles
 app.use('/api/reports', reportsRouter); // Instructor activity reports
+app.use('/api/work-hours', workHoursRouter); // Operations staff self-reported work hours
 app.use('/api/campaigns', campaignsRouter); // Marketing campaigns
 app.use('/api/campaign-leads', campaignLeadsRouter); // Public campaign lead form submissions
 app.use('/api/facebook', facebookLeadsRouter);     // Facebook Lead Ads

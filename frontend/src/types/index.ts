@@ -11,7 +11,7 @@ export type RegistrationStatus = 'registered' | 'active' | 'completed' | 'pendin
 export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
 export type PaymentMethod = 'credit' | 'transfer' | 'cash' | 'standing_order' | 'institutional';
 export type AttendanceStatus = 'present' | 'absent' | 'late';
-export type UserRole = 'admin' | 'manager' | 'instructor' | 'sales';
+export type UserRole = 'admin' | 'manager' | 'instructor' | 'sales' | 'operations';
 export type ActivityType = 'online' | 'frontal' | 'private_lesson';
 
 // Entities
@@ -126,15 +126,19 @@ export interface InstitutionalOrder {
 export type EmploymentType = 'freelancer' | 'employee';
 export type InstructorPaymentMode = 'hourly' | 'daily';
 
+export type InstructorKind = 'instructor' | 'operations';
+
 export interface Instructor {
   id: string;
   name: string;
   phone: string;
   email: string;
+  kind?: InstructorKind;
   rateFrontal: number;
   rateOnline: number;
   ratePrivate: number;
   ratePreparation: number;
+  hourlyRate?: number | null;
   employmentType: EmploymentType;
   userId?: string;
   isActive: boolean;

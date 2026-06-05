@@ -186,7 +186,7 @@ inviteRouter.post('/:token/setup', async (req, res, next) => {
         passwordHash,
         name: instructor.name,
         phone: instructor.phone,
-        role: 'instructor',
+        role: instructor.kind === 'operations' ? 'operations' : 'instructor',
       },
     });
 

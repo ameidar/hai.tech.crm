@@ -19,6 +19,7 @@ enum UserRole {
   manager
   instructor
   sales
+  operations
 }
 
 enum CourseCategory {
@@ -160,6 +161,7 @@ model User {
   reviewedCycleExpenses CycleExpense[]   @relation("CycleExpenseReviewer")
   submittedExpenses     MeetingExpense[] @relation("ExpenseSubmitter")
   reviewedExpenses      MeetingExpense[] @relation("ExpenseReviewer")
+  reviewedWorkHours     WorkHourEntry[]  @relation("WorkHourReviewer")
   quotes            Quote[]
   uploadedFiles     FileAttachment[]
   campaigns         Campaign[]
@@ -275,6 +277,9 @@ model Branch {
 model Instructor {
   id              String    @id @default(uuid())
   userId          String?   @unique @map("user_id")
+  // "instructor" = teaching staff (default). "operations" = ops/admin staff who self-report
+  // hourly work; configured like an instructor but paid by approved WorkHourEntry rows.
+  kind            String    @default("instructor")
   name            String
   phone           String    @unique
   email           String?
@@ -282,6 +287,7 @@ model Instructor {
   rateOnline      Decimal?  @map("rate_online") @db.Decimal(10, 2)
   ratePrivate     Decimal?  @map("rate_private") @db.Decimal(10, 2)
   ratePreparation Decimal?  @map("rate_preparation") @db.Decimal(10, 2)
+  hourlyRate      Decimal?  @map("hourly_rate") @db.Decimal(10, 2) // single hourly rate for operations staff
   employmentType  String    @default("freelancer") @map("employment_type") // freelancer or employee
   isActive        Boolean   @default(true) @map("is_active")
   notes           String?
@@ -300,8 +306,34 @@ model Instructor {
   expenseRecords MeetingExpense[]
   cycleExpenses  CycleExpense[]
   changeRequests MeetingChangeRequest[]
+  workHourEntries WorkHourEntry[]
 
   @@map("instructors")
+}
+
+// Self-reported work hours for operations staff (Instructor.kind = "operations").
+// Each row is one (date, hours) report by the staff member; it flows into the monthly
+// salary report once an admin/manager approves it.
+model WorkHourEntry {
+  id              String    @id @default(uuid())
+  instructorId    String    @map("instructor_id")
+  workDate        DateTime  @map("work_date") @db.Date
+  hours           Decimal   @db.Decimal(5, 2)
+  description     String?
+  status          ExpenseStatus @default(pending)
+  reviewedBy      String?   @map("reviewed_by")
+  reviewedAt      DateTime? @map("reviewed_at")
+  rejectionReason String?   @map("rejection_reason")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  instructor Instructor @relation(fields: [instructorId], references: [id], onDelete: Cascade)
+  reviewer   User?      @relation("WorkHourReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([instructorId])
+  @@index([workDate])
+  @@index([status])
+  @@map("work_hour_entries")
 }
 
 model InstitutionalOrder {

@@ -17,6 +17,7 @@ instructorsRouter.get('/', async (req, res, next) => {
     const { page, limit, skip, take, sort, order } = parsePaginationParams(req.query);
     const search = req.query.search as string | undefined;
     const isActive = req.query.isActive === 'true' ? true : req.query.isActive === 'false' ? false : undefined;
+    const kind = req.query.kind as string | undefined; // 'instructor' | 'operations'
 
     const where = {
       ...(search && {
@@ -27,6 +28,7 @@ instructorsRouter.get('/', async (req, res, next) => {
         ],
       }),
       ...(isActive !== undefined && { isActive }),
+      ...(kind && { kind }),
     };
 
     const [instructors, total] = await Promise.all([
@@ -113,13 +115,19 @@ instructorsRouter.post('/', managerOrAdmin, async (req, res, next) => {
         name: data.name,
         phone: data.phone,
         email: data.email,
+        kind: data.kind || 'instructor',
         rateFrontal: data.rateFrontal,
         rateOnline: data.rateOnline,
+        ratePrivate: data.ratePrivate,
         ratePreparation: data.ratePreparation,
+        hourlyRate: data.hourlyRate,
         employmentType: data.employmentType || 'freelancer',
         userId: data.userId,
         isActive: data.isActive,
         notes: data.notes,
+        bankName: data.bankName,
+        bankBranch: data.bankBranch,
+        accountNumber: data.accountNumber,
       },
     });
 

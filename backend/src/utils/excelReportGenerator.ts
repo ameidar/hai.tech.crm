@@ -667,3 +667,149 @@ export async function generateInstructorReportExcel(
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf);
 }
+
+// ─── Accounting report (הנהלת חשבונות) ────────────────────────────────────────
+// A single, flat sheet for the bookkeeper: hourly employees only — no freelancers,
+// no fixed management salaries, no per-instructor sheets. Columns are exactly those
+// agreed with the client.
+
+/**
+ * Generate a flat accounting Excel workbook (single sheet, hourly employees only).
+ */
+export async function generateAccountingReportExcel(
+  report: InstructorMonthlyReport,
+): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator  = 'HaiTech CRM';
+  wb.created  = report.generatedAt;
+  wb.modified = report.generatedAt;
+
+  const ws = wb.addWorksheet('הנהלת חשבונות', { views: [{ rightToLeft: true }] });
+  ws.properties.defaultRowHeight = 22;
+
+  const LAST_COL = 'I';
+
+  // ── Title ──────────────────────────────────────────────────────────────────
+  ws.mergeCells(`A1:${LAST_COL}1`);
+  const titleCell = ws.getCell('A1');
+  titleCell.value = `דוח הנהלת חשבונות — ${report.monthLabel}`;
+  titleCell.font  = font({ size: 16, bold: true, color: { argb: 'FF' + HEADER_FG } });
+  titleCell.fill  = headerFill(HEADER_BG);
+  titleCell.alignment = { ...center };
+  titleCell.border = thickBorder;
+  ws.getRow(1).height = 36;
+
+  // ── Sub-title ──────────────────────────────────────────────────────────────
+  ws.mergeCells(`A2:${LAST_COL}2`);
+  const sub = ws.getCell('A2');
+  sub.value = `הופק: ${report.generatedAt.toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' })}`;
+  sub.font  = font({ size: 10, italic: true, color: { argb: 'FF6B7280' } });
+  sub.alignment = { ...center };
+  ws.getRow(2).height = 18;
+
+  // ── Headers ────────────────────────────────────────────────────────────────
+  const COLS = [
+    'מדריך / תפקיד',
+    'מספר ימי עבודה החודש',
+    'מספר שעות תעריף פרונטלי',
+    'סכום שעתי תעריף פרונטלי',
+    'מספר שעות תעריף אונליין',
+    'סכום שעתי תעריף אונליין',
+    'סך הכל נסיעות',
+    'הוצאות נוספות',
+    'סך הכל לתשלום',
+  ];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (ws.getRow(3) as any).values = COLS;
+  ws.columns = [
+    { key: 'name',           width: 28 },
+    { key: 'workDays',       width: 14 },
+    { key: 'frontalHours',   width: 16 },
+    { key: 'frontalPayment', width: 16 },
+    { key: 'onlineHours',    width: 16 },
+    { key: 'onlinePayment',  width: 16 },
+    { key: 'travel',         width: 14 },
+    { key: 'otherExpenses',  width: 14 },
+    { key: 'total',          width: 16 },
+  ];
+  const headerRow = ws.getRow(3);
+  headerRow.height = 40;
+  headerRow.eachCell({ includeEmpty: true }, (cell) => {
+    cell.fill      = headerFill('3B82F6');
+    cell.font      = font({ bold: true, color: { argb: 'FFFFFFFF' } });
+    cell.alignment = { ...center, wrapText: true };
+    cell.border    = border;
+  });
+
+  // ── Data rows (hourly employees only) ────────────────────────────────────────
+  const employees = report.instructors.filter(i => i.employmentType === 'employee');
+  let row = 4;
+  for (const instr of employees) {
+    const r = ws.getRow(row++);
+    r.values = [
+      instr.instructorName,
+      instr.workDays,
+      instr.frontalHours,
+      instr.frontalPayment,
+      instr.onlineHours,
+      instr.onlinePayment,
+      instr.travelTotal,
+      instr.otherExpenses,
+      instr.grandTotal,
+    ];
+    r.height = 22;
+    r.getCell(1).font = font({ bold: true });
+    r.getCell(1).alignment = { ...right };
+    r.getCell(2).alignment = { ...center };
+    [3, 5].forEach(c => {
+      r.getCell(c).numFmt    = hoursFmt;
+      r.getCell(c).alignment = { ...center };
+    });
+    [4, 6, 7, 8, 9].forEach(c => {
+      r.getCell(c).numFmt    = moneyFmt;
+      r.getCell(c).alignment = { ...center };
+    });
+    r.eachCell({ includeEmpty: true }, (cell) => {
+      cell.border = border;
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: row % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF' },
+      };
+    });
+  }
+
+  // ── Grand total row ──────────────────────────────────────────────────────────
+  const sum = (pick: (i: InstructorMonthlyReport['instructors'][number]) => number) =>
+    employees.reduce((s, i) => s + pick(i), 0);
+
+  const totalRow = ws.getRow(row);
+  totalRow.height = 28;
+  totalRow.getCell(1).value     = 'סה"כ כולל';
+  totalRow.getCell(1).font      = font({ bold: true, color: { argb: 'FFFFFFFF' } });
+  totalRow.getCell(1).fill      = headerFill(GRAND_BG);
+  totalRow.getCell(1).alignment = { ...center };
+  totalRow.getCell(1).border    = thickBorder;
+
+  const totals: { col: number; value: number; fmt: string }[] = [
+    { col: 2, value: sum(i => i.workDays),       fmt: '0' },
+    { col: 3, value: sum(i => i.frontalHours),   fmt: hoursFmt },
+    { col: 4, value: sum(i => i.frontalPayment), fmt: moneyFmt },
+    { col: 5, value: sum(i => i.onlineHours),    fmt: hoursFmt },
+    { col: 6, value: sum(i => i.onlinePayment),  fmt: moneyFmt },
+    { col: 7, value: sum(i => i.travelTotal),    fmt: moneyFmt },
+    { col: 8, value: sum(i => i.otherExpenses),  fmt: moneyFmt },
+    { col: 9, value: sum(i => i.grandTotal),     fmt: moneyFmt },
+  ];
+  for (const { col, value, fmt } of totals) {
+    totalRow.getCell(col).value     = value;
+    totalRow.getCell(col).numFmt    = fmt;
+    totalRow.getCell(col).font      = font({ bold: true, color: { argb: 'FFFFFFFF' } });
+    totalRow.getCell(col).fill      = headerFill(GRAND_BG);
+    totalRow.getCell(col).alignment = { ...center };
+    totalRow.getCell(col).border    = thickBorder;
+  }
+
+  const buf = await wb.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}

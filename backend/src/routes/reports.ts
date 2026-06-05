@@ -4,7 +4,7 @@ import {
   buildInstructorMonthlyReport,
   getPreviousMonth,
 } from '../services/instructorReport.service.js';
-import { generateInstructorReportExcel } from '../utils/excelReportGenerator.js';
+import { generateInstructorReportExcel, generateAccountingReportExcel } from '../utils/excelReportGenerator.js';
 import { sendInstructorMonthlyReportEmail } from '../services/email/instructorReportEmail.js';
 
 export const reportsRouter = Router();
@@ -82,6 +82,28 @@ reportsRouter.get('/instructors/excel', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('❌ Excel generation error:', err);
     res.status(500).json({ error: 'שגיאה ביצירת קובץ Excel' });
+  }
+});
+
+// ─── GET /api/reports/instructors/accounting-excel?month=YYYY-MM ──────────────
+// Download flat accounting Excel (hourly employees only — no freelancers,
+// no fixed management salaries, no per-instructor sheets)
+reportsRouter.get('/instructors/accounting-excel', async (req: Request, res: Response) => {
+  try {
+    const month = (req.query.month as string) || getPreviousMonth();
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      return res.status(400).json({ error: 'month must be YYYY-MM' });
+    }
+    const report = await buildInstructorMonthlyReport(month);
+    const buf    = await generateAccountingReportExcel(report);
+
+    const filename = `דוח_הנהלת_חשבונות_${report.monthLabel.replace(' ', '_')}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.send(buf);
+  } catch (err) {
+    console.error('❌ Accounting Excel generation error:', err);
+    res.status(500).json({ error: 'שגיאה ביצירת קובץ הנהלת חשבונות' });
   }
 });
 

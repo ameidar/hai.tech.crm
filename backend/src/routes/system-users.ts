@@ -19,6 +19,7 @@ const createUserSchema = z.object({
   password: z.string().min(6).optional(), // optional — auto-generated if not provided
   // Operations-staff config (creates a linked Instructor record)
   hourlyRate: z.number().nonnegative().optional().nullable(),
+  city: z.string().optional().nullable(),
   bankName: z.string().optional().nullable(),
   bankBranch: z.string().optional().nullable(),
   accountNumber: z.string().optional().nullable(),
@@ -30,6 +31,7 @@ const updateUserSchema = z.object({
   role: z.enum(['admin', 'manager', 'sales', 'operations']).optional(),
   isActive: z.boolean().optional(),
   hourlyRate: z.number().nonnegative().optional().nullable(),
+  city: z.string().optional().nullable(),
   bankName: z.string().optional().nullable(),
   bankBranch: z.string().optional().nullable(),
   accountNumber: z.string().optional().nullable(),
@@ -57,6 +59,7 @@ systemUsersRouter.get('/', adminOnly, async (_req, res, next) => {
           select: {
             id: true,
             hourlyRate: true,
+            city: true,
             bankName: true,
             bankBranch: true,
             accountNumber: true,
@@ -132,6 +135,7 @@ systemUsersRouter.post('/', adminOnly, async (req, res, next) => {
             name: data.name,
             phone: data.phone!.trim(),
             email: data.email,
+            city: data.city ?? null,
             hourlyRate: data.hourlyRate ?? 50,
             bankName: data.bankName ?? null,
             bankBranch: data.bankBranch ?? null,
@@ -171,7 +175,7 @@ systemUsersRouter.put('/:id', adminOnly, async (req, res, next) => {
       throw new AppError(404, 'User not found');
     }
 
-    const { hourlyRate, bankName, bankBranch, accountNumber, ...userData } = data;
+    const { hourlyRate, city, bankName, bankBranch, accountNumber, ...userData } = data;
 
     // Promoting an existing managed user (e.g. manager/sales) to operations needs a
     // linked Instructor record created — which requires a unique phone.
@@ -212,6 +216,7 @@ systemUsersRouter.put('/:id', adminOnly, async (req, res, next) => {
           data: {
             ...(userData.name !== undefined && { name: userData.name }),
             ...(userData.phone !== undefined && userData.phone && { phone: userData.phone }),
+            ...(city !== undefined && { city }),
             ...(hourlyRate !== undefined && { hourlyRate }),
             ...(bankName !== undefined && { bankName }),
             ...(bankBranch !== undefined && { bankBranch }),
@@ -228,6 +233,7 @@ systemUsersRouter.put('/:id', adminOnly, async (req, res, next) => {
             name: userData.name ?? existing.name,
             phone: opsPhone,
             email: existing.email,
+            city: city ?? null,
             hourlyRate: hourlyRate ?? 50,
             bankName: bankName ?? null,
             bankBranch: bankBranch ?? null,

@@ -1235,7 +1235,7 @@ export const useSystemUsers = () => {
 export const useCreateSystemUser = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { email: string; name: string; phone?: string; role: 'admin' | 'manager' | 'sales' | 'operations'; password?: string; hourlyRate?: number | null; bankName?: string | null; bankBranch?: string | null; accountNumber?: string | null }) =>
+    mutationFn: (data: { email: string; name: string; phone?: string; role: 'admin' | 'manager' | 'sales' | 'operations'; password?: string; hourlyRate?: number | null; city?: string | null; bankName?: string | null; bankBranch?: string | null; accountNumber?: string | null }) =>
       mutateData<User & { inviteUrl: string }, typeof data>('/system-users', 'post', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['system-users'] });
@@ -1246,7 +1246,7 @@ export const useCreateSystemUser = () => {
 export const useUpdateSystemUser = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { name?: string; phone?: string; role?: 'admin' | 'manager' | 'sales' | 'operations'; isActive?: boolean; hourlyRate?: number | null; bankName?: string | null; bankBranch?: string | null; accountNumber?: string | null } }) =>
+    mutationFn: ({ id, data }: { id: string; data: { name?: string; phone?: string; role?: 'admin' | 'manager' | 'sales' | 'operations'; isActive?: boolean; hourlyRate?: number | null; city?: string | null; bankName?: string | null; bankBranch?: string | null; accountNumber?: string | null } }) =>
       mutateData<User, typeof data>(`/system-users/${id}`, 'put', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['system-users'] });

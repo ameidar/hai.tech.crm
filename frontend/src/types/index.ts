@@ -27,6 +27,7 @@ export interface User {
   instructor?: {
     id: string;
     hourlyRate?: number | null;
+    city?: string | null;
     bankName?: string | null;
     bankBranch?: string | null;
     accountNumber?: string | null;
@@ -134,6 +135,7 @@ export interface Instructor {
   name: string;
   phone: string;
   email: string;
+  city?: string;
   kind?: InstructorKind;
   rateFrontal: number;
   rateOnline: number;

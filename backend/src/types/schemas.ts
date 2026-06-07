@@ -84,6 +84,7 @@ export const createInstructorSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   phone: z.string().min(9, 'Phone must be at least 9 characters'),
   email: z.string().email().optional().nullable().transform(lowercase),
+  city: z.string().optional().nullable(),
   kind: z.enum(['instructor', 'operations']).default('instructor'),
   rateFrontal: z.number().nonnegative().optional().nullable(),
   rateOnline: z.number().nonnegative().optional().nullable(),

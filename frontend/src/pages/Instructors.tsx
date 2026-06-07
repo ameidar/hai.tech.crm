@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Plus, UserCheck, Phone, Mail, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound, Trash2, AlertTriangle, Edit, CheckSquare, Paperclip, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown, Landmark } from 'lucide-react';
+import { Plus, UserCheck, Phone, Mail, MapPin, RefreshCcw, Calendar, Send, Copy, Check, MessageCircle, Search, KeyRound, Trash2, AlertTriangle, Edit, CheckSquare, Paperclip, LayoutGrid, List, ChevronUp, ChevronDown, ChevronsUpDown, Landmark } from 'lucide-react';
 import { useInstructors, useCreateInstructor, useUpdateInstructor, useDeleteInstructor, useSendInstructorInvite, useResetInstructorPassword, useBulkUpdateInstructors } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import FileAttachments from '../components/FileAttachments';
@@ -658,6 +658,14 @@ function InstructorCard({ instructor, onEdit, onEditFiles, onDelete, onSendInvit
             </div>
             <span dir="ltr" className="truncate text-gray-700">{instructor.email}</span>
           </p>
+          {instructor.city && (
+            <p className="flex items-center gap-2.5 text-gray-600">
+              <div className="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center">
+                <MapPin size={14} className="text-gray-500" />
+              </div>
+              <span className="text-gray-700">{instructor.city}</span>
+            </p>
+          )}
         </div>
 
         {/* Rates */}
@@ -1004,6 +1012,7 @@ function InstructorForm({ instructor, initialTab = 'details', onSubmit, onCancel
     name: instructor?.name || '',
     phone: instructor?.phone || '',
     email: instructor?.email || '',
+    city: instructor?.city || '',
     rateFrontal: instructor?.rateFrontal || 150,
     rateOnline: instructor?.rateOnline || 120,
     ratePrivate: instructor?.ratePrivate || 150,
@@ -1025,6 +1034,7 @@ function InstructorForm({ instructor, initialTab = 'details', onSubmit, onCancel
       ratePrivate: Number(formData.ratePrivate),
       ratePreparation: Number(formData.ratePreparation),
       employmentType: formData.employmentType,
+      city: formData.city || undefined,
       bankName: formData.bankName || undefined,
       bankBranch: formData.bankBranch || undefined,
       accountNumber: formData.accountNumber || undefined,
@@ -1100,6 +1110,17 @@ function InstructorForm({ instructor, initialTab = 'details', onSubmit, onCancel
             className="form-input"
             dir="ltr"
             required
+          />
+        </div>
+
+        <div>
+          <label className="form-label">עיר מגורים</label>
+          <input
+            type="text"
+            value={formData.city}
+            onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+            className="form-input"
+            placeholder="לחישוב נסיעות"
           />
         </div>
 

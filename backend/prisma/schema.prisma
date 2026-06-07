@@ -283,6 +283,7 @@ model Instructor {
   name            String
   phone           String    @unique
   email           String?
+  city            String?   // city of residence — used by accounting to compute travel pay
   rateFrontal     Decimal?  @map("rate_frontal") @db.Decimal(10, 2)
   rateOnline      Decimal?  @map("rate_online") @db.Decimal(10, 2)
   ratePrivate     Decimal?  @map("rate_private") @db.Decimal(10, 2)

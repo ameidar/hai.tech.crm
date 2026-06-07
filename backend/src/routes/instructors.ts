@@ -115,6 +115,7 @@ instructorsRouter.post('/', managerOrAdmin, async (req, res, next) => {
         name: data.name,
         phone: data.phone,
         email: data.email,
+        city: data.city,
         kind: data.kind || 'instructor',
         rateFrontal: data.rateFrontal,
         rateOnline: data.rateOnline,

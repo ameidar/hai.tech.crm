@@ -179,6 +179,7 @@ export default function SystemUsers() {
     phone: '',
     role: 'manager' as ManagedRole,
     hourlyRate: 50,
+    city: '',
     bankName: '',
     bankBranch: '',
     accountNumber: '',
@@ -195,7 +196,7 @@ export default function SystemUsers() {
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'operations';
 
   const openAdd = () => {
-    setFormData({ name: '', email: '', phone: '', role: 'manager', hourlyRate: 50, bankName: '', bankBranch: '', accountNumber: '' });
+    setFormData({ name: '', email: '', phone: '', role: 'manager', hourlyRate: 50, city: '', bankName: '', bankBranch: '', accountNumber: '' });
     setFormError('');
     setShowAddModal(true);
   };
@@ -207,6 +208,7 @@ export default function SystemUsers() {
       phone: u.phone || '',
       role: u.role as ManagedRole,
       hourlyRate: u.instructor?.hourlyRate != null ? Number(u.instructor.hourlyRate) : 50,
+      city: u.instructor?.city || '',
       bankName: u.instructor?.bankName || '',
       bankBranch: u.instructor?.bankBranch || '',
       accountNumber: u.instructor?.accountNumber || '',
@@ -233,6 +235,7 @@ export default function SystemUsers() {
         role: formData.role,
         ...(formData.role === 'operations' && {
           hourlyRate: Number(formData.hourlyRate),
+          city: formData.city || undefined,
           bankName: formData.bankName || undefined,
           bankBranch: formData.bankBranch || undefined,
           accountNumber: formData.accountNumber || undefined,
@@ -262,6 +265,7 @@ export default function SystemUsers() {
           role: formData.role,
           ...(formData.role === 'operations' && {
             hourlyRate: Number(formData.hourlyRate),
+            city: formData.city || undefined,
             bankName: formData.bankName || undefined,
             bankBranch: formData.bankBranch || undefined,
             accountNumber: formData.accountNumber || undefined,
@@ -539,6 +543,16 @@ export default function SystemUsers() {
                     className="w-full pr-7 pl-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="w-20 text-sm font-medium text-slate-600 text-right flex-shrink-0">עיר מגורים</label>
+                <input
+                  type="text"
+                  value={formData.city}
+                  onChange={(e) => setFormData((p) => ({ ...p, city: e.target.value }))}
+                  className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="לחישוב נסיעות"
+                />
               </div>
               <div className="flex items-center gap-3">
                 <label className="w-20 text-sm font-medium text-slate-600 text-right flex-shrink-0">שם בנק</label>

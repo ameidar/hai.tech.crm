@@ -78,6 +78,8 @@ export interface CreateDocumentInput {
                             // Backdating is allowed only within Morning's account window (a few days / current tax period).
   dueDate?: string;         // ISO date — for proforma/quote
   payment?: MorningPaymentItem[]; // receipt lines — required for receipt docs (320/400)
+  linkedDocumentIds?: string[];   // related Morning doc ids — e.g. a 400 receipt linked to its 305 tax
+                                  // invoice; Morning closes the linked invoice when fully receipted.
 }
 
 export interface MorningDocument {
@@ -86,9 +88,23 @@ export interface MorningDocument {
   type: number;
   documentDate: string;
   status: number;
+  amount?: number;          // document gross total (incl. VAT)
   url?: { he?: string; en?: string; origin?: string };
   client?: MorningClient;
   income?: MorningIncomeItem[];
+}
+
+/** Fetch a single Morning document by its API id (UUID). */
+export async function getMorningDocument(id: string): Promise<MorningDocument> {
+  return morningRequest<MorningDocument>('GET', `/api/v1/documents/${encodeURIComponent(id)}`);
+}
+
+/** Search Morning documents (e.g. by document number) — returns the matching items. */
+export async function searchMorningDocuments(
+  query: { type?: number[]; number?: number; page?: number; pageSize?: number },
+): Promise<{ items: MorningDocument[]; total: number }> {
+  const body = { page: 1, pageSize: 25, ...query };
+  return morningRequest<{ items: MorningDocument[]; total: number }>('POST', '/api/v1/documents/search', body);
 }
 
 export async function createDocument(input: CreateDocumentInput): Promise<MorningDocument> {

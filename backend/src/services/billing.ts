@@ -1,5 +1,5 @@
 import { prisma } from '../utils/prisma.js';
-import { createDocument, previewDocument, createDraftDocument, deleteDraftDocument, DOCUMENT_TYPES, PAYMENT_TYPES } from './morning/documents.js';
+import { createDocument, previewDocument, createDraftDocument, deleteDraftDocument, getMorningDocument, searchMorningDocuments, DOCUMENT_TYPES, PAYMENT_TYPES } from './morning/documents.js';
 import type { CreateDocumentInput, MorningClient, MorningIncomeItem, MorningPaymentItem } from './morning/documents.js';
 import { findClientForInstitutionalOrder } from './morning/clients.js';
 
@@ -600,6 +600,7 @@ export interface ManualIssueInput {
   morningDocUrl?: string | null;
   morningDocType?: number | null;     // defaults to 300 (proforma)
   issuedAt?: Date;                    // defaults to now()
+  proformaSource?: string | null;     // e.g. 'manual_morning' when linked from a doc issued directly in Morning
 }
 
 export async function markBillingPeriodIssuedManually(
@@ -652,6 +653,7 @@ export async function markBillingPeriodIssuedManually(
         morningDocNumber: input.morningDocNumber,
         morningDocUrl: input.morningDocUrl ?? null,
         morningDocType: input.morningDocType ?? 300,
+        proformaSource: input.proformaSource ?? null,
         morningDraftId: null, // draft has graduated; clear the pointer
       },
       include: { lines: true, institutionalOrder: true },
@@ -895,8 +897,183 @@ export async function issueTaxInvoice(
         taxInvoiceUrl: document.url?.he || document.url?.origin || null,
         taxInvoiceIssuedAt: new Date(),
         taxInvoiceIssuedById: issuedById,
+        taxInvoiceType: DOCUMENT_TYPES.TAX_INVOICE_RECEIPT, // 320
       },
       include: { lines: true, institutionalOrder: true, payments: true },
     });
   });
+}
+
+/**
+ * Issue a standalone **tax invoice only** (חשבונית מס בלבד, Morning type 305) — no receipt,
+ * no payment lines. Used to recognize revenue for tax purposes before the money arrives.
+ * Receipts are issued later via {@link issueReceipt}, each linked back to this invoice.
+ */
+export async function issueTaxInvoiceOnly(
+  billingPeriodId: string,
+  issuedById?: string,
+  documentDate?: string,
+) {
+  const period = await prisma.billingPeriod.findUnique({ where: { id: billingPeriodId } });
+  if (!period) throw new Error('Billing period not found');
+  if (period.status !== 'issued') throw new Error('Proforma must be issued first');
+  if (period.taxInvoiceId) throw new Error('Tax invoice already issued for this period');
+
+  const { payload, discoveredMorningClientId } = await buildMorningPayload(billingPeriodId);
+  payload.type = DOCUMENT_TYPES.TAX_INVOICE; // 305 — binding tax invoice, no payment section
+  if (documentDate) payload.date = documentDate;
+  const document = await createDocument(payload);
+
+  return prisma.$transaction(async (tx) => {
+    if (discoveredMorningClientId) {
+      await tx.institutionalOrder.update({
+        where: { id: period.institutionalOrderId },
+        data: { morningClientId: discoveredMorningClientId },
+      });
+    }
+    return tx.billingPeriod.update({
+      where: { id: billingPeriodId },
+      data: {
+        taxInvoiceId: document.id,
+        taxInvoiceNumber: document.number,
+        taxInvoiceUrl: document.url?.he || document.url?.origin || null,
+        taxInvoiceIssuedAt: new Date(),
+        taxInvoiceIssuedById: issuedById,
+        taxInvoiceType: DOCUMENT_TYPES.TAX_INVOICE, // 305
+      },
+      include: { lines: true, institutionalOrder: true, payments: true },
+    });
+  });
+}
+
+/**
+ * Issue a standalone **receipt** (קבלה בלבד, Morning type 400) for a partial or full payment,
+ * linked back to the period's 305 tax invoice via `linkedDocumentIds` (Morning closes the
+ * invoice once it is fully receipted). The payment is recorded as a BillingPayment row, so the
+ * period's paid/partial/paid-in-full roll-up — and the "stays open until fully paid" behaviour —
+ * reuse the same logic as manual payments.
+ */
+export async function issueReceipt(
+  billingPeriodId: string,
+  input: { amount: number; method?: string | null; paidAt?: string | null; documentDate?: string },
+  issuedById?: string,
+) {
+  const period = await prisma.billingPeriod.findUnique({ where: { id: billingPeriodId } });
+  if (!period) throw new Error('Billing period not found');
+  if (!period.taxInvoiceId) throw new Error('Issue the tax invoice (305) before issuing a receipt');
+  if (period.taxInvoiceType !== DOCUMENT_TYPES.TAX_INVOICE) {
+    throw new Error('Separate receipts apply only to a standalone 305 tax invoice (a 320 already includes a receipt)');
+  }
+  if (!(input.amount > 0)) throw new Error('Receipt amount must be positive');
+
+  const paidAtDate = input.paidAt ? new Date(input.paidAt) : new Date();
+  const receiptDate = input.documentDate || paidAtDate.toISOString().slice(0, 10);
+
+  const { payload } = await buildMorningPayload(billingPeriodId);
+  payload.type = DOCUMENT_TYPES.RECEIPT; // 400
+  payload.date = receiptDate;
+  payload.linkedDocumentIds = [period.taxInvoiceId];
+  payload.payment = toMorningPaymentArray([
+    { date: receiptDate, type: methodToMorningType(input.method), amount: input.amount },
+  ]);
+  const document = await createDocument(payload);
+
+  return prisma.$transaction(async (tx) => {
+    await tx.billingPayment.create({
+      data: {
+        billingPeriodId,
+        amount: input.amount,
+        method: input.method || 'קבלה',
+        paidAt: paidAtDate,
+        recordedById: issuedById || null,
+        morningReceiptId: document.id,
+        morningReceiptNumber: document.number,
+        morningReceiptUrl: document.url?.he || document.url?.origin || null,
+      },
+    });
+    const sums = await tx.billingPayment.aggregate({ where: { billingPeriodId }, _sum: { amount: true } });
+    const paidAmount = Number(sums._sum.amount ?? 0);
+    const totalGross = Number(period.totalAmount) * 1.18;
+    const isFullyPaid = paidAmount + 0.01 >= totalGross;
+    const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
+
+    return tx.billingPeriod.update({
+      where: { id: billingPeriodId },
+      data: { paidAmount, paymentStatus, paidAt: isFullyPaid ? paidAtDate : null },
+      include: { payments: { orderBy: { paidAt: 'desc' } }, lines: true, institutionalOrder: true },
+    });
+  });
+}
+
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+/**
+ * Link a חשבון עסקה (proforma, type 300) that was issued **directly in Morning** (outside the CRM)
+ * as this period's proforma. Used when a document's date can't be back-set through our normal
+ * issue path, so Ami issues it by hand in Morning and pastes the link/number here.
+ *
+ * We best-effort enrich from Morning: a UUID id → {@link getMorningDocument}; otherwise a document
+ * number → {@link searchMorningDocuments} (restricted to proforma type). Whatever the user provided
+ * is stored regardless of whether enrichment succeeds, and the period is marked issued with
+ * proformaSource='manual_morning'.
+ *
+ * NOTE: Morning's public *share* URL carries an opaque token, not the API UUID — so a pasted share
+ * link alone usually can't be resolved to the API document. Callers should also supply the document
+ * number (preferred) or the API id when available. Live verification against Morning is required.
+ */
+export async function linkExternalProforma(
+  billingPeriodId: string,
+  input: { url?: string | null; documentNumber?: number | null; documentId?: string | null; issuedAt?: Date },
+  issuedById?: string,
+) {
+  const period = await prisma.billingPeriod.findUnique({ where: { id: billingPeriodId } });
+  if (!period) throw new Error('Billing period not found');
+  if (period.status === 'issued') throw new Error('Billing period already issued');
+  if (period.status === 'cancelled') throw new Error('Billing period is cancelled');
+
+  // Resolve a UUID id from the explicit field or, failing that, from the pasted URL.
+  const explicitId = input.documentId?.trim() || null;
+  const urlId = input.url ? (input.url.match(UUID_RE)?.[0] ?? null) : null;
+  let docId: string | null = explicitId || urlId;
+  let docNumber: number | null = input.documentNumber ?? null;
+  let docUrl: string | null = input.url?.trim() || null;
+  let issuedAt = input.issuedAt;
+
+  // Best-effort enrichment — never let a Morning lookup failure block the link.
+  try {
+    if (docId) {
+      const doc = await getMorningDocument(docId);
+      docNumber = docNumber ?? doc.number ?? null;
+      docUrl = docUrl ?? doc.url?.he ?? doc.url?.origin ?? null;
+      if (!issuedAt && doc.documentDate) issuedAt = new Date(doc.documentDate);
+    } else if (docNumber != null) {
+      const { items } = await searchMorningDocuments({ type: [DOCUMENT_TYPES.PROFORMA], number: docNumber });
+      const match = items.find((d) => d.number === docNumber) ?? items[0];
+      if (match) {
+        docId = match.id ?? null;
+        docUrl = docUrl ?? match.url?.he ?? match.url?.origin ?? null;
+        if (!issuedAt && match.documentDate) issuedAt = new Date(match.documentDate);
+      }
+    }
+  } catch (err) {
+    // Enrichment is optional; proceed with whatever the caller provided.
+    console.warn('[billing] linkExternalProforma: Morning enrichment failed', err);
+  }
+
+  if (docNumber == null) {
+    throw new Error('A Morning document number (or a resolvable document id) is required to link an external proforma');
+  }
+
+  return markBillingPeriodIssuedManually(
+    billingPeriodId,
+    {
+      morningDocNumber: docNumber,
+      morningDocId: docId,
+      morningDocUrl: docUrl,
+      morningDocType: DOCUMENT_TYPES.PROFORMA, // 300
+      issuedAt,
+      proformaSource: 'manual_morning',
+    },
+    issuedById,
+  );
 }

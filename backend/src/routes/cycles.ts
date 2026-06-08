@@ -124,6 +124,17 @@ cyclesRouter.get('/', async (req, res, next) => {
     const courseId = req.query.courseId as string | undefined;
     const dayOfWeek = req.query.dayOfWeek as string | undefined;
     const search = req.query.search as string | undefined;
+    const startDateFrom = req.query.startDateFrom as string | undefined;
+    const startDateTo = req.query.startDateTo as string | undefined;
+
+    // Filter by cycle start date range (inclusive). Dates are YYYY-MM-DD.
+    const startDateFilter: { gte?: Date; lte?: Date } = {};
+    if (startDateFrom && /^\d{4}-\d{2}-\d{2}$/.test(startDateFrom)) {
+      startDateFilter.gte = new Date(`${startDateFrom}T00:00:00.000Z`);
+    }
+    if (startDateTo && /^\d{4}-\d{2}-\d{2}$/.test(startDateTo)) {
+      startDateFilter.lte = new Date(`${startDateTo}T00:00:00.000Z`);
+    }
 
     // If user is an instructor, restrict to their own cycles only
     if (req.user?.role === 'instructor') {
@@ -142,6 +153,7 @@ cyclesRouter.get('/', async (req, res, next) => {
       ...(courseId && { courseId }),
       ...(dayOfWeek && { dayOfWeek: dayOfWeek as any }),
       ...(search && { name: { contains: search, mode: 'insensitive' as const } }),
+      ...((startDateFilter.gte || startDateFilter.lte) && { startDate: startDateFilter }),
     };
 
     const [cycles, total] = await Promise.all([

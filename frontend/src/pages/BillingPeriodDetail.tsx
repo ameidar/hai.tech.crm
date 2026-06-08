@@ -24,6 +24,9 @@ interface Payment {
   notes: string | null;
   paidAt: string;
   recordedById: string | null;
+  morningReceiptId?: string | null;
+  morningReceiptNumber?: number | null;
+  morningReceiptUrl?: string | null;
 }
 
 interface Period {
@@ -44,6 +47,8 @@ interface Period {
   taxInvoiceNumber: number | null;
   taxInvoiceUrl: string | null;
   taxInvoiceIssuedAt: string | null;
+  taxInvoiceType: number | null;
+  proformaSource: string | null;
   sentAt: string | null;
   sentChannel: string | null;
   sentToEmail: string | null;
@@ -162,9 +167,20 @@ export default function BillingPeriodDetail() {
 
   // Tax invoice + receipt (320) modal state
   const [showTaxModal, setShowTaxModal] = useState(false);
+  const [taxMode, setTaxMode] = useState<'320' | '305'>('320'); // 320 = invoice+receipt (default), 305 = invoice only
   const [taxPayments, setTaxPayments] = useState<{ date: string; type: number; amount: string }[]>([]);
   const [taxDocDate, setTaxDocDate] = useState<string>('');
   const [taxBusy, setTaxBusy] = useState(false);
+
+  // Standalone receipt (400) modal — only for periods whose tax invoice is a standalone 305.
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [receiptForm, setReceiptForm] = useState({ amount: '', method: 'העברה בנקאית', documentDate: new Date().toISOString().slice(0, 10) });
+  const [receiptBusy, setReceiptBusy] = useState(false);
+
+  // Link an externally-issued Morning proforma (חשבון עסקה) to a draft period.
+  const [showExternalModal, setShowExternalModal] = useState(false);
+  const [externalForm, setExternalForm] = useState({ url: '', documentNumber: '', documentId: '', issuedAt: '' });
+  const [externalBusy, setExternalBusy] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -390,6 +406,7 @@ export default function BillingPeriodDetail() {
           amount: billingTotals(period.lines, period.totalAmount).totalDue.toFixed(2),
         }];
     setTaxPayments(rows);
+    setTaxMode('320');
     // Default the invoice date to the earliest cheque/payment date, so the document
     // carries the date written on the cheque rather than today's date.
     setTaxDocDate(rows.map((r) => r.date).sort()[0] || new Date().toISOString().slice(0, 10));
@@ -429,14 +446,70 @@ export default function BillingPeriodDetail() {
   }
 
   async function confirmIssueTaxInvoice() {
-    if (!confirm('להפיק חשבונית מס/קבלה מחייבת (320) במורנינג? המסמך לא ניתן לביטול.')) return;
+    const msg = taxMode === '305'
+      ? 'להפיק חשבונית מס בלבד (305) במורנינג? המסמך מחייב ולא ניתן לביטול. את הקבלות תפיק בנפרד לאחר קבלת התשלום.'
+      : 'להפיק חשבונית מס/קבלה מחייבת (320) במורנינג? המסמך לא ניתן לביטול.';
+    if (!confirm(msg)) return;
     setError(null);
     setTaxBusy(true);
     try {
-      await api.post(`/billing/${id}/issue-tax-invoice`, { payments: taxPaymentsPayload(), documentDate: taxDocDate || undefined });
+      if (taxMode === '305') {
+        await api.post(`/billing/${id}/issue-tax-invoice-only`, { documentDate: taxDocDate || undefined });
+      } else {
+        await api.post(`/billing/${id}/issue-tax-invoice`, { payments: taxPaymentsPayload(), documentDate: taxDocDate || undefined });
+      }
       setShowTaxModal(false);
       await load();
     } catch (err) { handleErr(err); } finally { setTaxBusy(false); }
+  }
+
+  function openReceiptModal() {
+    if (!period) return;
+    const balance = billingTotals(period.lines, period.totalAmount).totalDue - Number(period.paidAmount);
+    setReceiptForm({
+      amount: balance > 0 ? balance.toFixed(2) : '',
+      method: 'העברה בנקאית',
+      documentDate: new Date().toISOString().slice(0, 10),
+    });
+    setError(null);
+    setShowReceiptModal(true);
+  }
+
+  async function confirmIssueReceipt() {
+    const amount = Number(receiptForm.amount);
+    if (!(amount > 0)) { setError('יש להזין סכום קבלה חיובי'); return; }
+    if (!confirm(`להפיק קבלה (400) על סך ${formatCurrency(amount)} במורנינג? המסמך מחייב ולא ניתן לביטול.`)) return;
+    setError(null);
+    setReceiptBusy(true);
+    try {
+      await api.post(`/billing/${id}/issue-receipt`, {
+        amount,
+        method: receiptForm.method || undefined,
+        documentDate: receiptForm.documentDate || undefined,
+        paidAt: receiptForm.documentDate || undefined,
+      });
+      setShowReceiptModal(false);
+      await load();
+    } catch (err) { handleErr(err); } finally { setReceiptBusy(false); }
+  }
+
+  async function submitExternalProforma() {
+    if (!externalForm.url && !externalForm.documentNumber && !externalForm.documentId) {
+      setError('יש להזין לפחות קישור, מספר מסמך או מזהה מסמך');
+      return;
+    }
+    setError(null);
+    setExternalBusy(true);
+    try {
+      await api.post(`/billing/${id}/link-external-proforma`, {
+        url: externalForm.url || undefined,
+        documentNumber: externalForm.documentNumber ? Number(externalForm.documentNumber) : undefined,
+        documentId: externalForm.documentId || undefined,
+        issuedAt: externalForm.issuedAt || undefined,
+      });
+      setShowExternalModal(false);
+      await load();
+    } catch (err) { handleErr(err); } finally { setExternalBusy(false); }
   }
 
   if (loading) return <div className="p-6 text-center text-gray-500">טוען...</div>;
@@ -720,6 +793,11 @@ export default function BillingPeriodDetail() {
         <div className="flex flex-wrap items-center justify-end gap-3">
           <button onClick={cancelDraft} disabled={busy}
             className="text-red-600 hover:text-red-800 px-4 py-2 rounded">בטל draft</button>
+          <button onClick={() => { setExternalForm({ url: '', documentNumber: '', documentId: '', issuedAt: '' }); setError(null); setShowExternalModal(true); }} disabled={busy}
+            className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded inline-flex items-center gap-2 border"
+            title="קשר חשבון עסקה שכבר הוצא ידנית במורנינג">
+            <ExternalLink size={16} /> קשר חשבון עסקה ממורנינג
+          </button>
           <button onClick={preview} disabled={busy}
             className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded inline-flex items-center gap-2 border">
             <Eye size={16} /> תצוגה מקדימה
@@ -785,11 +863,22 @@ export default function BillingPeriodDetail() {
                     <td className="p-2">{new Date(pay.paidAt).toLocaleDateString('he-IL')}</td>
                     <td className="p-2 font-medium">{Number(pay.amount).toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}</td>
                     <td className="p-2">{pay.method || '—'}</td>
-                    <td className="p-2 text-gray-500">{pay.notes || '—'}</td>
+                    <td className="p-2 text-gray-500">
+                      {pay.morningReceiptNumber ? (
+                        pay.morningReceiptUrl ? (
+                          <a href={pay.morningReceiptUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-emerald-700 hover:underline">
+                            <ExternalLink size={13} /> קבלה #{pay.morningReceiptNumber}
+                          </a>
+                        ) : `קבלה #${pay.morningReceiptNumber}`
+                      ) : (pay.notes || '—')}
+                    </td>
                     <td className="p-2">
-                      <button onClick={() => deletePayment(pay.id)} className="text-red-500 hover:text-red-700">
-                        <Trash2 size={15} />
-                      </button>
+                      {/* Payments backed by a Morning receipt (400) can't be deleted — the receipt is a signed doc. */}
+                      {!pay.morningReceiptId && (
+                        <button onClick={() => deletePayment(pay.id)} className="text-red-500 hover:text-red-700">
+                          <Trash2 size={15} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -865,14 +954,20 @@ export default function BillingPeriodDetail() {
             {!period.taxInvoiceId && (
               <button onClick={openTaxModal} disabled={busy}
                 className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm disabled:opacity-50">
-                <FileCheck2 size={15} /> הפק חשבונית מס/קבלה (320)
+                <FileCheck2 size={15} /> הפק חשבונית מס
               </button>
             )}
             {period.taxInvoiceId && period.taxInvoiceUrl && (
               <a href={period.taxInvoiceUrl} target="_blank" rel="noreferrer"
                 className="inline-flex items-center gap-2 border text-indigo-700 hover:bg-indigo-50 px-4 py-2 rounded text-sm">
-                <FileCheck2 size={15} /> חשבונית מס/קבלה #{period.taxInvoiceNumber}
+                <FileCheck2 size={15} /> {period.taxInvoiceType === 305 ? 'חשבונית מס' : 'חשבונית מס/קבלה'} #{period.taxInvoiceNumber}
               </a>
+            )}
+            {period.taxInvoiceType === 305 && period.paymentStatus !== 'paid' && (
+              <button onClick={openReceiptModal} disabled={busy}
+                className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded text-sm disabled:opacity-50">
+                <Wallet size={15} /> הפק קבלה (400)
+              </button>
             )}
           </div>
 
@@ -912,14 +1007,32 @@ export default function BillingPeriodDetail() {
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between border-b p-4">
-                <h3 className="font-semibold text-gray-900">הפקת חשבונית מס/קבלה (320)</h3>
+                <h3 className="font-semibold text-gray-900">
+                  {taxMode === '305' ? 'הפקת חשבונית מס בלבד (305)' : 'הפקת חשבונית מס/קבלה (320)'}
+                </h3>
                 <button onClick={() => setShowTaxModal(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
               </div>
 
               <div className="p-4 space-y-4">
-                <p className="text-sm text-gray-600">
-                  פירוט התקבולים יופיע בקבלה. ברירת המחדל נטענה מהתשלומים שתועדו במערכת — ניתן לערוך, להוסיף או למחוק לפני ההפקה.
-                </p>
+                <div className="space-y-2">
+                  <label className="form-label mb-0">סוג מסמך</label>
+                  <div className="flex flex-col gap-2">
+                    <label className="flex items-start gap-2 text-sm cursor-pointer">
+                      <input type="radio" className="mt-1" checked={taxMode === '320'} onChange={() => setTaxMode('320')} />
+                      <span><b>חשבונית מס + קבלה (320)</b> — ברירת מחדל. מסמך אחד הכולל את החשבונית והקבלה יחד (לאחר קבלת התשלום).</span>
+                    </label>
+                    <label className="flex items-start gap-2 text-sm cursor-pointer">
+                      <input type="radio" className="mt-1" checked={taxMode === '305'} onChange={() => setTaxMode('305')} />
+                      <span><b>חשבונית מס בלבד (305)</b> — הכרה בהכנסה לפני קבלת הכסף. את הקבלות (400) תפיק בנפרד, מקושרות לחשבונית, עד שייכנס מלוא הסכום.</span>
+                    </label>
+                  </div>
+                </div>
+
+                {taxMode === '320' && (
+                  <p className="text-sm text-gray-600">
+                    פירוט התקבולים יופיע בקבלה. ברירת המחדל נטענה מהתשלומים שתועדו במערכת — ניתן לערוך, להוסיף או למחוק לפני ההפקה.
+                  </p>
+                )}
 
                 <div>
                   <label className="form-label">תאריך החשבונית</label>
@@ -930,6 +1043,8 @@ export default function BillingPeriodDetail() {
                   </p>
                 </div>
 
+                {taxMode === '320' && (
+                <>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="form-label mb-0">פירוט תקבולים</label>
@@ -979,22 +1094,126 @@ export default function BillingPeriodDetail() {
                     </div>
                   )}
                 </div>
+                </>
+                )}
+
+                {taxMode === '305' && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900 flex items-start gap-2">
+                    <AlertCircle size={15} className="mt-0.5 flex-shrink-0" />
+                    <span>חשבונית מס בלבד — ללא תקבול. לאחר ההפקה תוכל להפיק קבלות (400) מקושרות מאזור מעקב התשלומים, והשורה תישאר פתוחה עד לקבלת מלוא הסכום.</span>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-between gap-3 border-t p-4">
-                <button onClick={previewTaxInvoice} disabled={taxBusy}
-                  className="inline-flex items-center gap-2 border text-gray-700 hover:bg-gray-50 px-4 py-2 rounded text-sm disabled:opacity-50">
-                  <Eye size={16} /> תצוגה מקדימה
-                </button>
-                <button onClick={confirmIssueTaxInvoice} disabled={taxBusy || taxPayments.length === 0}
+                {taxMode === '320' ? (
+                  <button onClick={previewTaxInvoice} disabled={taxBusy}
+                    className="inline-flex items-center gap-2 border text-gray-700 hover:bg-gray-50 px-4 py-2 rounded text-sm disabled:opacity-50">
+                    <Eye size={16} /> תצוגה מקדימה
+                  </button>
+                ) : <span />}
+                <button onClick={confirmIssueTaxInvoice} disabled={taxBusy || (taxMode === '320' && taxPayments.length === 0)}
                   className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm disabled:opacity-50">
-                  <FileCheck2 size={16} /> הפק חשבונית מס/קבלה
+                  <FileCheck2 size={16} /> {taxMode === '305' ? 'הפק חשבונית מס בלבד' : 'הפק חשבונית מס/קבלה'}
                 </button>
               </div>
             </div>
           </div>
         );
       })()}
+
+      {/* ── Standalone receipt (400) modal — links to the period's 305 tax invoice ── */}
+      {showReceiptModal && period && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
+            <div className="flex items-center justify-between border-b p-4">
+              <h3 className="font-semibold text-gray-900">הפקת קבלה (400)</h3>
+              <button onClick={() => setShowReceiptModal(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+            </div>
+            <div className="p-4 space-y-4">
+              <p className="text-sm text-gray-600">
+                הקבלה תקושר לחשבונית המס #{period.taxInvoiceNumber}. ניתן להפיק מספר קבלות חלקיות — השורה תיסגר רק כשמלוא הסכום יתקבל.
+              </p>
+              <div className="text-sm text-gray-600">
+                שולם עד כה: <b>{formatCurrency(Number(period.paidAmount))}</b> מתוך{' '}
+                <b>{formatCurrency(billingTotals(period.lines, period.totalAmount).totalDue)}</b>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="form-label">סכום הקבלה (₪)</label>
+                  <input type="number" step="0.01" min="0" dir="ltr" className="form-input" value={receiptForm.amount}
+                    onChange={(e) => setReceiptForm({ ...receiptForm, amount: e.target.value })} />
+                </div>
+                <div>
+                  <label className="form-label">תאריך הקבלה</label>
+                  <input type="date" className="form-input" value={receiptForm.documentDate}
+                    onChange={(e) => setReceiptForm({ ...receiptForm, documentDate: e.target.value })} />
+                </div>
+                <div className="col-span-2">
+                  <label className="form-label">אמצעי תשלום</label>
+                  <select className="form-input" value={receiptForm.method}
+                    onChange={(e) => setReceiptForm({ ...receiptForm, method: e.target.value })}>
+                    {PAYMENT_TYPE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.label}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 border-t p-4">
+              <button onClick={() => setShowReceiptModal(false)} className="text-gray-600 hover:text-gray-800 px-4 py-2 rounded text-sm">ביטול</button>
+              <button onClick={confirmIssueReceipt} disabled={receiptBusy || !(Number(receiptForm.amount) > 0)}
+                className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded text-sm disabled:opacity-50">
+                <Wallet size={16} /> הפק קבלה
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Link an externally-issued Morning proforma (חשבון עסקה) ── */}
+      {showExternalModal && period && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
+            <div className="flex items-center justify-between border-b p-4">
+              <h3 className="font-semibold text-gray-900">קישור חשבון עסקה ממורנינג</h3>
+              <button onClick={() => setShowExternalModal(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+            </div>
+            <div className="p-4 space-y-4">
+              <p className="text-sm text-gray-600">
+                הוצאת חשבון עסקה ידנית במורנינג (למשל כדי לתארך אחורה)? הזן את מספר המסמך והקישור — המערכת תמשוך ממורנינג את הפרטים הזמינים ותסמן את החיוב כאילו הופק.
+              </p>
+              <div className="space-y-3">
+                <div>
+                  <label className="form-label">מספר מסמך במורנינג</label>
+                  <input type="number" dir="ltr" className="form-input" placeholder="לדוגמה: 1234" value={externalForm.documentNumber}
+                    onChange={(e) => setExternalForm({ ...externalForm, documentNumber: e.target.value })} />
+                </div>
+                <div>
+                  <label className="form-label">קישור למסמך (אופציונלי)</label>
+                  <input dir="ltr" className="form-input" placeholder="https://app.greeninvoice.co.il/..." value={externalForm.url}
+                    onChange={(e) => setExternalForm({ ...externalForm, url: e.target.value })} />
+                </div>
+                <div>
+                  <label className="form-label">תאריך המסמך (אופציונלי)</label>
+                  <input type="date" className="form-input w-48" value={externalForm.issuedAt}
+                    onChange={(e) => setExternalForm({ ...externalForm, issuedAt: e.target.value })} />
+                </div>
+              </div>
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                שים לב: קישור שיתוף ציבורי ממורנינג אינו תמיד ניתן לפענוח אוטומטי. עדיף להזין את מספר המסמך כדי שהמערכת תוכל למשוך את הפרטים. יש לוודא את הקישור מול מורנינג.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-3 border-t p-4">
+              <button onClick={() => setShowExternalModal(false)} className="text-gray-600 hover:text-gray-800 px-4 py-2 rounded text-sm">ביטול</button>
+              <button onClick={submitExternalProforma} disabled={externalBusy || (!externalForm.url && !externalForm.documentNumber && !externalForm.documentId)}
+                className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm disabled:opacity-50">
+                <ExternalLink size={16} /> קשר חשבון עסקה
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -429,12 +429,19 @@ model BillingPeriod {
   // and then calls our `mark-issued-manually` route to fill in the morningDoc* fields above.
   morningDraftId   String? @map("morning_draft_id")
 
-  // Tax invoice (305) — issued manually after payment received; lives alongside the proforma
+  // Tax invoice — lives alongside the proforma. Either a combined 320 (חשבונית מס+קבלה,
+  // the default) or a standalone 305 (חשבונית מס בלבד) issued before payment, with
+  // separate 400 receipts recorded later as BillingPayment rows linked back to it.
   taxInvoiceId         String?   @map("tax_invoice_id")
   taxInvoiceNumber     Int?      @map("tax_invoice_number")
   taxInvoiceUrl        String?   @map("tax_invoice_url")
   taxInvoiceIssuedAt   DateTime? @map("tax_invoice_issued_at")
   taxInvoiceIssuedById String?   @map("tax_invoice_issued_by_id")
+  taxInvoiceType       Int?      @map("tax_invoice_type") // Morning doc type: 320 (combined) or 305 (invoice-only)
+
+  // Proforma source — 'api' (issued by us via Morning API, default) or 'manual_morning'
+  // (Ami issued the חשבון עסקה directly in Morning and linked it here; morningDoc* hold the pulled info).
+  proformaSource String? @map("proforma_source")
 
   // Sending log — most recent send only; full history tracked via audit log
   sentAt      DateTime? @map("sent_at")
@@ -516,6 +523,12 @@ model BillingPayment {
   paidAt          DateTime @map("paid_at")
   recordedById    String?  @map("recorded_by_id")
   createdAt       DateTime @default(now()) @map("created_at")
+
+  // Morning receipt (400) — populated when this payment was issued as a standalone
+  // receipt linked to a 305 tax invoice. Plain manually-recorded payments leave these null.
+  morningReceiptId     String? @map("morning_receipt_id")
+  morningReceiptNumber Int?    @map("morning_receipt_number")
+  morningReceiptUrl    String? @map("morning_receipt_url")
 
   billingPeriod BillingPeriod @relation(fields: [billingPeriodId], references: [id], onDelete: Cascade)
 

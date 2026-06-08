@@ -16,6 +16,9 @@ import {
   markBillingSent,
   issueTaxInvoice,
   previewTaxInvoice,
+  issueTaxInvoiceOnly,
+  issueReceipt,
+  linkExternalProforma,
   sendBillingPeriodAsDraft,
   markBillingPeriodIssuedManually,
   formatHebrewRange,
@@ -505,6 +508,95 @@ billingRouter.post('/:id/issue-tax-invoice', managerOrAdmin, async (req, res, ne
   } catch (err: any) {
     if (err.body) return res.status(err.status || 500).json({ error: 'Morning API error', details: err.body });
     if (err.message?.includes('already issued') || err.message?.includes('must be issued')) {
+      return res.status(409).json({ error: err.message });
+    }
+    if (err.message === 'Billing period not found') return res.status(404).json({ error: err.message });
+    next(err);
+  }
+});
+
+// Issue a standalone tax invoice only (Morning type 305) — no receipt. Recognizes revenue
+// before payment arrives; receipts are issued later via /issue-receipt, linked back to this 305.
+billingRouter.post('/:id/issue-tax-invoice-only', managerOrAdmin, async (req, res, next) => {
+  try {
+    const documentDate = documentDateSchema.parse(req.body?.documentDate);
+    const period = await issueTaxInvoiceOnly(req.params.id, req.user?.userId, documentDate);
+    await logAudit({ req, action: 'UPDATE', entity: 'BillingPeriod', entityId: period.id, newValue: { taxInvoiceNumber: period.taxInvoiceNumber, taxInvoiceType: 305 } });
+    res.json(period);
+  } catch (err: any) {
+    if (err.body) return res.status(err.status || 500).json({ error: 'Morning API error', details: err.body });
+    if (err.message?.includes('already issued') || err.message?.includes('must be issued')) {
+      return res.status(409).json({ error: err.message });
+    }
+    if (err.message === 'Billing period not found') return res.status(404).json({ error: err.message });
+    next(err);
+  }
+});
+
+// Issue a standalone receipt (Morning type 400) for a partial/full payment, linked to the 305.
+// Multiple receipts allowed; the period stays open until the full gross amount is received.
+billingRouter.post('/:id/issue-receipt', managerOrAdmin, async (req, res, next) => {
+  try {
+    const data = z.object({
+      amount: z.number().positive(),
+      method: z.string().optional().nullable(),
+      paidAt: z.string().optional().nullable(),
+      documentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'documentDate must be YYYY-MM-DD').optional(),
+    }).parse(req.body);
+
+    const period = await issueReceipt(req.params.id, {
+      amount: data.amount,
+      method: data.method ?? null,
+      paidAt: data.paidAt ?? null,
+      documentDate: data.documentDate,
+    }, req.user?.userId);
+    await logAudit({ req, action: 'CREATE', entity: 'BillingPayment', entityId: period.id, newValue: { action: 'issue-receipt', amount: data.amount, paymentStatus: period.paymentStatus, paidAmount: period.paidAmount } });
+    res.json(period);
+  } catch (err: any) {
+    if (err.body) return res.status(err.status || 500).json({ error: 'Morning API error', details: err.body });
+    if (err.message?.includes('before issuing') || err.message?.includes('apply only')) {
+      return res.status(409).json({ error: err.message });
+    }
+    if (err.message === 'Billing period not found') return res.status(404).json({ error: err.message });
+    next(err);
+  }
+});
+
+// List the receipts (Morning type 400) issued against this period's 305 tax invoice.
+billingRouter.get('/:id/receipts', async (req, res, next) => {
+  try {
+    const receipts = await prisma.billingPayment.findMany({
+      where: { billingPeriodId: req.params.id, morningReceiptId: { not: null } },
+      orderBy: { paidAt: 'asc' },
+    });
+    res.json(receipts);
+  } catch (err) { next(err); }
+});
+
+// Link a חשבון עסקה (proforma) issued directly in Morning as this period's proforma.
+// Accepts a pasted URL and/or a document number and/or a UUID id; enriches best-effort from Morning.
+billingRouter.post('/:id/link-external-proforma', managerOrAdmin, async (req, res, next) => {
+  try {
+    const data = z.object({
+      url: z.string().optional().nullable(),
+      documentNumber: z.number().int().positive().optional().nullable(),
+      documentId: z.string().optional().nullable(),
+      issuedAt: z.string().optional().nullable(),
+    }).refine((v) => v.url || v.documentNumber || v.documentId, {
+      message: 'Provide at least one of url, documentNumber, or documentId',
+    }).parse(req.body);
+
+    const period = await linkExternalProforma(req.params.id, {
+      url: data.url ?? null,
+      documentNumber: data.documentNumber ?? null,
+      documentId: data.documentId ?? null,
+      issuedAt: data.issuedAt ? new Date(data.issuedAt) : undefined,
+    }, req.user?.userId);
+    await logAudit({ req, action: 'UPDATE', entity: 'BillingPeriod', entityId: period.id, newValue: { action: 'link-external-proforma', morningDocNumber: period.morningDocNumber, proformaSource: 'manual_morning' } });
+    res.json(period);
+  } catch (err: any) {
+    if (err.body) return res.status(err.status || 500).json({ error: 'Morning API error', details: err.body });
+    if (err.message?.includes('already issued') || err.message?.includes('cancelled') || err.message?.includes('required')) {
       return res.status(409).json({ error: err.message });
     }
     if (err.message === 'Billing period not found') return res.status(404).json({ error: err.message });

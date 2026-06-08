@@ -66,6 +66,7 @@ leadAppointmentsRouter.post('/', async (req: Request, res: Response, next: NextF
       appointmentTime,
       appointmentNotes,
       notes,
+      sendWelcome = false,
     } = req.body;
 
     if (!customerName && !customerPhone && !customerEmail) {
@@ -99,8 +100,9 @@ leadAppointmentsRouter.post('/', async (req: Request, res: Response, next: NextF
       include: { customer: { select: { id: true, name: true } } },
     });
 
-    // Send welcome WhatsApp template (gated by LEAD_WELCOME_WA_ENABLED)
-    if (customerPhone) {
+    // Send welcome WhatsApp template only when the salesperson opted in
+    // (also gated by LEAD_WELCOME_WA_ENABLED inside the service)
+    if (customerPhone && sendWelcome) {
       sendLeadWelcomeTemplate(customerPhone, customerName || customerPhone)
         .catch(err => console.error('[lead-appointments] welcome template error:', err));
     }

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Play, Trash2 } from 'lucide-react';
+import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Play, Trash2, Plus, AlertCircle } from 'lucide-react';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -58,6 +58,16 @@ const statusLabels: Record<string, string> = {
 
 const allStatuses = ['pending', 'queued', 'scheduled', 'completed', 'cancelled', 'no_answer'];
 
+// Source options offered when a salesperson manually adds an external lead
+const manualSourceOptions: { value: string; label: string }[] = [
+  { value: 'phone', label: 'טלפון' },
+  { value: 'referral', label: 'הפניה / המלצה' },
+  { value: 'event', label: 'אירוע / תערוכה' },
+  { value: 'instagram', label: 'אינסטגרם' },
+  { value: 'website', label: 'אתר' },
+  { value: 'other', label: 'אחר' },
+];
+
 function StatusBadge({ status }: { status: string }) {
   return (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[status] || 'bg-gray-100 text-gray-800'}`}>
@@ -76,6 +86,7 @@ export default function LeadAppointments() {
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState<'createdAt' | 'updatedAt'>('createdAt');
   const [selectedLead, setSelectedLead] = useState<LeadAppointment | null>(null);
+  const [showNewLead, setShowNewLead] = useState(false);
 
   // Deep-link: if ?id=X is in the URL, fetch and auto-open that lead's modal.
   // Only re-runs when the URL id changes — clicking a different lead in the
@@ -132,12 +143,29 @@ export default function LeadAppointments() {
     }
   };
 
+  const statusMutation = useMutation({
+    mutationFn: ({ id, appointmentStatus }: { id: string; appointmentStatus: string }) =>
+      api.patch(`/lead-appointments/${id}`, { appointmentStatus }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lead-appointments'] }),
+  });
+
   const leads: LeadAppointment[] = data?.data || data || [];
   const pagination = data?.pagination;
 
   return (
     <div className="space-y-6">
-      <PageHeader title="יומן לידים" />
+      <PageHeader
+        title="יומן לידים"
+        actions={
+          <button
+            onClick={() => setShowNewLead(true)}
+            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 text-sm font-medium"
+          >
+            <Plus className="w-4 h-4" />
+            ליד חדש
+          </button>
+        }
+      />
 
       {/* Filters */}
       <div className="bg-white rounded-lg shadow p-4 flex flex-wrap gap-4 items-end">
@@ -251,7 +279,16 @@ export default function LeadAppointments() {
                       : '-'}
                   </td>
                   <td className="px-4 py-3 text-sm">
-                    <StatusBadge status={lead.appointmentStatus} />
+                    <select
+                      value={lead.appointmentStatus}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => { e.stopPropagation(); statusMutation.mutate({ id: lead.id, appointmentStatus: e.target.value }); }}
+                      className="border border-gray-200 rounded-md px-2 py-1 text-xs bg-white"
+                    >
+                      {allStatuses.map((s) => (
+                        <option key={s} value={s}>{statusLabels[s]}</option>
+                      ))}
+                    </select>
                   </td>
                   <td className="px-4 py-3 text-sm">
                     <div className="flex items-center gap-2">
@@ -312,6 +349,240 @@ export default function LeadAppointments() {
           }}
         />
       )}
+
+      {/* New Lead Modal */}
+      {showNewLead && (
+        <NewLeadModal
+          onClose={() => setShowNewLead(false)}
+          onCreated={() => {
+            queryClient.invalidateQueries({ queryKey: ['lead-appointments'] });
+            setShowNewLead(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function NewLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [childName, setChildName] = useState('');
+  const [interest, setInterest] = useState('');
+  const [source, setSource] = useState('phone');
+  const [appointmentDate, setAppointmentDate] = useState('');
+  const [appointmentTime, setAppointmentTime] = useState('');
+  const [appointmentNotes, setAppointmentNotes] = useState('');
+  const [sendWelcome, setSendWelcome] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [duplicates, setDuplicates] = useState<{ id: string; name: string; phone: string; email: string }[]>([]);
+
+  // Look up existing customers by phone/email so the salesperson knows a lead
+  // already exists (it will be linked, not duplicated, on the backend).
+  useEffect(() => {
+    const q = (customerPhone.trim().length >= 3 ? customerPhone.trim() : customerEmail.trim());
+    if (q.length < 3) { setDuplicates([]); return; }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      api.get(`/customers/lookup?q=${encodeURIComponent(q)}`)
+        .then(res => { if (!cancelled) setDuplicates(res.data?.items || []); })
+        .catch(() => { if (!cancelled) setDuplicates([]); });
+    }, 400);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [customerPhone, customerEmail]);
+
+  const handleSubmit = async () => {
+    if (!customerName.trim() && !customerPhone.trim() && !customerEmail.trim()) {
+      setError('יש למלא שם, טלפון או אימייל');
+      return;
+    }
+    setError('');
+    setSaving(true);
+    try {
+      await api.post('/lead-appointments', {
+        customerName: customerName.trim() || undefined,
+        customerPhone: customerPhone.trim() || undefined,
+        customerEmail: customerEmail.trim() || undefined,
+        childName: childName.trim() || undefined,
+        interest: interest.trim() || undefined,
+        source,
+        appointmentStatus: 'pending',
+        appointmentDate: appointmentDate || undefined,
+        appointmentTime: appointmentTime || undefined,
+        appointmentNotes: appointmentNotes.trim() || undefined,
+        sendWelcome,
+      });
+      onCreated();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'שגיאה ביצירת הליד');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div
+        className="bg-white rounded-lg shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto m-4"
+        onClick={(e) => e.stopPropagation()}
+        dir="rtl"
+      >
+        <div className="flex items-center justify-between p-4 border-b">
+          <h2 className="text-lg font-semibold">ליד חדש</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">שם</label>
+              <input
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                placeholder="שם ההורה"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">טלפון</label>
+              <input
+                type="tel"
+                value={customerPhone}
+                onChange={(e) => setCustomerPhone(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                dir="ltr"
+                placeholder="050-0000000"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">אימייל</label>
+              <input
+                type="email"
+                value={customerEmail}
+                onChange={(e) => setCustomerEmail(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                dir="ltr"
+                placeholder="name@example.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">שם הילד/ה</label>
+              <input
+                type="text"
+                value={childName}
+                onChange={(e) => setChildName(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">תחום עניין</label>
+              <input
+                type="text"
+                value={interest}
+                onChange={(e) => setInterest(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                placeholder="לדוגמה: תכנות, AI"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">מקור</label>
+              <select
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+              >
+                {manualSourceOptions.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Duplicate warning — lead will be linked to the existing customer */}
+          {duplicates.length > 0 && (
+            <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-800">
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-medium">לקוח קיים במערכת — הליד יקושר אליו (לא ייווצר כפול):</p>
+                <ul className="mt-1 space-y-0.5">
+                  {duplicates.slice(0, 4).map((d) => (
+                    <li key={d.id}>• {d.name} <span dir="ltr" className="text-amber-600">{d.phone || d.email}</span></li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
+          <div className="border-t pt-4">
+            <p className="text-sm font-medium text-gray-700 mb-2">פגישה ראשונה (אופציונלי)</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">תאריך</label>
+                <input
+                  type="date"
+                  value={appointmentDate}
+                  onChange={(e) => setAppointmentDate(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">שעה</label>
+                <input
+                  type="time"
+                  value={appointmentTime}
+                  onChange={(e) => setAppointmentTime(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">הערות</label>
+            <textarea
+              value={appointmentNotes}
+              onChange={(e) => setAppointmentNotes(e.target.value)}
+              rows={2}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+              placeholder="הערות..."
+            />
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={sendWelcome}
+              onChange={(e) => setSendWelcome(e.target.checked)}
+              className="w-4 h-4"
+            />
+            שלח הודעת WhatsApp פתיחה לליד
+          </label>
+
+          {error && <p className="text-sm text-red-600">{error}</p>}
+
+          <div className="flex justify-end gap-2 border-t pt-4">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm"
+            >
+              ביטול
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={saving}
+              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm"
+            >
+              <Plus className="w-4 h-4" />
+              {saving ? 'יוצר...' : 'צור ליד'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

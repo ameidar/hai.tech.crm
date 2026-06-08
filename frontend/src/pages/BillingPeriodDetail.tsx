@@ -163,6 +163,7 @@ export default function BillingPeriodDetail() {
   // Tax invoice + receipt (320) modal state
   const [showTaxModal, setShowTaxModal] = useState(false);
   const [taxPayments, setTaxPayments] = useState<{ date: string; type: number; amount: string }[]>([]);
+  const [taxDocDate, setTaxDocDate] = useState<string>('');
   const [taxBusy, setTaxBusy] = useState(false);
 
   async function load() {
@@ -389,6 +390,9 @@ export default function BillingPeriodDetail() {
           amount: billingTotals(period.lines, period.totalAmount).totalDue.toFixed(2),
         }];
     setTaxPayments(rows);
+    // Default the invoice date to the earliest cheque/payment date, so the document
+    // carries the date written on the cheque rather than today's date.
+    setTaxDocDate(rows.map((r) => r.date).sort()[0] || new Date().toISOString().slice(0, 10));
     setError(null);
     setShowTaxModal(true);
   }
@@ -413,7 +417,7 @@ export default function BillingPeriodDetail() {
     setTaxBusy(true);
     try {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
-      const { data } = await api.post(`/billing/${id}/preview-tax-invoice`, { payments: taxPaymentsPayload() });
+      const { data } = await api.post(`/billing/${id}/preview-tax-invoice`, { payments: taxPaymentsPayload(), documentDate: taxDocDate || undefined });
       const binary = atob(data.fileBase64);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -429,7 +433,7 @@ export default function BillingPeriodDetail() {
     setError(null);
     setTaxBusy(true);
     try {
-      await api.post(`/billing/${id}/issue-tax-invoice`, { payments: taxPaymentsPayload() });
+      await api.post(`/billing/${id}/issue-tax-invoice`, { payments: taxPaymentsPayload(), documentDate: taxDocDate || undefined });
       setShowTaxModal(false);
       await load();
     } catch (err) { handleErr(err); } finally { setTaxBusy(false); }
@@ -916,6 +920,15 @@ export default function BillingPeriodDetail() {
                 <p className="text-sm text-gray-600">
                   פירוט התקבולים יופיע בקבלה. ברירת המחדל נטענה מהתשלומים שתועדו במערכת — ניתן לערוך, להוסיף או למחוק לפני ההפקה.
                 </p>
+
+                <div>
+                  <label className="form-label">תאריך החשבונית</label>
+                  <input type="date" className="form-input w-48" value={taxDocDate}
+                    onChange={(e) => setTaxDocDate(e.target.value)} />
+                  <p className="text-xs text-gray-400 mt-1">
+                    התאריך שיופיע על החשבונית (ברירת מחדל: תאריך התקבול/הצ׳ק). תיארוך אחורה מוגבל לחלון שמורנינג מאפשר.
+                  </p>
+                </div>
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">

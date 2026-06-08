@@ -74,6 +74,8 @@ export interface CreateDocumentInput {
   income: MorningIncomeItem[];
   remarks?: string;
   description?: string;
+  date?: string;            // ISO date (YYYY-MM-DD) — sets the document date. Omitted → Morning uses today.
+                            // Backdating is allowed only within Morning's account window (a few days / current tax period).
   dueDate?: string;         // ISO date — for proforma/quote
   payment?: MorningPaymentItem[]; // receipt lines — required for receipt docs (320/400)
 }

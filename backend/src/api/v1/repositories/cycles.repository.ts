@@ -169,6 +169,7 @@ export class CyclesRepository {
         sendParentReminders: data.sendParentReminders,
         isOnline: data.activityType === 'online',
         activityType: data.activityType,
+        location: data.location,
         zoomHostId: data.zoomHostId,
         zoomHostEmail: data.zoomHostEmail,
       },

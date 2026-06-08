@@ -308,6 +308,7 @@ cyclesRouter.post('/', managerOrAdmin, async (req, res, next) => {
       sendParentReminders: data.sendParentReminders,
       isOnline: data.activityType === 'online',
       activityType: data.activityType,
+      location: data.location,
       zoomHostId: data.zoomHostId,
       remainingMeetings: data.totalMeetings,
     };

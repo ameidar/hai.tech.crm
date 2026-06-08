@@ -32,6 +32,7 @@ interface InstitutionalOrderRow {
   invoiceNumber?: string;
   notes?: string;
   payingBody?: string;
+  paymentTermsDays?: number;
   followUpDate?: string;
   salesperson?: string;
   orderType?: string;
@@ -93,6 +94,7 @@ const EMPTY_FORM: Partial<InstitutionalOrderData> = {
   notes: '',
   totalAmount: undefined,
   payingBody: '',
+  paymentTermsDays: 30,
   followUpDate: '',
   salesperson: '',
   orderType: '',
@@ -197,6 +199,7 @@ export default function InstitutionalOrders() {
       notes: o.notes || '',
       totalAmount: o.totalAmount,
       payingBody: o.payingBody || '',
+      paymentTermsDays: o.paymentTermsDays ?? 30,
       followUpDate: o.followUpDate?.slice(0, 10) || '',
       salesperson: o.salesperson || '',
       orderType: o.orderType || '',
@@ -275,6 +278,18 @@ export default function InstitutionalOrders() {
         <div>
           {lbl('גוף משלם')}
           <input className="form-input w-full" value={form.payingBody || ''} onChange={e => setForm(f => ({ ...f, payingBody: e.target.value }))} />
+        </div>
+        <div>
+          {lbl('תנאי תשלום (ימים מסוף חודש ההנפקה)')}
+          <select
+            className="form-input w-full"
+            value={form.paymentTermsDays ?? 30}
+            onChange={e => setForm(f => ({ ...f, paymentTermsDays: Number(e.target.value) }))}
+          >
+            <option value={30}>שוטף + 30</option>
+            <option value={45}>שוטף + 45</option>
+            <option value={60}>שוטף + 60</option>
+          </select>
         </div>
         <div>
           {lbl('סוג ההזמנה')}

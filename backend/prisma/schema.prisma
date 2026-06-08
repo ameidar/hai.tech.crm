@@ -366,6 +366,9 @@ model InstitutionalOrder {
   paymentStatus     PaymentStatus? @map("payment_status")
   paidAmount        Decimal?       @default(0) @map("paid_amount") @db.Decimal(10, 2)
   payingBody        String?        @map("paying_body")
+  // Payment terms for open-proforma alerts: due date = end of issue month + this many days.
+  // Default 30; configurable to 45/60 for slower-paying institutions.
+  paymentTermsDays  Int            @default(30) @map("payment_terms_days")
   followUpDate      DateTime?      @map("follow_up_date") @db.Date
   salesperson       String?
   orderType         String?        @map("order_type")
@@ -453,6 +456,11 @@ model BillingPeriod {
   paymentStatus BillingPaymentStatus @default(unpaid) @map("payment_status")
   paidAmount    Decimal              @default(0) @map("paid_amount") @db.Decimal(10, 2)
   paidAt        DateTime?            @map("paid_at") // set when fully paid
+
+  // Open-proforma alert tracking — set each time an overdue-unpaid alert fires.
+  // The scheduler alerts once on the due date, then weekly while still unpaid,
+  // using this timestamp to throttle (null = never alerted yet).
+  lastOpenProformaAlertAt DateTime? @map("last_open_proforma_alert_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

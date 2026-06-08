@@ -347,7 +347,7 @@ export const useBulkUpdateInstructors = () => {
 };
 
 // ==================== Cycles ====================
-export const useCycles = (params?: { branchId?: string; instructorId?: string; courseId?: string; status?: string; dayOfWeek?: string; search?: string; limit?: number }) => {
+export const useCycles = (params?: { branchId?: string; instructorId?: string; courseId?: string; status?: string; dayOfWeek?: string; search?: string; limit?: number; startDateFrom?: string; startDateTo?: string }) => {
   const searchParams = new URLSearchParams();
   if (params?.branchId) searchParams.append('branchId', params.branchId);
   if (params?.instructorId) searchParams.append('instructorId', params.instructorId);
@@ -356,6 +356,8 @@ export const useCycles = (params?: { branchId?: string; instructorId?: string; c
   if (params?.dayOfWeek) searchParams.append('dayOfWeek', params.dayOfWeek);
   searchParams.append('limit', String(params?.limit || 100));
   if (params?.search) searchParams.append('search', params.search);
+  if (params?.startDateFrom) searchParams.append('startDateFrom', params.startDateFrom);
+  if (params?.startDateTo) searchParams.append('startDateTo', params.startDateTo);
   const queryString = searchParams.toString() ? `?${searchParams.toString()}` : '';
 
   return useQuery({

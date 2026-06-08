@@ -28,6 +28,7 @@ import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import FileAttachments from '../components/FileAttachments';
+import OrderPreviewModal from '../components/OrderPreviewModal';
 
 const statusHebrew: Record<string, string> = {
   draft: 'טיוטה',
@@ -159,13 +160,7 @@ export default function QuoteDetail() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['quote', id] }),
   });
 
-  const convertToOrder = useMutation({
-    mutationFn: () => quotesApi.convertToOrder(id!),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['quote', id] });
-      alert('ההצעה הומרה להזמנה בהצלחה!');
-    },
-  });
+  const [showConvertPreview, setShowConvertPreview] = useState(false);
 
   const deleteQuote = useMutation({
     mutationFn: () => quotesApi.delete(id!),
@@ -290,11 +285,10 @@ export default function QuoteDetail() {
             )}
             {quote.status === 'accepted' && !quote.orderId && (
               <button
-                onClick={() => convertToOrder.mutateAsync()}
-                disabled={convertToOrder.isPending}
+                onClick={() => setShowConvertPreview(true)}
                 className="btn btn-primary"
               >
-                {convertToOrder.isPending ? <Loader2 size={16} className="animate-spin" /> : <ShoppingCart size={16} />}
+                <ShoppingCart size={16} />
                 המר להזמנה
               </button>
             )}
@@ -687,6 +681,18 @@ export default function QuoteDetail() {
           </div>
         </div>
       </Modal>
+
+      {showConvertPreview && id && (
+        <OrderPreviewModal
+          quoteId={id}
+          onClose={() => setShowConvertPreview(false)}
+          onCreated={() => {
+            setShowConvertPreview(false);
+            queryClient.invalidateQueries({ queryKey: ['quote', id] });
+            navigate('/institutional-orders');
+          }}
+        />
+      )}
     </>
   );
 }

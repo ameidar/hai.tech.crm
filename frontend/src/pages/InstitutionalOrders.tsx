@@ -1,14 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { FileText, Building2, Search, Filter, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, List, MapPin, Phone, RefreshCcw, Plus, Pencil, Trash2, CheckSquare, Square, X } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { FileText, Building2, Search, Filter, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, List, MapPin, Phone, RefreshCcw, Plus, Pencil, Trash2, CheckSquare, Square, X, Upload, Loader2 } from 'lucide-react';
 import { useInstitutionalOrders, useInstitutionalOrderById, useCreateInstitutionalOrder, useUpdateInstitutionalOrder, useDeleteInstitutionalOrder, useBranches } from '../hooks/useApi';
 import type { InstitutionalOrderData } from '../hooks/useApi';
+import { quotesApi, type OrderPreview } from '../api/quotes';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal';
 import SearchableSelect from '../components/ui/SearchableSelect';
+import OrderPreviewModal from '../components/OrderPreviewModal';
 import type { OrderStatus } from '../types';
 
 interface InstitutionalOrderRow {
@@ -129,6 +132,29 @@ export default function InstitutionalOrders() {
   const [editItem, setEditItem] = useState<InstitutionalOrderRow | null>(null);
   const [deleteItem, setDeleteItem] = useState<InstitutionalOrderRow | null>(null);
   const [form, setForm] = useState<Partial<InstitutionalOrderData>>(EMPTY_FORM);
+
+  // Import-quote-PDF state
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importPreview, setImportPreview] = useState<(OrderPreview & { quoteId: string }) | null>(null);
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImporting(true);
+    setImportError(null);
+    try {
+      const preview = await quotesApi.importQuotePdf(file);
+      setImportPreview(preview);
+    } catch (err: any) {
+      setImportError(err?.response?.data?.message || err?.response?.data?.error || 'ייבוא ההצעה נכשל.');
+    } finally {
+      setImporting(false);
+    }
+  };
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const { data, isLoading } = useInstitutionalOrders(getInstitutionalOrdersListParams(statusFilter, page));
@@ -395,8 +421,48 @@ export default function InstitutionalOrders() {
       <PageHeader
         title="הזמנות מוסדיות"
         subtitle={`${pagination?.total || orders.length} הזמנות`}
-        actions={<button className="btn btn-primary flex items-center gap-2" onClick={openAdd}><Plus size={16} />הוסף הזמנה</button>}
+        actions={
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={handleImportFile}
+            />
+            <button
+              className="btn btn-secondary flex items-center gap-2"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importing}
+              title="העלאת PDF של הצעת מחיר שיוצאה מהמערכת לבניית הזמנה"
+            >
+              {importing ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+              ייבא הצעת מחיר
+            </button>
+            <button className="btn btn-primary flex items-center gap-2" onClick={openAdd}><Plus size={16} />הוסף הזמנה</button>
+          </div>
+        }
       />
+
+      {importError && (
+        <div className="mx-6 mt-4 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800 flex items-center justify-between">
+          <span>{importError}</span>
+          <button onClick={() => setImportError(null)} className="text-red-600"><X size={16} /></button>
+        </div>
+      )}
+
+      {importPreview && (
+        <OrderPreviewModal
+          quoteId={importPreview.quoteId}
+          initialPreview={importPreview}
+          allowNonAccepted
+          onClose={() => setImportPreview(null)}
+          onCreated={() => {
+            setImportPreview(null);
+            queryClient.invalidateQueries({ queryKey: ['institutional-orders'] });
+          }}
+        />
+      )}
 
       <div className="flex-1 p-6 overflow-auto">
         {/* Bulk action bar */}

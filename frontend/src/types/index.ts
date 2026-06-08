@@ -182,6 +182,7 @@ export interface Cycle {
   sendParentReminders: boolean;
   isOnline: boolean;
   activityType: ActivityType;
+  location?: string | null;
   zoomJoinUrl?: string;
   zoomMeetingId?: string;
   zoomPassword?: string;

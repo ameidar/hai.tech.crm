@@ -570,6 +570,7 @@ model Cycle {
   sendParentReminders  Boolean      @default(false) @map("send_parent_reminders")
   isOnline             Boolean      @default(false) @map("is_online")
   activityType         ActivityType @default(frontal) @map("activity_type")
+  location             String? // city/location where the cycle takes place — required for frontal cycles, irrelevant for online/private. Used as the location in the instructor salary report.
   zoomHostId           String?      @map("zoom_host_id")
   zoomHostEmail        String?      @map("zoom_host_email")
   zoomMeetingId        String?      @map("zoom_meeting_id")

@@ -103,8 +103,8 @@ institutionalOrdersRouter.get('/:id', async (req, res, next) => {
   }
 });
 
-const orderSchema = z.object({
-  branchId: z.string().uuid().optional().nullable(),
+export const orderSchema = z.object({
+  branchId: z.string().optional().nullable(),
   orderName: z.string().optional().nullable(),
   orderNumber: z.string().optional().nullable(),
   orderDate: z.string().optional().nullable(),
@@ -115,7 +115,7 @@ const orderSchema = z.object({
   estimatedTotal: z.number().optional().nullable(),
   contactName: z.string().optional().nullable(),
   contactPhone: z.string().optional().nullable(),
-  contactEmail: z.string().email().optional().nullable().or(z.literal('')),
+  contactEmail: z.string().optional().nullable(),
   status: z.enum(['draft', 'active', 'completed', 'cancelled']).optional(),
   fireberryStatus: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),

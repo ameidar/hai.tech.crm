@@ -448,7 +448,133 @@ export async function generateContentPreview(data: {
   return { content };
 }
 
-export async function convertToOrder(quoteId: string) {
+export interface OrderConvertFlag {
+  level: 'error' | 'warning';
+  field: string;
+  message: string;
+}
+
+function computeOrderDraft(quote: any) {
+  const totalMeetings = quote.items.reduce(
+    (sum: number, item: any) => sum + item.groups * item.meetingsPerGroup,
+    0
+  );
+  const finalAmount = Number(quote.finalAmount ?? quote.totalAmount ?? 0);
+  const avgPricePerMeeting = totalMeetings > 0 ? finalAmount / totalMeetings : 0;
+  return { totalMeetings, finalAmount, avgPricePerMeeting };
+}
+
+function buildConvertFlags(quote: any): OrderConvertFlag[] {
+  const flags: OrderConvertFlag[] = [];
+
+  if (quote.status === 'converted' && quote.orderId) {
+    flags.push({
+      level: 'error',
+      field: 'status',
+      message: 'ההצעה כבר הומרה להזמנה קיימת.',
+    });
+  }
+
+  if (!quote.branchId) {
+    flags.push({
+      level: 'error',
+      field: 'branch',
+      message: 'ההצעה לא משויכת לסניף — חובה לשייך סניף לפני יצירת הזמנה.',
+    });
+  }
+
+  if (quote.status !== 'accepted' && quote.status !== 'converted') {
+    flags.push({
+      level: 'warning',
+      field: 'status',
+      message: `ההצעה בסטטוס "${quote.status}" ולא "אושרה". ניתן ליצור ידנית, ודא שזה מכוון.`,
+    });
+  }
+
+  const { finalAmount } = computeOrderDraft(quote);
+  if (finalAmount <= 0) {
+    flags.push({
+      level: 'warning',
+      field: 'amount',
+      message: 'סכום ההצעה הוא 0 ₪ — בדוק את הפריטים והמחירים.',
+    });
+  }
+
+  const unmatched = (quote.items || []).filter((i: any) => !i.courseId).map((i: any) => i.courseName);
+  if (unmatched.length > 0) {
+    flags.push({
+      level: 'warning',
+      field: 'courses',
+      message: `קורסים שלא זוהו מול קטלוג המערכת: ${unmatched.join(', ')}.`,
+    });
+  }
+
+  if (!quote.payingBodyName) {
+    flags.push({
+      level: 'warning',
+      field: 'taxId',
+      message: 'אין גוף משלם/ח.פ בהצעה — יש להשלים בהזמנה לפני הפקת חשבונית.',
+    });
+  }
+
+  return flags;
+}
+
+// Preview only — does NOT create anything. Used by both the "convert quote" and
+// "import quote file" flows to show the user what will be created and flag uncertain fields.
+export async function buildOrderPreview(quoteId: string) {
+  const quote = await prisma.quote.findUnique({
+    where: { id: quoteId },
+    include: {
+      items: { orderBy: { sortOrder: 'asc' } },
+      branch: { select: { id: true, name: true } },
+    },
+  });
+
+  if (!quote) {
+    throw new AppError(404, 'Quote not found');
+  }
+
+  const { totalMeetings, finalAmount, avgPricePerMeeting } = computeOrderDraft(quote);
+  const flags = buildConvertFlags(quote);
+
+  return {
+    quote: {
+      id: quote.id,
+      quoteNumber: quote.quoteNumber,
+      status: quote.status,
+      institutionName: quote.institutionName,
+      contactName: quote.contactName,
+      contactPhone: quote.contactPhone,
+      contactEmail: quote.contactEmail,
+      includesVat: quote.includesVat,
+      payingBodyName: quote.payingBodyName,
+      orderId: quote.orderId,
+    },
+    orderDraft: {
+      orderName: quote.institutionName,
+      branchId: quote.branchId,
+      branchName: quote.branch?.name ?? null,
+      contactName: quote.contactName,
+      contactPhone: quote.contactPhone,
+      contactEmail: quote.contactEmail,
+      payingBody: quote.payingBodyName ?? null,
+      estimatedMeetings: totalMeetings,
+      pricePerMeeting: avgPricePerMeeting,
+      estimatedTotal: finalAmount,
+      totalAmount: finalAmount,
+      itemsCount: quote.items.length,
+    },
+    flags,
+    canCreate: !flags.some((f) => f.level === 'error') || quote.status === 'converted',
+    existingOrderId: quote.status === 'converted' ? quote.orderId : null,
+  };
+}
+
+export async function convertToOrder(
+  quoteId: string,
+  options: { allowNonAccepted?: boolean } = {}
+) {
   const quote = await prisma.quote.findUnique({
     where: { id: quoteId },
     include: { items: true },
@@ -462,7 +588,7 @@ export async function convertToOrder(quoteId: string) {
     throw new AppError(400, 'Quote has already been converted to an order');
   }
 
-  if (quote.status !== 'accepted') {
+  if (!options.allowNonAccepted && quote.status !== 'accepted') {
     throw new AppError(400, 'Only accepted quotes can be converted to orders');
   }
 
@@ -472,23 +598,24 @@ export async function convertToOrder(quoteId: string) {
 
   const result = await prisma.$transaction(async (tx) => {
     const totalMeetings = quote.items.reduce((sum, item) => sum + item.groups * item.meetingsPerGroup, 0);
-    const avgPricePerMeeting = totalMeetings > 0
-      ? Number(quote.finalAmount) / totalMeetings
-      : 0;
+    const finalAmount = Number(quote.finalAmount);
+    const avgPricePerMeeting = totalMeetings > 0 ? finalAmount / totalMeetings : 0;
 
     const order = await tx.institutionalOrder.create({
       data: {
         branchId: quote.branchId!,
+        orderName: quote.institutionName,
         orderDate: new Date(),
         startDate: new Date(),
         endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
         pricePerMeeting: avgPricePerMeeting,
         estimatedMeetings: totalMeetings,
-        estimatedTotal: Number(quote.finalAmount),
-        totalAmount: Number(quote.finalAmount),
+        estimatedTotal: finalAmount,
+        totalAmount: finalAmount,
         contactName: quote.contactName,
         contactPhone: quote.contactPhone,
         contactEmail: quote.contactEmail,
+        payingBody: quote.payingBodyName || null,
         notes: `Converted from quote ${quote.quoteNumber}. ${quote.notes || ''}`.trim(),
         status: 'draft',
       },

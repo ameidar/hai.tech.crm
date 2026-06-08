@@ -10,6 +10,7 @@ import {
   generateQuoteContent,
   generateContentPreview,
   convertToOrder,
+  buildOrderPreview,
 } from '../services/quotes.service.js';
 import { renderQuoteVideo, getVideoStatus, getVideoUrl, setRenderStatus, persistVideo, getPersistedVideoPath, isVimeoUrl } from '../services/video.service.js';
 import fs from 'fs';
@@ -177,11 +178,23 @@ quotesRouter.post('/:id/generate', async (req, res, next) => {
   }
 });
 
+// Preview what an institutional order built from this quote would look like (no DB write)
+quotesRouter.get('/:id/order-preview', managerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+    const preview = await buildOrderPreview(id);
+    res.json(preview);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Convert quote to order
 quotesRouter.post('/:id/convert', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
-    const result = await convertToOrder(id);
+    const allowNonAccepted = req.body?.allowNonAccepted === true;
+    const result = await convertToOrder(id, { allowNonAccepted });
     res.json(result);
   } catch (error) {
     next(error);

@@ -25,6 +25,7 @@ interface BillingPeriod {
 interface InstitutionalOrder {
   id: string;
   orderName: string | null;
+  payingBody?: string | null;
   branch?: { name: string | null };
 }
 
@@ -97,7 +98,8 @@ export default function BillingPeriods() {
     return orders.filter((o) => {
       const name = (o.orderName || '').toLowerCase();
       const branch = (o.branch?.name || '').toLowerCase();
-      return name.includes(q) || branch.includes(q);
+      const payingBody = (o.payingBody || '').toLowerCase();
+      return name.includes(q) || branch.includes(q) || payingBody.includes(q);
     });
   }, [orders, orderSearch]);
 

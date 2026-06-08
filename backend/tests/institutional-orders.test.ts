@@ -33,4 +33,33 @@ describe('institutional orderSchema (PUT round-trip tolerance)', () => {
     const result = orderSchema.partial().safeParse({ branchId: '', contactEmail: '' });
     expect(result.success).toBe(true);
   });
+
+  // Regression: the API serializes Decimal fields as strings (e.g. "2500"),
+  // so the edit form sends them back as strings. Strict z.number() rejected
+  // them ("Expected number, received string") and blocked saving when
+  // attaching a branch. Money fields now coerce string -> number.
+  it('coerces stringified Decimal money fields back to numbers', () => {
+    const result = orderSchema.partial().safeParse({
+      branchId: 'ce2f732f-e7fd-436f-87bb-30251470021e',
+      pricePerMeeting: '2500',
+      estimatedTotal: '2500',
+      totalAmount: '2500',
+      paidAmount: '0',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.pricePerMeeting).toBe(2500);
+      expect(result.data.totalAmount).toBe(2500);
+      expect(result.data.paidAmount).toBe(0);
+    }
+  });
+
+  it('keeps null money fields as null (does not coerce to 0)', () => {
+    const result = orderSchema.partial().safeParse({ totalAmount: null, pricePerMeeting: null });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.totalAmount).toBeNull();
+      expect(result.data.pricePerMeeting).toBeNull();
+    }
+  });
 });

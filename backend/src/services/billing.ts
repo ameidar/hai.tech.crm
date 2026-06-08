@@ -364,6 +364,11 @@ async function resolveMorningClient(
         address: order.address || undefined,
         city: order.city || undefined,
         zip: order.zip || undefined,
+        // Upsert into Morning's client directory and link the document to it.
+        // Without `add`, Morning renders the payer name but leaves the document
+        // unattached to any client ("floating"), so it can't be found under the
+        // client in Morning's UI.
+        add: true,
       },
       discoveredId: null,
     };

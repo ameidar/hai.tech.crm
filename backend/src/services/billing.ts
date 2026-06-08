@@ -836,17 +836,28 @@ function toMorningPaymentArray(payments: TaxReceiptPaymentInput[]): MorningPayme
 }
 
 /** Build a 320 (tax invoice + receipt) payload from a period, attaching receipt lines. */
-async function buildTaxReceiptPayload(billingPeriodId: string, payments?: TaxReceiptPaymentInput[]) {
+async function buildTaxReceiptPayload(
+  billingPeriodId: string,
+  payments?: TaxReceiptPaymentInput[],
+  documentDate?: string,
+) {
   const built = await buildMorningPayload(billingPeriodId);
   built.payload.type = DOCUMENT_TYPES.TAX_INVOICE_RECEIPT; // 320
   const pays = payments ?? await defaultTaxReceiptPayments(billingPeriodId);
   built.payload.payment = toMorningPaymentArray(pays);
+  // Optional: stamp the document with a specific date (e.g. the cheque's date) instead of today.
+  // Morning enforces its own backdating window server-side and will reject dates outside it.
+  if (documentDate) built.payload.date = documentDate;
   return built;
 }
 
 /** Render a 320 preview PDF (base64) without creating anything in Morning. */
-export async function previewTaxInvoice(billingPeriodId: string, payments?: TaxReceiptPaymentInput[]) {
-  const { payload } = await buildTaxReceiptPayload(billingPeriodId, payments);
+export async function previewTaxInvoice(
+  billingPeriodId: string,
+  payments?: TaxReceiptPaymentInput[],
+  documentDate?: string,
+) {
+  const { payload } = await buildTaxReceiptPayload(billingPeriodId, payments, documentDate);
   return previewDocument(payload);
 }
 
@@ -859,13 +870,14 @@ export async function issueTaxInvoice(
   billingPeriodId: string,
   issuedById?: string,
   payments?: TaxReceiptPaymentInput[],
+  documentDate?: string,
 ) {
   const period = await prisma.billingPeriod.findUnique({ where: { id: billingPeriodId } });
   if (!period) throw new Error('Billing period not found');
   if (period.status !== 'issued') throw new Error('Proforma must be issued first');
   if (period.taxInvoiceId) throw new Error('Tax invoice already issued for this period');
 
-  const { payload, discoveredMorningClientId } = await buildTaxReceiptPayload(billingPeriodId, payments);
+  const { payload, discoveredMorningClientId } = await buildTaxReceiptPayload(billingPeriodId, payments, documentDate);
   const document = await createDocument(payload);
 
   return prisma.$transaction(async (tx) => {

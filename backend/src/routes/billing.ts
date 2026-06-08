@@ -473,11 +473,19 @@ const taxReceiptPaymentsSchema = z
   )
   .optional();
 
+// Optional document date (YYYY-MM-DD) — stamps the tax invoice/receipt with this date
+// instead of today (e.g. the cheque's date). Morning enforces its own backdating window.
+const documentDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'documentDate must be YYYY-MM-DD')
+  .optional();
+
 // Preview a tax invoice + receipt (type 320) — returns base64 PDF without touching Morning.
 billingRouter.post('/:id/preview-tax-invoice', managerOrAdmin, async (req, res, next) => {
   try {
     const payments = taxReceiptPaymentsSchema.parse(req.body?.payments);
-    const result = await previewTaxInvoice(req.params.id, payments);
+    const documentDate = documentDateSchema.parse(req.body?.documentDate);
+    const result = await previewTaxInvoice(req.params.id, payments, documentDate);
     res.json({ success: true, fileBase64: result.file });
   } catch (err: any) {
     if (err.body) return res.status(err.status || 500).json({ error: 'Morning API error', details: err.body });
@@ -490,7 +498,8 @@ billingRouter.post('/:id/preview-tax-invoice', managerOrAdmin, async (req, res, 
 billingRouter.post('/:id/issue-tax-invoice', managerOrAdmin, async (req, res, next) => {
   try {
     const payments = taxReceiptPaymentsSchema.parse(req.body?.payments);
-    const period = await issueTaxInvoice(req.params.id, req.user?.userId, payments);
+    const documentDate = documentDateSchema.parse(req.body?.documentDate);
+    const period = await issueTaxInvoice(req.params.id, req.user?.userId, payments, documentDate);
     await logAudit({ req, action: 'UPDATE', entity: 'BillingPeriod', entityId: period.id, newValue: { taxInvoiceNumber: period.taxInvoiceNumber } });
     res.json(period);
   } catch (err: any) {

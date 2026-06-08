@@ -58,6 +58,44 @@ export type CreateQuoteData = {
   status?: 'draft' | 'sent';
 };
 
+export interface OrderConvertFlag {
+  level: 'error' | 'warning';
+  field: string;
+  message: string;
+}
+
+export interface OrderPreview {
+  quote: {
+    id: string;
+    quoteNumber: string;
+    status: string;
+    institutionName: string;
+    contactName: string;
+    contactPhone?: string | null;
+    contactEmail?: string | null;
+    includesVat?: boolean;
+    payingBodyName?: string | null;
+    orderId?: string | null;
+  };
+  orderDraft: {
+    orderName: string;
+    branchId?: string | null;
+    branchName?: string | null;
+    contactName?: string | null;
+    contactPhone?: string | null;
+    contactEmail?: string | null;
+    payingBody?: string | null;
+    estimatedMeetings: number;
+    pricePerMeeting: number;
+    estimatedTotal: number;
+    totalAmount: number;
+    itemsCount: number;
+  };
+  flags: OrderConvertFlag[];
+  canCreate: boolean;
+  existingOrderId?: string | null;
+}
+
 export const quotesApi = {
   list: async (params?: { status?: string; search?: string }) => {
     const searchParams = new URLSearchParams();
@@ -106,8 +144,20 @@ export const quotesApi = {
     return res.data;
   },
 
-  convertToOrder: async (id: string) => {
-    const res = await api.post<{ quote: Quote; orderId: string }>(`/quotes/${id}/convert`);
+  convertToOrder: async (id: string, allowNonAccepted = false) => {
+    const res = await api.post<{ quote: Quote; order: { id: string } }>(`/quotes/${id}/convert`, { allowNonAccepted });
+    return res.data;
+  },
+
+  orderPreview: async (id: string) => {
+    const res = await api.get<OrderPreview>(`/quotes/${id}/order-preview`);
+    return res.data;
+  },
+
+  importQuotePdf: async (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await api.post<OrderPreview & { quoteId: string }>(`/institutional-orders/import-quote`, form);
     return res.data;
   },
 

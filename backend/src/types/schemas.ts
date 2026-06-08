@@ -128,7 +128,7 @@ export const createInstitutionalOrderSchema = z.object({
 export const updateInstitutionalOrderSchema = createInstitutionalOrderSchema.partial().omit({ branchId: true });
 
 // Cycle schemas
-export const createCycleSchema = z.object({
+const cycleBaseSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   courseId: z.string().min(1, 'Course ID is required'),
   branchId: z.string().min(1, 'חובה לבחור סניף למחזור'),
@@ -152,6 +152,7 @@ export const createCycleSchema = z.object({
   sendParentReminders: z.boolean().default(false),
   isOnline: z.boolean().default(false),
   activityType: z.enum(['online', 'frontal', 'private_lesson']).default('frontal'),
+  location: z.string().trim().optional().nullable(),
   zoomHostId: z.string().optional().nullable(),
   zoomHostEmail: z.string().optional().nullable(),
   zoomMeetingId: z.string().optional().nullable(),
@@ -160,7 +161,23 @@ export const createCycleSchema = z.object({
   zoomPassword: z.string().optional().nullable(),
 });
 
-export const updateCycleSchema = createCycleSchema.partial().extend({
+// Location is mandatory for frontal cycles; online/private lessons don't have a physical location.
+const requireLocationForFrontal = (
+  data: { activityType?: string; location?: string | null },
+  ctx: z.RefinementCtx,
+) => {
+  if (data.activityType === 'frontal' && !data.location?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['location'],
+      message: 'חובה למלא מיקום/עיר למחזור פרונטלי',
+    });
+  }
+};
+
+export const createCycleSchema = cycleBaseSchema.superRefine(requireLocationForFrontal);
+
+export const updateCycleSchema = cycleBaseSchema.partial().extend({
   status: z.enum(['active', 'completed', 'cancelled', 'frozen', 'retainer']).optional(),
   completedMeetings: z.number().int().nonnegative().optional(),
   remainingMeetings: z.number().int().nonnegative().optional(),

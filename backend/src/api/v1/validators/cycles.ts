@@ -91,8 +91,18 @@ export const createCycleSchema = z.object({
   maxStudents: z.number().int().positive().optional(),
   sendParentReminders: z.boolean().optional().default(false),
   activityType: activityTypeEnum.optional().default('frontal'),
+  location: z.string().trim().optional().nullable(),
   zoomHostId: z.string().optional(),
   zoomHostEmail: z.string().email().optional(),
+}).superRefine((data, ctx) => {
+  // Location is mandatory for frontal cycles; online/private lessons have no physical location.
+  if (data.activityType === 'frontal' && !data.location?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['location'],
+      message: 'חובה למלא מיקום/עיר למחזור פרונטלי',
+    });
+  }
 });
 
 /**
@@ -121,6 +131,7 @@ export const updateCycleSchema = z.object({
   maxStudents: z.number().int().positive().optional().nullable(),
   sendParentReminders: z.boolean().optional(),
   activityType: activityTypeEnum.optional(),
+  location: z.string().trim().optional().nullable(),
   status: cycleStatusEnum.optional(),
   zoomHostId: z.string().optional().nullable(),
   zoomHostEmail: z.string().email().optional().nullable(),

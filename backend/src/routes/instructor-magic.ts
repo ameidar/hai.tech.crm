@@ -17,7 +17,7 @@ import { authenticate, adminOnly } from '../middleware/auth.js';
 import { sendWhatsAppMessage } from '../services/notifications.js';
 import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
-import { meetingRevenueFromRegistrations } from '../utils/revenue.js';
+import { meetingRevenueFromRegistrations, roundMoney } from '../utils/revenue.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
 
@@ -268,7 +268,7 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
           } else if (cycleData.type === 'institutional_per_child') {
             const pricePerStudent = Number(cycleData.pricePerStudent || 0);
             const studentCount = cycleData.studentCount || activeRegistrations.length;
-            revenue = Math.round(pricePerStudent * studentCount);
+            revenue = roundMoney(pricePerStudent * studentCount);
           } else if (cycleData.type === 'institutional_fixed') {
             revenue = Number(cycleData.meetingRevenue || 0);
           }

@@ -3127,6 +3127,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
               onChange={(e) => setFormData({ ...formData, pricePerStudent: Number(e.target.value) })}
               className="form-input"
               min="0"
+              step="0.01"
             />
           </div>
         )}
@@ -3140,6 +3141,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
               onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
               className="form-input"
               min="0"
+              step="0.01"
               placeholder="0"
             />
           </div>
@@ -3168,6 +3170,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
                 onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
                 className="form-input"
                 min="0"
+                step="0.01"
               />
             </div>
             <div>

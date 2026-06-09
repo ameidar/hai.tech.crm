@@ -1159,6 +1159,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
                   onChange={(e) => setFormData({ ...formData, pricePerStudent: Number(e.target.value) })}
                   className="form-input pr-8"
                   min="0"
+                  step="0.01"
                 />
               </div>
             </div>
@@ -1189,6 +1190,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
                     onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
                     className="form-input pr-8"
                     min="0"
+                    step="0.01"
                   />
                 </div>
               </div>
@@ -1556,6 +1558,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
                   onChange={(e) => setFormData({ ...formData, pricePerStudent: Number(e.target.value) })}
                   className="form-input pr-8"
                   min="0"
+                  step="0.01"
                 />
               </div>
             </div>
@@ -1586,6 +1589,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
                     onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
                     className="form-input pr-8"
                     min="0"
+                    step="0.01"
                   />
                 </div>
               </div>
@@ -1865,6 +1869,7 @@ function BulkEditForm({ selectedCount, instructors, courses, branches, onSubmit,
                 onChange={(e) => setFormData({ ...formData, meetingRevenue: Number(e.target.value) })}
                 className="form-input pr-8"
                 min="0"
+                step="0.01"
                 disabled={!enabledFields.has('meetingRevenue')}
               />
             </div>
@@ -1889,6 +1894,7 @@ function BulkEditForm({ selectedCount, instructors, courses, branches, onSubmit,
                 onChange={(e) => setFormData({ ...formData, pricePerStudent: Number(e.target.value) })}
                 className="form-input pr-8"
                 min="0"
+                step="0.01"
                 disabled={!enabledFields.has('pricePerStudent')}
               />
             </div>

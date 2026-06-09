@@ -8,7 +8,7 @@ import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { zoomService } from '../services/zoom.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
-import { meetingRevenueFromRegistrations } from '../utils/revenue.js';
+import { meetingRevenueFromRegistrations, roundMoney } from '../utils/revenue.js';
 import { assertCyclePeriodNotLocked, assertMeetingNotInIssuedPeriod } from '../services/billing-lock.js';
 import {
   calculateInstructorPayment,
@@ -520,7 +520,7 @@ meetingsRouter.put('/:id', async (req, res, next) => {
             // Price per student × number of students (use studentCount if set, otherwise count registrations)
             const pricePerStudent = Number(cycleData.pricePerStudent || 0);
             const studentCount = cycleData.studentCount || activeRegistrations.length;
-            revenue = Math.round(pricePerStudent * studentCount);
+            revenue = roundMoney(pricePerStudent * studentCount);
           } else if (cycleData.type === 'institutional_fixed') {
             // Fixed meeting revenue
             revenue = Number(cycleData.meetingRevenue || 0);
@@ -962,7 +962,7 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
     } else if (cycleData.type === 'institutional_per_child') {
       const pricePerStudent = Number(cycleData.pricePerStudent || 0);
       const studentCount = cycleData.studentCount || activeRegistrations.length;
-      revenue = Math.round(pricePerStudent * studentCount);
+      revenue = roundMoney(pricePerStudent * studentCount);
     } else if (cycleData.type === 'institutional_fixed') {
       revenue = Number(cycleData.meetingRevenue || 0);
     }
@@ -1061,7 +1061,7 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
       } else if (cycleData.type === 'institutional_per_child') {
         const pricePerStudent = Number(cycleData.pricePerStudent || 0);
         const studentCount = cycleData.studentCount || activeRegistrations.length;
-        revenue = Math.round(pricePerStudent * studentCount);
+        revenue = roundMoney(pricePerStudent * studentCount);
       } else if (cycleData.type === 'institutional_fixed') {
         revenue = Number(cycleData.meetingRevenue || 0);
       }
@@ -1145,7 +1145,7 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
             } else if (cycleData.type === 'institutional_per_child') {
               const pricePerStudent = Number(cycleData.pricePerStudent || 0);
               const studentCount = cycleData.studentCount || activeRegistrations.length;
-              revenue = Math.round(pricePerStudent * studentCount);
+              revenue = roundMoney(pricePerStudent * studentCount);
             } else if (cycleData.type === 'institutional_fixed') {
               revenue = Number(cycleData.meetingRevenue || 0);
             }
@@ -1341,7 +1341,7 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
                 revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
               }
             } else if (cycleData.type === 'institutional_per_child') {
-              revenue = Math.round(Number(cycleData.pricePerStudent || 0) * (cycleData.studentCount || activeRegistrations.length));
+              revenue = roundMoney(Number(cycleData.pricePerStudent || 0) * (cycleData.studentCount || activeRegistrations.length));
             } else if (cycleData.type === 'institutional_fixed') {
               revenue = Number(cycleData.meetingRevenue || 0);
             }

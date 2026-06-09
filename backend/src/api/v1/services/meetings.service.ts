@@ -14,7 +14,7 @@ import {
   CompleteMeetingInput,
   CancelMeetingInput,
 } from '../validators/meetings.js';
-import { meetingRevenueFromRegistrations } from '../../../utils/revenue.js';
+import { meetingRevenueFromRegistrations, roundMoney } from '../../../utils/revenue.js';
 import {
   calculateInstructorPayment,
   recalculateDailyInstructorPaymentsForMeeting,
@@ -303,7 +303,7 @@ export class MeetingsService {
       } else if (cycle.type === 'institutional_per_child') {
         const pricePerStudent = Number(cycle.pricePerStudent || 0);
         const studentCount = cycle.studentCount || activeRegistrations.length;
-        revenue = Math.round(pricePerStudent * studentCount);
+        revenue = roundMoney(pricePerStudent * studentCount);
       } else if (cycle.type === 'institutional_fixed') {
         revenue = Number(cycle.meetingRevenue || 0);
       }

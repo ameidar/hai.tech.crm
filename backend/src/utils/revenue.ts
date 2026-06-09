@@ -10,6 +10,14 @@
 
 export const VAT_RATE = 0.18;
 
+/**
+ * Round a money amount to 2 decimal places (agorot). Money must never be
+ * rounded to whole shekels — customers can be charged non-round amounts.
+ */
+export function roundMoney(amount: number): number {
+  return Math.round((Number(amount) + Number.EPSILON) * 100) / 100;
+}
+
 const PRIVATE_TYPES = new Set(['private', 'trial_private']);
 
 export function isVatInclusive(cycleType: string | null | undefined): boolean {
@@ -47,5 +55,5 @@ export function meetingRevenueFromRegistrations(
     0
   );
   const net = netAmount(gross, cycleType);
-  return Math.round(net / totalMeetings);
+  return roundMoney(net / totalMeetings);
 }

@@ -7,7 +7,7 @@
  */
 
 import { prisma } from '../utils/prisma.js';
-import { meetingRevenueFromRegistrations } from '../utils/revenue.js';
+import { meetingRevenueFromRegistrations, roundMoney } from '../utils/revenue.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
 import { sendWhatsApp, sendWhatsAppPoll } from './messaging.js';
 import { handleCycleCompletion } from './cycle-completion.js';
@@ -409,7 +409,7 @@ async function recalculateCompletedMeetingFinancials(meetingId: string): Promise
   } else if (cycleData.type === 'institutional_per_child') {
     const pricePerStudent = Number(cycleData.pricePerStudent || 0);
     const studentCount = cycleData.studentCount || activeRegistrations.length;
-    revenue = Math.round(pricePerStudent * studentCount);
+    revenue = roundMoney(pricePerStudent * studentCount);
   } else if (cycleData.type === 'institutional_fixed') {
     revenue = Number(cycleData.meetingRevenue || 0);
   }

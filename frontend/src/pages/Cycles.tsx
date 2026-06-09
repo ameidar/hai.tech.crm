@@ -901,6 +901,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     sendParentReminders: true,
     isOnline: false,
     activityType: 'frontal' as ActivityType,
+    location: '',
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -910,10 +911,16 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
       alert('יש לבחור קורס, סניף ומדריך');
       return;
     }
-    
+
     // Validate VAT selection for institutional_fixed
     if (formData.type === 'institutional_fixed' && formData.includesVat === null) {
       alert('יש לבחור האם הסכום כולל מע״מ או לא');
+      return;
+    }
+
+    // Location is mandatory for frontal cycles (online/private have no physical location)
+    if (formData.activityType === 'frontal' && !formData.location.trim()) {
+      alert('יש למלא מיקום/עיר למחזור פרונטלי');
       return;
     }
 
@@ -1248,6 +1255,19 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
           </select>
         </div>
 
+        {formData.activityType === 'frontal' && (
+          <div className="mt-4">
+            <label className="form-label">מיקום / עיר *</label>
+            <input
+              type="text"
+              value={formData.location}
+              onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+              className="form-input"
+              placeholder="לדוגמה: ירושלים"
+            />
+          </div>
+        )}
+
         <div className="flex items-center gap-6 mt-4">
           <label className="flex items-center gap-2">
             <input
@@ -1314,6 +1334,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     sendParentReminders: cycle.sendParentReminders,
     isOnline: cycle.isOnline,
     activityType: cycle.activityType || 'frontal',
+    location: cycle.location || '',
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -1321,6 +1342,12 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
 
     if (!formData.courseId || !formData.branchId || !formData.instructorId) {
       alert('יש לבחור קורס, סניף ומדריך');
+      return;
+    }
+
+    // Location is mandatory for frontal cycles (online/private have no physical location)
+    if (formData.activityType === 'frontal' && !formData.location.trim()) {
+      alert('יש למלא מיקום/עיר למחזור פרונטלי');
       return;
     }
     
@@ -1373,6 +1400,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
       sendParentReminders: formData.sendParentReminders,
       isOnline: formData.isOnline,
       activityType: formData.activityType,
+      location: formData.location.trim() || null,
     });
   };
 
@@ -1646,6 +1674,19 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
             <option value="private_lesson">פרטי</option>
           </select>
         </div>
+
+        {formData.activityType === 'frontal' && (
+          <div className="mt-4">
+            <label className="form-label">מיקום / עיר *</label>
+            <input
+              type="text"
+              value={formData.location}
+              onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+              className="form-input"
+              placeholder="לדוגמה: ירושלים"
+            />
+          </div>
+        )}
 
         <div className="flex items-center gap-6 mt-4">
           <label className="flex items-center gap-2">

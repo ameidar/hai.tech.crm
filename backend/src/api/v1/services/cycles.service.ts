@@ -451,6 +451,7 @@ export class CyclesService {
         sendParentReminders: original.sendParentReminders,
         isOnline: original.isOnline,
         activityType: original.activityType,
+        location: original.location,
         zoomHostId: original.zoomHostId,
         zoomHostEmail: original.zoomHostEmail,
       },

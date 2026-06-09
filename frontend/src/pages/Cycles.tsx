@@ -79,6 +79,8 @@ export default function Cycles() {
   const branchFilter = searchParams.get('branchId') || '';
   const courseFilter = searchParams.get('courseId') || '';
   const dayFilter = (searchParams.get('day') as DayOfWeek) || '';
+  const startFromFilter = searchParams.get('startFrom') || '';
+  const startToFilter = searchParams.get('startTo') || '';
   const searchQuery = searchParams.get('search') || '';
   const pageSize = parseInt(searchParams.get('limit') || '100');
   const sortField = searchParams.get('sort') || 'name';
@@ -101,6 +103,8 @@ export default function Cycles() {
   const setBranchFilter = (v: string) => updateFilter('branchId', v);
   const setCourseFilter = (v: string) => updateFilter('courseId', v);
   const setDayFilter = (v: DayOfWeek | '') => updateFilter('day', v);
+  const setStartFromFilter = (v: string) => updateFilter('startFrom', v);
+  const setStartToFilter = (v: string) => updateFilter('startTo', v);
   const setSearchQuery = (v: string) => updateFilter('search', v);
   const setPageSize = (v: number) => updateFilter('limit', v.toString());
   const setSortField = (v: string) => updateFilter('sort', v);
@@ -118,6 +122,8 @@ export default function Cycles() {
     branchId: branchFilter || undefined,
     courseId: courseFilter || undefined,
     dayOfWeek: dayFilter || undefined,
+    startDateFrom: startFromFilter || undefined,
+    startDateTo: startToFilter || undefined,
     search: debouncedSearch || undefined,
     limit: pageSize,
   });
@@ -286,6 +292,8 @@ export default function Cycles() {
     setBranchFilter('');
     setCourseFilter('');
     setDayFilter('');
+    setStartFromFilter('');
+    setStartToFilter('');
     setSearchQuery('');
   };
 
@@ -477,6 +485,26 @@ export default function Cycles() {
                 <option value="frozen">❄️ מוקפא</option>
                 <option value="retainer">💼 ריטיינר</option>
               </select>
+            </div>
+            <div className="w-1/2 md:w-40">
+              <input
+                type="date"
+                value={startFromFilter}
+                onChange={(e) => setStartFromFilter(e.target.value)}
+                className="form-input w-full"
+                title="התחילו מתאריך"
+                placeholder="התחילו מ-"
+              />
+            </div>
+            <div className="w-1/2 md:w-40">
+              <input
+                type="date"
+                value={startToFilter}
+                onChange={(e) => setStartToFilter(e.target.value)}
+                className="form-input w-full"
+                title="התחילו עד תאריך"
+                placeholder="התחילו עד-"
+              />
             </div>
             <div className="hidden md:block w-28">
               <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="form-input">

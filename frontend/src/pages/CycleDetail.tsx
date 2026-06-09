@@ -2819,8 +2819,9 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     studentCount: cycle.studentCount || 0,
     maxStudents: cycle.maxStudents || 15,
     activityType: cycle.activityType || 'frontal',
+    location: cycle.location || '',
   });
-  
+
   const [regenerateMeetings, setRegenerateMeetings] = useState(false);
   const originalStartDate = formatDateForInput(cycle.startDate);
   const originalDayOfWeek = cycle.dayOfWeek;
@@ -2852,6 +2853,12 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     // Validate VAT selection for institutional_fixed
     if (formData.type === 'institutional_fixed' && formData.includesVat === null) {
       alert('יש לבחור האם הסכום כולל מע״מ או לא');
+      return;
+    }
+
+    // Location is mandatory for frontal cycles (online/private have no physical location)
+    if (formData.activityType === 'frontal' && !formData.location.trim()) {
+      alert('יש למלא מיקום/עיר למחזור פרונטלי');
       return;
     }
 
@@ -2901,6 +2908,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
       studentCount: formData.type === 'institutional_per_child' ? Number(formData.studentCount) : undefined,
       maxStudents: Number(formData.maxStudents),
       activityType: formData.activityType as ActivityType,
+      location: formData.location.trim() || null,
       institutionalOrderId: formData.institutionalOrderId || null,
       regenerateMeetings: shouldRegenerate,
     } as any);
@@ -3229,6 +3237,19 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
             <option value="private_lesson">שיעור פרטי</option>
           </select>
         </div>
+
+        {formData.activityType === 'frontal' && (
+          <div>
+            <label className="form-label">מיקום / עיר *</label>
+            <input
+              type="text"
+              value={formData.location}
+              onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+              className="form-input"
+              placeholder="לדוגמה: ירושלים"
+            />
+          </div>
+        )}
       </div>
 
       <div className="flex justify-end gap-3 pt-4 border-t">

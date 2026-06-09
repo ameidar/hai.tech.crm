@@ -149,7 +149,7 @@ const cycleBaseSchema = z.object({
   instructorDailyRate: z.number().nonnegative().optional().nullable(),
   studentCount: z.number().int().nonnegative().optional().nullable(),
   maxStudents: z.number().int().nonnegative().optional().nullable(),
-  sendParentReminders: z.boolean().default(false),
+  sendParentReminders: z.boolean().default(true),
   isOnline: z.boolean().default(false),
   activityType: z.enum(['online', 'frontal', 'private_lesson']).default('frontal'),
   location: z.string().trim().optional().nullable(),

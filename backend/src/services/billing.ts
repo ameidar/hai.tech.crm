@@ -22,6 +22,39 @@ export function monthKey(d: Date): BillingMonth {
   return `${y}-${String(m).padStart(2, '0')}`;
 }
 
+interface RegistrationWindow {
+  registrationDate: Date;
+  cancellationDate: Date | null;
+  status: string;
+  deletedAt: Date | null;
+}
+
+/**
+ * Was this child billable for the given calendar month?
+ *
+ * Per-child billing must reflect the *historical* roster of each month, not the cycle's
+ * current student count — otherwise cancelling a child in May retroactively lowers April's
+ * (and every prior month's) invoice. We reconstruct the month's roster from each
+ * registration's own dates instead of the mutable `cycle.studentCount`.
+ *
+ * Policy (decided by Ami): a child cancelled mid-month is still counted *in full* for that
+ * month — they were active for part of it. So a child counts for month M when they were
+ * registered on/before the month ended AND were not already cancelled before it began.
+ */
+function isChildActiveInMonth(reg: RegistrationWindow, monthStart: Date, monthEndExclusive: Date): boolean {
+  if (reg.deletedAt) return false;
+  // Registered only after this month → not yet enrolled.
+  if (reg.registrationDate >= monthEndExclusive) return false;
+  if (reg.cancellationDate) {
+    // Cancelled before the month started → not active. Cancelled during/after → counts fully.
+    return reg.cancellationDate >= monthStart;
+  }
+  // No cancellation date recorded: if the status nonetheless says cancelled we cannot know
+  // which month it ended, so exclude it (matches the live active-count used elsewhere).
+  if (reg.status === 'cancelled' || reg.status === 'pending_cancellation') return false;
+  return true;
+}
+
 interface RangeBounds {
   start: Date;          // first of monthStart (inclusive)
   endExclusive: Date;   // first of the month AFTER monthEnd (exclusive)
@@ -98,7 +131,10 @@ async function computeBillingLines(
             },
           ],
         },
-        select: { id: true },
+        select: { id: true, scheduledDate: true },
+      },
+      registrations: {
+        select: { registrationDate: true, cancellationDate: true, status: true, deletedAt: true },
       },
     },
   });
@@ -126,14 +162,43 @@ async function computeBillingLines(
     } else if (cycle.type === 'institutional_per_child') {
       const perChild = Number(cycle.pricePerStudent ?? 0);
       unitPrice = perChild;
-      quantity = completedMeetings * studentCount;
+
+      // Reconstruct the per-child count for each month from the historical roster rather
+      // than the cycle's mutable studentCount, so a later cancellation never rewrites a
+      // past month's invoice. A period usually spans one month; multi-month ranges sum
+      // each month's (meetings × that month's child count).
+      const meetingsByMonth = new Map<string, number>();
+      for (const m of cycle.meetings) {
+        const k = monthKey(m.scheduledDate);
+        meetingsByMonth.set(k, (meetingsByMonth.get(k) ?? 0) + 1);
+      }
+      const monthBreakdown = [...meetingsByMonth.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([mk, meetings]) => {
+          const mStart = monthStartDate(mk);
+          const mEnd = monthAfter(mStart);
+          const children = cycle.registrations.filter((r) => isChildActiveInMonth(r, mStart, mEnd)).length;
+          return { meetings, children };
+        });
+
+      quantity = monthBreakdown.reduce((sum, b) => sum + b.meetings * b.children, 0);
+      const distinctCounts = new Set(monthBreakdown.map((b) => b.children));
+      // Snapshot a single representative count: exact for the common single-month case,
+      // an average for the rare multi-month range with a roster that changed mid-range.
+      studentCount = distinctCounts.size === 1
+        ? (monthBreakdown[0]?.children ?? 0)
+        : (completedMeetings > 0 ? Math.round(quantity / completedMeetings) : 0);
+
       // Display the agreed gross (price × 1.18) when prices are stored net, otherwise
       // the per-child price as-is. This keeps the description in the customer's mental
       // model ("9 ילדים × ₪ 60") even when our DB carries the net (₪ 50.85).
       const grossPerChild = cycle.revenueIncludesVat === false
         ? Math.round(perChild * 1.18 * 100) / 100
         : perChild;
-      descriptionDetail = `${completedMeetings} פגישות × ${studentCount} ילדים × ${grossPerChild.toLocaleString('he-IL')} ₪`;
+      const countsPart = distinctCounts.size === 1
+        ? `${completedMeetings} פגישות × ${studentCount} ילדים`
+        : monthBreakdown.map((b) => `${b.meetings} פגישות × ${b.children} ילדים`).join(' + ');
+      descriptionDetail = `${countsPart} × ${grossPerChild.toLocaleString('he-IL')} ₪`;
     } else {
       // private/trial — should not be linked to institutional order, but skip safely
       continue;
@@ -253,6 +318,7 @@ export async function generateBillingPeriod(
             cycleId: s.cycleId,
             description: customizedByCycle.get(s.cycleId) ?? s.description,
             descriptionCustomized: customizedByCycle.has(s.cycleId),
+            studentCount: s.cycleType === 'institutional_per_child' ? s.studentCount : null,
             quantity: s.quantity,
             unitPrice: s.unitPrice,
             total: s.total,
@@ -277,6 +343,7 @@ export async function generateBillingPeriod(
         create: summaries.map((s, i) => ({
           cycleId: s.cycleId,
           description: s.description,
+          studentCount: s.cycleType === 'institutional_per_child' ? s.studentCount : null,
           quantity: s.quantity,
           unitPrice: s.unitPrice,
           total: s.total,

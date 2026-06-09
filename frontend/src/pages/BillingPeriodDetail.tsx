@@ -10,6 +10,7 @@ interface Line {
   cycleId: string | null;
   description: string;
   descriptionCustomized: boolean;
+  studentCount?: number | null;
   quantity: string | number;
   unitPrice: string | number;
   total: string | number;
@@ -671,8 +672,18 @@ export default function BillingPeriodDetail() {
                       {line.descriptionCustomized && (
                         <div className="text-xs text-amber-700 mt-1">✎ תיאור מותאם — לא יידרס בריענון מהפגישות</div>
                       )}
+                      {line.studentCount != null && (
+                        <div className="text-xs text-gray-500 mt-1">{line.studentCount} ילדים (לפי הרישום באותו חודש)</div>
+                      )}
                     </div>
-                  ) : <span>{line.description}</span>}
+                  ) : (
+                    <div>
+                      <span>{line.description}</span>
+                      {line.studentCount != null && (
+                        <div className="text-xs text-gray-500 mt-1">{line.studentCount} ילדים (לפי הרישום באותו חודש)</div>
+                      )}
+                    </div>
+                  )}
                 </td>
                 <td className="p-2">
                   {isDraft ? (

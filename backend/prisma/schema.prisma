@@ -486,6 +486,10 @@ model BillingPeriodLine {
   // True when an admin manually edited the description — recompute keeps the custom text
   // and only refreshes quantity/unitPrice/total against the live meetings.
   descriptionCustomized Boolean @default(false) @map("description_customized")
+  // Per-child roster count used for this line at generation time. Locks the historical
+  // child count so a later cancellation can't rewrite an already-billed month. Null for
+  // fixed-price and manually-added lines.
+  studentCount          Int?    @map("student_count")
   quantity              Decimal @db.Decimal(10, 2)
   unitPrice             Decimal @map("unit_price") @db.Decimal(10, 2)
   total                 Decimal @db.Decimal(10, 2)

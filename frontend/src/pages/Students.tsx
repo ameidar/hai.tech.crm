@@ -744,6 +744,7 @@ function RegisterToCycleForm({ student, availableCycles, onRegister, onCancel, i
                   onChange={(e) => setAmount(e.target.value ? Number(e.target.value) : '')}
                   className="form-input"
                   min="0"
+                  step="0.01"
                   placeholder="0"
                 />
               </div>
@@ -891,6 +892,7 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
             onChange={(e) => setFormData({ ...formData, amount: Number(e.target.value) })}
             className="form-input"
             min="0"
+            step="0.01"
           />
         </div>
 

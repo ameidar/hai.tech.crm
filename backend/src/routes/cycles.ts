@@ -152,7 +152,12 @@ cyclesRouter.get('/', async (req, res, next) => {
       ...(instructorId && { instructorId }),
       ...(courseId && { courseId }),
       ...(dayOfWeek && { dayOfWeek: dayOfWeek as any }),
-      ...(search && { name: { contains: search, mode: 'insensitive' as const } }),
+      ...(search && {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' as const } },
+          { location: { contains: search, mode: 'insensitive' as const } },
+        ],
+      }),
       ...((startDateFilter.gte || startDateFilter.lte) && { startDate: startDateFilter }),
     };
 

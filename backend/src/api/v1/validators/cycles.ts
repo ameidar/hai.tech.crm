@@ -89,7 +89,7 @@ export const createCycleSchema = z.object({
   instructorDailyRate: z.number().nonnegative().optional().nullable(),
   studentCount: z.number().int().nonnegative().optional(),
   maxStudents: z.number().int().positive().optional(),
-  sendParentReminders: z.boolean().optional().default(false),
+  sendParentReminders: z.boolean().optional().default(true),
   activityType: activityTypeEnum.optional().default('frontal'),
   location: z.string().trim().optional().nullable(),
   zoomHostId: z.string().optional(),

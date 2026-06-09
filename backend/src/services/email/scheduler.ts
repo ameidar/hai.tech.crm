@@ -141,6 +141,7 @@ const sendParentReminders = async () => {
           lt: dayAfter,
         },
         status: 'scheduled',
+        cycle: { sendParentReminders: true },
       },
       include: {
         cycle: {

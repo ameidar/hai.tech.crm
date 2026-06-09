@@ -7,7 +7,7 @@ import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
 import { handleStatusReply } from '../services/whatsapp-reminder.service.js';
 import { logAudit } from '../utils/audit.js';
 import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
-import { meetingRevenueFromRegistrations } from '../utils/revenue.js';
+import { meetingRevenueFromRegistrations, roundMoney } from '../utils/revenue.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
 import rateLimit from 'express-rate-limit';
 
@@ -780,7 +780,7 @@ async function recalculateMeetingFinancials(meetingId: string) {
   } else if (cycleData.type === 'institutional_per_child') {
     const pricePerStudent = Number(cycleData.pricePerStudent || 0);
     const studentCount = cycleData.studentCount || activeRegistrations.length;
-    revenue = Math.round(pricePerStudent * studentCount);
+    revenue = roundMoney(pricePerStudent * studentCount);
   } else if (cycleData.type === 'institutional_fixed') {
     revenue = Number(cycleData.meetingRevenue || 0);
   }

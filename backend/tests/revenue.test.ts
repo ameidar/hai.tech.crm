@@ -3,6 +3,7 @@ import {
   netAmount,
   meetingRevenueFromRegistrations,
   isVatInclusive,
+  roundMoney,
   VAT_RATE,
 } from '../src/utils/revenue.js';
 
@@ -74,10 +75,29 @@ describe('revenue helpers', () => {
       expect(meetingRevenueFromRegistrations(regs, 10, 'private')).toBe(100);
     });
 
-    it('rounds to nearest integer', () => {
-      // 1000 gross / 1.18 = 847.4576... → / 3 = 282.485... → rounds to 282
+    it('rounds to 2 decimal places, not whole shekels', () => {
+      // 1000 gross / 1.18 = 847.4576... → / 3 = 282.485... → rounds to 282.49
       const regs = [{ amount: 1000 }];
-      expect(meetingRevenueFromRegistrations(regs, 3, 'private')).toBe(282);
+      expect(meetingRevenueFromRegistrations(regs, 3, 'private')).toBe(282.49);
+    });
+
+    it('preserves non-round per-student billing', () => {
+      // institutional_per_child style: 33.33 × 3 students, single meeting
+      const regs = [{ amount: 33.33 }, { amount: 33.33 }, { amount: 33.33 }];
+      expect(meetingRevenueFromRegistrations(regs, 1, 'institutional_per_child')).toBe(99.99);
+    });
+  });
+
+  describe('roundMoney', () => {
+    it('rounds to 2 decimals', () => {
+      expect(roundMoney(99.999)).toBe(100);
+      expect(roundMoney(99.991)).toBe(99.99);
+      expect(roundMoney(282.485)).toBe(282.49);
+    });
+
+    it('leaves clean 2-decimal values untouched', () => {
+      expect(roundMoney(99.99)).toBe(99.99);
+      expect(roundMoney(100)).toBe(100);
     });
   });
 });

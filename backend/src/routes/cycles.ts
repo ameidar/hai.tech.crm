@@ -7,7 +7,7 @@ import { fetchHolidays, dayNameToNumber, calculateCycleEndDate } from '../utils/
 import { zoomService, getHostKeyByEmail } from '../services/zoom.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
-import { meetingRevenueFromRegistrations, netAmount } from '../utils/revenue.js';
+import { meetingRevenueFromRegistrations, netAmount, roundMoney } from '../utils/revenue.js';
 import { recalculateInstructorPaymentsForCycle } from '../services/instructor-payment.js';
 
 // Make.com webhook removed — Zoom recordings handled directly via /api/zoom-webhook
@@ -24,14 +24,14 @@ function computeRevenuePerMeeting(cycle: any): number {
   }
   if (cycle.type === 'institutional_per_child') {
     const count = cycle.studentCount || (cycle.registrations?.length ?? cycle._count?.registrations ?? 0);
-    return Math.round(Number(cycle.pricePerStudent || 0) * count);
+    return roundMoney(Number(cycle.pricePerStudent || 0) * count);
   }
   if (cycle.type === 'private' || cycle.type === 'trial_private') {
     // Priority: explicit meetingRevenue > pricePerStudent × students > registration amounts / meetings
     if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) return Number(cycle.meetingRevenue);
     if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
       const count = cycle.registrations?.length ?? cycle._count?.registrations ?? 0;
-      return Math.round(Number(cycle.pricePerStudent) * count);
+      return roundMoney(Number(cycle.pricePerStudent) * count);
     }
     // Sum active registration amounts (available in detail endpoint)
     if (Array.isArray(cycle.registrations) && cycle.registrations.length > 0) {
@@ -41,7 +41,7 @@ function computeRevenuePerMeeting(cycle: any): number {
     // Fallback: aggregated sum if available (list endpoint — already filtered to active)
     if (cycle._sum?.registrations?.amount) {
       return totalMeetings > 0
-        ? Math.round(netAmount(Number(cycle._sum.registrations.amount), cycle.type) / totalMeetings)
+        ? roundMoney(netAmount(Number(cycle._sum.registrations.amount), cycle.type) / totalMeetings)
         : 0;
     }
   }

@@ -14,6 +14,7 @@ import { zoomService } from './zoom.js';
 import { isHoliday, isShabbat } from '../utils/holidays.js';
 import { sendWhatsAppMessage } from './notifications.js';
 import { calculateInstructorPayment } from './instructor-payment.js';
+import { roundMoney } from '../utils/revenue.js';
 
 const ADMIN_PHONE = process.env.ADMIN_PHONE || '0528746137';
 
@@ -102,7 +103,7 @@ export async function addReplacementMeeting(postponedMeetingId: string, _actorUs
       revenue = Number(cycle.pricePerStudent) * (cycleWithReg?.registrations.length ?? 0);
     } else {
       const totalAmt = (cycleWithReg?.registrations ?? []).reduce((s: number, r: any) => s + (r.amount ? Number(r.amount) : 0), 0);
-      revenue = cycle.totalMeetings > 0 ? Math.round(totalAmt / cycle.totalMeetings) : 0;
+      revenue = cycle.totalMeetings > 0 ? roundMoney(totalAmt / cycle.totalMeetings) : 0;
     }
   }
 

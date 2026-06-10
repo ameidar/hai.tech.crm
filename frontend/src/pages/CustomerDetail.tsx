@@ -767,6 +767,7 @@ function StudentForm({ cycles, onSubmit, onCancel, isLoading, onCycleCreated }: 
                     onChange={(e) => setCycleData({ ...cycleData, amount: e.target.value ? Number(e.target.value) : '' })}
                     className="form-input text-sm"
                     min="0"
+                    step="0.01"
                     placeholder="0"
                   />
                 </div>
@@ -1238,6 +1239,7 @@ function StudentEditForm({ student, cycles, onSubmit, onCancel, isLoading, onCyc
                     onChange={(e) => setCycleData({ ...cycleData, amount: e.target.value ? Number(e.target.value) : '' })}
                     className="form-input text-sm"
                     min="0"
+                    step="0.01"
                   />
                 </div>
 
@@ -1732,7 +1734,8 @@ function PaymentHistory({ customerId }: { customerId: string }) {
                 <label className="block text-sm font-medium text-gray-700 mb-1">סכום (₪) *</label>
                 <input
                   type="number"
-                  min="1"
+                  min="0.01"
+                  step="0.01"
                   value={addForm.amount}
                   onChange={e => setAddForm(f => ({ ...f, amount: e.target.value }))}
                   placeholder="0"

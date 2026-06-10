@@ -35,7 +35,10 @@ export class CyclesRepository {
     };
 
     if (search) {
-      where.name = { contains: search, mode: 'insensitive' };
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { location: { contains: search, mode: 'insensitive' } },
+      ];
     }
     if (courseId) where.courseId = courseId;
     if (branchId) where.branchId = branchId;

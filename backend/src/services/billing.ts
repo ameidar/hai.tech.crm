@@ -482,7 +482,7 @@ async function resolveMorningClient(
  * Also returns the Morning client UUID we discovered on-the-fly (if any), so the caller
  * can persist it back to the institutional order on a successful issue.
  */
-async function buildMorningPayload(billingPeriodId: string): Promise<{
+async function buildMorningPayload(billingPeriodId: string, documentDate?: string): Promise<{
   payload: CreateDocumentInput;
   discoveredMorningClientId: string | null;
 }> {
@@ -544,17 +544,18 @@ async function buildMorningPayload(billingPeriodId: string): Promise<{
       income,
       remarks,
       ...(description ? { description } : {}),
+      ...(documentDate ? { date: documentDate } : {}),
     },
     discoveredMorningClientId: discoveredId,
   };
 }
 
-export async function previewBillingPeriod(billingPeriodId: string) {
-  const { payload } = await buildMorningPayload(billingPeriodId);
+export async function previewBillingPeriod(billingPeriodId: string, documentDate?: string) {
+  const { payload } = await buildMorningPayload(billingPeriodId, documentDate);
   return previewDocument(payload);
 }
 
-export async function issueBillingPeriod(billingPeriodId: string, issuedById?: string) {
+export async function issueBillingPeriod(billingPeriodId: string, issuedById?: string, documentDate?: string) {
   const period = await prisma.billingPeriod.findUnique({
     where: { id: billingPeriodId },
     include: { lines: true },
@@ -563,7 +564,7 @@ export async function issueBillingPeriod(billingPeriodId: string, issuedById?: s
   if (period.status === 'issued') throw new Error('Billing period already issued');
   if (period.status === 'cancelled') throw new Error('Billing period is cancelled');
 
-  const { payload, discoveredMorningClientId } = await buildMorningPayload(billingPeriodId);
+  const { payload, discoveredMorningClientId } = await buildMorningPayload(billingPeriodId, documentDate);
   const document = await createDocument(payload);
 
   // Snapshot meetings included in this issued invoice — used for drift detection later.

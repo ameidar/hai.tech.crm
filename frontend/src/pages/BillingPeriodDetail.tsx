@@ -183,11 +183,32 @@ export default function BillingPeriodDetail() {
   const [externalForm, setExternalForm] = useState({ url: '', documentNumber: '', documentId: '', issuedAt: '' });
   const [externalBusy, setExternalBusy] = useState(false);
 
+  const [taxIdInput, setTaxIdInput] = useState('');
+  const [savingTaxId, setSavingTaxId] = useState(false);
+  const [taxIdSaved, setTaxIdSaved] = useState(false);
+
+  async function saveTaxId() {
+    if (!period) return;
+    setSavingTaxId(true);
+    setError(null);
+    try {
+      await api.put(`/institutional-orders/${period.institutionalOrder.id}`, { taxId: taxIdInput.trim() || null });
+      setTaxIdSaved(true);
+      setTimeout(() => setTaxIdSaved(false), 2000);
+      await load();
+    } catch (err: any) {
+      handleErr(err);
+    } finally {
+      setSavingTaxId(false);
+    }
+  }
+
   async function load() {
     setLoading(true);
     try {
       const { data } = await api.get(`/billing/${id}`);
       setPeriod(data);
+      setTaxIdInput(data.institutionalOrder?.taxId || '');
       if (data.status === 'issued') {
         try {
           const { data: d } = await api.get(`/billing/${id}/drift`);
@@ -614,9 +635,9 @@ export default function BillingPeriodDetail() {
         <div className="bg-amber-50 border border-amber-200 rounded p-4 text-sm text-amber-900 flex items-start gap-2">
           <AlertCircle size={16} className="mt-0.5" />
           <div>
-            <b>חסר ת.ז עוסק / ח.פ</b> — ניתן להפיק גם בלי, אבל מומלץ למלא דרך
-            <Link to={`/institutional-orders`} className="underline mx-1">עמוד המוסד</Link>
-            לזיהוי מלא של הלקוח אצל מורנינג.
+            <b>חסר ת.ז עוסק / ח.פ</b> — ניתן להפיק גם בלי, אבל מומלץ למלא בשדה למטה (או דרך
+            <Link to={`/institutional-orders`} className="underline mx-1">עמוד המוסד</Link>)
+            כדי שיופיע על החשבונית במורנינג.
           </div>
         </div>
       )}
@@ -625,7 +646,29 @@ export default function BillingPeriodDetail() {
         <h2 className="font-semibold text-gray-900 mb-3">פרטי לקוח (יוצגו בחשבון עסקה)</h2>
         <dl className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
           <div><dt className="text-gray-500">שם</dt><dd>{order.orderName || '—'}</dd></div>
-          <div><dt className="text-gray-500">ת.ז עוסק</dt><dd className={!order.taxId ? 'text-amber-600' : ''}>{order.taxId || '⚠️ חסר'}</dd></div>
+          <div>
+            <dt className="text-gray-500">ח.פ / ת.ז עוסק</dt>
+            {isDraft ? (
+              <dd className="flex items-center gap-2 mt-0.5">
+                <input
+                  dir="ltr"
+                  className="form-input flex-1 min-w-0 text-sm py-1"
+                  value={taxIdInput}
+                  onChange={(e) => setTaxIdInput(e.target.value)}
+                  placeholder="ח.פ / ת.ז"
+                />
+                <button
+                  onClick={saveTaxId}
+                  disabled={savingTaxId || taxIdInput.trim() === (order.taxId || '')}
+                  className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1.5 rounded disabled:opacity-40 whitespace-nowrap"
+                >
+                  {savingTaxId ? '...' : taxIdSaved ? '✓ נשמר' : 'שמור'}
+                </button>
+              </dd>
+            ) : (
+              <dd className={!order.taxId ? 'text-amber-600' : ''}>{order.taxId || '⚠️ חסר'}</dd>
+            )}
+          </div>
           <div><dt className="text-gray-500">איש קשר</dt><dd>{order.contactName || '—'}</dd></div>
           <div><dt className="text-gray-500">מייל</dt><dd dir="ltr">{order.contactEmail || '—'}</dd></div>
           <div><dt className="text-gray-500">כתובת</dt><dd>{order.address || '—'}</dd></div>

@@ -1366,6 +1366,7 @@ export interface InstitutionalOrderData {
   paymentStatus?: 'unpaid' | 'partial' | 'paid' | null;
   paidAmount?: number | null;
   payingBody?: string | null;
+  taxId?: string | null;
   paymentTermsDays?: number;
   followUpDate?: string | null;
   salesperson?: string | null;

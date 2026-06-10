@@ -35,6 +35,7 @@ interface InstitutionalOrderRow {
   invoiceNumber?: string;
   notes?: string;
   payingBody?: string;
+  taxId?: string;
   paymentTermsDays?: number;
   followUpDate?: string;
   salesperson?: string;
@@ -97,6 +98,7 @@ const EMPTY_FORM: Partial<InstitutionalOrderData> = {
   notes: '',
   totalAmount: undefined,
   payingBody: '',
+  taxId: '',
   paymentTermsDays: 30,
   followUpDate: '',
   salesperson: '',
@@ -225,6 +227,7 @@ export default function InstitutionalOrders() {
       notes: o.notes || '',
       totalAmount: o.totalAmount,
       payingBody: o.payingBody || '',
+      taxId: o.taxId || '',
       paymentTermsDays: o.paymentTermsDays ?? 30,
       followUpDate: o.followUpDate?.slice(0, 10) || '',
       salesperson: o.salesperson || '',
@@ -304,6 +307,10 @@ export default function InstitutionalOrders() {
         <div>
           {lbl('גוף משלם')}
           <input className="form-input w-full" value={form.payingBody || ''} onChange={e => setForm(f => ({ ...f, payingBody: e.target.value }))} />
+        </div>
+        <div>
+          {lbl('ח.פ / ת.ז עוסק')}
+          <input className="form-input w-full" dir="ltr" value={form.taxId || ''} onChange={e => setForm(f => ({ ...f, taxId: e.target.value }))} placeholder="מופיע על חשבונית המוסד במורנינג" />
         </div>
         <div>
           {lbl('תנאי תשלום (ימים מסוף חודש ההנפקה)')}

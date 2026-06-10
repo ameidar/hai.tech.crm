@@ -314,7 +314,8 @@ billingRouter.post('/:id/unlock', adminOnly, async (req, res, next) => {
 // Preview — returns base64 PDF without touching Morning
 billingRouter.post('/:id/preview', managerOrAdmin, async (req, res, next) => {
   try {
-    const result = await previewBillingPeriod(req.params.id);
+    const documentDate = documentDateSchema.parse(req.body?.documentDate);
+    const result = await previewBillingPeriod(req.params.id, documentDate);
     res.json({ success: true, fileBase64: result.file });
   } catch (err: any) {
     if (err.body) return res.status(err.status || 500).json({ error: 'Morning API error', details: err.body });
@@ -325,7 +326,8 @@ billingRouter.post('/:id/preview', managerOrAdmin, async (req, res, next) => {
 // Issue — actually creates the document in Morning
 billingRouter.post('/:id/issue', managerOrAdmin, async (req, res, next) => {
   try {
-    const period = await issueBillingPeriod(req.params.id, req.user?.userId);
+    const documentDate = documentDateSchema.parse(req.body?.documentDate);
+    const period = await issueBillingPeriod(req.params.id, req.user?.userId, documentDate);
     await logAudit({ req, action: 'UPDATE', entity: 'BillingPeriod', entityId: period.id, newValue: { action: 'issued', morningDocNumber: period.morningDocNumber, totalAmount: period.totalAmount } });
     res.json(period);
   } catch (err: any) {

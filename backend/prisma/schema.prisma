@@ -446,6 +446,14 @@ model BillingPeriod {
   // (Ami issued the חשבון עסקה directly in Morning and linked it here; morningDoc* hold the pulled info).
   proformaSource String? @map("proforma_source")
 
+  // Frozen copy of what went onto the proforma (חשבון עסקה), captured at issue time:
+  // { income, vatType, remarks, description, grossTotal }. Every downstream document
+  // (320/305/400) is rebuilt from this snapshot — never from the live lines — so the
+  // tax invoice/receipt amount can never silently diverge from the proforma. For periods
+  // issued before this field existed (or linked from a manual Morning doc) it is filled
+  // lazily from the Morning document on first downstream issue. Shape: ProformaSnapshot.
+  proformaSnapshot Json? @map("proforma_snapshot")
+
   // Sending log — most recent send only; full history tracked via audit log
   sentAt      DateTime? @map("sent_at")
   sentChannel String?   @map("sent_channel") // 'morning_email' | 'whatsapp' | 'manual'

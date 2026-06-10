@@ -477,12 +477,123 @@ async function resolveMorningClient(
   return { client, discoveredId: null };
 }
 
+const VAT_RATE = 0.18;
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Frozen copy of the proforma (חשבון עסקה) at issue time, stored on
+ * BillingPeriod.proformaSnapshot. Every downstream document (320/305/400) is rebuilt from
+ * this so its amount can never silently diverge from the proforma.
+ *
+ * `income`/`vatType`/`remarks`/`description` are present only when we issued the proforma
+ * ourselves and therefore know the exact lines — those are reused verbatim. For legacy
+ * periods (issued before this field existed) or proformas issued by hand in Morning, only
+ * `grossTotal` is reconstructed from the Morning document, and it is used purely as a guard
+ * so a downstream document with a different total is refused rather than silently issued.
+ */
+export interface ProformaSnapshot {
+  income?: MorningIncomeItem[];
+  vatType?: 0 | 2;
+  remarks?: string;
+  description?: string;
+  grossTotal: number; // gross incl VAT — matches Morning's "סה״כ לתשלום"
+}
+
+/** Gross total (incl VAT) of a set of income lines, honoring each line's vatType. */
+export function grossFromIncome(income: MorningIncomeItem[]): number {
+  let total = 0;
+  for (const l of income) {
+    const net = Number(l.price) * Number(l.quantity);
+    // vatType 2 = price already includes VAT; 1 = exempt (no VAT); 0/undefined = add VAT on top.
+    const gross = l.vatType === 2 || l.vatType === 1 ? net : net * (1 + VAT_RATE);
+    total += gross;
+  }
+  return round2(total);
+}
+
+/** Build the proforma snapshot from the payload we just sent, preferring Morning's own gross. */
+export function buildProformaSnapshot(payload: CreateDocumentInput, morningAmount?: number): ProformaSnapshot {
+  return {
+    income: payload.income,
+    vatType: (payload.vatType as 0 | 2),
+    remarks: payload.remarks,
+    description: payload.description,
+    grossTotal: typeof morningAmount === 'number' && morningAmount > 0
+      ? round2(morningAmount)
+      : grossFromIncome(payload.income),
+  };
+}
+
+/**
+ * Return the period's proforma snapshot, reconstructing + persisting it from the Morning
+ * proforma document when missing (legacy / manual-Morning periods). Returns null only when
+ * there is nothing to anchor to (e.g. not issued yet, or Morning lookup failed) — callers
+ * then skip the amount guard rather than block.
+ */
+async function ensureProformaSnapshot(billingPeriodId: string): Promise<ProformaSnapshot | null> {
+  const period = await prisma.billingPeriod.findUnique({
+    where: { id: billingPeriodId },
+    select: { proformaSnapshot: true, morningDocId: true },
+  });
+  if (!period) return null;
+  if (period.proformaSnapshot) return period.proformaSnapshot as unknown as ProformaSnapshot;
+  if (!period.morningDocId) return null; // draft / never issued — nothing to reconstruct from
+
+  try {
+    const doc = await getMorningDocument(period.morningDocId);
+    const gross = typeof doc.amount === 'number' && doc.amount > 0
+      ? round2(doc.amount)
+      : (doc.income ? grossFromIncome(doc.income) : 0);
+    if (!(gross > 0)) return null;
+    const snap: ProformaSnapshot = { grossTotal: gross };
+    await prisma.billingPeriod.update({
+      where: { id: billingPeriodId },
+      data: { proformaSnapshot: snap as unknown as object },
+    });
+    return snap;
+  } catch (err) {
+    console.warn('[billing] ensureProformaSnapshot: Morning lookup failed', err);
+    return null;
+  }
+}
+
+/** Overwrite a downstream payload's amount-bearing fields with the proforma's frozen lines. */
+export function applyProformaSnapshot(payload: CreateDocumentInput, snap: ProformaSnapshot): void {
+  if (!snap.income || snap.income.length === 0) return; // legacy snapshot holds only grossTotal
+  payload.income = snap.income.map((l) => ({ ...l }));
+  if (snap.vatType !== undefined) payload.vatType = snap.vatType;
+  if (snap.remarks !== undefined) payload.remarks = snap.remarks;
+  if (snap.description !== undefined) payload.description = snap.description;
+  else delete payload.description;
+}
+
+/**
+ * Hard invariant: a downstream document's gross must equal the issued proforma's gross.
+ * This is what guarantees "every חשבונית מס/קבלה equals the חשבון עסקה before it". When we
+ * have no proforma anchor (snap === null) we cannot verify, so we don't block.
+ */
+export function assertProformaAmountMatch(
+  payload: CreateDocumentInput,
+  snap: ProformaSnapshot | null,
+  docLabel: string,
+): void {
+  if (!snap) return;
+  const gross = grossFromIncome(payload.income);
+  if (Math.abs(gross - snap.grossTotal) > 0.02) {
+    throw new Error(
+      `${docLabel} amount (₪${gross.toFixed(2)}) does not match the issued חשבון עסקה (₪${snap.grossTotal.toFixed(2)}). ` +
+      `Refusing to issue a document with a different total than the proforma. ` +
+      `If the proforma itself is wrong, cancel and re-issue it — the tax invoice/receipt must equal it.`,
+    );
+  }
+}
+
 /**
  * Build the Morning createDocument payload from a billing period (draft state).
  * Also returns the Morning client UUID we discovered on-the-fly (if any), so the caller
  * can persist it back to the institutional order on a successful issue.
  */
-async function buildMorningPayload(billingPeriodId: string): Promise<{
+async function buildMorningPayload(billingPeriodId: string, documentDate?: string): Promise<{
   payload: CreateDocumentInput;
   discoveredMorningClientId: string | null;
 }> {
@@ -544,17 +655,18 @@ async function buildMorningPayload(billingPeriodId: string): Promise<{
       income,
       remarks,
       ...(description ? { description } : {}),
+      ...(documentDate ? { date: documentDate } : {}),
     },
     discoveredMorningClientId: discoveredId,
   };
 }
 
-export async function previewBillingPeriod(billingPeriodId: string) {
-  const { payload } = await buildMorningPayload(billingPeriodId);
+export async function previewBillingPeriod(billingPeriodId: string, documentDate?: string) {
+  const { payload } = await buildMorningPayload(billingPeriodId, documentDate);
   return previewDocument(payload);
 }
 
-export async function issueBillingPeriod(billingPeriodId: string, issuedById?: string) {
+export async function issueBillingPeriod(billingPeriodId: string, issuedById?: string, documentDate?: string) {
   const period = await prisma.billingPeriod.findUnique({
     where: { id: billingPeriodId },
     include: { lines: true },
@@ -563,7 +675,7 @@ export async function issueBillingPeriod(billingPeriodId: string, issuedById?: s
   if (period.status === 'issued') throw new Error('Billing period already issued');
   if (period.status === 'cancelled') throw new Error('Billing period is cancelled');
 
-  const { payload, discoveredMorningClientId } = await buildMorningPayload(billingPeriodId);
+  const { payload, discoveredMorningClientId } = await buildMorningPayload(billingPeriodId, documentDate);
   const document = await createDocument(payload);
 
   // Snapshot meetings included in this issued invoice — used for drift detection later.
@@ -614,6 +726,8 @@ export async function issueBillingPeriod(billingPeriodId: string, issuedById?: s
         morningDocNumber: document.number,
         morningDocUrl: document.url?.he || document.url?.origin || null,
         morningDocType: document.type,
+        // Freeze exactly what went onto the proforma so every later 320/305/400 reuses it.
+        proformaSnapshot: buildProformaSnapshot(payload, document.amount) as unknown as object,
       },
       include: { lines: true, institutionalOrder: true },
     });
@@ -916,12 +1030,15 @@ async function buildTaxReceiptPayload(
   documentDate?: string,
 ) {
   const built = await buildMorningPayload(billingPeriodId);
+  const snap = await ensureProformaSnapshot(billingPeriodId);
+  if (snap) applyProformaSnapshot(built.payload, snap);
   built.payload.type = DOCUMENT_TYPES.TAX_INVOICE_RECEIPT; // 320
   const pays = payments ?? await defaultTaxReceiptPayments(billingPeriodId);
   built.payload.payment = toMorningPaymentArray(pays);
   // Optional: stamp the document with a specific date (e.g. the cheque's date) instead of today.
   // Morning enforces its own backdating window server-side and will reject dates outside it.
   if (documentDate) built.payload.date = documentDate;
+  assertProformaAmountMatch(built.payload, snap, 'חשבונית מס/קבלה');
   return built;
 }
 
@@ -992,8 +1109,11 @@ export async function issueTaxInvoiceOnly(
   if (period.taxInvoiceId) throw new Error('Tax invoice already issued for this period');
 
   const { payload, discoveredMorningClientId } = await buildMorningPayload(billingPeriodId);
+  const snap = await ensureProformaSnapshot(billingPeriodId);
+  if (snap) applyProformaSnapshot(payload, snap);
   payload.type = DOCUMENT_TYPES.TAX_INVOICE; // 305 — binding tax invoice, no payment section
   if (documentDate) payload.date = documentDate;
+  assertProformaAmountMatch(payload, snap, 'חשבונית מס');
   const document = await createDocument(payload);
 
   return prisma.$transaction(async (tx) => {
@@ -1042,12 +1162,17 @@ export async function issueReceipt(
   const receiptDate = input.documentDate || paidAtDate.toISOString().slice(0, 10);
 
   const { payload } = await buildMorningPayload(billingPeriodId);
+  const snap = await ensureProformaSnapshot(billingPeriodId);
+  if (snap) applyProformaSnapshot(payload, snap);
   payload.type = DOCUMENT_TYPES.RECEIPT; // 400
   payload.date = receiptDate;
   payload.linkedDocumentIds = [period.taxInvoiceId];
   payload.payment = toMorningPaymentArray([
     { date: receiptDate, type: methodToMorningType(input.method), amount: input.amount },
   ]);
+  // The receipt's line items must mirror the proforma/tax invoice; only the payment amount
+  // (input.amount) may be partial. Guard the item lines, not the payment.
+  assertProformaAmountMatch(payload, snap, 'קבלה');
   const document = await createDocument(payload);
 
   return prisma.$transaction(async (tx) => {

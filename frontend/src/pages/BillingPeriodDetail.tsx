@@ -153,6 +153,8 @@ export default function BillingPeriodDetail() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // Document date for the חשבון עסקה (proforma). Defaults to today; can be backdated.
+  const [docDate, setDocDate] = useState<string>(new Date().toISOString().slice(0, 10));
 
   // Inline editor state for new line
   const [newLine, setNewLine] = useState({ description: '', quantity: '1', unitPrice: '0' });
@@ -282,7 +284,7 @@ export default function BillingPeriodDetail() {
     setBusy(true);
     try {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
-      const { data } = await api.post(`/billing/${id}/preview`);
+      const { data } = await api.post(`/billing/${id}/preview`, { documentDate: docDate || undefined });
       const binary = atob(data.fileBase64);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -298,7 +300,7 @@ export default function BillingPeriodDetail() {
     setError(null);
     setBusy(true);
     try {
-      await api.post(`/billing/${id}/issue`);
+      await api.post(`/billing/${id}/issue`, { documentDate: docDate || undefined });
       await load();
     } catch (err) { handleErr(err); } finally { setBusy(false); }
   }
@@ -831,6 +833,12 @@ export default function BillingPeriodDetail() {
             <textarea className="form-input" rows={2} defaultValue={period.notes || ''}
               placeholder="הערות שיופיעו בתחתית המסמך"
               onBlur={(e) => e.target.value !== (period.notes || '') && updateNotesAndEmail({ notes: e.target.value })} />
+          </div>
+          <div>
+            <label className="form-label">תאריך החשבון עסקה</label>
+            <input type="date" className="form-input" value={docDate}
+              onChange={(e) => setDocDate(e.target.value)} />
+            <p className="text-xs text-gray-500 mt-1">ברירת מחדל: היום. ניתן להזין תאריך אחר (לדוגמה סוף החודש הקודם) לפני ההפקה.</p>
           </div>
           <label className="flex items-center gap-2 text-sm text-gray-700">
             <input type="checkbox" checked={period.sendByEmail}

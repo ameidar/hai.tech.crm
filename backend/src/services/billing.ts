@@ -1359,3 +1359,83 @@ export async function linkExternalReceipt(
     });
   });
 }
+
+/**
+ * Link a חשבונית מס (305) or חשבונית מס/קבלה (320) that was issued **directly in Morning**
+ * (outside the CRM) to this period's tax invoice fields. Mirrors issueTaxInvoiceOnly /
+ * issueTaxInvoice — but does NOT create any Morning document.
+ *
+ * For type 320: also marks the period as fully paid (period.totalAmount × 1.18 gross),
+ * because a 320 includes a receipt — the money was received.
+ * For type 305: only populates the tax invoice fields; receipts are linked separately.
+ */
+export async function linkExternalTaxInvoice(
+  billingPeriodId: string,
+  input: {
+    documentType: 305 | 320;
+    url?: string | null;
+    documentNumber?: number | null;
+    documentId?: string | null;
+    issuedAt?: string | null;
+  },
+  issuedById?: string,
+) {
+  const period = await prisma.billingPeriod.findUnique({ where: { id: billingPeriodId } });
+  if (!period) throw new Error('Billing period not found');
+  if (period.status !== 'issued') throw new Error('Proforma must be issued first');
+  if (period.taxInvoiceId) throw new Error('Tax invoice already linked for this period');
+
+  const searchType = input.documentType === 305 ? DOCUMENT_TYPES.TAX_INVOICE : DOCUMENT_TYPES.TAX_INVOICE_RECEIPT;
+
+  const explicitId = input.documentId?.trim() || null;
+  const urlId = input.url ? (input.url.match(UUID_RE)?.[0] ?? null) : null;
+  let docId: string | null = explicitId || urlId;
+  let docNumber: number | null = input.documentNumber ?? null;
+  let docUrl: string | null = input.url?.trim() || null;
+  let issuedAt: Date | null = input.issuedAt ? new Date(input.issuedAt) : null;
+
+  try {
+    if (docId) {
+      const doc = await getMorningDocument(docId);
+      docNumber = docNumber ?? doc.number ?? null;
+      docUrl = docUrl ?? doc.url?.he ?? doc.url?.origin ?? null;
+      if (!issuedAt && doc.documentDate) issuedAt = new Date(doc.documentDate);
+    } else if (docNumber != null) {
+      const { items } = await searchMorningDocuments({ type: [searchType], number: docNumber });
+      const match = items.find((d) => d.number === docNumber) ?? items[0];
+      if (match) {
+        docId = match.id ?? null;
+        docUrl = docUrl ?? match.url?.he ?? match.url?.origin ?? null;
+        if (!issuedAt && match.documentDate) issuedAt = new Date(match.documentDate);
+      }
+    }
+  } catch (err) {
+    console.warn('[billing] linkExternalTaxInvoice: Morning enrichment failed', err);
+  }
+
+  if (docNumber == null) {
+    throw new Error('A Morning document number (or a resolvable document id) is required to link an external tax invoice');
+  }
+
+  const issuedAtDate = issuedAt ?? new Date();
+  const is320 = input.documentType === DOCUMENT_TYPES.TAX_INVOICE_RECEIPT;
+  const totalGross = Number(period.totalAmount) * 1.18;
+
+  return prisma.billingPeriod.update({
+    where: { id: billingPeriodId },
+    data: {
+      taxInvoiceId: docId,
+      taxInvoiceNumber: docNumber,
+      taxInvoiceUrl: docUrl,
+      taxInvoiceIssuedAt: issuedAtDate,
+      taxInvoiceIssuedById: issuedById || null,
+      taxInvoiceType: input.documentType,
+      ...(is320 && {
+        paidAmount: totalGross,
+        paymentStatus: 'paid',
+        paidAt: issuedAtDate,
+      }),
+    },
+    include: { lines: true, institutionalOrder: true, payments: true },
+  });
+}

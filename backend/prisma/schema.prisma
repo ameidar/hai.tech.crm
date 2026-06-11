@@ -427,6 +427,10 @@ model BillingPeriod {
   morningDocNumber Int?    @map("morning_doc_number")
   morningDocUrl    String? @map("morning_doc_url")
   morningDocType   Int?    @map("morning_doc_type")
+  // Snapshot of the Morning client (לכבוד) name as it appeared on the issued/linked document.
+  // The monthly-accounts list shows this for the institution (from the most-recently-issued
+  // period), so the displayed name matches Morning exactly; falls back to orderName when null.
+  morningClientName String? @map("morning_client_name")
   // Morning draft — set when we push a draft to Morning's drafts area without finalizing.
   // The user finalizes manually from Morning UI (lets them backdate beyond API limits)
   // and then calls our `mark-issued-manually` route to fill in the morningDoc* fields above.

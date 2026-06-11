@@ -477,6 +477,22 @@ async function resolveMorningClient(
   return { client, discoveredId: null };
 }
 
+/**
+ * Read the client (לכבוד) name exactly as it appears on a Morning document. Best-effort:
+ * a lookup failure must never block issuing/linking, so we return null and fall back to the
+ * order name. The monthly-accounts list snapshots this onto the period so the displayed
+ * institution name matches Morning.
+ */
+async function fetchMorningDocClientName(docId: string): Promise<string | null> {
+  try {
+    const doc = await getMorningDocument(docId);
+    return doc.client?.name?.trim() || null;
+  } catch (err: any) {
+    console.warn(`[billing] could not read Morning client name for doc ${docId}:`, err?.message || err);
+    return null;
+  }
+}
+
 const VAT_RATE = 0.18;
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -678,6 +694,10 @@ export async function issueBillingPeriod(billingPeriodId: string, issuedById?: s
   const { payload, discoveredMorningClientId } = await buildMorningPayload(billingPeriodId, documentDate);
   const document = await createDocument(payload);
 
+  // Snapshot the client (לכבוד) name on the issued document for the monthly-accounts list.
+  // Prefer the create response's client; otherwise read it back from the document.
+  const morningClientName = document.client?.name?.trim() || (await fetchMorningDocClientName(document.id));
+
   // Snapshot meetings included in this issued invoice — used for drift detection later.
   const summaries = await computeBillingLines(
     period.institutionalOrderId,
@@ -726,6 +746,7 @@ export async function issueBillingPeriod(billingPeriodId: string, issuedById?: s
         morningDocNumber: document.number,
         morningDocUrl: document.url?.he || document.url?.origin || null,
         morningDocType: document.type,
+        morningClientName,
         // Freeze exactly what went onto the proforma so every later 320/305/400 reuses it.
         proformaSnapshot: buildProformaSnapshot(payload, document.amount) as unknown as object,
       },
@@ -787,6 +808,7 @@ export interface ManualIssueInput {
   morningDocType?: number | null;     // defaults to 300 (proforma)
   issuedAt?: Date;                    // defaults to now()
   proformaSource?: string | null;     // e.g. 'manual_morning' when linked from a doc issued directly in Morning
+  morningClientName?: string | null;  // לכבוד name on the document; auto-read from morningDocId when omitted
 }
 
 export async function markBillingPeriodIssuedManually(
@@ -805,6 +827,11 @@ export async function markBillingPeriodIssuedManually(
   const issuedAt = input.issuedAt ?? new Date();
   const dueDate = new Date(issuedAt);
   dueDate.setUTCDate(dueDate.getUTCDate() + 8);
+
+  // Capture the Morning client name as it appears on the document so the monthly-accounts
+  // list can show it. When the caller didn't pass it, read it from the linked document.
+  const morningClientName =
+    input.morningClientName ?? (input.morningDocId ? await fetchMorningDocClientName(input.morningDocId) : null);
 
   // Snapshot meetings — same as auto-issue path.
   const summaries = await computeBillingLines(
@@ -839,6 +866,7 @@ export async function markBillingPeriodIssuedManually(
         morningDocNumber: input.morningDocNumber,
         morningDocUrl: input.morningDocUrl ?? null,
         morningDocType: input.morningDocType ?? 300,
+        morningClientName,
         proformaSource: input.proformaSource ?? null,
         morningDraftId: null, // draft has graduated; clear the pointer
       },

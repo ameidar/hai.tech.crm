@@ -1374,12 +1374,13 @@ export interface InstitutionalOrderData {
   createdBy?: string | null;
 }
 
-export const useInstitutionalOrders = (params?: { status?: string; page?: number; limit?: number; withCycles?: boolean; withRelevantCycles?: boolean }) => {
+export const useInstitutionalOrders = (params?: { status?: string; page?: number; limit?: number; withCycles?: boolean; withRelevantCycles?: boolean; search?: string }) => {
   const queryString = new URLSearchParams();
   if (params?.status) queryString.set('status', params.status);
   if (params?.page) queryString.set('page', String(params.page));
   if (params?.withCycles) queryString.set('withCycles', 'true');
   if (params?.withRelevantCycles) queryString.set('withRelevantCycles', 'true');
+  if (params?.search) queryString.set('search', params.search);
   queryString.set('limit', String(params?.limit || 50));
   return useQuery({
     queryKey: ['institutional-orders', params],

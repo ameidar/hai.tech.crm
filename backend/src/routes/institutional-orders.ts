@@ -84,6 +84,23 @@ institutionalOrdersRouter.get('/', async (req, res, next) => {
     const withCycles = req.query.withCycles === 'true';
     const withRelevantCycles = req.query.withRelevantCycles === 'true';
     const forBilling = req.query.forBilling === 'true';
+    const search = (req.query.search as string | undefined)?.trim();
+
+    // Server-side search so the list isn't limited to the current page's rows. Matches the
+    // same fields the UI exposes: order name/number, contact, paying body, and branch name.
+    const searchFilter = search
+      ? {
+          OR: [
+            { orderName: { contains: search, mode: 'insensitive' as const } },
+            { orderNumber: { contains: search, mode: 'insensitive' as const } },
+            { contactName: { contains: search, mode: 'insensitive' as const } },
+            { contactPhone: { contains: search, mode: 'insensitive' as const } },
+            { payingBody: { contains: search, mode: 'insensitive' as const } },
+            { salesperson: { contains: search, mode: 'insensitive' as const } },
+            { branch: { is: { name: { contains: search, mode: 'insensitive' as const } } } },
+          ],
+        }
+      : {};
 
     const linkedCyclesFilter = withCycles
       ? {
@@ -119,6 +136,7 @@ institutionalOrdersRouter.get('/', async (req, res, next) => {
       ...(forBilling && !status ? { status: { in: ['active', 'completed'] as const } } : {}),
       ...linkedCyclesFilter,
       ...relevantCyclesFilter,
+      ...searchFilter,
     };
 
     const [orders, total] = await Promise.all([

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { FileText, Building2, Search, Filter, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, List, MapPin, Phone, RefreshCcw, Plus, Pencil, Trash2, CheckSquare, Square, X, Upload, Loader2 } from 'lucide-react';
+import { FileText, Building2, Search, Filter, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, List, MapPin, Phone, RefreshCcw, Plus, Pencil, Trash2, CheckSquare, Square, X, Upload, Loader2, HelpCircle } from 'lucide-react';
 import { useInstitutionalOrders, useInstitutionalOrderById, useCreateInstitutionalOrder, useUpdateInstitutionalOrder, useDeleteInstitutionalOrder, useBranches, usePayingBodies } from '../hooks/useApi';
 import type { InstitutionalOrderData } from '../hooks/useApi';
 import { quotesApi, type OrderPreview } from '../api/quotes';
@@ -312,7 +312,16 @@ export default function InstitutionalOrders() {
     setSelectedIds(new Set());
   };
 
-  const lbl = (text: string) => <label className="block text-sm font-medium text-gray-700 mb-1">{text}</label>;
+  const lbl = (text: string, help?: string) => (
+    <label className="flex items-center gap-1 text-sm font-medium text-gray-700 mb-1">
+      {text}
+      {help && (
+        <span title={help} className="text-gray-400 hover:text-gray-600 cursor-help">
+          <HelpCircle size={14} />
+        </span>
+      )}
+    </label>
+  );
 
   // OrderForm is intentionally inlined (not extracted into a child component) so the
   // input elements keep stable identity across keystrokes. Defining it as
@@ -345,7 +354,10 @@ export default function InstitutionalOrders() {
           />
         </div>
         <div>
-          {lbl(editItem ? 'גוף משלם' : 'גוף משלם *')}
+          {lbl(
+            editItem ? 'גוף משלם' : 'גוף משלם *',
+            'מי שמחויב על ההזמנה — מקביל ללקוח במורנינג. החיוב יופק לפי הגוף המשלם, כך שלא נוצרות כפילויות במורנינג. חובה בהזמנה חדשה; הזמנות ישנות בלי גוף משלם ממשיכות לעבוד.',
+          )}
           <SearchableSelect
             options={payingBodyOptions}
             value={form.payingBodyId || ''}
@@ -357,6 +369,7 @@ export default function InstitutionalOrders() {
             type="button"
             onClick={() => navigate('/paying-bodies')}
             className="mt-1 text-xs text-blue-600 hover:text-blue-700 hover:underline"
+            title="פתח את מסך הגופים המשלמים כדי ליצור גוף חדש (כולל חיפוש וקישור ללקוח קיים במורנינג)"
           >
             + צור גוף משלם חדש
           </button>
@@ -391,7 +404,10 @@ export default function InstitutionalOrders() {
         </div>
         {form.payingBody ? (
           <div className="col-span-2">
-            {lbl('גוף משלם (טקסט חופשי - ישן)')}
+            {lbl(
+              'גוף משלם (טקסט חופשי - ישן)',
+              'השדה הישן מהתקופה שלפני הגופים המשלמים. נשמר לתקופת מעבר בלבד. החיוב כבר לא מסתמך עליו — קשרו גוף משלם אמיתי בבורר שלמעלה.',
+            )}
             <input
               className="form-input w-full bg-gray-50 text-gray-500"
               value={form.payingBody || ''}

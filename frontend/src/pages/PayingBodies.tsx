@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Wallet, Search, Edit2, Trash2, AlertTriangle, CheckCircle2, Link2, Loader2 } from 'lucide-react';
+import { Plus, Wallet, Search, Edit2, Trash2, AlertTriangle, CheckCircle2, Link2, Loader2, HelpCircle } from 'lucide-react';
 import {
   usePayingBodies,
   useCreatePayingBody,
@@ -81,7 +81,7 @@ export default function PayingBodies() {
         title="גופים משלמים"
         subtitle={`${list.length} גופים${incompleteCount ? ` · ${incompleteCount} חסרי השלמה` : ''}`}
         actions={
-          <button onClick={() => setShowAdd(true)} className="btn btn-primary">
+          <button onClick={() => setShowAdd(true)} className="btn btn-primary" title="צור גוף משלם חדש — אפשר לחפש ולקשר ללקוח קיים במורנינג כדי למנוע כפילות">
             <Plus size={18} /> גוף משלם חדש
           </button>
         }
@@ -121,9 +121,17 @@ export default function PayingBodies() {
                   <th className="p-3 text-right font-medium text-gray-600">ח.פ / ת.ז</th>
                   <th className="p-3 text-right font-medium text-gray-600">איש קשר</th>
                   <th className="p-3 text-right font-medium text-gray-600">מייל</th>
-                  <th className="p-3 text-center font-medium text-gray-600">מורנינג</th>
+                  <th className="p-3 text-center font-medium text-gray-600">
+                    <span className="inline-flex items-center gap-1">מורנינג
+                      <span title="האם הגוף המשלם מקושר ללקוח קיים במורנינג. מקושר = החיוב מופק לפי המזהה ולא נוצרת כפילות." className="text-gray-400 cursor-help"><HelpCircle size={13} /></span>
+                    </span>
+                  </th>
                   <th className="p-3 text-center font-medium text-gray-600">הזמנות</th>
-                  <th className="p-3 text-center font-medium text-gray-600">סטטוס</th>
+                  <th className="p-3 text-center font-medium text-gray-600">
+                    <span className="inline-flex items-center gap-1">סטטוס
+                      <span title="'מלא' = יש שם, ח.פ/ת.ז, איש קשר ומייל, וניתן להפיק חיוב. 'חסר השלמה' = חסרים שדות חובה והחיוב חסום עד שמשלימים." className="text-gray-400 cursor-help"><HelpCircle size={13} /></span>
+                    </span>
+                  </th>
                   <th className="p-3 text-right font-medium text-gray-600">פעולות</th>
                 </tr>
               </thead>
@@ -153,12 +161,12 @@ export default function PayingBodies() {
                     <td className="p-3 text-center text-gray-600">{b._count?.institutionalOrders ?? 0}</td>
                     <td className="p-3 text-center">
                       {b.isComplete ? (
-                        <span className="inline-flex items-center gap-1 badge badge-success"><CheckCircle2 size={13} /> מלא</span>
+                        <span className="inline-flex items-center gap-1 badge badge-success" title="כל שדות החובה מלאים — אפשר להפיק חיוב לגוף משלם זה."><CheckCircle2 size={13} /> מלא</span>
                       ) : (
                         <div className="flex flex-col items-center gap-1">
-                          <span className="inline-flex items-center gap-1 badge badge-warning"><AlertTriangle size={13} /> חסר השלמה</span>
+                          <span className="inline-flex items-center gap-1 badge badge-warning" title="חסרים שדות חובה. לא ניתן להפיק חיוב לגוף משלם זה עד שמשלימים אותם."><AlertTriangle size={13} /> חסר השלמה</span>
                           {missingFields(b).length > 0 && (
-                            <span className="text-[11px] text-amber-700">חסר: {missingFields(b).join(', ')}</span>
+                            <span className="text-[11px] text-amber-700" title="השדות שעדיין חסרים כדי שאפשר יהיה לחייב">חסר: {missingFields(b).join(', ')}</span>
                           )}
                         </div>
                       )}
@@ -166,10 +174,10 @@ export default function PayingBodies() {
                     <td className="p-3">
                       <div className="flex items-center gap-1">
                         {!b.isComplete && (
-                          <button onClick={() => setEditing(b)} className="btn btn-primary py-1 px-2 text-xs">השלם</button>
+                          <button onClick={() => setEditing(b)} className="btn btn-primary py-1 px-2 text-xs" title="פתח להשלמת שדות החובה — אפשר למשוך את הפרטים אוטומטית ממורנינג">השלם</button>
                         )}
-                        <button onClick={() => setEditing(b)} className="p-1.5 hover:bg-blue-100 rounded transition-colors text-blue-600" title="עריכה"><Edit2 size={14} /></button>
-                        <button onClick={() => setDeleteConfirm(b)} className="p-1.5 hover:bg-red-100 rounded transition-colors text-red-500" title="מחיקה"><Trash2 size={14} /></button>
+                        <button onClick={() => setEditing(b)} className="p-1.5 hover:bg-blue-100 rounded transition-colors text-blue-600" title="עריכת פרטי הגוף המשלם"><Edit2 size={14} /></button>
+                        <button onClick={() => setDeleteConfirm(b)} className="p-1.5 hover:bg-red-100 rounded transition-colors text-red-500" title="מחיקה (חסומה אם מקושרות הזמנות)"><Trash2 size={14} /></button>
                       </div>
                     </td>
                   </tr>
@@ -240,6 +248,14 @@ function PayingBodyForm({ body, onSubmit, onCancel, isLoading }: FormProps) {
     name: form.name, taxId: form.taxId, contactName: form.contactName, email: form.email,
   });
 
+  // Required-field label with a tooltip explaining why it's mandatory (the billing gate).
+  const reqLabel = (text: string, help: string) => (
+    <label className="form-label flex items-center gap-1">
+      {text} *
+      <span title={help} className="text-gray-400 hover:text-gray-600 cursor-help"><HelpCircle size={13} /></span>
+    </label>
+  );
+
   const handleMorningSearch = async () => {
     setSearchError(null);
     setResults(null);
@@ -300,14 +316,14 @@ function PayingBodyForm({ body, onSubmit, onCancel, isLoading }: FormProps) {
             <span className="font-medium">חיפוש לקוח קיים במורנינג</span>
             <p className="text-emerald-700 text-xs mt-0.5">חפש לפי השם או הח.פ כדי להתחבר ללקוח קיים ולמנוע כפילות.</p>
           </div>
-          <button type="button" onClick={handleMorningSearch} disabled={searching} className="btn btn-secondary">
+          <button type="button" onClick={handleMorningSearch} disabled={searching} className="btn btn-secondary" title="מלאו שם או ח.פ ולחצו — נחפש לקוח קיים במורנינג, וכשבוחרים אותו נמשכים הפרטים אוטומטית ונשמר הקישור (בלי כפילות)">
             {searching ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />} חפש במורנינג
           </button>
         </div>
         {form.morningClientId && (
-          <div className="mt-3 inline-flex items-center gap-1.5 text-sm text-emerald-700 bg-white border border-emerald-200 rounded px-2 py-1">
+          <div className="mt-3 inline-flex items-center gap-1.5 text-sm text-emerald-700 bg-white border border-emerald-200 rounded px-2 py-1" title="גוף משלם זה מקושר ללקוח קיים במורנינג. החיוב יופק לפי המזהה ולא תיווצר כפילות.">
             <Link2 size={14} /> מקושר ללקוח במורנינג
-            <button type="button" onClick={() => set({ morningClientId: '' })} className="text-emerald-500 hover:text-red-500 ms-1" title="נתק">✕</button>
+            <button type="button" onClick={() => set({ morningClientId: '' })} className="text-emerald-500 hover:text-red-500 ms-1" title="נתק את הקישור ללקוח במורנינג">✕</button>
           </div>
         )}
         {searchError && <div className="mt-3 text-sm text-red-600">{searchError}</div>}
@@ -339,19 +355,19 @@ function PayingBodyForm({ body, onSubmit, onCancel, isLoading }: FormProps) {
 
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2">
-          <label className="form-label">שם הגוף המשלם *</label>
+          {reqLabel('שם הגוף המשלם', 'שם המשלם — זהו גם שם הלקוח שיופיע במורנינג ("לכבוד" על החשבונית). שדה חובה לחיוב.')}
           <input type="text" value={form.name} onChange={(e) => set({ name: e.target.value })} className={reqClass(form.name)} required />
         </div>
         <div>
-          <label className="form-label">ח.פ / ת.ז *</label>
+          {reqLabel('ח.פ / ת.ז', 'מספר העוסק/חברה (ח.פ) או ת.ז של המשלם. נדרש לזיהוי הלקוח במורנינג ומונע כפילויות. שדה חובה לחיוב.')}
           <input type="text" value={form.taxId} onChange={(e) => set({ taxId: e.target.value })} className={reqClass(form.taxId)} dir="ltr" required />
         </div>
         <div>
-          <label className="form-label">איש קשר *</label>
+          {reqLabel('איש קשר', 'שם איש הקשר אצל המשלם. נשמר אצלנו במערכת (לא נשלח כשדה נפרד למורנינג). שדה חובה לחיוב.')}
           <input type="text" value={form.contactName} onChange={(e) => set({ contactName: e.target.value })} className={reqClass(form.contactName)} required />
         </div>
         <div>
-          <label className="form-label">מייל *</label>
+          {reqLabel('מייל', 'כתובת המייל לשליחת מסמכי החיוב. שדה חובה לחיוב.')}
           <input type="email" value={form.email} onChange={(e) => set({ email: e.target.value })} className={reqClass(form.email)} dir="ltr" required />
         </div>
         <div>

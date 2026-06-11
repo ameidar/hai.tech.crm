@@ -1274,3 +1274,88 @@ export async function linkExternalProforma(
     issuedById,
   );
 }
+
+/**
+ * Link a קבלה (receipt, type 400) that was issued **directly in Morning** (outside the CRM)
+ * to this period's standalone 305 tax invoice. Mirrors {@link issueReceipt}'s bookkeeping —
+ * records a BillingPayment and rolls up paidAmount/paymentStatus — but does **not** create any
+ * Morning document (the receipt already exists in Morning). Best-effort enriches the receipt
+ * number/url from Morning by id or number so the payment row links back to the signed document.
+ */
+export async function linkExternalReceipt(
+  billingPeriodId: string,
+  input: {
+    amount: number;
+    method?: string | null;
+    paidAt?: string | null;
+    url?: string | null;
+    documentNumber?: number | null;
+    documentId?: string | null;
+  },
+  recordedById?: string,
+) {
+  const period = await prisma.billingPeriod.findUnique({ where: { id: billingPeriodId } });
+  if (!period) throw new Error('Billing period not found');
+  if (!period.taxInvoiceId) throw new Error('Issue the tax invoice (305) before linking a receipt');
+  if (period.taxInvoiceType !== DOCUMENT_TYPES.TAX_INVOICE) {
+    throw new Error('Linking a separate receipt applies only to a standalone 305 tax invoice (a 320 already includes a receipt)');
+  }
+  if (!(input.amount > 0)) throw new Error('Receipt amount must be positive');
+
+  // Resolve a UUID id from the explicit field or, failing that, from the pasted URL.
+  const explicitId = input.documentId?.trim() || null;
+  const urlId = input.url ? (input.url.match(UUID_RE)?.[0] ?? null) : null;
+  let docId: string | null = explicitId || urlId;
+  let docNumber: number | null = input.documentNumber ?? null;
+  let docUrl: string | null = input.url?.trim() || null;
+
+  // Best-effort enrichment — never let a Morning lookup failure block the link.
+  try {
+    if (docId) {
+      const doc = await getMorningDocument(docId);
+      docNumber = docNumber ?? doc.number ?? null;
+      docUrl = docUrl ?? doc.url?.he ?? doc.url?.origin ?? null;
+    } else if (docNumber != null) {
+      const { items } = await searchMorningDocuments({ type: [DOCUMENT_TYPES.RECEIPT], number: docNumber });
+      const match = items.find((d) => d.number === docNumber) ?? items[0];
+      if (match) {
+        docId = match.id ?? null;
+        docUrl = docUrl ?? match.url?.he ?? match.url?.origin ?? null;
+      }
+    }
+  } catch (err) {
+    console.warn('[billing] linkExternalReceipt: Morning enrichment failed', err);
+  }
+
+  if (docNumber == null) {
+    throw new Error('A Morning receipt number (or a resolvable document id) is required to link an external receipt');
+  }
+
+  const paidAtDate = input.paidAt ? new Date(input.paidAt) : new Date();
+
+  return prisma.$transaction(async (tx) => {
+    await tx.billingPayment.create({
+      data: {
+        billingPeriodId,
+        amount: input.amount,
+        method: input.method || 'קבלה (מורנינג)',
+        paidAt: paidAtDate,
+        recordedById: recordedById || null,
+        morningReceiptId: docId,
+        morningReceiptNumber: docNumber,
+        morningReceiptUrl: docUrl,
+      },
+    });
+    const sums = await tx.billingPayment.aggregate({ where: { billingPeriodId }, _sum: { amount: true } });
+    const paidAmount = Number(sums._sum.amount ?? 0);
+    const totalGross = Number(period.totalAmount) * 1.18;
+    const isFullyPaid = paidAmount + 0.01 >= totalGross;
+    const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
+
+    return tx.billingPeriod.update({
+      where: { id: billingPeriodId },
+      data: { paidAmount, paymentStatus, paidAt: isFullyPaid ? paidAtDate : null },
+      include: { payments: { orderBy: { paidAt: 'desc' } }, lines: true, institutionalOrder: true },
+    });
+  });
+}

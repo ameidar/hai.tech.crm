@@ -72,7 +72,7 @@ billingRouter.get('/', async (req, res, next) => {
 
     // Resolve the institution's display name from Morning: the client (לכבוד) name on the
     // most-recently-issued document for that order — independent of the current filter, so the
-    // name stays stable even when only drafts are shown. Falls back to orderName in the UI.
+    // name stays stable even when only drafts are shown. The UI shows '—' when there is none.
     const orderIds = [...new Set(periods.map((p) => p.institutionalOrderId))];
     const nameRows = orderIds.length
       ? await prisma.billingPeriod.findMany({

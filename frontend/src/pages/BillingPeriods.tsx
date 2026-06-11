@@ -117,9 +117,10 @@ export default function BillingPeriods() {
       const key = p.institutionalOrder.id;
       let g = map.get(key);
       if (!g) {
-        // Prefer the Morning client name (matches the issued document exactly); fall back to
-        // the internal order name until a document has been issued for this institution.
-        const name = p.institutionalOrder.morningClientName || p.institutionalOrder.orderName || '—';
+        // Institution name comes only from Morning (the client/לכבוד name on the most-recently
+        // issued document), so it always matches Morning exactly. No internal orderName fallback:
+        // an institution with no issued Morning document yet shows '—'.
+        const name = p.institutionalOrder.morningClientName || '—';
         g = { id: key, name, taxId: p.institutionalOrder.taxId, periods: [] };
         map.set(key, g);
       }

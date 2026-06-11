@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { orderSchema } from '../src/routes/institutional-orders.js';
+import { orderSchema, createOrderSchema } from '../src/routes/institutional-orders.js';
 
 // Regression: editing an institutional order round-trips ALL existing fields
 // from the frontend. Legacy/imported records may hold free text in
@@ -61,5 +61,47 @@ describe('institutional orderSchema (PUT round-trip tolerance)', () => {
       expect(result.data.totalAmount).toBeNull();
       expect(result.data.pricePerMeeting).toBeNull();
     }
+  });
+});
+
+// New orders must be tied to both a branch and a paying body. Same grandfather
+// pattern as branch (#182): enforced on CREATE only — legacy orders stay editable
+// via the all-optional update schema.
+describe('createOrderSchema (branch + paying body required on create)', () => {
+  it('accepts a create with both branchId and payingBodyId', () => {
+    const result = createOrderSchema.safeParse({
+      branchId: '046d5fac-1282-492f-ae12-e876566967c4',
+      payingBodyId: 'a1b2c3d4-0000-0000-0000-000000000000',
+      orderName: 'הזמנה מוסדית',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a create with no payingBodyId', () => {
+    const result = createOrderSchema.safeParse({
+      branchId: '046d5fac-1282-492f-ae12-e876566967c4',
+      orderName: 'הזמנה מוסדית',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a create with an empty payingBodyId', () => {
+    const result = createOrderSchema.safeParse({
+      branchId: '046d5fac-1282-492f-ae12-e876566967c4',
+      payingBodyId: '',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('still requires a branch on create', () => {
+    const result = createOrderSchema.safeParse({
+      payingBodyId: 'a1b2c3d4-0000-0000-0000-000000000000',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('update schema leaves payingBodyId optional (legacy rows stay editable)', () => {
+    const result = orderSchema.partial().safeParse({ orderName: 'עדכון בלי גוף משלם' });
+    expect(result.success).toBe(true);
   });
 });

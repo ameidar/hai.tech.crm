@@ -20,6 +20,7 @@ import {
   issueReceipt,
   linkExternalProforma,
   linkExternalReceipt,
+  linkExternalTaxInvoice,
   sendBillingPeriodAsDraft,
   markBillingPeriodIssuedManually,
   formatHebrewRange,
@@ -609,6 +610,38 @@ billingRouter.get('/:id/receipts', async (req, res, next) => {
     });
     res.json(receipts);
   } catch (err) { next(err); }
+});
+
+// Link a חשבונית מס (305) or חשבונית מס/קבלה (320) issued directly in Morning to this period's
+// tax invoice fields. Does NOT create a Morning document. For 320: also marks the period as paid.
+billingRouter.post('/:id/link-external-tax-invoice', managerOrAdmin, async (req, res, next) => {
+  try {
+    const data = z.object({
+      documentType: z.union([z.literal(305), z.literal(320)]),
+      url: z.string().optional().nullable(),
+      documentNumber: z.number().int().positive().optional().nullable(),
+      documentId: z.string().optional().nullable(),
+      issuedAt: z.string().optional().nullable(),
+    }).refine((v) => v.url || v.documentNumber || v.documentId, {
+      message: 'Provide at least one of url, documentNumber, or documentId',
+    }).parse(req.body);
+
+    const period = await linkExternalTaxInvoice(req.params.id, {
+      documentType: data.documentType,
+      url: data.url ?? null,
+      documentNumber: data.documentNumber ?? null,
+      documentId: data.documentId ?? null,
+      issuedAt: data.issuedAt ?? null,
+    }, req.user?.userId);
+    await logAudit({ req, action: 'UPDATE', entity: 'BillingPeriod', entityId: period.id, newValue: { action: 'link-external-tax-invoice', taxInvoiceNumber: period.taxInvoiceNumber, taxInvoiceType: period.taxInvoiceType, paymentStatus: period.paymentStatus } });
+    res.json(period);
+  } catch (err: any) {
+    if (err.message?.includes('must be issued first') || err.message?.includes('already linked') || err.message?.includes('required to link')) {
+      return res.status(409).json({ error: err.message });
+    }
+    if (err.message === 'Billing period not found') return res.status(404).json({ error: err.message });
+    next(err);
+  }
 });
 
 // Link a חשבון עסקה (proforma) issued directly in Morning as this period's proforma.

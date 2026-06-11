@@ -97,6 +97,36 @@ export interface Branch {
   };
 }
 
+// גוף משלם — a reusable payer that mirrors a client in Morning (Green Invoice).
+export interface PayingBody {
+  id: string;
+  name: string;
+  taxId?: string | null;
+  contactName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  city?: string | null;
+  zip?: string | null;
+  morningClientId?: string | null;
+  isComplete: boolean;
+  createdAt: string;
+  _count?: {
+    institutionalOrders: number;
+  };
+}
+
+// A client record returned from Morning's directory search.
+export interface MorningClientResult {
+  id: string;
+  name: string;
+  taxId?: string | null;
+  emails?: string[];
+  phone?: string | null;
+  address?: string | null;
+  city?: string | null;
+}
+
 export interface InstitutionalOrder {
   id: string;
   branchId?: string;

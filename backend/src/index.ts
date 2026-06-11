@@ -50,6 +50,7 @@ import { reportsRouter } from './routes/reports.js';
 import { workHoursRouter } from './routes/work-hours.js';
 import { leadAppointmentsRouter } from './routes/lead-appointments.js';
 import { institutionalOrdersRouter } from './routes/institutional-orders.js';
+import { payingBodiesRouter } from './routes/paying-bodies.js';
 import { meetingRequestsRouter } from './routes/meeting-requests.js';
 import { filesRouter } from './routes/files.js';
 import { systemUsersRouter } from './routes/system-users.js';
@@ -225,6 +226,7 @@ app.use('/api/messenger/webhook', cors({ origin: '*', credentials: false, method
 app.use('/api/instagram/webhook', cors({ origin: '*', credentials: false, methods: ['GET', 'POST', 'OPTIONS'] }));
 app.use('/api/lead-appointments', leadAppointmentsRouter); // Lead appointment management
 app.use('/api/institutional-orders', institutionalOrdersRouter); // Institutional orders
+app.use('/api/paying-bodies', payingBodiesRouter); // Paying bodies (גוף משלם) — mirrors a Morning client
 app.use('/api/meeting-requests', meetingRequestsRouter); // Meeting change requests
 app.use('/api/files', filesRouter); // File attachments (instructors, quotes)
 app.use('/api/wa', waRouter); // WhatsApp Cloud API inbox

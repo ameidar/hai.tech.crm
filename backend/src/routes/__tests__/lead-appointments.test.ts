@@ -58,7 +58,9 @@ describe('Lead Appointments API', () => {
       const res = await request(app).get('/api/lead-appointments');
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data).toEqual(items);
+      expect(res.body.data).toEqual([
+        { ...items[0], manageUrl: expect.stringContaining('/appointment/1/') },
+      ]);
       expect(res.body.pagination.total).toBe(1);
     });
 
@@ -127,7 +129,10 @@ describe('Lead Appointments API', () => {
 
       const res = await request(app).get('/api/lead-appointments/abc');
       expect(res.status).toBe(200);
-      expect(res.body.data).toEqual(item);
+      expect(res.body.data).toEqual({
+        ...item,
+        manageUrl: expect.stringContaining('/appointment/abc/'),
+      });
     });
 
     it('returns 404 when not found', async () => {
@@ -148,7 +153,10 @@ describe('Lead Appointments API', () => {
         .send({ appointmentStatus: 'completed' });
 
       expect(res.status).toBe(200);
-      expect(res.body.data).toEqual(updated);
+      expect(res.body.data).toEqual({
+        ...updated,
+        manageUrl: expect.stringContaining('/appointment/abc/'),
+      });
       expect(mockPrisma.leadAppointment.update).toHaveBeenCalledWith({
         where: { id: 'abc' },
         data: { appointmentStatus: 'completed' },

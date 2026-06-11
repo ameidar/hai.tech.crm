@@ -40,6 +40,7 @@ import { forecastRouter } from './routes/forecast.js';
 import { quotesRouter } from './routes/quotes.js';
 import { publicQuoteRouter } from './routes/public-quote.js';
 import { publicCancelRouter } from './routes/public-cancel.js';
+import { publicAppointmentRouter } from './routes/public-appointment.js';
 import { vapiWebhookRouter } from './routes/vapi-webhook.js';
 import { morningWebhookRouter } from './routes/morning-webhook.js';
 import { morningRouter } from './routes/morning.js';
@@ -216,6 +217,7 @@ app.use('/api/email', emailRouter); // Email service
 app.use('/api/forecast', forecastRouter); // Financial forecasting
 app.use('/api/public/quotes', publicQuoteRouter); // Public quote view (no auth)
 app.use('/api/public/cancel', publicCancelRouter); // Public cancellation form (no auth)
+app.use('/api/public/appointment', publicAppointmentRouter); // Public appointment view/cancel (no auth)
 app.use('/api/quotes', quotesRouter); // Quote management
 app.use('/api/vapi-webhook', vapiWebhookRouter); // Vapi AI webhook (no auth)
 app.use('/api/vapi-tools', vapiToolsRouter); // Vapi AI tool calls - Google Calendar (no auth)

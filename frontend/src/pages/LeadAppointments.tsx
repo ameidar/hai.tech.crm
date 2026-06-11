@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Play, Trash2, Plus, AlertCircle } from 'lucide-react';
+import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Play, Trash2, Plus, AlertCircle, Copy, Check } from 'lucide-react';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -27,6 +27,7 @@ interface LeadAppointment {
   appointmentStatus: string;
   whatsappSent?: boolean;
   emailSent?: boolean;
+  manageUrl?: string;
   createdAt: string;
   updatedAt: string;
   // Campaign fields (Facebook)
@@ -602,6 +603,18 @@ function LeadDetailModal({
   const [notes, setNotes] = useState(lead.appointmentNotes || '');
   const [showTranscript, setShowTranscript] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  const copyManageUrl = async () => {
+    if (!lead.manageUrl) return;
+    try {
+      await navigator.clipboard.writeText(lead.manageUrl);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy link:', err);
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -808,6 +821,32 @@ function LeadDetailModal({
               placeholder="הערות לפגישה..."
             />
           </div>
+
+          {/* Customer self-service link — view/cancel the appointment without login */}
+          {lead.manageUrl && (
+            <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <p className="text-sm font-medium text-gray-700 mb-2">🔗 קישור ללקוח (צפייה וביטול פגישה)</p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={lead.manageUrl}
+                  dir="ltr"
+                  className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-xs bg-white text-gray-600"
+                  onFocus={(e) => e.target.select()}
+                />
+                <button
+                  onClick={copyManageUrl}
+                  className={`flex items-center gap-1 px-3 py-2 rounded-md text-sm font-medium ${
+                    linkCopied ? 'bg-green-100 text-green-700' : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                >
+                  {linkCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  {linkCopied ? 'הועתק!' : 'העתק'}
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="flex justify-end">
             <button

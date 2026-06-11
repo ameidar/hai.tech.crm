@@ -1099,6 +1099,11 @@ model LeadAppointment {
   appointmentNotes  String?   @map("appointment_notes")
   appointmentStatus String    @default("pending") @map("appointment_status")
 
+  // Self-service management (customer view/cancel via public link)
+  calendarEventId String?   @map("calendar_event_id")
+  cancelledAt     DateTime? @map("cancelled_at")
+  cancelReason    String?   @map("cancel_reason")
+
   // Notifications
   whatsappSent Boolean @default(false) @map("whatsapp_sent")
   emailSent    Boolean @default(false) @map("email_sent")

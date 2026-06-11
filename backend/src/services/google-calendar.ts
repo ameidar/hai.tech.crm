@@ -117,3 +117,16 @@ export async function bookAppointment(
     return { success: false, error: error.message };
   }
 }
+
+export async function deleteCalendarEvent(eventId: string): Promise<boolean> {
+  try {
+    const calendar = getCalendarClient();
+    await calendar.events.delete({ calendarId: CALENDAR_ID, eventId });
+    return true;
+  } catch (error: any) {
+    // 404/410 — event already gone, treat as deleted
+    if (error?.code === 404 || error?.code === 410) return true;
+    console.error('[GOOGLE CALENDAR] Error deleting event:', error);
+    return false;
+  }
+}

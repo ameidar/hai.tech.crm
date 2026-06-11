@@ -2,10 +2,11 @@ import { Router, Request, Response } from 'express';
 import { getAvailableSlots, bookAppointment } from '../services/google-calendar.js';
 import { prisma } from '../utils/prisma.js';
 import { handleEndOfCallReport } from '../services/vapi.js';
+import { sendAppointmentConfirmation } from '../services/appointment-manage.js';
 export const vapiToolsRouter = Router();
 
 // In-memory cache: callId → appointment data (bridging bookAppointment tool call → end-of-call-report)
-const pendingAppointments = new Map<string, { date: string; time: string; notes: string }>();
+const pendingAppointments = new Map<string, { date: string; time: string; notes: string; eventId?: string }>();
 
 // Single endpoint that handles all Vapi tool calls AND end-of-call webhooks
 vapiToolsRouter.post('/', async (req: Request, res: Response) => {
@@ -29,10 +30,23 @@ vapiToolsRouter.post('/', async (req: Request, res: Response) => {
                   appointment_time = ${appt.time},
                   appointment_status = 'scheduled',
                   appointment_notes = ${appt.notes || 'נקבע ע"י טל (AI)'},
+                  calendar_event_id = ${appt.eventId ?? null},
                   updated_at = NOW()
               WHERE vapi_call_id = ${eocCallId}
             `;
             console.log(`[VAPI TOOLS] Applied cached appointment for call ${eocCallId}: ${appt.date} ${appt.time} (rows: ${rows})`);
+
+            // Send the customer a WhatsApp confirmation with the view/cancel link
+            // (gated by APPOINTMENT_CONFIRMATION_WA_ENABLED inside the service)
+            const lead = await prisma.leadAppointment.findFirst({
+              where: { vapiCallId: eocCallId },
+              select: { id: true, customerName: true, customerPhone: true, appointmentDate: true, appointmentTime: true },
+            });
+            if (lead) {
+              sendAppointmentConfirmation(lead).catch((err: any) =>
+                console.error('[VAPI TOOLS] Failed to send appointment confirmation:', err)
+              );
+            }
           } catch (err: any) {
             console.error('[VAPI TOOLS] Failed to apply cached appointment:', err.message);
           }
@@ -143,7 +157,7 @@ vapiToolsRouter.post('/', async (req: Request, res: Response) => {
               const callId = message?.call?.id;
               if (callId) {
                 const appointmentNotes = notes || `פגישת היכרות - נקבעה ע"י טל`;
-                pendingAppointments.set(callId, { date: `${date}T${time}:00`, time, notes: appointmentNotes });
+                pendingAppointments.set(callId, { date: `${date}T${time}:00`, time, notes: appointmentNotes, eventId: result.eventId });
                 console.log(`[VAPI TOOLS] Cached appointment for call ${callId}: ${date} ${time}`);
               }
               const [, month, day] = date.split('-');

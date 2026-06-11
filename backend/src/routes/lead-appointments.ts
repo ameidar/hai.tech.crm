@@ -4,9 +4,15 @@ import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { findOrCreateCustomer } from '../utils/lead-customer.js';
 import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
+import { buildAppointmentManageUrl } from '../services/appointment-manage.js';
 
 export const leadAppointmentsRouter = Router();
 leadAppointmentsRouter.use(authenticate);
+
+// Public view/cancel link the customer can use to manage their appointment
+function withManageUrl<T extends { id: string }>(item: T): T & { manageUrl: string } {
+  return { ...item, manageUrl: buildAppointmentManageUrl(item.id) };
+}
 
 // GET /api/lead-appointments
 leadAppointmentsRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
@@ -43,7 +49,7 @@ leadAppointmentsRouter.get('/', async (req: Request, res: Response, next: NextFu
 
     res.json({
       success: true,
-      data: items,
+      data: items.map(withManageUrl),
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
   } catch (error) {
@@ -107,7 +113,7 @@ leadAppointmentsRouter.post('/', async (req: Request, res: Response, next: NextF
         .catch(err => console.error('[lead-appointments] welcome template error:', err));
     }
 
-    res.status(201).json({ success: true, data: item });
+    res.status(201).json({ success: true, data: withManageUrl(item) });
   } catch (error) {
     next(error);
   }
@@ -121,7 +127,7 @@ leadAppointmentsRouter.get('/:id', async (req: Request, res: Response, next: Nex
       include: { customer: { select: { id: true, name: true, phone: true, email: true } } },
     });
     if (!item) throw new AppError(404, 'Lead appointment not found');
-    res.json({ success: true, data: item });
+    res.json({ success: true, data: withManageUrl(item) });
   } catch (error) {
     next(error);
   }
@@ -141,7 +147,7 @@ leadAppointmentsRouter.patch('/:id', async (req: Request, res: Response, next: N
       where: { id: req.params.id },
       data,
     });
-    res.json({ success: true, data: item });
+    res.json({ success: true, data: withManageUrl(item) });
   } catch (error) {
     next(error);
   }

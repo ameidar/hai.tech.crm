@@ -337,9 +337,37 @@ model WorkHourEntry {
   @@map("work_hour_entries")
 }
 
+// A reusable payer ("גוף משלם") — mirrors a client in Morning (Green Invoice). Many
+// institutional orders can point to the same paying body, giving one source of truth for
+// the customer name / taxId so we never create duplicate clients in Morning.
+//
+// Required-on-create fields (name, taxId, contactName, email) are enforced in the app
+// layer (Zod), NOT the DB: legacy rows migrated from the old free-text order.payingBody
+// are grandfathered with isComplete=false and completed manually later.
+model PayingBody {
+  id              String   @id @default(uuid())
+  name            String
+  taxId           String?  @map("tax_id")        // ח.פ (business) or ת.ז (individual)
+  contactName     String?  @map("contact_name")  // stored CRM-side only; Morning's client name = `name`
+  email           String?
+  phone           String?
+  address         String?
+  city            String?
+  zip             String?
+  morningClientId String?  @map("morning_client_id") // linked Morning client UUID — one place, no dupes
+  isComplete      Boolean  @default(false) @map("is_complete") // false = needs manual completion (legacy migrated)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  institutionalOrders InstitutionalOrder[]
+
+  @@map("paying_bodies")
+}
+
 model InstitutionalOrder {
   id                String         @id @default(uuid())
   branchId          String?        @map("branch_id")
+  payingBodyId      String?        @map("paying_body_id") // link to PayingBody; old free-text fields kept during transition
   orderName         String?        @map("order_name")
   orderNumber       String?        @map("order_number")
   orderDate         DateTime?      @map("order_date") @db.Date
@@ -378,10 +406,12 @@ model InstitutionalOrder {
 
   // Relations
   branch         Branch?         @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  payingBodyRef  PayingBody?     @relation(fields: [payingBodyId], references: [id], onDelete: SetNull)
   cycles         Cycle[]
   quote          Quote?
   billingPeriods BillingPeriod[]
 
+  @@index([payingBodyId])
   @@map("institutional_orders")
 }
 

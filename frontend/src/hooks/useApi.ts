@@ -5,6 +5,8 @@ import type {
   Student,
   Course,
   Branch,
+  PayingBody,
+  MorningClientResult,
   Instructor,
   Cycle,
   Meeting,
@@ -266,6 +268,54 @@ export const useDeleteBranch = () => {
       queryClient.invalidateQueries({ queryKey: ['branches'] });
     },
   });
+};
+
+// ==================== Paying Bodies (גוף משלם) ====================
+export const usePayingBodies = () => {
+  return useQuery({
+    queryKey: ['paying-bodies'],
+    queryFn: () => fetchData<PayingBody[]>('/paying-bodies?limit=5000'),
+  });
+};
+
+export const useCreatePayingBody = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<PayingBody>) => mutateData<PayingBody, Partial<PayingBody>>('/paying-bodies', 'post', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['paying-bodies'] });
+    },
+  });
+};
+
+export const useUpdatePayingBody = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<PayingBody> }) =>
+      mutateData<PayingBody, Partial<PayingBody>>(`/paying-bodies/${id}`, 'put', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['paying-bodies'] });
+    },
+  });
+};
+
+export const useDeletePayingBody = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/paying-bodies/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['paying-bodies'] });
+    },
+  });
+};
+
+// Search Morning's client directory by name and/or taxId (returns up to 25 matches).
+export const searchMorningClients = async (params: { name?: string; taxId?: string }): Promise<MorningClientResult[]> => {
+  const qs = new URLSearchParams();
+  if (params.name) qs.set('name', params.name);
+  if (params.taxId) qs.set('taxId', params.taxId);
+  const response = await api.get<{ data: MorningClientResult[] }>(`/paying-bodies/morning/search?${qs.toString()}`);
+  return response.data.data;
 };
 
 // ==================== Instructors ====================

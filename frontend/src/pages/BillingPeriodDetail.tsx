@@ -185,6 +185,12 @@ export default function BillingPeriodDetail() {
   const [externalForm, setExternalForm] = useState({ url: '', documentNumber: '', documentId: '', issuedAt: '' });
   const [externalBusy, setExternalBusy] = useState(false);
 
+  // Link an externally-issued Morning receipt (קבלה) to a 305 tax invoice — records the payment
+  // without creating a new Morning document (the receipt already exists there).
+  const [showLinkReceiptModal, setShowLinkReceiptModal] = useState(false);
+  const [linkReceiptForm, setLinkReceiptForm] = useState({ amount: '', method: 'העברה בנקאית', paidAt: new Date().toISOString().slice(0, 10), url: '', documentNumber: '' });
+  const [linkReceiptBusy, setLinkReceiptBusy] = useState(false);
+
   const [taxIdInput, setTaxIdInput] = useState('');
   const [savingTaxId, setSavingTaxId] = useState(false);
   const [taxIdSaved, setTaxIdSaved] = useState(false);
@@ -515,6 +521,42 @@ export default function BillingPeriodDetail() {
       setShowReceiptModal(false);
       await load();
     } catch (err) { handleErr(err); } finally { setReceiptBusy(false); }
+  }
+
+  function openLinkReceiptModal() {
+    if (!period) return;
+    const balance = billingTotals(period.lines, period.totalAmount).totalDue - Number(period.paidAmount);
+    setLinkReceiptForm({
+      amount: balance > 0 ? balance.toFixed(2) : '',
+      method: 'העברה בנקאית',
+      paidAt: new Date().toISOString().slice(0, 10),
+      url: '',
+      documentNumber: '',
+    });
+    setError(null);
+    setShowLinkReceiptModal(true);
+  }
+
+  async function submitLinkReceipt() {
+    const amount = Number(linkReceiptForm.amount);
+    if (!(amount > 0)) { setError('יש להזין סכום קבלה חיובי'); return; }
+    if (!linkReceiptForm.url && !linkReceiptForm.documentNumber) {
+      setError('יש להזין מספר קבלה או קישור למסמך במורנינג');
+      return;
+    }
+    setError(null);
+    setLinkReceiptBusy(true);
+    try {
+      await api.post(`/billing/${id}/link-external-receipt`, {
+        amount,
+        method: linkReceiptForm.method || undefined,
+        paidAt: linkReceiptForm.paidAt || undefined,
+        url: linkReceiptForm.url || undefined,
+        documentNumber: linkReceiptForm.documentNumber ? Number(linkReceiptForm.documentNumber) : undefined,
+      });
+      setShowLinkReceiptModal(false);
+      await load();
+    } catch (err) { handleErr(err); } finally { setLinkReceiptBusy(false); }
   }
 
   async function submitExternalProforma() {
@@ -1031,6 +1073,12 @@ export default function BillingPeriodDetail() {
                 <Wallet size={15} /> הפק קבלה (400)
               </button>
             )}
+            {period.taxInvoiceType === 305 && period.paymentStatus !== 'paid' && (
+              <button onClick={openLinkReceiptModal} disabled={busy}
+                className="inline-flex items-center gap-2 border border-emerald-600 text-emerald-700 hover:bg-emerald-50 px-4 py-2 rounded text-sm disabled:opacity-50">
+                <ExternalLink size={15} /> קשר קבלה ממורנינג
+              </button>
+            )}
           </div>
 
           {showWhatsAppForm && (
@@ -1227,6 +1275,68 @@ export default function BillingPeriodDetail() {
               <button onClick={confirmIssueReceipt} disabled={receiptBusy || !(Number(receiptForm.amount) > 0)}
                 className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded text-sm disabled:opacity-50">
                 <Wallet size={16} /> הפק קבלה
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Link an externally-issued Morning receipt (קבלה) to the 305 tax invoice ── */}
+      {showLinkReceiptModal && period && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
+            <div className="flex items-center justify-between border-b p-4">
+              <h3 className="font-semibold text-gray-900">קישור קבלה ממורנינג</h3>
+              <button onClick={() => setShowLinkReceiptModal(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+            </div>
+            <div className="p-4 space-y-4">
+              <p className="text-sm text-gray-600">
+                הוצאת את הקבלה ידנית במורנינג (לא דרך המערכת)? הזן את מספר הקבלה והסכום — המערכת תרשום את התשלום ותקשר אותו לחשבונית המס #{period.taxInvoiceNumber}, <b>בלי</b> להפיק מסמך חדש במורנינג.
+              </p>
+              <div className="text-sm text-gray-600">
+                שולם עד כה: <b>{formatCurrency(Number(period.paidAmount))}</b> מתוך{' '}
+                <b>{formatCurrency(billingTotals(period.lines, period.totalAmount).totalDue)}</b>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="form-label">סכום הקבלה (₪)</label>
+                  <input type="number" step="0.01" min="0" dir="ltr" className="form-input" value={linkReceiptForm.amount}
+                    onChange={(e) => setLinkReceiptForm({ ...linkReceiptForm, amount: e.target.value })} />
+                </div>
+                <div>
+                  <label className="form-label">תאריך הקבלה</label>
+                  <input type="date" className="form-input" value={linkReceiptForm.paidAt}
+                    onChange={(e) => setLinkReceiptForm({ ...linkReceiptForm, paidAt: e.target.value })} />
+                </div>
+                <div>
+                  <label className="form-label">מספר הקבלה במורנינג</label>
+                  <input type="number" dir="ltr" className="form-input" placeholder="לדוגמה: 83012" value={linkReceiptForm.documentNumber}
+                    onChange={(e) => setLinkReceiptForm({ ...linkReceiptForm, documentNumber: e.target.value })} />
+                </div>
+                <div>
+                  <label className="form-label">אמצעי תשלום</label>
+                  <select className="form-input" value={linkReceiptForm.method}
+                    onChange={(e) => setLinkReceiptForm({ ...linkReceiptForm, method: e.target.value })}>
+                    {PAYMENT_TYPE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.label}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="form-label">קישור לקבלה במורנינג (אופציונלי)</label>
+                  <input dir="ltr" className="form-input" placeholder="https://app.greeninvoice.co.il/..." value={linkReceiptForm.url}
+                    onChange={(e) => setLinkReceiptForm({ ...linkReceiptForm, url: e.target.value })} />
+                </div>
+              </div>
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                שים לב: פעולה זו רושמת תשלום בלבד ואינה יוצרת מסמך במורנינג. עדיף להזין את מספר הקבלה (או קישור הכולל את מזהה המסמך) כדי שהמערכת תקשר חזרה לקבלה החתומה.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-3 border-t p-4">
+              <button onClick={() => setShowLinkReceiptModal(false)} className="text-gray-600 hover:text-gray-800 px-4 py-2 rounded text-sm">ביטול</button>
+              <button onClick={submitLinkReceipt} disabled={linkReceiptBusy || !(Number(linkReceiptForm.amount) > 0) || (!linkReceiptForm.url && !linkReceiptForm.documentNumber)}
+                className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded text-sm disabled:opacity-50">
+                <ExternalLink size={16} /> קשר קבלה
               </button>
             </div>
           </div>

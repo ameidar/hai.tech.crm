@@ -222,13 +222,19 @@ export const orderSchema = z.object({
   zip: z.string().optional().nullable(),
 });
 
+// New institutional orders must be tied to a branch. Existing branch-less orders are
+// left untouched (the DB column stays nullable) — this only blocks creating new ones.
+const createOrderSchema = orderSchema.extend({
+  branchId: z.string().min(1, 'חובה לבחור סניף בעת יצירת הזמנה מוסדית'),
+});
+
 // Create institutional order
 institutionalOrdersRouter.post('/', managerOrAdmin, async (req, res, next) => {
   try {
-    const data = orderSchema.parse(req.body);
+    const data = createOrderSchema.parse(req.body);
     const order = await prisma.institutionalOrder.create({
       data: {
-        branchId: data.branchId || undefined,
+        branchId: data.branchId,
         orderName: data.orderName ?? null,
         orderNumber: data.orderNumber ?? null,
         orderDate: data.orderDate ? new Date(data.orderDate) : null,

@@ -170,6 +170,7 @@ export default function InstitutionalOrders() {
     }
   };
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [formError, setFormError] = useState<string | null>(null);
 
   const { data, isLoading } = useInstitutionalOrders(getInstitutionalOrdersListParams(statusFilter, page, debouncedSearch));
   const { data: branchesData } = useBranches();
@@ -260,6 +261,12 @@ export default function InstitutionalOrders() {
   }, [openQueryOrder]);
 
   const handleSubmit = async () => {
+    setFormError(null);
+    // New orders must be tied to a branch (existing branch-less orders can still be edited).
+    if (!editItem && !form.branchId) {
+      setFormError('חובה לבחור סניף ליצירת הזמנה מוסדית.');
+      return;
+    }
     // At minimum an order name or branch is needed
     if (!form.branchId && !form.orderNumber && !form.contactName) return;
     try {
@@ -271,7 +278,10 @@ export default function InstitutionalOrders() {
         setShowAddModal(false);
       }
       setForm(EMPTY_FORM);
-    } catch (e) { console.error(e); }
+    } catch (e: any) {
+      setFormError(e?.response?.data?.message || e?.response?.data?.error || 'שמירת ההזמנה נכשלה.');
+      console.error(e);
+    }
   };
 
   const handleDelete = async () => {
@@ -309,12 +319,12 @@ export default function InstitutionalOrders() {
           <input className="form-input w-full" value={form.orderName || ''} onChange={e => setForm(f => ({ ...f, orderName: e.target.value }))} placeholder="שם ההזמנה" />
         </div>
         <div>
-          {lbl('סניף')}
+          {lbl(editItem ? 'סניף' : 'סניף *')}
           <SearchableSelect
             options={branchOptions}
             value={form.branchId || ''}
             onChange={(v) => setForm(f => ({ ...f, branchId: v }))}
-            placeholder="ללא סניף"
+            placeholder={editItem ? 'ללא סניף' : 'בחר סניף'}
             searchPlaceholder="חפש סניף..."
           />
         </div>
@@ -428,8 +438,12 @@ export default function InstitutionalOrders() {
       <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-2">הערות / תיאור</div>
       <textarea className="form-input w-full" rows={4} value={form.notes || ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
 
+      {formError && (
+        <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{formError}</div>
+      )}
+
       <div className="flex justify-end gap-3 pt-2 border-t">
-        <button type="button" className="btn btn-secondary" onClick={() => { setShowAddModal(false); setEditItem(null); }}>ביטול</button>
+        <button type="button" className="btn btn-secondary" onClick={() => { setShowAddModal(false); setEditItem(null); setFormError(null); }}>ביטול</button>
         <button type="button" className="btn btn-primary" onClick={handleSubmit} disabled={createOrder.isPending || updateOrder.isPending}>
           {createOrder.isPending || updateOrder.isPending ? 'שומר...' : editItem ? 'שמור שינויים' : 'צור הזמנה'}
         </button>

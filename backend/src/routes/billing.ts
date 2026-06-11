@@ -19,6 +19,7 @@ import {
   issueTaxInvoiceOnly,
   issueReceipt,
   linkExternalProforma,
+  linkExternalReceipt,
   sendBillingPeriodAsDraft,
   markBillingPeriodIssuedManually,
   formatHebrewRange,
@@ -557,6 +558,41 @@ billingRouter.post('/:id/issue-receipt', managerOrAdmin, async (req, res, next) 
   } catch (err: any) {
     if (err.body) return res.status(err.status || 500).json({ error: 'Morning API error', details: err.body });
     if (err.message?.includes('before issuing') || err.message?.includes('apply only')) {
+      return res.status(409).json({ error: err.message });
+    }
+    if (err.message === 'Billing period not found') return res.status(404).json({ error: err.message });
+    next(err);
+  }
+});
+
+// Link a קבלה (receipt, type 400) issued directly in Morning to this period's 305 tax invoice.
+// Records the payment + rolls up the paid status WITHOUT creating a new Morning document
+// (the receipt already exists in Morning — avoids a duplicate). Enriches best-effort from Morning.
+billingRouter.post('/:id/link-external-receipt', managerOrAdmin, async (req, res, next) => {
+  try {
+    const data = z.object({
+      amount: z.number().positive(),
+      method: z.string().optional().nullable(),
+      paidAt: z.string().optional().nullable(),
+      url: z.string().optional().nullable(),
+      documentNumber: z.number().int().positive().optional().nullable(),
+      documentId: z.string().optional().nullable(),
+    }).refine((v) => v.url || v.documentNumber || v.documentId, {
+      message: 'Provide at least one of url, documentNumber, or documentId',
+    }).parse(req.body);
+
+    const period = await linkExternalReceipt(req.params.id, {
+      amount: data.amount,
+      method: data.method ?? null,
+      paidAt: data.paidAt ?? null,
+      url: data.url ?? null,
+      documentNumber: data.documentNumber ?? null,
+      documentId: data.documentId ?? null,
+    }, req.user?.userId);
+    await logAudit({ req, action: 'CREATE', entity: 'BillingPayment', entityId: period.id, newValue: { action: 'link-external-receipt', amount: data.amount, paymentStatus: period.paymentStatus, paidAmount: period.paidAmount } });
+    res.json(period);
+  } catch (err: any) {
+    if (err.message?.includes('before linking') || err.message?.includes('applies only') || err.message?.includes('required to link')) {
       return res.status(409).json({ error: err.message });
     }
     if (err.message === 'Billing period not found') return res.status(404).json({ error: err.message });

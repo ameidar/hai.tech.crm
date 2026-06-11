@@ -16,7 +16,7 @@ const trimmed = (max = 255) => z.string().trim().min(1).max(max);
 
 // Required on create (decided with Inna): name, taxId (ח.פ or ת.ז), contactName, email.
 // Phone + address fields are optional. morningClientId links to an existing Morning client.
-const createSchema = z.object({
+export const createSchema = z.object({
   name: trimmed(),
   taxId: trimmed(50),
   contactName: trimmed(),
@@ -29,7 +29,7 @@ const createSchema = z.object({
 });
 
 // On update every field is optional so legacy incomplete rows can be completed gradually.
-const updateSchema = z.object({
+export const updateSchema = z.object({
   name: trimmed().optional(),
   taxId: z.string().trim().max(50).optional().nullable(),
   contactName: z.string().trim().max(255).optional().nullable(),
@@ -41,7 +41,7 @@ const updateSchema = z.object({
   morningClientId: z.string().trim().max(120).optional().nullable(),
 });
 
-const isComplete = (b: { name?: string | null; taxId?: string | null; contactName?: string | null; email?: string | null }) =>
+export const isComplete = (b: { name?: string | null; taxId?: string | null; contactName?: string | null; email?: string | null }) =>
   !!(b.name && b.taxId && b.contactName && b.email);
 
 // List paying bodies — optional `q` filters by name or taxId (substring).

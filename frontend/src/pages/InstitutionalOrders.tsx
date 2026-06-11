@@ -106,9 +106,10 @@ const EMPTY_FORM: Partial<InstitutionalOrderData> = {
   createdBy: '',
 };
 
-export function getInstitutionalOrdersListParams(statusFilter: string, page: number) {
+export function getInstitutionalOrdersListParams(statusFilter: string, page: number, search?: string) {
   return {
     status: statusFilter || undefined,
+    search: search?.trim() || undefined,
     page,
     limit: 50,
   };
@@ -117,7 +118,18 @@ export function getInstitutionalOrdersListParams(statusFilter: string, page: num
 export default function InstitutionalOrders() {
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [searchFilter, setSearchFilter] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
+
+  // Debounce the search box and send it to the server so results aren't limited to the
+  // current page. Reset to page 1 whenever the term changes.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(searchFilter.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchFilter]);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() =>
     (localStorage.getItem('institutional-orders-view') as 'grid' | 'list') || 'list'
   );
@@ -159,7 +171,7 @@ export default function InstitutionalOrders() {
   };
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const { data, isLoading } = useInstitutionalOrders(getInstitutionalOrdersListParams(statusFilter, page));
+  const { data, isLoading } = useInstitutionalOrders(getInstitutionalOrdersListParams(statusFilter, page, debouncedSearch));
   const { data: branchesData } = useBranches();
   const branches = branchesData || [];
 
@@ -170,12 +182,14 @@ export default function InstitutionalOrders() {
   const orders: InstitutionalOrderRow[] = (data as any)?.data || [];
   const pagination = (data as any)?.pagination;
 
-  // Client-side search + sort
+  // Search is performed server-side (see useInstitutionalOrders). We only re-filter the
+  // already-matched page locally while the debounce settles, to avoid hiding rows the
+  // server returned by a field the local check doesn't cover (e.g. paying body).
   const filtered = (() => {
     let list = orders.filter((o) => {
-      if (!searchFilter) return true;
+      if (!searchFilter || searchFilter.trim() === debouncedSearch) return true;
       const s = searchFilter.toLowerCase();
-      return o.orderName?.toLowerCase().includes(s) || o.orderNumber?.toLowerCase().includes(s) || o.branch?.name?.toLowerCase().includes(s) || o.contactName?.toLowerCase().includes(s) || o.contactPhone?.includes(s) || o.fireberryStatus?.includes(s) || o.salesperson?.includes(s);
+      return o.orderName?.toLowerCase().includes(s) || o.orderNumber?.toLowerCase().includes(s) || o.branch?.name?.toLowerCase().includes(s) || o.contactName?.toLowerCase().includes(s) || o.contactPhone?.includes(s) || o.payingBody?.toLowerCase().includes(s) || o.fireberryStatus?.includes(s) || o.salesperson?.includes(s);
     });
     if (sortConfig) {
       list = [...list].sort((a, b) => {
@@ -491,7 +505,7 @@ export default function InstitutionalOrders() {
               type="text"
               value={searchFilter}
               onChange={(e) => setSearchFilter(e.target.value)}
-              placeholder="חיפוש לפי מספר הזמנה, סניף, איש קשר..."
+              placeholder="חיפוש לפי שם הזמנה, מספר, סניף, איש קשר, גוף משלם..."
               className="form-input pr-10 w-full"
             />
           </div>

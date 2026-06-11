@@ -18,7 +18,7 @@ interface BillingPeriod {
   paymentStatus: 'unpaid' | 'partial' | 'paid';
   paidAmount: number | string;
   sentAt: string | null;
-  institutionalOrder: { id: string; orderName: string | null; taxId: string | null };
+  institutionalOrder: { id: string; orderName: string | null; taxId: string | null; morningClientName?: string | null };
   _count: { lines: number };
 }
 
@@ -117,7 +117,10 @@ export default function BillingPeriods() {
       const key = p.institutionalOrder.id;
       let g = map.get(key);
       if (!g) {
-        g = { id: key, name: p.institutionalOrder.orderName || '—', taxId: p.institutionalOrder.taxId, periods: [] };
+        // Prefer the Morning client name (matches the issued document exactly); fall back to
+        // the internal order name until a document has been issued for this institution.
+        const name = p.institutionalOrder.morningClientName || p.institutionalOrder.orderName || '—';
+        g = { id: key, name, taxId: p.institutionalOrder.taxId, periods: [] };
         map.set(key, g);
       }
       g.periods.push(p);

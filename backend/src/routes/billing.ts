@@ -69,7 +69,33 @@ billingRouter.get('/', async (req, res, next) => {
       },
       orderBy: [{ monthStart: 'desc' }, { generatedAt: 'desc' }],
     });
-    res.json(periods);
+
+    // Resolve the institution's display name from Morning: the client (לכבוד) name on the
+    // most-recently-issued document for that order — independent of the current filter, so the
+    // name stays stable even when only drafts are shown. Falls back to orderName in the UI.
+    const orderIds = [...new Set(periods.map((p) => p.institutionalOrderId))];
+    const nameRows = orderIds.length
+      ? await prisma.billingPeriod.findMany({
+          where: { institutionalOrderId: { in: orderIds }, status: 'issued', morningClientName: { not: null } },
+          select: { institutionalOrderId: true, morningClientName: true },
+          orderBy: { issuedAt: 'desc' },
+        })
+      : [];
+    const latestNameByOrder = new Map<string, string>();
+    for (const r of nameRows) {
+      if (r.morningClientName && !latestNameByOrder.has(r.institutionalOrderId)) {
+        latestNameByOrder.set(r.institutionalOrderId, r.morningClientName);
+      }
+    }
+
+    const result = periods.map((p) => ({
+      ...p,
+      institutionalOrder: {
+        ...p.institutionalOrder,
+        morningClientName: latestNameByOrder.get(p.institutionalOrderId) ?? null,
+      },
+    }));
+    res.json(result);
   } catch (err) { next(err); }
 });
 

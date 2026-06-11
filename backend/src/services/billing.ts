@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma.js';
 import { createDocument, previewDocument, createDraftDocument, deleteDraftDocument, getMorningDocument, searchMorningDocuments, DOCUMENT_TYPES, PAYMENT_TYPES } from './morning/documents.js';
 import type { CreateDocumentInput, MorningClient, MorningIncomeItem, MorningPaymentItem } from './morning/documents.js';
@@ -392,13 +393,34 @@ export async function generateAllBillingPeriodsForMonth(month: BillingMonth, gen
   return results;
 }
 
+/** Where to cache the resolved Morning client id after a successful issue. */
+type MorningClientCacheTarget = { kind: 'payingBody' | 'order'; id: string } | null;
+
+interface ResolvedMorningClient {
+  client: MorningClient;
+  // After issue, persist the resolved Morning client UUID here so future documents bill
+  // by id and never create a duplicate Morning customer. null = nothing to cache (already
+  // linked by id, or a free-text addressee we don't want to pin).
+  cacheTarget: MorningClientCacheTarget;
+  // Id we already know now (from a search match). When null, the caller reads the created
+  // document's `client.id` (the id Morning assigned to a freshly upserted `add:true` client).
+  discoveredId: string | null;
+}
+
 /**
- * Resolve which Morning client to use for an institutional order. Returns the client object
- * to put on the document plus, if we discovered the linkage just now (rather than reusing a
- * cached `morningClientId`), the Morning client UUID so the caller can persist it back to
- * the order. Persisting only happens on `issue` — preview is read-only.
+ * Resolve which Morning client to use for an institutional order.
+ *
+ * Source of truth is the linked **PayingBody** (גוף משלם):
+ *  - already linked to a Morning client (`morningClientId`) → bill by that id, zero dupes;
+ *  - linked PayingBody not yet in Morning → send its full details with `add:true` so Morning
+ *    creates the client, and ask the caller to persist the assigned id back onto the PayingBody.
+ *
+ * Orders with no linked PayingBody (legacy, pre-migration) fall back to the old free-text
+ * behavior unchanged, so they keep working during the transition.
+ *
+ * Persisting only happens on `issue` — preview is read-only.
  */
-async function resolveMorningClient(
+export async function resolveMorningClient(
   order: {
     id: string;
     orderName: string | null;
@@ -411,16 +433,51 @@ async function resolveMorningClient(
     zip: string | null;
     payingBody: string | null;
     morningClientId: string | null;
+    payingBodyRef?: {
+      id: string;
+      name: string;
+      taxId: string | null;
+      email: string | null;
+      phone: string | null;
+      address: string | null;
+      city: string | null;
+      zip: string | null;
+      morningClientId: string | null;
+    } | null;
   }
-): Promise<{ client: MorningClient; discoveredId: string | null }> {
+): Promise<ResolvedMorningClient> {
+  const pb = order.payingBodyRef;
+
+  // ── Linked PayingBody = the source of truth ──────────────────────────────
+  if (pb) {
+    // Already linked to a Morning client — bill by id, never upsert, never duplicate.
+    if (pb.morningClientId) {
+      return { client: { id: pb.morningClientId }, cacheTarget: null, discoveredId: null };
+    }
+    // Not yet in Morning — send full details with `add:true`. Morning creates the client
+    // and returns its id on the document; the caller pins it onto PayingBody.morningClientId.
+    return {
+      client: {
+        name: pb.name,
+        taxId: pb.taxId || undefined,
+        emails: pb.email ? [pb.email] : undefined,
+        phone: pb.phone || undefined,
+        address: pb.address || undefined,
+        city: pb.city || undefined,
+        zip: pb.zip || undefined,
+        add: true,
+      },
+      cacheTarget: { kind: 'payingBody', id: pb.id },
+      discoveredId: null,
+    };
+  }
+
+  // ── Legacy path (no linked PayingBody): unchanged free-text behavior ──────
   const payingBodyName = order.payingBody?.trim() || null;
 
-  // 1. If a paying body is configured, it is the customer-facing "לכבוד" name
-  // for institutional billing. Do not send only Morning's stored client id in this
-  // case: Morning would render the client-directory name (often the internal
-  // branch/order name) instead of the payer name from CRM. Sending explicit
-  // client details keeps the document addressee controlled by CRM without
-  // changing the institutional order name.
+  // 1. Free-text paying body is the customer-facing "לכבוד" name. Send explicit details
+  // (with `add:true`) so the addressee stays controlled by CRM and the document attaches
+  // to a Morning client rather than floating.
   if (payingBodyName) {
     return {
       client: {
@@ -431,19 +488,16 @@ async function resolveMorningClient(
         address: order.address || undefined,
         city: order.city || undefined,
         zip: order.zip || undefined,
-        // Upsert into Morning's client directory and link the document to it.
-        // Without `add`, Morning renders the payer name but leaves the document
-        // unattached to any client ("floating"), so it can't be found under the
-        // client in Morning's UI.
         add: true,
       },
+      cacheTarget: null,
       discoveredId: null,
     };
   }
 
-  // 2. Already linked — trust it when no paying body overrides the addressee.
+  // 2. Already linked on the order — trust it.
   if (order.morningClientId) {
-    return { client: { id: order.morningClientId }, discoveredId: null };
+    return { client: { id: order.morningClientId }, cacheTarget: null, discoveredId: null };
   }
 
   // 3. Try to discover an existing Morning customer by taxId / email / payingBody / orderName.
@@ -456,7 +510,7 @@ async function resolveMorningClient(
     });
     if (match) {
       console.log(`[billing] Linked institutional order ${order.id} → Morning client ${match.client.id} (matched by ${match.matchedBy})`);
-      return { client: { id: match.client.id }, discoveredId: match.client.id };
+      return { client: { id: match.client.id }, cacheTarget: { kind: 'order', id: order.id }, discoveredId: match.client.id };
     }
   } catch (err: any) {
     // If the Morning search itself fails, fall through to upsert — no worse than the old behavior.
@@ -474,7 +528,48 @@ async function resolveMorningClient(
     zip: order.zip || undefined,
     add: true,
   };
-  return { client, discoveredId: null };
+  return { client, cacheTarget: null, discoveredId: null };
+}
+
+/**
+ * Persist a resolved Morning client id onto its cache target (PayingBody or order) inside a
+ * transaction, so future documents bill by id. No-op when there is nothing to cache.
+ */
+async function cacheMorningClientId(
+  tx: Prisma.TransactionClient,
+  cacheTarget: MorningClientCacheTarget,
+  resolvedId: string | null,
+): Promise<void> {
+  if (!cacheTarget || !resolvedId) return;
+  if (cacheTarget.kind === 'payingBody') {
+    await tx.payingBody.update({ where: { id: cacheTarget.id }, data: { morningClientId: resolvedId } });
+  } else {
+    await tx.institutionalOrder.update({ where: { id: cacheTarget.id }, data: { morningClientId: resolvedId } });
+  }
+}
+
+/**
+ * Gate: refuse to issue a billing document while the linked PayingBody is incomplete.
+ * Issuing with a half-filled payer is exactly what creates broken/duplicate Morning clients,
+ * so we force completion once at the billing gate. Legacy orders with no linked PayingBody are
+ * grandfathered and stay billable. Preview is read-only and is intentionally NOT gated.
+ */
+async function assertPayingBodyComplete(billingPeriodId: string): Promise<void> {
+  const period = await prisma.billingPeriod.findUnique({
+    where: { id: billingPeriodId },
+    select: {
+      institutionalOrder: {
+        select: { payingBodyRef: { select: { name: true, isComplete: true } } },
+      },
+    },
+  });
+  const pb = period?.institutionalOrder?.payingBodyRef;
+  if (!pb) return; // legacy order without a linked paying body — grandfathered
+  if (!pb.isComplete) {
+    throw new Error(
+      `הגוף המשלם "${pb.name}" אינו שלם — יש להשלים שם, ח.פ/ת.ז, איש קשר ומייל לפני הפקת מסמך חיוב.`,
+    );
+  }
 }
 
 /**
@@ -611,12 +706,23 @@ export function assertProformaAmountMatch(
  */
 async function buildMorningPayload(billingPeriodId: string, documentDate?: string): Promise<{
   payload: CreateDocumentInput;
-  discoveredMorningClientId: string | null;
+  cacheTarget: MorningClientCacheTarget;
+  discoveredId: string | null;
 }> {
   const period = await prisma.billingPeriod.findUnique({
     where: { id: billingPeriodId },
     include: {
-      institutionalOrder: { include: { branch: true } },
+      institutionalOrder: {
+        include: {
+          branch: true,
+          payingBodyRef: {
+            select: {
+              id: true, name: true, taxId: true, email: true,
+              phone: true, address: true, city: true, zip: true, morningClientId: true,
+            },
+          },
+        },
+      },
       lines: {
         orderBy: { sortOrder: 'asc' },
         include: { cycle: { select: { revenueIncludesVat: true } } },
@@ -625,7 +731,7 @@ async function buildMorningPayload(billingPeriodId: string, documentDate?: strin
   });
   if (!period) throw new Error('Billing period not found');
 
-  const { client, discoveredId } = await resolveMorningClient(period.institutionalOrder);
+  const { client, cacheTarget, discoveredId } = await resolveMorningClient(period.institutionalOrder);
 
   // Per-line vatType: derive from the source cycle's `revenueIncludesVat` flag.
   // Morning vatType per income line: 0 = price excludes VAT (Morning adds 18% on top —
@@ -673,7 +779,8 @@ async function buildMorningPayload(billingPeriodId: string, documentDate?: strin
       ...(description ? { description } : {}),
       ...(documentDate ? { date: documentDate } : {}),
     },
-    discoveredMorningClientId: discoveredId,
+    cacheTarget,
+    discoveredId,
   };
 }
 
@@ -690,9 +797,13 @@ export async function issueBillingPeriod(billingPeriodId: string, issuedById?: s
   if (!period) throw new Error('Billing period not found');
   if (period.status === 'issued') throw new Error('Billing period already issued');
   if (period.status === 'cancelled') throw new Error('Billing period is cancelled');
+  await assertPayingBodyComplete(billingPeriodId);
 
-  const { payload, discoveredMorningClientId } = await buildMorningPayload(billingPeriodId, documentDate);
+  const { payload, cacheTarget, discoveredId } = await buildMorningPayload(billingPeriodId, documentDate);
   const document = await createDocument(payload);
+  // Morning returns the upserted client's id on the created document — cache it (or the
+  // already-known search-match id) so future invoices bill this payer by id.
+  const resolvedMorningClientId = discoveredId ?? document.client?.id ?? null;
 
   // Snapshot the client (לכבוד) name on the issued document for the monthly-accounts list.
   // Prefer the create response's client; otherwise read it back from the document.
@@ -727,14 +838,9 @@ export async function issueBillingPeriod(billingPeriodId: string, issuedById?: s
         skipDuplicates: true,
       });
     }
-    // Cache the Morning client linkage on the institutional order so future invoices
-    // skip the lookup and never accidentally create a duplicate Morning customer.
-    if (discoveredMorningClientId) {
-      await tx.institutionalOrder.update({
-        where: { id: period.institutionalOrderId },
-        data: { morningClientId: discoveredMorningClientId },
-      });
-    }
+    // Cache the Morning client linkage (on the PayingBody, or the order for legacy payers)
+    // so future invoices skip the lookup and never create a duplicate Morning customer.
+    await cacheMorningClientId(tx, cacheTarget, resolvedMorningClientId);
     return tx.billingPeriod.update({
       where: { id: billingPeriodId },
       data: {
@@ -770,8 +876,9 @@ export async function sendBillingPeriodAsDraft(billingPeriodId: string) {
   if (!period) throw new Error('Billing period not found');
   if (period.status === 'issued') throw new Error('Already issued — use mark-issued-manually instead');
   if (period.status === 'cancelled') throw new Error('Period is cancelled');
+  await assertPayingBodyComplete(billingPeriodId);
 
-  const { payload, discoveredMorningClientId } = await buildMorningPayload(billingPeriodId);
+  const { payload, cacheTarget, discoveredId } = await buildMorningPayload(billingPeriodId);
 
   // Replace any prior draft so Morning's drafts area never accumulates stale copies.
   if (period.morningDraftId) {
@@ -781,12 +888,9 @@ export async function sendBillingPeriodAsDraft(billingPeriodId: string) {
   const draft = await createDraftDocument(payload);
 
   return prisma.$transaction(async (tx) => {
-    if (discoveredMorningClientId) {
-      await tx.institutionalOrder.update({
-        where: { id: period.institutionalOrderId },
-        data: { morningClientId: discoveredMorningClientId },
-      });
-    }
+    // A draft does not create a real Morning client, so only cache an id we already know
+    // from a search match — never an upsert id (there is none until the draft is finalized).
+    await cacheMorningClientId(tx, cacheTarget, discoveredId);
     return tx.billingPeriod.update({
       where: { id: billingPeriodId },
       data: { morningDraftId: draft.id },
@@ -1095,17 +1199,14 @@ export async function issueTaxInvoice(
   if (!period) throw new Error('Billing period not found');
   if (period.status !== 'issued') throw new Error('Proforma must be issued first');
   if (period.taxInvoiceId) throw new Error('Tax invoice already issued for this period');
+  await assertPayingBodyComplete(billingPeriodId);
 
-  const { payload, discoveredMorningClientId } = await buildTaxReceiptPayload(billingPeriodId, payments, documentDate);
+  const { payload, cacheTarget, discoveredId } = await buildTaxReceiptPayload(billingPeriodId, payments, documentDate);
   const document = await createDocument(payload);
+  const resolvedMorningClientId = discoveredId ?? document.client?.id ?? null;
 
   return prisma.$transaction(async (tx) => {
-    if (discoveredMorningClientId) {
-      await tx.institutionalOrder.update({
-        where: { id: period.institutionalOrderId },
-        data: { morningClientId: discoveredMorningClientId },
-      });
-    }
+    await cacheMorningClientId(tx, cacheTarget, resolvedMorningClientId);
     return tx.billingPeriod.update({
       where: { id: billingPeriodId },
       data: {
@@ -1135,22 +1236,19 @@ export async function issueTaxInvoiceOnly(
   if (!period) throw new Error('Billing period not found');
   if (period.status !== 'issued') throw new Error('Proforma must be issued first');
   if (period.taxInvoiceId) throw new Error('Tax invoice already issued for this period');
+  await assertPayingBodyComplete(billingPeriodId);
 
-  const { payload, discoveredMorningClientId } = await buildMorningPayload(billingPeriodId);
+  const { payload, cacheTarget, discoveredId } = await buildMorningPayload(billingPeriodId);
   const snap = await ensureProformaSnapshot(billingPeriodId);
   if (snap) applyProformaSnapshot(payload, snap);
   payload.type = DOCUMENT_TYPES.TAX_INVOICE; // 305 — binding tax invoice, no payment section
   if (documentDate) payload.date = documentDate;
   assertProformaAmountMatch(payload, snap, 'חשבונית מס');
   const document = await createDocument(payload);
+  const resolvedMorningClientId = discoveredId ?? document.client?.id ?? null;
 
   return prisma.$transaction(async (tx) => {
-    if (discoveredMorningClientId) {
-      await tx.institutionalOrder.update({
-        where: { id: period.institutionalOrderId },
-        data: { morningClientId: discoveredMorningClientId },
-      });
-    }
+    await cacheMorningClientId(tx, cacheTarget, resolvedMorningClientId);
     return tx.billingPeriod.update({
       where: { id: billingPeriodId },
       data: {
@@ -1185,11 +1283,12 @@ export async function issueReceipt(
     throw new Error('Separate receipts apply only to a standalone 305 tax invoice (a 320 already includes a receipt)');
   }
   if (!(input.amount > 0)) throw new Error('Receipt amount must be positive');
+  await assertPayingBodyComplete(billingPeriodId);
 
   const paidAtDate = input.paidAt ? new Date(input.paidAt) : new Date();
   const receiptDate = input.documentDate || paidAtDate.toISOString().slice(0, 10);
 
-  const { payload } = await buildMorningPayload(billingPeriodId);
+  const { payload, cacheTarget, discoveredId } = await buildMorningPayload(billingPeriodId);
   const snap = await ensureProformaSnapshot(billingPeriodId);
   if (snap) applyProformaSnapshot(payload, snap);
   payload.type = DOCUMENT_TYPES.RECEIPT; // 400
@@ -1202,8 +1301,10 @@ export async function issueReceipt(
   // (input.amount) may be partial. Guard the item lines, not the payment.
   assertProformaAmountMatch(payload, snap, 'קבלה');
   const document = await createDocument(payload);
+  const resolvedMorningClientId = discoveredId ?? document.client?.id ?? null;
 
   return prisma.$transaction(async (tx) => {
+    await cacheMorningClientId(tx, cacheTarget, resolvedMorningClientId);
     await tx.billingPayment.create({
       data: {
         billingPeriodId,

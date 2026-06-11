@@ -14,11 +14,23 @@ import Modal from '../components/ui/Modal';
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal';
 import type { PayingBody, MorningClientResult } from '../types';
 
+// Required fields for a complete paying body — kept in sync with the backend `isComplete`.
+const REQUIRED_FIELDS: { key: 'name' | 'taxId' | 'contactName' | 'email'; label: string }[] = [
+  { key: 'name', label: 'שם' },
+  { key: 'taxId', label: 'ח.פ/ת.ז' },
+  { key: 'contactName', label: 'איש קשר' },
+  { key: 'email', label: 'מייל' },
+];
+
+const missingFields = (b: Partial<PayingBody>): string[] =>
+  REQUIRED_FIELDS.filter((f) => !((b[f.key] as string | null | undefined) || '').toString().trim()).map((f) => f.label);
+
 export default function PayingBodies() {
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<PayingBody | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<PayingBody | null>(null);
   const [search, setSearch] = useState('');
+  const [onlyIncomplete, setOnlyIncomplete] = useState(false);
 
   const { data: bodies, isLoading } = usePayingBodies();
   const createBody = useCreatePayingBody();
@@ -26,6 +38,7 @@ export default function PayingBodies() {
   const deleteBody = useDeletePayingBody();
 
   const list = (bodies ?? []).filter((b) => {
+    if (onlyIncomplete && b.isComplete) return false;
     if (!search) return true;
     const s = search.toLowerCase();
     return b.name.toLowerCase().includes(s) || (b.taxId || '').toLowerCase().includes(s);
@@ -86,6 +99,14 @@ export default function PayingBodies() {
               className="form-input pr-10 w-full"
             />
           </div>
+          <button
+            type="button"
+            onClick={() => setOnlyIncomplete((v) => !v)}
+            className={`btn ${onlyIncomplete ? 'btn-primary' : 'btn-secondary'}`}
+            title="הצג רק גופים משלמים שחסרים להם פרטי חובה"
+          >
+            <AlertTriangle size={16} /> חסרי השלמה{incompleteCount ? ` (${incompleteCount})` : ''}
+          </button>
           <span className="text-sm text-gray-500 mr-auto">{list.length} גופים משלמים</span>
         </div>
 
@@ -134,11 +155,19 @@ export default function PayingBodies() {
                       {b.isComplete ? (
                         <span className="inline-flex items-center gap-1 badge badge-success"><CheckCircle2 size={13} /> מלא</span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 badge badge-warning"><AlertTriangle size={13} /> חסר השלמה</span>
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="inline-flex items-center gap-1 badge badge-warning"><AlertTriangle size={13} /> חסר השלמה</span>
+                          {missingFields(b).length > 0 && (
+                            <span className="text-[11px] text-amber-700">חסר: {missingFields(b).join(', ')}</span>
+                          )}
+                        </div>
                       )}
                     </td>
                     <td className="p-3">
                       <div className="flex items-center gap-1">
+                        {!b.isComplete && (
+                          <button onClick={() => setEditing(b)} className="btn btn-primary py-1 px-2 text-xs">השלם</button>
+                        )}
                         <button onClick={() => setEditing(b)} className="p-1.5 hover:bg-blue-100 rounded transition-colors text-blue-600" title="עריכה"><Edit2 size={14} /></button>
                         <button onClick={() => setDeleteConfirm(b)} className="p-1.5 hover:bg-red-100 rounded transition-colors text-red-500" title="מחיקה"><Trash2 size={14} /></button>
                       </div>
@@ -204,6 +233,12 @@ function PayingBodyForm({ body, onSubmit, onCancel, isLoading }: FormProps) {
   const [searchError, setSearchError] = useState<string | null>(null);
 
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
+
+  // Highlight required fields that are still empty so completing a legacy body is obvious.
+  const reqClass = (v: string) => `form-input ${!v.trim() ? 'ring-1 ring-amber-400 border-amber-400' : ''}`;
+  const stillMissing = missingFields({
+    name: form.name, taxId: form.taxId, contactName: form.contactName, email: form.email,
+  });
 
   const handleMorningSearch = async () => {
     setSearchError(null);
@@ -295,22 +330,29 @@ function PayingBodyForm({ body, onSubmit, onCancel, isLoading }: FormProps) {
         )}
       </div>
 
+      {body && !body.isComplete && stillMissing.length > 0 && (
+        <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+          גוף משלם זה אינו שלם. כדי לאפשר חיוב יש להשלים: <span className="font-medium">{stillMissing.join(', ')}</span>.
+          אפשר למשוך פרטים אוטומטית בעזרת "חפש במורנינג" למעלה.
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2">
           <label className="form-label">שם הגוף המשלם *</label>
-          <input type="text" value={form.name} onChange={(e) => set({ name: e.target.value })} className="form-input" required />
+          <input type="text" value={form.name} onChange={(e) => set({ name: e.target.value })} className={reqClass(form.name)} required />
         </div>
         <div>
           <label className="form-label">ח.פ / ת.ז *</label>
-          <input type="text" value={form.taxId} onChange={(e) => set({ taxId: e.target.value })} className="form-input" dir="ltr" required />
+          <input type="text" value={form.taxId} onChange={(e) => set({ taxId: e.target.value })} className={reqClass(form.taxId)} dir="ltr" required />
         </div>
         <div>
           <label className="form-label">איש קשר *</label>
-          <input type="text" value={form.contactName} onChange={(e) => set({ contactName: e.target.value })} className="form-input" required />
+          <input type="text" value={form.contactName} onChange={(e) => set({ contactName: e.target.value })} className={reqClass(form.contactName)} required />
         </div>
         <div>
           <label className="form-label">מייל *</label>
-          <input type="email" value={form.email} onChange={(e) => set({ email: e.target.value })} className="form-input" dir="ltr" required />
+          <input type="email" value={form.email} onChange={(e) => set({ email: e.target.value })} className={reqClass(form.email)} dir="ltr" required />
         </div>
         <div>
           <label className="form-label">טלפון</label>

@@ -144,6 +144,7 @@ institutionalOrdersRouter.get('/', async (req, res, next) => {
         where,
         include: {
           branch: { select: { id: true, name: true, city: true, type: true } },
+          payingBodyRef: { select: { id: true, name: true, taxId: true, morningClientId: true, isComplete: true } },
           _count: { select: { cycles: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -178,6 +179,7 @@ institutionalOrdersRouter.get('/:id', async (req, res, next) => {
       where: { id },
       include: {
         branch: { select: { id: true, name: true, city: true, type: true } },
+        payingBodyRef: { select: { id: true, name: true, taxId: true, morningClientId: true, isComplete: true } },
         _count: { select: { cycles: true } },
       },
     });
@@ -190,6 +192,7 @@ institutionalOrdersRouter.get('/:id', async (req, res, next) => {
 
 export const orderSchema = z.object({
   branchId: z.string().optional().nullable(),
+  payingBodyId: z.string().optional().nullable(),
   orderName: z.string().optional().nullable(),
   orderNumber: z.string().optional().nullable(),
   orderDate: z.string().optional().nullable(),
@@ -222,10 +225,12 @@ export const orderSchema = z.object({
   zip: z.string().optional().nullable(),
 });
 
-// New institutional orders must be tied to a branch. Existing branch-less orders are
-// left untouched (the DB column stays nullable) — this only blocks creating new ones.
-const createOrderSchema = orderSchema.extend({
+// New institutional orders must be tied to a branch AND a paying body. Existing orders
+// without either are left untouched (the DB columns stay nullable) — this only blocks
+// creating new ones, so legacy rows stay editable and can be completed gradually.
+export const createOrderSchema = orderSchema.extend({
   branchId: z.string().min(1, 'חובה לבחור סניף בעת יצירת הזמנה מוסדית'),
+  payingBodyId: z.string().min(1, 'חובה לבחור גוף משלם בעת יצירת הזמנה מוסדית'),
 });
 
 // Create institutional order
@@ -235,6 +240,7 @@ institutionalOrdersRouter.post('/', managerOrAdmin, async (req, res, next) => {
     const order = await prisma.institutionalOrder.create({
       data: {
         branchId: data.branchId,
+        payingBodyId: data.payingBodyId,
         orderName: data.orderName ?? null,
         orderNumber: data.orderNumber ?? null,
         orderDate: data.orderDate ? new Date(data.orderDate) : null,
@@ -264,6 +270,7 @@ institutionalOrdersRouter.post('/', managerOrAdmin, async (req, res, next) => {
       },
       include: {
         branch: { select: { id: true, name: true, city: true, type: true } },
+        payingBodyRef: { select: { id: true, name: true, taxId: true, morningClientId: true, isComplete: true } },
         _count: { select: { cycles: true } },
       },
     });
@@ -285,6 +292,7 @@ institutionalOrdersRouter.put('/:id', managerOrAdmin, async (req, res, next) => 
       where: { id },
       data: {
         ...(data.branchId !== undefined && { branchId: data.branchId || null }),
+        ...(data.payingBodyId !== undefined && { payingBodyId: data.payingBodyId || null }),
         ...(data.orderName !== undefined && { orderName: data.orderName }),
         ...(data.orderNumber !== undefined && { orderNumber: data.orderNumber }),
         ...(data.orderDate !== undefined && { orderDate: data.orderDate ? new Date(data.orderDate) : null }),
@@ -317,6 +325,7 @@ institutionalOrdersRouter.put('/:id', managerOrAdmin, async (req, res, next) => 
       },
       include: {
         branch: { select: { id: true, name: true, city: true, type: true } },
+        payingBodyRef: { select: { id: true, name: true, taxId: true, morningClientId: true, isComplete: true } },
         _count: { select: { cycles: true } },
       },
     });

@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { FileText, Building2, Search, Filter, ChevronUp, ChevronDown, ChevronsUpDown, LayoutGrid, List, MapPin, Phone, RefreshCcw, Plus, Pencil, Trash2, CheckSquare, Square, X, Upload, Loader2 } from 'lucide-react';
-import { useInstitutionalOrders, useInstitutionalOrderById, useCreateInstitutionalOrder, useUpdateInstitutionalOrder, useDeleteInstitutionalOrder, useBranches } from '../hooks/useApi';
+import { useInstitutionalOrders, useInstitutionalOrderById, useCreateInstitutionalOrder, useUpdateInstitutionalOrder, useDeleteInstitutionalOrder, useBranches, usePayingBodies } from '../hooks/useApi';
 import type { InstitutionalOrderData } from '../hooks/useApi';
 import { quotesApi, type OrderPreview } from '../api/quotes';
 import PageHeader from '../components/ui/PageHeader';
@@ -35,6 +35,8 @@ interface InstitutionalOrderRow {
   invoiceNumber?: string;
   notes?: string;
   payingBody?: string;
+  payingBodyId?: string;
+  payingBodyRef?: { id: string; name: string; taxId?: string | null; morningClientId?: string | null; isComplete?: boolean };
   taxId?: string;
   paymentTermsDays?: number;
   followUpDate?: string;
@@ -98,6 +100,7 @@ const EMPTY_FORM: Partial<InstitutionalOrderData> = {
   notes: '',
   totalAmount: undefined,
   payingBody: '',
+  payingBodyId: '',
   taxId: '',
   paymentTermsDays: 30,
   followUpDate: '',
@@ -172,9 +175,12 @@ export default function InstitutionalOrders() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [formError, setFormError] = useState<string | null>(null);
 
+  const navigate = useNavigate();
   const { data, isLoading } = useInstitutionalOrders(getInstitutionalOrdersListParams(statusFilter, page, debouncedSearch));
   const { data: branchesData } = useBranches();
   const branches = branchesData || [];
+  const { data: payingBodiesData } = usePayingBodies();
+  const payingBodies = payingBodiesData || [];
 
   const createOrder = useCreateInstitutionalOrder();
   const updateOrder = useUpdateInstitutionalOrder();
@@ -190,7 +196,7 @@ export default function InstitutionalOrders() {
     let list = orders.filter((o) => {
       if (!searchFilter || searchFilter.trim() === debouncedSearch) return true;
       const s = searchFilter.toLowerCase();
-      return o.orderName?.toLowerCase().includes(s) || o.orderNumber?.toLowerCase().includes(s) || o.branch?.name?.toLowerCase().includes(s) || o.contactName?.toLowerCase().includes(s) || o.contactPhone?.includes(s) || o.payingBody?.toLowerCase().includes(s) || o.fireberryStatus?.includes(s) || o.salesperson?.includes(s);
+      return o.orderName?.toLowerCase().includes(s) || o.orderNumber?.toLowerCase().includes(s) || o.branch?.name?.toLowerCase().includes(s) || o.contactName?.toLowerCase().includes(s) || o.contactPhone?.includes(s) || o.payingBody?.toLowerCase().includes(s) || o.payingBodyRef?.name?.toLowerCase().includes(s) || o.fireberryStatus?.includes(s) || o.salesperson?.includes(s);
     });
     if (sortConfig) {
       list = [...list].sort((a, b) => {
@@ -242,6 +248,7 @@ export default function InstitutionalOrders() {
       notes: o.notes || '',
       totalAmount: o.totalAmount,
       payingBody: o.payingBody || '',
+      payingBodyId: o.payingBodyRef?.id || o.payingBodyId || '',
       taxId: o.taxId || '',
       paymentTermsDays: o.paymentTermsDays ?? 30,
       followUpDate: o.followUpDate?.slice(0, 10) || '',
@@ -265,6 +272,11 @@ export default function InstitutionalOrders() {
     // New orders must be tied to a branch (existing branch-less orders can still be edited).
     if (!editItem && !form.branchId) {
       setFormError('חובה לבחור סניף ליצירת הזמנה מוסדית.');
+      return;
+    }
+    // New orders must be tied to a paying body (legacy orders without one stay editable).
+    if (!editItem && !form.payingBodyId) {
+      setFormError('חובה לבחור גוף משלם ליצירת הזמנה מוסדית.');
       return;
     }
     // At minimum an order name or branch is needed
@@ -308,6 +320,10 @@ export default function InstitutionalOrders() {
   // component type on every setForm() call and remount every input — that's the
   // focus-loss bug fixed here.
   const branchOptions = branches.map((b: any) => ({ value: b.id, label: b.name }));
+  const payingBodyOptions = payingBodies.map((p: any) => ({
+    value: p.id,
+    label: p.taxId ? `${p.name} · ${p.taxId}` : p.name,
+  }));
   const orderForm = (
     <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
 
@@ -329,8 +345,21 @@ export default function InstitutionalOrders() {
           />
         </div>
         <div>
-          {lbl('גוף משלם')}
-          <input className="form-input w-full" value={form.payingBody || ''} onChange={e => setForm(f => ({ ...f, payingBody: e.target.value }))} />
+          {lbl(editItem ? 'גוף משלם' : 'גוף משלם *')}
+          <SearchableSelect
+            options={payingBodyOptions}
+            value={form.payingBodyId || ''}
+            onChange={(v) => setForm(f => ({ ...f, payingBodyId: v }))}
+            placeholder={editItem ? 'ללא גוף משלם' : 'בחר גוף משלם'}
+            searchPlaceholder="חפש גוף משלם..."
+          />
+          <button
+            type="button"
+            onClick={() => navigate('/paying-bodies')}
+            className="mt-1 text-xs text-blue-600 hover:text-blue-700 hover:underline"
+          >
+            + צור גוף משלם חדש
+          </button>
         </div>
         <div>
           {lbl('ח.פ / ת.ז עוסק')}
@@ -360,6 +389,17 @@ export default function InstitutionalOrders() {
           {lbl('מבצע')}
           <input className="form-input w-full" value={form.salesperson || ''} onChange={e => setForm(f => ({ ...f, salesperson: e.target.value }))} placeholder="שם המבצע" />
         </div>
+        {form.payingBody ? (
+          <div className="col-span-2">
+            {lbl('גוף משלם (טקסט חופשי - ישן)')}
+            <input
+              className="form-input w-full bg-gray-50 text-gray-500"
+              value={form.payingBody || ''}
+              onChange={e => setForm(f => ({ ...f, payingBody: e.target.value }))}
+            />
+            <p className="mt-1 text-xs text-gray-400">שדה ישן לתקופת מעבר. השתמשו בבורר "גוף משלם" שלמעלה.</p>
+          </div>
+        ) : null}
       </div>
 
       {/* Section: סטטוס */}

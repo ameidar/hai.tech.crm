@@ -1138,6 +1138,31 @@ function methodToMorningType(method?: string | null): number {
   return PAYMENT_TYPES.BANK_TRANSFER; // institutional default
 }
 
+/** Hebrew label for a Morning payment type — stored on the recorded BillingPayment. */
+function morningTypeToMethodLabel(type: number): string {
+  switch (type) {
+    case PAYMENT_TYPES.CASH: return 'מזומן';
+    case PAYMENT_TYPES.CHEQUE: return 'צ׳ק';
+    case PAYMENT_TYPES.CREDIT_CARD: return 'כרטיס אשראי';
+    case PAYMENT_TYPES.BANK_TRANSFER: return 'העברה בנקאית';
+    case PAYMENT_TYPES.PAYPAL: return 'PayPal';
+    case PAYMENT_TYPES.PAYMENT_APP: return 'אפליקציית תשלום';
+    case PAYMENT_TYPES.DEDUCTION_AT_SOURCE: return 'ניכוי במקור';
+    default: return 'תקבול';
+  }
+}
+
+/** Human-readable cheque details for the BillingPayment.notes field (cheque lines only). */
+function chequeNotes(p: TaxReceiptPaymentInput): string | null {
+  if (p.type !== PAYMENT_TYPES.CHEQUE) return null;
+  const parts: string[] = [];
+  if (p.chequeNum) parts.push(`צ׳ק ${p.chequeNum}`);
+  if (p.bankName) parts.push(`בנק ${p.bankName}`);
+  if (p.bankBranch) parts.push(`סניף ${p.bankBranch}`);
+  if (p.bankAccount) parts.push(`חשבון ${p.bankAccount}`);
+  return parts.length ? parts.join(', ') : null;
+}
+
 /** Seed receipt lines from the payments already recorded on the period. */
 async function defaultTaxReceiptPayments(billingPeriodId: string): Promise<TaxReceiptPaymentInput[]> {
   const payments = await prisma.billingPayment.findMany({
@@ -1221,7 +1246,7 @@ export async function issueTaxInvoice(
 
   const updated = await prisma.$transaction(async (tx) => {
     await cacheMorningClientId(tx, cacheTarget, resolvedMorningClientId);
-    return tx.billingPeriod.update({
+    await tx.billingPeriod.update({
       where: { id: billingPeriodId },
       data: {
         taxInvoiceId: document.id,
@@ -1231,6 +1256,43 @@ export async function issueTaxInvoice(
         taxInvoiceIssuedById: issuedById,
         taxInvoiceType: DOCUMENT_TYPES.TAX_INVOICE_RECEIPT, // 320
       },
+    });
+
+    // A 320 includes a receipt — the money was received. Record the explicit receipt lines as
+    // BillingPayment rows so paidAmount/paymentStatus roll up like a manual payment or a 400
+    // receipt. When `payments` was omitted the lines were seeded from existing BillingPayment
+    // rows (already counted) — skip insertion there to avoid double counting; the rollup below
+    // still reflects them.
+    if (payments && payments.length > 0) {
+      for (const p of payments) {
+        await tx.billingPayment.create({
+          data: {
+            billingPeriodId,
+            amount: p.amount,
+            method: morningTypeToMethodLabel(p.type),
+            notes: chequeNotes(p),
+            paidAt: new Date(p.date),
+            recordedById: issuedById || null,
+            morningReceiptId: document.id,
+            morningReceiptNumber: document.number,
+            morningReceiptUrl: document.url?.he || document.url?.origin || null,
+          },
+        });
+      }
+    }
+
+    const sums = await tx.billingPayment.aggregate({ where: { billingPeriodId }, _sum: { amount: true } });
+    const paidAmount = Number(sums._sum.amount ?? 0);
+    const totalGross = Number(period.totalAmount) * 1.18;
+    const isFullyPaid = paidAmount + 0.01 >= totalGross;
+    const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
+    const latestPaidAt = payments && payments.length > 0
+      ? new Date([...payments].map((p) => p.date).sort().slice(-1)[0])
+      : null;
+
+    return tx.billingPeriod.update({
+      where: { id: billingPeriodId },
+      data: { paidAmount, paymentStatus, paidAt: isFullyPaid ? (latestPaidAt ?? new Date()) : null },
       include: { lines: true, institutionalOrder: true, payments: true },
     });
   });
@@ -1252,7 +1314,9 @@ export async function issueTaxInvoice(
 /**
  * Issue a standalone **tax invoice only** (חשבונית מס בלבד, Morning type 305) — no receipt,
  * no payment lines. Used to recognize revenue for tax purposes before the money arrives.
- * Receipts are issued later via {@link issueReceipt}, each linked back to this invoice.
+ * Built out of the period's proforma (חשבון עסקה) and, like the 320 path, links to it and
+ * closes it in Morning once issued. Receipts are issued later via {@link issueReceipt}, each
+ * linked back to this invoice.
  */
 export async function issueTaxInvoiceOnly(
   billingPeriodId: string,
@@ -1270,11 +1334,13 @@ export async function issueTaxInvoiceOnly(
   if (snap) applyProformaSnapshot(payload, snap);
   payload.type = DOCUMENT_TYPES.TAX_INVOICE; // 305 — binding tax invoice, no payment section
   if (documentDate) payload.date = documentDate;
+  // Link the 305 back to the proforma so Morning associates them (native "convert" relation).
+  if (period.morningDocId) payload.linkedDocumentIds = [period.morningDocId];
   assertProformaAmountMatch(payload, snap, 'חשבונית מס');
   const document = await createDocument(payload);
   const resolvedMorningClientId = discoveredId ?? document.client?.id ?? null;
 
-  return prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx) => {
     await cacheMorningClientId(tx, cacheTarget, resolvedMorningClientId);
     return tx.billingPeriod.update({
       where: { id: billingPeriodId },
@@ -1289,6 +1355,18 @@ export async function issueTaxInvoiceOnly(
       include: { lines: true, institutionalOrder: true, payments: true },
     });
   });
+
+  // Best-effort: close the proforma now that a binding 305 has been issued from it. The 305 is
+  // already created and our DB is updated — never let a close failure undo or block it.
+  if (period.morningDocId) {
+    try {
+      await closeMorningDocument(period.morningDocId);
+    } catch (err) {
+      console.warn('[billing] issueTaxInvoiceOnly: failed to close proforma in Morning', period.morningDocId, err);
+    }
+  }
+
+  return updated;
 }
 
 /**

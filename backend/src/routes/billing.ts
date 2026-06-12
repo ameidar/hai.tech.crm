@@ -339,6 +339,60 @@ billingRouter.post('/:id/unlock', adminOnly, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Admin-only: reopen a CANCELLED proforma period back to draft so it can be
+// regenerated and re-issued. Use after the original חשבון עסקה (proforma) was
+// cancelled in Morning because it was wrong — a proforma is not a binding tax
+// document, so it can be cancelled there without a credit note. Refuses if a
+// binding tax document (320/305) was issued or any payment was recorded; those
+// require manual handling with a credit note, not a silent reopen. Clears the
+// proforma Morning linkage so `generate`/`issue` produce a fresh document.
+const reopenSchema = z.object({ reason: z.string().min(1).max(500) });
+billingRouter.post('/:id/reopen', adminOnly, async (req, res, next) => {
+  try {
+    const { reason } = reopenSchema.parse(req.body);
+    const existing = await prisma.billingPeriod.findUnique({ where: { id: req.params.id } });
+    if (!existing) throw new AppError(404, 'Not found');
+    if (existing.status !== 'cancelled') {
+      throw new AppError(400, `Cannot reopen — period status is ${existing.status}, not 'cancelled'`);
+    }
+    if (existing.taxInvoiceNumber || existing.taxInvoiceId) {
+      throw new AppError(409, 'Cannot reopen — a binding tax document was issued for this period; cancel it in Morning with a credit note and handle manually');
+    }
+    if (Number(existing.paidAmount) > 0) {
+      throw new AppError(409, 'Cannot reopen — payments are recorded against this period');
+    }
+
+    const period = await prisma.billingPeriod.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'draft',
+        morningDocId: null,
+        morningDocNumber: null,
+        morningDocUrl: null,
+        morningDocType: null,
+        morningDraftId: null,
+        morningClientName: null,
+        proformaSource: null,
+        issuedAt: null,
+        issuedById: null,
+        sentAt: null,
+        sentChannel: null,
+        sentToEmail: null,
+        sentToPhone: null,
+      },
+    });
+    await logAudit({
+      req,
+      action: 'UPDATE',
+      entity: 'BillingPeriod',
+      entityId: period.id,
+      oldValue: { status: existing.status, morningDocNumber: existing.morningDocNumber },
+      newValue: { status: 'draft', action: 'reopen', reason },
+    });
+    res.json(period);
+  } catch (err) { next(err); }
+});
+
 // Preview — returns base64 PDF without touching Morning
 billingRouter.post('/:id/preview', managerOrAdmin, async (req, res, next) => {
   try {

@@ -1,18 +1,38 @@
-import { useState } from 'react';
-import { Plus, Wallet, Search, Edit2, Trash2, AlertTriangle, CheckCircle2, Link2, Loader2, HelpCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Plus, Wallet, Search, Edit2, Trash2, AlertTriangle, CheckCircle2, Link2, Loader2, HelpCircle, ArrowLeftRight, ArrowRight, ArrowLeft, ExternalLink } from 'lucide-react';
 import {
   usePayingBodies,
   useCreatePayingBody,
   useUpdatePayingBody,
   useDeletePayingBody,
   searchMorningClients,
+  comparePayingBodyMorning,
+  syncPayingBodyMorning,
 } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import { SkeletonCardGrid } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal';
-import type { PayingBody, MorningClientResult } from '../types';
+import type {
+  PayingBody,
+  MorningClientResult,
+  PayingBodyMorningCompare,
+  PayingBodyFieldDiff,
+  PayingBodySyncDirection,
+  PayingBodySyncField,
+} from '../types';
+
+const SYNC_FIELD_LABEL: Record<PayingBodySyncField, string> = {
+  name: 'שם',
+  taxId: 'ח.פ / ת.ז',
+  email: 'מייל',
+  phone: 'טלפון',
+  address: 'כתובת',
+  city: 'עיר',
+  zip: 'מיקוד',
+};
 
 // Required fields for a complete paying body — kept in sync with the backend `isComplete`.
 const REQUIRED_FIELDS: { key: 'name' | 'taxId' | 'contactName' | 'email'; label: string }[] = [
@@ -25,10 +45,14 @@ const REQUIRED_FIELDS: { key: 'name' | 'taxId' | 'contactName' | 'email'; label:
 const missingFields = (b: Partial<PayingBody>): string[] =>
   REQUIRED_FIELDS.filter((f) => !((b[f.key] as string | null | undefined) || '').toString().trim()).map((f) => f.label);
 
+// Deep link to a client's card in Morning's web app (verified format).
+const morningClientLink = (id: string) => `https://app.greeninvoice.co.il/incomes/clients/${id}/contact`;
+
 export default function PayingBodies() {
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<PayingBody | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<PayingBody | null>(null);
+  const [comparing, setComparing] = useState<PayingBody | null>(null);
   const [search, setSearch] = useState('');
   const [onlyIncomplete, setOnlyIncomplete] = useState(false);
 
@@ -123,7 +147,7 @@ export default function PayingBodies() {
                   <th className="p-3 text-right font-medium text-gray-600">מייל</th>
                   <th className="p-3 text-center font-medium text-gray-600">
                     <span className="inline-flex items-center gap-1">מורנינג
-                      <span title="האם הגוף המשלם מקושר ללקוח קיים במורנינג. מקושר = החיוב מופק לפי המזהה ולא נוצרת כפילות." className="text-gray-400 cursor-help"><HelpCircle size={13} /></span>
+                      <span title="האם הגוף המשלם מקושר ללקוח קיים במורנינג. מקושר = החיוב מופק לפי המזהה ולא נוצרת כפילות. הסימון ליד החוליה מציין אם הפרטים מסונכרנים: ✓ ירוק = זהה למורנינג · מספר כתום = יש פערים, כדאי להשוות ולסנכרן · משולש אדום = התנגשות ח.פ (אולי קושר הלקוח הלא נכון)." className="text-gray-400 cursor-help"><HelpCircle size={13} /></span>
                     </span>
                   </th>
                   <th className="p-3 text-center font-medium text-gray-600">הזמנות</th>
@@ -151,9 +175,7 @@ export default function PayingBodies() {
                     <td className="p-3 text-gray-600" dir="ltr">{b.email || '-'}</td>
                     <td className="p-3 text-center">
                       {b.morningClientId ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-600" title={`מקושר ללקוח במורנינג (${b.morningClientId})`}>
-                          <Link2 size={15} />
-                        </span>
+                        <MorningDiffBadge body={b} />
                       ) : (
                         <span className="text-gray-300">-</span>
                       )}
@@ -175,6 +197,9 @@ export default function PayingBodies() {
                       <div className="flex items-center gap-1">
                         {!b.isComplete && (
                           <button onClick={() => setEditing(b)} className="btn btn-primary py-1 px-2 text-xs" title="פתח להשלמת שדות החובה — אפשר למשוך את הפרטים אוטומטית ממורנינג">השלם</button>
+                        )}
+                        {b.morningClientId && (
+                          <button onClick={() => setComparing(b)} className="p-1.5 hover:bg-emerald-100 rounded transition-colors text-emerald-600" title="השווה את הפרטים מול הלקוח במורנינג וסנכרן הבדלים (לכל שדה אפשר לבחור כיוון)"><ArrowLeftRight size={14} /></button>
                         )}
                         <button onClick={() => setEditing(b)} className="p-1.5 hover:bg-blue-100 rounded transition-colors text-blue-600" title="עריכת פרטי הגוף המשלם"><Edit2 size={14} /></button>
                         <button onClick={() => setDeleteConfirm(b)} className="p-1.5 hover:bg-red-100 rounded transition-colors text-red-500" title="מחיקה (חסומה אם מקושרות הזמנות)"><Trash2 size={14} /></button>
@@ -200,6 +225,9 @@ export default function PayingBodies() {
       </Modal>
       <Modal isOpen={!!editing} onClose={() => setEditing(null)} title="עריכת גוף משלם" size="lg">
         {editing && <PayingBodyForm body={editing} onSubmit={handleUpdate} onCancel={() => setEditing(null)} isLoading={updateBody.isPending} />}
+      </Modal>
+      <Modal isOpen={!!comparing} onClose={() => setComparing(null)} title="השוואה וסנכרון מול מורנינג" size="lg">
+        {comparing && <MorningCompareModal body={comparing} onClose={() => setComparing(null)} />}
       </Modal>
       <ConfirmDeleteModal
         isOpen={!!deleteConfirm}
@@ -239,6 +267,9 @@ function PayingBodyForm({ body, onSubmit, onCancel, isLoading }: FormProps) {
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<MorningClientResult[] | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
+  // When a saved body is already linked, the Morning box shows the linked client + inline compare.
+  // "Replace link" flips it back to search mode.
+  const [replacing, setReplacing] = useState(false);
 
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
 
@@ -285,6 +316,23 @@ function PayingBodyForm({ body, onSubmit, onCancel, isLoading }: FormProps) {
       city: c.city || form.city,
     });
     setResults(null);
+    setReplacing(false);
+  };
+
+  // After an inline sync, mirror the fresh CRM-side values back into the form so saving the form
+  // afterwards won't clobber fields that were just pulled from Morning. contactName isn't synced.
+  const onMorningSynced = (fresh: PayingBodyMorningCompare) => {
+    const byField: Partial<Record<PayingBodySyncField, string | null>> = {};
+    fresh.fields.forEach((f) => { byField[f.field] = f.crm; });
+    set({
+      name: byField.name ?? form.name,
+      taxId: byField.taxId ?? '',
+      email: byField.email ?? '',
+      phone: byField.phone ?? '',
+      address: byField.address ?? '',
+      city: byField.city ?? '',
+      zip: byField.zip ?? '',
+    });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -309,40 +357,78 @@ function PayingBodyForm({ body, onSubmit, onCancel, isLoading }: FormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="p-6 space-y-4">
-      {/* Morning lookup */}
+      {/* Morning link / search */}
       <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="text-sm text-emerald-800">
-            <span className="font-medium">חיפוש לקוח קיים במורנינג</span>
-            <p className="text-emerald-700 text-xs mt-0.5">חפש לפי השם או הח.פ כדי להתחבר ללקוח קיים ולמנוע כפילות.</p>
-          </div>
-          <button type="button" onClick={handleMorningSearch} disabled={searching} className="btn btn-secondary" title="מלאו שם או ח.פ ולחצו — נחפש לקוח קיים במורנינג, וכשבוחרים אותו נמשכים הפרטים אוטומטית ונשמר הקישור (בלי כפילות)">
-            {searching ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />} חפש במורנינג
-          </button>
-        </div>
-        {form.morningClientId && (
-          <div className="mt-3 inline-flex items-center gap-1.5 text-sm text-emerald-700 bg-white border border-emerald-200 rounded px-2 py-1" title="גוף משלם זה מקושר ללקוח קיים במורנינג. החיוב יופק לפי המזהה ולא תיווצר כפילות.">
-            <Link2 size={14} /> מקושר ללקוח במורנינג
-            <button type="button" onClick={() => set({ morningClientId: '' })} className="text-emerald-500 hover:text-red-500 ms-1" title="נתק את הקישור ללקוח במורנינג">✕</button>
-          </div>
-        )}
-        {searchError && <div className="mt-3 text-sm text-red-600">{searchError}</div>}
-        {results && (
-          <div className="mt-3 max-h-52 overflow-auto rounded border border-emerald-200 bg-white divide-y">
-            {results.length === 0 ? (
-              <div className="p-3 text-sm text-gray-500">לא נמצאו לקוחות תואמים במורנינג. אפשר להמשיך וליצור גוף משלם חדש.</div>
+        {form.morningClientId && !replacing ? (
+          <>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="text-sm text-emerald-800">
+                <span className="font-medium inline-flex items-center gap-1"><Link2 size={14} /> מקושר ללקוח במורנינג</span>
+                <p className="text-emerald-700 text-xs mt-0.5">החיוב יופק לפי הלקוח המקושר — בלי ליצור כפילות.</p>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <a
+                  href={morningClientLink(form.morningClientId)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-secondary"
+                  title="פתח את כרטיס הלקוח במורנינג בלשונית חדשה"
+                >
+                  <ExternalLink size={15} /> פתח במורנינג
+                </a>
+                <button type="button" onClick={() => { setReplacing(true); setResults(null); setSearchError(null); }} className="btn btn-secondary" title="חפש ובחר לקוח אחר במורנינג במקום הקישור הנוכחי">
+                  <Search size={15} /> החלף קישור
+                </button>
+                <button type="button" onClick={() => set({ morningClientId: '' })} className="text-emerald-500 hover:text-red-500 px-1" title="נתק את הקישור ללקוח במורנינג">✕</button>
+              </div>
+            </div>
+
+            {body?.id && body.morningClientId === form.morningClientId ? (
+              <div className="mt-4 border-t border-emerald-200 pt-3">
+                <div className="text-xs font-medium text-emerald-800 mb-2">השוואה מול מורנינג</div>
+                <MorningComparePanel body={body} onSynced={onMorningSynced} />
+              </div>
             ) : (
-              results.map((c) => (
-                <div key={c.id} className="p-3 flex items-center justify-between gap-3 hover:bg-emerald-50">
-                  <div className="text-sm">
-                    <div className="font-medium text-gray-900">{c.name}</div>
-                    <div className="text-gray-500 text-xs" dir="ltr">{[c.taxId, c.emails?.[0]].filter(Boolean).join(' · ') || '—'}</div>
-                  </div>
-                  <button type="button" onClick={() => applyMorningClient(c)} className="btn btn-secondary py-1 px-3 text-sm">בחר</button>
-                </div>
-              ))
+              <div className="mt-3 text-xs text-emerald-700 bg-white border border-emerald-200 rounded px-2 py-1.5">
+                שמרי את הגוף המשלם כדי לעדכן את הקישור ולראות השוואה מול מורנינג.
+              </div>
             )}
-          </div>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="text-sm text-emerald-800">
+                <span className="font-medium">חיפוש לקוח קיים במורנינג</span>
+                <p className="text-emerald-700 text-xs mt-0.5">חפש לפי השם או הח.פ כדי להתחבר ללקוח קיים ולמנוע כפילות.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {replacing && (
+                  <button type="button" onClick={() => { setReplacing(false); setResults(null); setSearchError(null); }} className="btn btn-secondary" title="חזרה לקישור הקיים בלי לשנות">ביטול</button>
+                )}
+                <button type="button" onClick={handleMorningSearch} disabled={searching} className="btn btn-secondary" title="מלאו שם או ח.פ ולחצו — נחפש לקוח קיים במורנינג, וכשבוחרים אותו נמשכים הפרטים אוטומטית ונשמר הקישור (בלי כפילות)">
+                  {searching ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />} חפש במורנינג
+                </button>
+              </div>
+            </div>
+            {searchError && <div className="mt-3 text-sm text-red-600">{searchError}</div>}
+            {results && (
+              <div className="mt-3 max-h-52 overflow-auto rounded border border-emerald-200 bg-white divide-y">
+                {results.length === 0 ? (
+                  <div className="p-3 text-sm text-gray-500">לא נמצאו לקוחות תואמים במורנינג. אפשר להמשיך וליצור גוף משלם חדש.</div>
+                ) : (
+                  results.map((c) => (
+                    <div key={c.id} className="p-3 flex items-center justify-between gap-3 hover:bg-emerald-50">
+                      <div className="text-sm">
+                        <div className="font-medium text-gray-900">{c.name}</div>
+                        <div className="text-gray-500 text-xs" dir="ltr">{[c.taxId, c.emails?.[0]].filter(Boolean).join(' · ') || '—'}</div>
+                      </div>
+                      <button type="button" onClick={() => applyMorningClient(c)} className="btn btn-secondary py-1 px-3 text-sm">בחר</button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -395,5 +481,226 @@ function PayingBodyForm({ body, onSubmit, onCancel, isLoading }: FormProps) {
         <button type="submit" className="btn btn-primary" disabled={isLoading}>{isLoading ? 'שומר...' : 'שמור'}</button>
       </div>
     </form>
+  );
+}
+
+const valueCell = (v: string | null) =>
+  v ? <span className="text-gray-900" dir="auto">{v}</span> : <span className="text-gray-300">ריק</span>;
+
+// Passive per-row indicator: lazily compares a linked paying body against its Morning client so the
+// user can see at a glance whether there are differences, without opening each one. Cached for a few
+// minutes so opening the list doesn't re-hit Morning on every render.
+function MorningDiffBadge({ body }: { body: PayingBody }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['paying-body-morning-diff', body.id],
+    queryFn: () => comparePayingBodyMorning(body.id),
+    enabled: !!body.morningClientId,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+
+  if (isLoading) {
+    return (
+      <span className="inline-flex items-center gap-1 text-emerald-600" title={`מקושר ללקוח במורנינג (${body.morningClientId}) — בודק פערים...`}>
+        <Link2 size={15} /><Loader2 size={11} className="animate-spin text-gray-400" />
+      </span>
+    );
+  }
+  if (isError || !data) {
+    return (
+      <span className="inline-flex items-center gap-1 text-emerald-600" title={`מקושר ללקוח במורנינג (${body.morningClientId}) — לא ניתן לבדוק פערים כרגע`}>
+        <Link2 size={15} />
+      </span>
+    );
+  }
+
+  const changed = data.fields.filter((f) => !f.equal);
+  const hasConflict = changed.some((f) => f.locked);
+
+  if (hasConflict) {
+    return (
+      <span className="inline-flex items-center gap-1 text-red-600" title="מקושר למורנינג, אך יש התנגשות ח.פ/ת.ז בין המערכת למורנינג — ייתכן שקושר הלקוח הלא נכון. פתחו 'השווה למורנינג' לבדיקה.">
+        <Link2 size={15} /><AlertTriangle size={12} />
+      </span>
+    );
+  }
+  if (changed.length > 0) {
+    return (
+      <span className="inline-flex items-center gap-1 text-amber-600" title={`מקושר למורנינג, אך יש ${changed.length} פערים בין המערכת למורנינג. פתחו 'השווה למורנינג' לסנכרון.`}>
+        <Link2 size={15} />
+        <span className="inline-flex items-center justify-center min-w-[15px] h-[15px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-medium leading-none">{changed.length}</span>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-emerald-600" title="מקושר למורנינג ומסונכרן — כל הפרטים זהים.">
+      <Link2 size={15} /><CheckCircle2 size={12} />
+    </span>
+  );
+}
+
+// Compare a paying body against its linked Morning client and let the user sync each differing
+// field in a chosen direction. taxId can only fill an empty side — a real conflict is locked.
+// Shared by the list's compare modal and the inline section inside the edit form. `onSynced` lets a
+// host (the form) refresh its own fields from the fresh comparison after a sync.
+function MorningComparePanel({ body, onSynced }: { body: PayingBody; onSynced?: (fresh: PayingBodyMorningCompare) => void }) {
+  const queryClient = useQueryClient();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [compare, setCompare] = useState<PayingBodyMorningCompare | null>(null);
+  const [decisions, setDecisions] = useState<Record<string, PayingBodySyncDirection>>({});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
+    setNotice(null);
+    setDecisions({});
+    comparePayingBodyMorning(body.id)
+      .then((data) => { if (active) setCompare(data); })
+      .catch((e: any) => { if (active) setError(e?.response?.data?.message || e?.response?.data?.error || 'טעינת ההשוואה נכשלה'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [body.id]);
+
+  const diffs: PayingBodyFieldDiff[] = compare?.fields ?? [];
+  const changed = diffs.filter((f) => !f.equal);
+
+  const setDir = (field: PayingBodySyncField, dir: PayingBodySyncDirection | null) =>
+    setDecisions((d) => {
+      const next = { ...d };
+      if (!dir || next[field] === dir) delete next[field];
+      else next[field] = dir;
+      return next;
+    });
+
+  const apply = async () => {
+    if (!Object.keys(decisions).length) return;
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const fresh = await syncPayingBodyMorning(body.id, decisions);
+      setCompare(fresh);
+      setDecisions({});
+      setNotice('הסנכרון בוצע בהצלחה.');
+      queryClient.setQueryData(['paying-body-morning-diff', body.id], fresh);
+      queryClient.invalidateQueries({ queryKey: ['paying-bodies'] });
+      onSynced?.(fresh);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.response?.data?.error || 'הסנכרון נכשל');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return <div className="flex items-center gap-2 text-gray-500 py-6 justify-center"><Loader2 size={18} className="animate-spin" /> טוען השוואה...</div>;
+  }
+  if (error && !compare) {
+    return <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</div>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {changed.length === 0 ? (
+        <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-3 py-3 text-sm">
+          <CheckCircle2 size={16} /> כל הפרטים זהים בין המערכת למורנינג — אין מה לסנכרן.
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-lg border border-gray-100 bg-white">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="p-2 text-right font-medium text-gray-600">שדה</th>
+                <th className="p-2 text-right font-medium text-gray-600">במערכת</th>
+                <th className="p-2 text-right font-medium text-gray-600">במורנינג</th>
+                <th className="p-2 text-center font-medium text-gray-600">פעולה</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {changed.map((f) => {
+                const sel = decisions[f.field];
+                const canFromMorning = f.morning !== null && !f.locked;
+                const canToMorning = f.crm !== null && !f.locked;
+                return (
+                  <tr key={f.field} className="align-top">
+                    <td className="p-2 font-medium text-gray-700 whitespace-nowrap">{SYNC_FIELD_LABEL[f.field]}</td>
+                    <td className="p-2" dir="auto">{valueCell(f.crm)}</td>
+                    <td className="p-2" dir="auto">{valueCell(f.morning)}</td>
+                    <td className="p-2">
+                      {f.locked ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-red-600" title="ח.פ/ת.ז שונה בשני הצדדים — לא ניתן לדרוס. בדקו אם קושר הלקוח הנכון במורנינג.">
+                          <AlertTriangle size={13} /> ערכים שונים — חסום
+                        </span>
+                      ) : (
+                        <div className="flex flex-col gap-1 items-stretch">
+                          <button
+                            type="button"
+                            disabled={!canFromMorning}
+                            onClick={() => setDir(f.field, 'fromMorning')}
+                            className={`text-xs px-2 py-1 rounded border inline-flex items-center justify-center gap-1 ${sel === 'fromMorning' ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50'} ${!canFromMorning ? 'opacity-40 cursor-not-allowed' : ''}`}
+                            title={canFromMorning ? 'העתק את הערך ממורנינג אל המערכת' : 'אין ערך במורנינג להעתקה'}
+                          >
+                            <ArrowRight size={12} /> קח ממורנינג
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!canToMorning}
+                            onClick={() => setDir(f.field, 'toMorning')}
+                            className={`text-xs px-2 py-1 rounded border inline-flex items-center justify-center gap-1 ${sel === 'toMorning' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50'} ${!canToMorning ? 'opacity-40 cursor-not-allowed' : ''}`}
+                            title={canToMorning ? 'דחוף את הערך מהמערכת אל מורנינג' : 'אין ערך במערכת לדחיפה'}
+                          >
+                            <ArrowLeft size={12} /> דחוף למורנינג
+                          </button>
+                          {f.field === 'taxId' && (
+                            <span className="text-[10px] text-amber-700" title="ח.פ/ת.ז לעולם לא נדרס — מותר רק למלא צד ריק">מילוי צד ריק בלבד</span>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {notice && <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-3 py-2">{notice}</div>}
+      {error && compare && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</div>}
+
+      {changed.length > 0 && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={apply}
+            disabled={saving || Object.keys(decisions).length === 0}
+            className="btn btn-primary"
+            title="החל את הכיוונים שבחרת — קודם מתעדכן מורנינג, אחר כך המערכת"
+          >
+            {saving ? <Loader2 size={16} className="animate-spin" /> : <ArrowLeftRight size={16} />} סנכרן {Object.keys(decisions).length ? `(${Object.keys(decisions).length})` : ''}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MorningCompareModal({ body, onClose }: { body: PayingBody; onClose: () => void }) {
+  return (
+    <div className="p-6 space-y-4">
+      <p className="text-sm text-gray-500">
+        השוואת הפרטים בין הגוף המשלם במערכת לבין הלקוח המקושר במורנינג. לכל שדה שונה בחרו כיוון: למשוך ממורנינג למערכת, או לדחוף מהמערכת למורנינג.
+      </p>
+      <MorningComparePanel body={body} />
+      <div className="flex justify-end gap-3 pt-4 border-t">
+        <button type="button" onClick={onClose} className="btn btn-secondary">סגור</button>
+      </div>
+    </div>
   );
 }

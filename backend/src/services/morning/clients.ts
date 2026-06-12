@@ -11,6 +11,27 @@ export interface MorningClientRecord {
   zip?: string | null;
 }
 
+/** Fetch a single Morning client by id. */
+export async function getMorningClient(id: string): Promise<MorningClientRecord> {
+  return morningRequest<MorningClientRecord>('GET', `/api/v1/clients/${encodeURIComponent(id)}`);
+}
+
+/**
+ * Update an existing Morning client. Morning's PUT replaces the whole record, so we fetch the
+ * current client first and merge only the provided fields onto it — otherwise any field we omit
+ * would be wiped. Pass only the fields you want to change.
+ */
+export async function updateMorningClient(
+  id: string,
+  changes: Partial<Pick<MorningClientRecord, 'name' | 'taxId' | 'emails' | 'phone' | 'address' | 'city' | 'zip'>>
+): Promise<MorningClientRecord> {
+  const current = await getMorningClient(id);
+  const merged = { ...current, ...changes };
+  // `id` is taken from the path, not the body.
+  const { id: _omit, ...body } = merged as unknown as Record<string, unknown>;
+  return morningRequest<MorningClientRecord>('PUT', `/api/v1/clients/${encodeURIComponent(id)}`, body);
+}
+
 /**
  * Search Morning's client directory.
  *

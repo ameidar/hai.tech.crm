@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { paginationSchema, uuidSchema } from '../types/schemas.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { isMorningConfigured } from '../services/morning/client.js';
-import { searchClients } from '../services/morning/clients.js';
+import { searchClients, getMorningClient, updateMorningClient } from '../services/morning/clients.js';
+import { comparePayingBodyToMorning, planSync } from '../services/payingBodySync.js';
 
 export const payingBodiesRouter = Router();
 
@@ -107,6 +109,68 @@ payingBodiesRouter.get('/morning/search', managerOrAdmin, async (req, res, next)
         city: c.city ?? null,
       })),
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Compare a linked paying body against its Morning client, field by field.
+payingBodiesRouter.get('/:id/morning/compare', managerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+    if (!isMorningConfigured()) throw new AppError(503, 'Morning is not configured');
+    const pb = await prisma.payingBody.findUnique({ where: { id } });
+    if (!pb) throw new AppError(404, 'Paying body not found');
+    if (!pb.morningClientId) throw new AppError(400, 'הגוף המשלם אינו מקושר ללקוח במורנינג');
+
+    const client = await getMorningClient(pb.morningClientId);
+    res.json({ data: { morningClientId: pb.morningClientId, fields: comparePayingBodyToMorning(pb, client) } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+const syncSchema = z.object({
+  decisions: z.record(z.string(), z.enum(['fromMorning', 'toMorning'])),
+});
+
+// Apply per-field sync decisions between a paying body and its Morning client. Morning is updated
+// first, then the CRM record; taxId is protected (planSync rejects overwriting an existing one).
+payingBodiesRouter.post('/:id/morning/sync', managerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+    if (!isMorningConfigured()) throw new AppError(503, 'Morning is not configured');
+    const { decisions } = syncSchema.parse(req.body);
+
+    const pb = await prisma.payingBody.findUnique({ where: { id } });
+    if (!pb) throw new AppError(404, 'Paying body not found');
+    if (!pb.morningClientId) throw new AppError(400, 'הגוף המשלם אינו מקושר ללקוח במורנינג');
+
+    const client = await getMorningClient(pb.morningClientId);
+    const plan = planSync(pb, client, decisions);
+    if (plan.errors.length) throw new AppError(400, plan.errors.join(' | '));
+
+    if (Object.keys(plan.morningChanges).length) {
+      await updateMorningClient(pb.morningClientId, plan.morningChanges);
+    }
+
+    let updated = pb;
+    if (Object.keys(plan.pbUpdates).length) {
+      const merged = {
+        name: plan.pbUpdates.name ?? pb.name,
+        taxId: plan.pbUpdates.taxId ?? pb.taxId,
+        contactName: pb.contactName,
+        email: plan.pbUpdates.email ?? pb.email,
+      };
+      updated = await prisma.payingBody.update({
+        where: { id },
+        data: { ...(plan.pbUpdates as Prisma.PayingBodyUpdateInput), isComplete: isComplete(merged) },
+      });
+      await logUpdateAudit({ entity: 'PayingBody', entityId: id, oldRecord: pb, newRecord: updated, req });
+    }
+
+    const freshClient = await getMorningClient(pb.morningClientId);
+    res.json({ data: { morningClientId: pb.morningClientId, fields: comparePayingBodyToMorning(updated, freshClient) } });
   } catch (error) {
     next(error);
   }

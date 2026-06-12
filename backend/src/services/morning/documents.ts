@@ -95,9 +95,11 @@ export interface MorningDocument {
   documentDate: string;
   status: number;
   amount?: number;          // document gross total (incl. VAT)
+  amountOpened?: number;    // open/unpaid balance — 0 means fully receipted
   url?: { he?: string; en?: string; origin?: string };
   client?: MorningClient;
   income?: MorningIncomeItem[];
+  payment?: MorningPaymentItem[]; // receipt lines present on receipt docs (320/400)
 }
 
 /** Fetch a single Morning document by its API id (UUID). */

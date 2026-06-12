@@ -1619,7 +1619,8 @@ export async function linkExternalTaxInvoice(
   if (period.status !== 'issued') throw new Error('Proforma must be issued first');
   if (period.taxInvoiceId) throw new Error('Tax invoice already linked for this period');
 
-  const searchType = input.documentType === 305 ? DOCUMENT_TYPES.TAX_INVOICE : DOCUMENT_TYPES.TAX_INVOICE_RECEIPT;
+  const is320 = input.documentType === DOCUMENT_TYPES.TAX_INVOICE_RECEIPT;
+  const searchType = is320 ? DOCUMENT_TYPES.TAX_INVOICE_RECEIPT : DOCUMENT_TYPES.TAX_INVOICE;
 
   const explicitId = input.documentId?.trim() || null;
   const urlId = input.url ? (input.url.match(UUID_RE)?.[0] ?? null) : null;
@@ -1627,6 +1628,9 @@ export async function linkExternalTaxInvoice(
   let docNumber: number | null = input.documentNumber ?? null;
   let docUrl: string | null = input.url?.trim() || null;
   let issuedAt: Date | null = input.issuedAt ? new Date(input.issuedAt) : null;
+  // Receipt lines from the linked Morning document — only a 320 carries these. We record them as
+  // BillingPayment rows so the CRM has real payment history instead of a bare "paid" flag.
+  let morningPayments: MorningPaymentItem[] = [];
 
   try {
     if (docId) {
@@ -1634,6 +1638,7 @@ export async function linkExternalTaxInvoice(
       docNumber = docNumber ?? doc.number ?? null;
       docUrl = docUrl ?? doc.url?.he ?? doc.url?.origin ?? null;
       if (!issuedAt && doc.documentDate) issuedAt = new Date(doc.documentDate);
+      if (is320 && Array.isArray(doc.payment)) morningPayments = doc.payment;
     } else if (docNumber != null) {
       const { items } = await searchMorningDocuments({ type: [searchType], number: docNumber });
       const match = items.find((d) => d.number === docNumber) ?? items[0];
@@ -1641,6 +1646,11 @@ export async function linkExternalTaxInvoice(
         docId = match.id ?? null;
         docUrl = docUrl ?? match.url?.he ?? match.url?.origin ?? null;
         if (!issuedAt && match.documentDate) issuedAt = new Date(match.documentDate);
+        // Search results omit receipt lines — fetch the full document to get them.
+        if (is320 && docId) {
+          const full = await getMorningDocument(docId);
+          if (Array.isArray(full.payment)) morningPayments = full.payment;
+        }
       }
     }
   } catch (err) {
@@ -1652,24 +1662,66 @@ export async function linkExternalTaxInvoice(
   }
 
   const issuedAtDate = issuedAt ?? new Date();
-  const is320 = input.documentType === DOCUMENT_TYPES.TAX_INVOICE_RECEIPT;
   const totalGross = Number(period.totalAmount) * 1.18;
+  const linkData = {
+    taxInvoiceId: docId,
+    taxInvoiceNumber: docNumber,
+    taxInvoiceUrl: docUrl,
+    taxInvoiceIssuedAt: issuedAtDate,
+    taxInvoiceIssuedById: issuedById || null,
+    taxInvoiceType: input.documentType,
+  };
 
-  return prisma.billingPeriod.update({
-    where: { id: billingPeriodId },
-    data: {
-      taxInvoiceId: docId,
-      taxInvoiceNumber: docNumber,
-      taxInvoiceUrl: docUrl,
-      taxInvoiceIssuedAt: issuedAtDate,
-      taxInvoiceIssuedById: issuedById || null,
-      taxInvoiceType: input.documentType,
-      ...(is320 && {
-        paidAmount: totalGross,
-        paymentStatus: 'paid',
-        paidAt: issuedAtDate,
-      }),
-    },
-    include: { lines: true, institutionalOrder: true, payments: true },
+  // 305 — a tax invoice only, no money received: just link it, never mark paid.
+  if (!is320) {
+    return prisma.billingPeriod.update({
+      where: { id: billingPeriodId },
+      data: linkData,
+      include: { lines: true, institutionalOrder: true, payments: true },
+    });
+  }
+
+  // 320 — includes a receipt. Link it, then record each Morning receipt line as a BillingPayment
+  // and roll up paidAmount/paymentStatus, mirroring issueTaxInvoice so the two paths stay in sync.
+  return prisma.$transaction(async (tx) => {
+    await tx.billingPeriod.update({ where: { id: billingPeriodId }, data: linkData });
+
+    for (const p of morningPayments) {
+      const asInput: TaxReceiptPaymentInput = {
+        date: p.date,
+        type: p.type,
+        amount: p.price,
+        chequeNum: p.chequeNum,
+        bankName: p.bankName,
+        bankBranch: p.bankBranch,
+        bankAccount: p.bankAccount,
+      };
+      await tx.billingPayment.create({
+        data: {
+          billingPeriodId,
+          amount: p.price,
+          method: morningTypeToMethodLabel(p.type),
+          notes: chequeNotes(asInput),
+          paidAt: new Date(p.date),
+          recordedById: issuedById || null,
+          morningReceiptId: docId,
+          morningReceiptNumber: docNumber,
+          morningReceiptUrl: docUrl,
+        },
+      });
+    }
+
+    const sums = await tx.billingPayment.aggregate({ where: { billingPeriodId }, _sum: { amount: true } });
+    // Fallback: if Morning gave us no receipt lines (enrichment failed), keep the legacy behavior of
+    // marking the period fully paid so a linked 320 never wrongly shows as unpaid.
+    const paidAmount = morningPayments.length > 0 ? Number(sums._sum.amount ?? 0) : totalGross;
+    const isFullyPaid = paidAmount + 0.01 >= totalGross;
+    const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
+
+    return tx.billingPeriod.update({
+      where: { id: billingPeriodId },
+      data: { paidAmount, paymentStatus, paidAt: isFullyPaid ? issuedAtDate : null },
+      include: { lines: true, institutionalOrder: true, payments: true },
+    });
   });
 }

@@ -7,6 +7,8 @@ import type {
   Branch,
   PayingBody,
   MorningClientResult,
+  PayingBodyMorningCompare,
+  PayingBodySyncDirection,
   Instructor,
   Cycle,
   Meeting,
@@ -315,6 +317,21 @@ export const searchMorningClients = async (params: { name?: string; taxId?: stri
   if (params.name) qs.set('name', params.name);
   if (params.taxId) qs.set('taxId', params.taxId);
   const response = await api.get<{ data: MorningClientResult[] }>(`/paying-bodies/morning/search?${qs.toString()}`);
+  return response.data.data;
+};
+
+// Compare a linked paying body against its Morning client, field by field.
+export const comparePayingBodyMorning = async (id: string): Promise<PayingBodyMorningCompare> => {
+  const response = await api.get<{ data: PayingBodyMorningCompare }>(`/paying-bodies/${id}/morning/compare`);
+  return response.data.data;
+};
+
+// Apply per-field sync decisions; returns the fresh comparison after the changes.
+export const syncPayingBodyMorning = async (
+  id: string,
+  decisions: Record<string, PayingBodySyncDirection>
+): Promise<PayingBodyMorningCompare> => {
+  const response = await api.post<{ data: PayingBodyMorningCompare }>(`/paying-bodies/${id}/morning/sync`, { decisions });
   return response.data.data;
 };
 

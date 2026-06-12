@@ -127,6 +127,24 @@ export interface MorningClientResult {
   city?: string | null;
 }
 
+export type PayingBodySyncField = 'name' | 'taxId' | 'email' | 'phone' | 'address' | 'city' | 'zip';
+export type PayingBodySyncDirection = 'fromMorning' | 'toMorning';
+
+// One field's comparison between the CRM paying body and its linked Morning client.
+export interface PayingBodyFieldDiff {
+  field: PayingBodySyncField;
+  crm: string | null;
+  morning: string | null;
+  equal: boolean;
+  // taxId conflict: both sides set and different — copying is blocked in either direction.
+  locked: boolean;
+}
+
+export interface PayingBodyMorningCompare {
+  morningClientId: string;
+  fields: PayingBodyFieldDiff[];
+}
+
 export interface InstitutionalOrder {
   id: string;
   branchId?: string;

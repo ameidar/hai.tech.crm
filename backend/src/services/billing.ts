@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma.js';
-import { createDocument, previewDocument, createDraftDocument, deleteDraftDocument, getMorningDocument, searchMorningDocuments, DOCUMENT_TYPES, PAYMENT_TYPES } from './morning/documents.js';
+import { createDocument, previewDocument, createDraftDocument, deleteDraftDocument, getMorningDocument, searchMorningDocuments, closeMorningDocument, DOCUMENT_TYPES, PAYMENT_TYPES } from './morning/documents.js';
 import type { CreateDocumentInput, MorningClient, MorningIncomeItem, MorningPaymentItem } from './morning/documents.js';
 import { findClientForInstitutionalOrder } from './morning/clients.js';
 
@@ -1119,6 +1119,11 @@ export interface TaxReceiptPaymentInput {
   date: string;   // YYYY-MM-DD
   type: number;   // see PAYMENT_TYPES
   amount: number; // gross amount received
+  // Cheque details (relevant when type === PAYMENT_TYPES.CHEQUE).
+  chequeNum?: string;
+  bankName?: string;
+  bankBranch?: string;
+  bankAccount?: string;
 }
 
 /** Best-effort map a free-text payment method to a Morning payment type. */
@@ -1152,6 +1157,11 @@ function toMorningPaymentArray(payments: TaxReceiptPaymentInput[]): MorningPayme
     type: p.type,
     price: p.amount,
     currency: 'ILS',
+    // Pass cheque details through only when present (and meaningful for cheque-type lines).
+    ...(p.chequeNum ? { chequeNum: p.chequeNum } : {}),
+    ...(p.bankName ? { bankName: p.bankName } : {}),
+    ...(p.bankBranch ? { bankBranch: p.bankBranch } : {}),
+    ...(p.bankAccount ? { bankAccount: p.bankAccount } : {}),
   }));
 }
 
@@ -1185,9 +1195,11 @@ export async function previewTaxInvoice(
 }
 
 /**
- * Issue a binding tax invoice + receipt (חשבונית מס/קבלה, type 320) in Morning, alongside
- * the proforma. The proforma stays linked on the period; this only adds tax-invoice fields.
- * Receipt lines default to the payments recorded on the period, but can be overridden.
+ * Issue a binding tax invoice + receipt (חשבונית מס/קבלה, type 320) in Morning, out of the
+ * period's proforma (חשבון עסקה, 300): the 320 is built from the frozen proforma snapshot and
+ * linked to the proforma, and once issued the proforma is closed in Morning so it is no longer
+ * counted as open. Receipt lines default to the payments recorded on the period, but can be
+ * overridden — including cheque details (bank / branch / account / cheque number).
  */
 export async function issueTaxInvoice(
   billingPeriodId: string,
@@ -1202,10 +1214,12 @@ export async function issueTaxInvoice(
   await assertPayingBodyComplete(billingPeriodId);
 
   const { payload, cacheTarget, discoveredId } = await buildTaxReceiptPayload(billingPeriodId, payments, documentDate);
+  // Link the 320 back to the proforma so Morning associates them (native "convert" relation).
+  if (period.morningDocId) payload.linkedDocumentIds = [period.morningDocId];
   const document = await createDocument(payload);
   const resolvedMorningClientId = discoveredId ?? document.client?.id ?? null;
 
-  return prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx) => {
     await cacheMorningClientId(tx, cacheTarget, resolvedMorningClientId);
     return tx.billingPeriod.update({
       where: { id: billingPeriodId },
@@ -1220,6 +1234,19 @@ export async function issueTaxInvoice(
       include: { lines: true, institutionalOrder: true, payments: true },
     });
   });
+
+  // Best-effort: close the proforma now that a binding 320 has been issued from it. The 320 is
+  // already created and our DB is updated — never let a close failure (e.g. Morning already
+  // closed it via the link, or transient error) undo or block the issued tax invoice.
+  if (period.morningDocId) {
+    try {
+      await closeMorningDocument(period.morningDocId);
+    } catch (err) {
+      console.warn('[billing] issueTaxInvoice: failed to close proforma in Morning', period.morningDocId, err);
+    }
+  }
+
+  return updated;
 }
 
 /**

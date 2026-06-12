@@ -38,6 +38,12 @@ export interface MorningPaymentItem {
   type: number;           // see PAYMENT_TYPES
   price: number;          // gross amount actually received
   currency?: string;
+  // Cheque-specific details (type === PAYMENT_TYPES.CHEQUE). Morning's API uses British
+  // spelling `chequeNum`. All optional strings; bankName is recommended for cheques.
+  chequeNum?: string;     // מספר צ׳ק
+  bankName?: string;      // שם הבנק (Hebrew or English)
+  bankBranch?: string;    // מספר סניף
+  bankAccount?: string;   // מספר חשבון
 }
 
 export interface MorningClient {
@@ -97,6 +103,16 @@ export interface MorningDocument {
 /** Fetch a single Morning document by its API id (UUID). */
 export async function getMorningDocument(id: string): Promise<MorningDocument> {
   return morningRequest<MorningDocument>('GET', `/api/v1/documents/${encodeURIComponent(id)}`);
+}
+
+/**
+ * Close an open Morning document — sets its status to "Closed". Used to close a proforma
+ * (חשבון עסקה, 300) once a binding tax invoice has been issued from it, so it is no longer
+ * counted as open. Idempotent from the caller's view: Morning rejects closing an already
+ * closed/cancelled document, so callers should treat failures as best-effort.
+ */
+export async function closeMorningDocument(id: string): Promise<void> {
+  await morningRequest('POST', `/api/v1/documents/${encodeURIComponent(id)}/close`, {});
 }
 
 /** Search Morning documents (e.g. by document number) — returns the matching items. */

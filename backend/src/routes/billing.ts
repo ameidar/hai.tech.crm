@@ -556,6 +556,11 @@ const taxReceiptPaymentsSchema = z
       date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD'),
       type: z.number().int(),
       amount: z.number().positive(),
+      // Cheque details — only meaningful when type is the cheque payment type (2).
+      chequeNum: z.string().min(1).max(50).optional(),
+      bankName: z.string().min(1).max(100).optional(),
+      bankBranch: z.string().min(1).max(20).optional(),
+      bankAccount: z.string().min(1).max(50).optional(),
     }),
   )
   .optional();

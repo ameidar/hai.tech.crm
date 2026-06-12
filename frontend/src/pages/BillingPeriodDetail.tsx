@@ -171,7 +171,7 @@ export default function BillingPeriodDetail() {
   // Tax invoice + receipt (320) modal state
   const [showTaxModal, setShowTaxModal] = useState(false);
   const [taxMode, setTaxMode] = useState<'320' | '305'>('320'); // 320 = invoice+receipt (default), 305 = invoice only
-  const [taxPayments, setTaxPayments] = useState<{ date: string; type: number; amount: string }[]>([]);
+  const [taxPayments, setTaxPayments] = useState<{ date: string; type: number; amount: string; chequeNum?: string; bankName?: string; bankBranch?: string; bankAccount?: string }[]>([]);
   const [taxDocDate, setTaxDocDate] = useState<string>('');
   const [taxBusy, setTaxBusy] = useState(false);
 
@@ -450,7 +450,7 @@ export default function BillingPeriodDetail() {
     setShowTaxModal(true);
   }
 
-  function updateTaxRow(i: number, patch: Partial<{ date: string; type: number; amount: string }>) {
+  function updateTaxRow(i: number, patch: Partial<{ date: string; type: number; amount: string; chequeNum: string; bankName: string; bankBranch: string; bankAccount: string }>) {
     setTaxPayments((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   }
   function addTaxRow() {
@@ -462,7 +462,17 @@ export default function BillingPeriodDetail() {
   function taxPaymentsPayload() {
     return taxPayments
       .filter((r) => Number(r.amount) > 0)
-      .map((r) => ({ date: r.date, type: r.type, amount: Number(r.amount) }));
+      .map((r) => {
+        const base = { date: r.date, type: r.type, amount: Number(r.amount) };
+        if (r.type !== 2) return base; // cheque details only for type 2 (צ׳ק)
+        return {
+          ...base,
+          ...(r.chequeNum?.trim() ? { chequeNum: r.chequeNum.trim() } : {}),
+          ...(r.bankName?.trim() ? { bankName: r.bankName.trim() } : {}),
+          ...(r.bankBranch?.trim() ? { bankBranch: r.bankBranch.trim() } : {}),
+          ...(r.bankAccount?.trim() ? { bankAccount: r.bankAccount.trim() } : {}),
+        };
+      });
   }
 
   async function previewTaxInvoice() {
@@ -1206,21 +1216,35 @@ export default function BillingPeriodDetail() {
                   )}
 
                   {taxPayments.map((row, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <input type="date" className="form-input flex-shrink-0" value={row.date}
-                        onChange={(e) => updateTaxRow(i, { date: e.target.value })} />
-                      <select className="form-input" value={row.type}
-                        onChange={(e) => updateTaxRow(i, { type: Number(e.target.value) })}>
-                        {PAYMENT_TYPE_OPTIONS.map((o) => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                      </select>
-                      <input type="number" step="0.01" min="0" dir="ltr" placeholder="סכום"
-                        className="form-input w-32 flex-shrink-0" value={row.amount}
-                        onChange={(e) => updateTaxRow(i, { amount: e.target.value })} />
-                      <button type="button" onClick={() => removeTaxRow(i)} className="text-red-500 hover:text-red-700 flex-shrink-0">
-                        <Trash2 size={16} />
-                      </button>
+                    <div key={i} className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <input type="date" className="form-input flex-shrink-0" value={row.date}
+                          onChange={(e) => updateTaxRow(i, { date: e.target.value })} />
+                        <select className="form-input" value={row.type}
+                          onChange={(e) => updateTaxRow(i, { type: Number(e.target.value) })}>
+                          {PAYMENT_TYPE_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                        <input type="number" step="0.01" min="0" dir="ltr" placeholder="סכום"
+                          className="form-input w-32 flex-shrink-0" value={row.amount}
+                          onChange={(e) => updateTaxRow(i, { amount: e.target.value })} />
+                        <button type="button" onClick={() => removeTaxRow(i)} className="text-red-500 hover:text-red-700 flex-shrink-0">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                      {row.type === 2 && (
+                        <div className="flex items-center gap-2 flex-wrap pr-2">
+                          <input className="form-input w-28" placeholder="מס׳ צ׳ק" value={row.chequeNum || ''}
+                            onChange={(e) => updateTaxRow(i, { chequeNum: e.target.value })} />
+                          <input className="form-input w-40" placeholder="שם בנק" value={row.bankName || ''}
+                            onChange={(e) => updateTaxRow(i, { bankName: e.target.value })} />
+                          <input className="form-input w-24" placeholder="סניף" value={row.bankBranch || ''}
+                            onChange={(e) => updateTaxRow(i, { bankBranch: e.target.value })} />
+                          <input className="form-input w-36" placeholder="מס׳ חשבון" value={row.bankAccount || ''}
+                            onChange={(e) => updateTaxRow(i, { bankAccount: e.target.value })} />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

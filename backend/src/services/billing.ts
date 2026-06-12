@@ -1252,7 +1252,9 @@ export async function issueTaxInvoice(
 /**
  * Issue a standalone **tax invoice only** (חשבונית מס בלבד, Morning type 305) — no receipt,
  * no payment lines. Used to recognize revenue for tax purposes before the money arrives.
- * Receipts are issued later via {@link issueReceipt}, each linked back to this invoice.
+ * Built out of the period's proforma (חשבון עסקה) and, like the 320 path, links to it and
+ * closes it in Morning once issued. Receipts are issued later via {@link issueReceipt}, each
+ * linked back to this invoice.
  */
 export async function issueTaxInvoiceOnly(
   billingPeriodId: string,
@@ -1270,11 +1272,13 @@ export async function issueTaxInvoiceOnly(
   if (snap) applyProformaSnapshot(payload, snap);
   payload.type = DOCUMENT_TYPES.TAX_INVOICE; // 305 — binding tax invoice, no payment section
   if (documentDate) payload.date = documentDate;
+  // Link the 305 back to the proforma so Morning associates them (native "convert" relation).
+  if (period.morningDocId) payload.linkedDocumentIds = [period.morningDocId];
   assertProformaAmountMatch(payload, snap, 'חשבונית מס');
   const document = await createDocument(payload);
   const resolvedMorningClientId = discoveredId ?? document.client?.id ?? null;
 
-  return prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx) => {
     await cacheMorningClientId(tx, cacheTarget, resolvedMorningClientId);
     return tx.billingPeriod.update({
       where: { id: billingPeriodId },
@@ -1289,6 +1293,18 @@ export async function issueTaxInvoiceOnly(
       include: { lines: true, institutionalOrder: true, payments: true },
     });
   });
+
+  // Best-effort: close the proforma now that a binding 305 has been issued from it. The 305 is
+  // already created and our DB is updated — never let a close failure undo or block it.
+  if (period.morningDocId) {
+    try {
+      await closeMorningDocument(period.morningDocId);
+    } catch (err) {
+      console.warn('[billing] issueTaxInvoiceOnly: failed to close proforma in Morning', period.morningDocId, err);
+    }
+  }
+
+  return updated;
 }
 
 /**

@@ -144,7 +144,7 @@ const cycleBaseSchema = z.object({
   totalMeetings: z.number().int().positive(),
   pricePerStudent: z.number().nonnegative().optional().nullable(),
   meetingRevenue: z.number().nonnegative().optional().nullable(),
-  revenueIncludesVat: z.boolean().optional().nullable(),
+  revenueIncludesVat: z.boolean().optional().nullable().default(false),
   instructorPaymentMode: z.enum(['hourly', 'daily']).default('hourly'),
   instructorDailyRate: z.number().nonnegative().optional().nullable(),
   studentCount: z.number().int().nonnegative().optional().nullable(),

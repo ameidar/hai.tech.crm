@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Wallet, Search, Edit2, Trash2, AlertTriangle, CheckCircle2, Link2, Loader2, HelpCircle, ArrowLeftRight, ArrowRight, ArrowLeft } from 'lucide-react';
 import {
   usePayingBodies,
@@ -144,7 +144,7 @@ export default function PayingBodies() {
                   <th className="p-3 text-right font-medium text-gray-600">מייל</th>
                   <th className="p-3 text-center font-medium text-gray-600">
                     <span className="inline-flex items-center gap-1">מורנינג
-                      <span title="האם הגוף המשלם מקושר ללקוח קיים במורנינג. מקושר = החיוב מופק לפי המזהה ולא נוצרת כפילות." className="text-gray-400 cursor-help"><HelpCircle size={13} /></span>
+                      <span title="האם הגוף המשלם מקושר ללקוח קיים במורנינג. מקושר = החיוב מופק לפי המזהה ולא נוצרת כפילות. הסימון ליד החוליה מציין אם הפרטים מסונכרנים: ✓ ירוק = זהה למורנינג · מספר כתום = יש פערים, כדאי להשוות ולסנכרן · משולש אדום = התנגשות ח.פ (אולי קושר הלקוח הלא נכון)." className="text-gray-400 cursor-help"><HelpCircle size={13} /></span>
                     </span>
                   </th>
                   <th className="p-3 text-center font-medium text-gray-600">הזמנות</th>
@@ -172,9 +172,7 @@ export default function PayingBodies() {
                     <td className="p-3 text-gray-600" dir="ltr">{b.email || '-'}</td>
                     <td className="p-3 text-center">
                       {b.morningClientId ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-600" title={`מקושר ללקוח במורנינג (${b.morningClientId})`}>
-                          <Link2 size={15} />
-                        </span>
+                        <MorningDiffBadge body={b} />
                       ) : (
                         <span className="text-gray-300">-</span>
                       )}
@@ -428,6 +426,60 @@ function PayingBodyForm({ body, onSubmit, onCancel, isLoading }: FormProps) {
 const valueCell = (v: string | null) =>
   v ? <span className="text-gray-900" dir="auto">{v}</span> : <span className="text-gray-300">ריק</span>;
 
+// Passive per-row indicator: lazily compares a linked paying body against its Morning client so the
+// user can see at a glance whether there are differences, without opening each one. Cached for a few
+// minutes so opening the list doesn't re-hit Morning on every render.
+function MorningDiffBadge({ body }: { body: PayingBody }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['paying-body-morning-diff', body.id],
+    queryFn: () => comparePayingBodyMorning(body.id),
+    enabled: !!body.morningClientId,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+
+  if (isLoading) {
+    return (
+      <span className="inline-flex items-center gap-1 text-emerald-600" title={`מקושר ללקוח במורנינג (${body.morningClientId}) — בודק פערים...`}>
+        <Link2 size={15} /><Loader2 size={11} className="animate-spin text-gray-400" />
+      </span>
+    );
+  }
+  if (isError || !data) {
+    return (
+      <span className="inline-flex items-center gap-1 text-emerald-600" title={`מקושר ללקוח במורנינג (${body.morningClientId}) — לא ניתן לבדוק פערים כרגע`}>
+        <Link2 size={15} />
+      </span>
+    );
+  }
+
+  const changed = data.fields.filter((f) => !f.equal);
+  const hasConflict = changed.some((f) => f.locked);
+
+  if (hasConflict) {
+    return (
+      <span className="inline-flex items-center gap-1 text-red-600" title="מקושר למורנינג, אך יש התנגשות ח.פ/ת.ז בין המערכת למורנינג — ייתכן שקושר הלקוח הלא נכון. פתחו 'השווה למורנינג' לבדיקה.">
+        <Link2 size={15} /><AlertTriangle size={12} />
+      </span>
+    );
+  }
+  if (changed.length > 0) {
+    return (
+      <span className="inline-flex items-center gap-1 text-amber-600" title={`מקושר למורנינג, אך יש ${changed.length} פערים בין המערכת למורנינג. פתחו 'השווה למורנינג' לסנכרון.`}>
+        <Link2 size={15} />
+        <span className="inline-flex items-center justify-center min-w-[15px] h-[15px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-medium leading-none">{changed.length}</span>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-emerald-600" title="מקושר למורנינג ומסונכרן — כל הפרטים זהים.">
+      <Link2 size={15} /><CheckCircle2 size={12} />
+    </span>
+  );
+}
+
 // Compare a paying body against its linked Morning client and let the user sync each differing
 // field in a chosen direction. taxId can only fill an empty side — a real conflict is locked.
 function MorningCompareModal({ body, onClose }: { body: PayingBody; onClose: () => void }) {
@@ -473,6 +525,7 @@ function MorningCompareModal({ body, onClose }: { body: PayingBody; onClose: () 
       setCompare(fresh);
       setDecisions({});
       setNotice('הסנכרון בוצע בהצלחה.');
+      queryClient.setQueryData(['paying-body-morning-diff', body.id], fresh);
       queryClient.invalidateQueries({ queryKey: ['paying-bodies'] });
     } catch (e: any) {
       setError(e?.response?.data?.message || e?.response?.data?.error || 'הסנכרון נכשל');

@@ -103,6 +103,16 @@ export const createCycleSchema = z.object({
       message: 'חובה למלא מיקום/עיר למחזור פרונטלי',
     });
   }
+  // Institutional cycles must be linked to an institutional order, otherwise their
+  // meetings can never enter a billing period and become unbillable orphans.
+  const isInstitutional = data.type === 'institutional_per_child' || data.type === 'institutional_fixed';
+  if (isInstitutional && !data.institutionalOrderId?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['institutionalOrderId'],
+      message: 'חובה לשייך הזמנה מוסדית למחזור מסוג מוסדי',
+    });
+  }
 });
 
 /**

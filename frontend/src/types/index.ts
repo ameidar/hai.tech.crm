@@ -210,7 +210,7 @@ export interface Cycle {
   courseId: string;
   branchId: string;
   instructorId: string;
-  institutionalOrderId?: string;
+  institutionalOrderId?: string | null;
   type: CycleType;
   startDate: string;
   endDate: string;

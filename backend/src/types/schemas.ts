@@ -175,7 +175,26 @@ const requireLocationForFrontal = (
   }
 };
 
-export const createCycleSchema = cycleBaseSchema.superRefine(requireLocationForFrontal);
+// Institutional cycles must be linked to an institutional order, otherwise their
+// meetings can never enter a billing period and become unbillable orphans.
+// Private/trial cycles are billed per-student and must NOT carry an order.
+const requireOrderForInstitutional = (
+  data: { type?: string; institutionalOrderId?: string | null },
+  ctx: z.RefinementCtx,
+) => {
+  const isInstitutional = data.type === 'institutional_per_child' || data.type === 'institutional_fixed';
+  if (isInstitutional && !data.institutionalOrderId?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['institutionalOrderId'],
+      message: 'חובה לשייך הזמנה מוסדית למחזור מסוג מוסדי',
+    });
+  }
+};
+
+export const createCycleSchema = cycleBaseSchema
+  .superRefine(requireLocationForFrontal)
+  .superRefine(requireOrderForInstitutional);
 
 export const updateCycleSchema = cycleBaseSchema.partial().extend({
   status: z.enum(['active', 'completed', 'cancelled', 'frozen', 'retainer']).optional(),

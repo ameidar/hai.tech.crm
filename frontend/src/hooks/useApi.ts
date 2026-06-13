@@ -1329,9 +1329,13 @@ export const useMorningFinancialsDetails = (
   });
 };
 
-export interface BranchReconciliationBranch {
-  branchId: string;
-  branchName: string;
+export interface PayingBodyReconciliationRow {
+  payingBodyId: string;
+  payingBodyName: string;
+  taxId: string | null;
+  isComplete: boolean;
+  morningClientId: string | null;
+  matchedBy: 'morningClientId' | 'name' | null;
   matchedClients: { name: string; clientId: string | null }[];
   crmTotal: number;
   morningTotal: number;
@@ -1339,17 +1343,28 @@ export interface BranchReconciliationBranch {
   monthly: { month: string; crm: number; morning: number; diff: number }[];
 }
 
-export interface BranchReconciliationResult {
-  months: string[];
-  branches: BranchReconciliationBranch[];
-  unmatchedClients: { name: string; total: number; monthly: Record<string, number> }[];
+export interface OrderWithoutPayingBody {
+  orderId: string;
+  orderName: string | null;
+  orderNumber: string | null;
+  status: string;
+  branchName: string | null;
+  legacyPayingBody: string | null;
+  activeCycles: string[];
 }
 
-export const useBranchReconciliation = (range: number | 'ytd' = 'ytd') => {
+export interface PayingBodyReconciliationResult {
+  months: string[];
+  payingBodies: PayingBodyReconciliationRow[];
+  unmatchedClients: { name: string; total: number; monthly: Record<string, number> }[];
+  ordersWithoutPayingBody: OrderWithoutPayingBody[];
+}
+
+export const usePayingBodyReconciliation = (range: number | 'ytd' = 'ytd') => {
   const qs = range === 'ytd' ? 'mode=ytd' : `months=${range}`;
   return useQuery({
-    queryKey: ['branchReconciliation', range],
-    queryFn: () => fetchData<BranchReconciliationResult>(`/morning/branch-reconciliation?${qs}`),
+    queryKey: ['payingBodyReconciliation', range],
+    queryFn: () => fetchData<PayingBodyReconciliationResult>(`/morning/paying-body-reconciliation?${qs}`),
   });
 };
 

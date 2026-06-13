@@ -10,6 +10,7 @@ import Loading from '../components/ui/Loading';
 import Modal from '../components/ui/Modal';
 import EmptyState from '../components/ui/EmptyState';
 import WooPayModal from '../components/WooPayModal';
+import CustomerWhatsAppPanel from '../components/CustomerWhatsAppPanel';
 import type { Customer, Student, Cycle, PaymentStatus, PaymentMethod } from '../types';
 
 export default function CustomerDetail() {
@@ -405,6 +406,9 @@ export default function CustomerDetail() {
               </div>
             )}
           </div>
+
+          {/* WhatsApp conversation (official Meta channel) */}
+          <CustomerWhatsAppPanel customerId={customer.id} />
 
           {/* Communication History */}
           <CommunicationHistory customerId={customer.id} />

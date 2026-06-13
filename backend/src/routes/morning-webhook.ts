@@ -9,6 +9,7 @@
 import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { sendWhatsAppMessage } from '../services/notifications.js';
+import { handlePostPaymentPlacement } from '../services/trial-placement.js';
 
 export const morningWebhookRouter = Router();
 
@@ -204,6 +205,9 @@ morningWebhookRouter.post('/', async (req, res) => {
     });
 
     console.log('[Morning Webhook] Created payment:', payment.id);
+
+    // Trial-lesson placement automation (non-digital payments → flag + notify).
+    await handlePostPaymentPlacement(payment.id);
 
     // ─── WhatsApp notification to Ami ─────────────────────────────────────────
 

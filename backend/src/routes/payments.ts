@@ -3,6 +3,7 @@ import { createHmac, randomUUID } from 'crypto';
 import { authenticate } from '../middleware/auth.js';
 import { config } from '../config.js';
 import { prisma } from '../utils/prisma.js';
+import { handlePostPaymentPlacement } from '../services/trial-placement.js';
 
 // Shared secret for WP auto-login tokens (must match WP snippet constant)
 const HAITECH_PAY_SECRET = process.env.HAITECH_PAY_SECRET || 'haitech-pay-secret-2026-xK9mP3qL7';
@@ -409,7 +410,7 @@ router.post('/wc-webhook', async (req, res) => {
       for (const fl of order.fee_lines || []) items.push(fl.name);
       const description = items.join(', ') || 'קורס דיגיטלי';
 
-      await prisma.payment.create({
+      const createdPayment = await prisma.payment.create({
         data: {
           wooOrderId: Number(order.id),
           amount: parseFloat(order.total || '0'),
@@ -426,6 +427,9 @@ router.post('/wc-webhook', async (req, res) => {
         },
       });
       console.log(`[WC Webhook] Created new payment for order ${order.id} (${fullName}, ${email}) → customer ${customerId}`);
+
+      // Trial-lesson placement automation (non-digital payments → flag + notify).
+      await handlePostPaymentPlacement(createdPayment.id);
     }
   } catch (e) {
     console.error('[WC Webhook] Error:', e);
@@ -572,6 +576,9 @@ router.post('/manual', authenticate, async (req: any, res) => {
       // wooOrderId intentionally left null — manual entry
     },
   });
+
+  // Trial-lesson placement automation (non-digital payments → flag + notify).
+  await handlePostPaymentPlacement(payment.id);
 
   return res.status(201).json(payment);
 });

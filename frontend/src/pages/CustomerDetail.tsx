@@ -286,6 +286,7 @@ export default function CustomerDetail() {
                       in_progress: 'bg-orange-50 text-orange-700 focus:ring-orange-400',
                       converted: 'bg-green-50 text-green-700 focus:ring-green-400',
                       closed: 'bg-gray-100 text-gray-500 focus:ring-gray-400',
+                      waiting_placement: 'bg-purple-50 text-purple-700 focus:ring-purple-400',
                     }[customer.leadStatus || 'new'] ?? 'bg-blue-50 text-blue-700 focus:ring-blue-400'
                   }`}
                 >
@@ -294,6 +295,7 @@ export default function CustomerDetail() {
                   <option value="in_progress">⏳ בטיפול</option>
                   <option value="converted">✅ הומר</option>
                   <option value="closed">❌ נסגר</option>
+                  <option value="waiting_placement">🧩 מחכה לשיבוץ</option>
                 </select>
               </div>
 
@@ -981,6 +983,7 @@ function CustomerEditForm({ customer, onSubmit, onCancel, isLoading, error }: Cu
             <option value="in_progress">⏳ בטיפול</option>
             <option value="converted">✅ הומר</option>
             <option value="closed">❌ נסגר</option>
+            <option value="waiting_placement">🧩 מחכה לשיבוץ</option>
           </select>
         </div>
 

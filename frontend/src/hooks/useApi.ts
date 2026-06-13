@@ -959,6 +959,95 @@ export const useSendWhatsApp = () => {
   });
 };
 
+// ==================== Customer WhatsApp (Meta official channel) ====================
+
+export interface WaMessage {
+  id: string;
+  conversationId: string;
+  direction: 'inbound' | 'outbound';
+  content: string;
+  status: string;
+  isAiGenerated: boolean;
+  createdAt: string;
+}
+
+export interface WaConversation {
+  id: string;
+  phone: string;
+  contactName?: string | null;
+  status: 'open' | 'pending' | 'closed';
+  phoneNumberId?: string | null;
+  businessPhone?: string | null;
+  lastMessageAt?: string | null;
+  lastMessagePreview?: string | null;
+}
+
+export interface CustomerWhatsAppThread {
+  customer: { id: string; name: string; phone: string | null };
+  normalizedPhone: string | null;
+  conversation: WaConversation | null;
+  messages: WaMessage[];
+  windowOpen: boolean;
+}
+
+export interface WaTemplate {
+  name: string;
+  status: string;
+  language: string;
+  components: { type: string; text?: string; format?: string }[];
+}
+
+export const useCustomerWhatsApp = (customerId: string) => {
+  return useQuery({
+    queryKey: ['customer-whatsapp', customerId],
+    queryFn: () => fetchData<CustomerWhatsAppThread>(`/wa/customer/${customerId}`),
+    enabled: !!customerId,
+  });
+};
+
+export const useWaTemplates = (phoneNumberId?: string | null) => {
+  const qs = phoneNumberId ? `?phoneNumberId=${encodeURIComponent(phoneNumberId)}` : '';
+  return useQuery({
+    queryKey: ['wa-templates', phoneNumberId || 'default'],
+    queryFn: () => fetchData<WaTemplate[]>(`/wa/templates${qs}`),
+  });
+};
+
+export const useSendWaText = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ conversationId, text }: { conversationId: string; text: string; customerId: string }) =>
+      mutateData<WaMessage, { conversationId: string; text: string }>('/wa/send', 'post', { conversationId, text }),
+    onSuccess: (_, { customerId }) => {
+      queryClient.invalidateQueries({ queryKey: ['customer-whatsapp', customerId] });
+    },
+  });
+};
+
+export const useSendWaTemplate = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      customerId: string;
+      conversationId?: string;
+      phone?: string;
+      contactName?: string;
+      templateName: string;
+      language?: string;
+      variables?: string[];
+      previewText?: string;
+      fromPhoneNumberId?: string;
+    }) => {
+      const { customerId, ...body } = vars;
+      void customerId;
+      return mutateData<WaMessage, typeof body>('/wa/send-template', 'post', body);
+    },
+    onSuccess: (_, { customerId }) => {
+      queryClient.invalidateQueries({ queryKey: ['customer-whatsapp', customerId] });
+    },
+  });
+};
+
 export const useSendEmail = () => {
   const queryClient = useQueryClient();
   return useMutation({

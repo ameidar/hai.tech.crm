@@ -1105,7 +1105,7 @@ router.post('/send-template', authenticate, async (req: Request, res: Response) 
     const content = previewText || `[תבנית: ${templateName}]`;
     const msg = await prisma.waMessage.create({
       data: {
-        conversationId,
+        conversationId: conv.id,
         direction: 'outbound',
         content,
         waMessageId: waId || undefined,
@@ -1115,7 +1115,7 @@ router.post('/send-template', authenticate, async (req: Request, res: Response) 
     });
 
     await prisma.waConversation.update({
-      where: { id: conversationId },
+      where: { id: conv.id },
       data: {
         lastMessageAt: new Date(),
         lastMessagePreview: content.slice(0, 100),
@@ -1123,7 +1123,7 @@ router.post('/send-template', authenticate, async (req: Request, res: Response) 
       }
     });
 
-    broadcastSSE('new_message', { conversationId, message: msg });
+    broadcastSSE('new_message', { conversationId: conv.id, message: msg });
     res.json(msg);
   } catch (err) {
     console.error('[WA] send-template error:', err);
@@ -1334,6 +1334,58 @@ router.post('/send', authenticate, async (req: Request, res: Response) => {
     res.json(msg);
   } catch (err) {
     res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+// ── GET /api/wa/customer/:customerId — WhatsApp thread for a customer (matched by phone)
+// Returns the customer's most recent WA conversation + its messages, plus `windowOpen`
+// (true when the last inbound message is < 24h old — i.e. free-form replies are allowed;
+// otherwise only approved templates can be sent, per Meta's customer-service window).
+router.get('/customer/:customerId', authenticate, async (req: Request, res: Response) => {
+  try {
+    const customer = await prisma.customer.findUnique({
+      where: { id: req.params.customerId },
+      select: { id: true, name: true, phone: true },
+    });
+    if (!customer) return res.status(404).json({ error: 'Customer not found' });
+
+    if (!customer.phone) {
+      return res.json({ customer, normalizedPhone: null, conversation: null, messages: [], windowOpen: false });
+    }
+
+    // Normalize to Meta format (0529... → 972529..., +972... → 972...), matching how
+    // conversations are stored elsewhere in this router.
+    const normalizedPhone = customer.phone.replace(/\D/g, '').replace(/^0/, '972');
+
+    const conversation = await prisma.waConversation.findFirst({
+      where: { phone: normalizedPhone },
+      orderBy: { lastMessageAt: 'desc' },
+    });
+
+    if (!conversation) {
+      return res.json({ customer, normalizedPhone, conversation: null, messages: [], windowOpen: false });
+    }
+
+    const messages = await prisma.waMessage.findMany({
+      where: { conversationId: conversation.id },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    // Mark as read now that the thread is being viewed on the customer card.
+    if (conversation.unreadCount > 0) {
+      await prisma.waConversation.update({
+        where: { id: conversation.id },
+        data: { unreadCount: 0 },
+      });
+    }
+
+    const lastInbound = [...messages].reverse().find(m => m.direction === 'inbound');
+    const windowOpen = !!lastInbound && (Date.now() - new Date(lastInbound.createdAt).getTime()) < 24 * 60 * 60 * 1000;
+
+    res.json({ customer, normalizedPhone, conversation, messages, windowOpen });
+  } catch (err) {
+    console.error('[WA] customer thread error:', err);
+    res.status(500).json({ error: 'Failed to fetch customer WhatsApp thread' });
   }
 });
 

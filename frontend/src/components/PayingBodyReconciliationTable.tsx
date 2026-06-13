@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { GitCompareArrows, AlertCircle, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
-import { useBranchReconciliation } from '../hooks/useApi';
+import { usePayingBodyReconciliation } from '../hooks/useApi';
 import Loading from './ui/Loading';
 
 const HEBREW_MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
@@ -9,16 +9,17 @@ function monthLabel(m: string) {
   return `${HEBREW_MONTHS[mm - 1].slice(0, 3)} ${String(y).slice(2)}`;
 }
 
-export default function BranchReconciliationTable() {
+export default function PayingBodyReconciliationTable() {
   const [range, setRange] = useState<'ytd' | number>('ytd');
   const [showUnmatched, setShowUnmatched] = useState(false);
+  const [showMissing, setShowMissing] = useState(false);
   const [hideMatched, setHideMatched] = useState(false);
-  const { data, isLoading, error } = useBranchReconciliation(range);
+  const { data, isLoading, error } = usePayingBodyReconciliation(range);
 
-  const filteredBranches = useMemo(() => {
+  const filteredBodies = useMemo(() => {
     if (!data) return [];
-    if (!hideMatched) return data.branches;
-    return data.branches.filter((b) => Math.abs(b.diff) > 1);
+    if (!hideMatched) return data.payingBodies;
+    return data.payingBodies.filter((b) => Math.abs(b.diff) > 1);
   }, [data, hideMatched]);
 
   if (isLoading) {
@@ -39,10 +40,11 @@ export default function BranchReconciliationTable() {
     );
   }
 
-  const totalCrm = data.branches.reduce((s, b) => s + b.crmTotal, 0);
-  const totalMorning = data.branches.reduce((s, b) => s + b.morningTotal, 0);
+  const totalCrm = data.payingBodies.reduce((s, b) => s + b.crmTotal, 0);
+  const totalMorning = data.payingBodies.reduce((s, b) => s + b.morningTotal, 0);
   const totalDiff = totalCrm - totalMorning;
   const unmatchedTotal = data.unmatchedClients.reduce((s, c) => s + c.total, 0);
+  const missing = data.ordersWithoutPayingBody ?? [];
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-4">
@@ -52,8 +54,8 @@ export default function BranchReconciliationTable() {
             <GitCompareArrows className="w-5 h-5 text-purple-600" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">התאמות סניפים — CRM ↔ מורנינג</h2>
-            <p className="text-sm text-gray-500">השוואת הכנסה מוכרת מול חשבוניות מס/קבלה</p>
+            <h2 className="text-lg font-semibold text-gray-900">התאמות גוף משלם — CRM ↔ מורנינג</h2>
+            <p className="text-sm text-gray-500">השוואת הכנסה מוכרת מול חשבוניות מס/קבלה לפי גוף משלם</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -97,7 +99,7 @@ export default function BranchReconciliationTable() {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-gray-500 border-b border-gray-200 bg-gray-50">
-              <th className="text-right py-2 px-3 font-semibold sticky right-0 bg-gray-50 min-w-[180px]">סניף</th>
+              <th className="text-right py-2 px-3 font-semibold sticky right-0 bg-gray-50 min-w-[180px]">גוף משלם</th>
               <th className="text-right py-2 px-3 font-semibold text-gray-400 text-xs">לקוח במורנינג</th>
               {data.months.map((m) => (
                 <th key={m} className="text-right py-2 px-2 font-semibold text-xs whitespace-nowrap" colSpan={2}>{monthLabel(m)}</th>
@@ -117,9 +119,19 @@ export default function BranchReconciliationTable() {
             </tr>
           </thead>
           <tbody>
-            {filteredBranches.map((b) => (
-              <tr key={b.branchId} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="py-2 px-3 font-medium sticky right-0 bg-white">{b.branchName}</td>
+            {filteredBodies.map((b) => (
+              <tr key={b.payingBodyId} className="border-b border-gray-100 hover:bg-gray-50">
+                <td className="py-2 px-3 font-medium sticky right-0 bg-white">
+                  <div className="flex items-center gap-1.5">
+                    <span>{b.payingBodyName}</span>
+                    {!b.isComplete && (
+                      <span title="גוף משלם לא שלם" className="text-amber-500">
+                        <AlertTriangle className="w-3 h-3" />
+                      </span>
+                    )}
+                  </div>
+                  {b.taxId && <div className="text-[10px] text-gray-400">ח.פ {b.taxId}</div>}
+                </td>
                 <td className="py-2 px-3 text-xs">
                   {b.matchedClients.length === 0 ? (
                     <span className="text-amber-600 flex items-center gap-1">
@@ -140,6 +152,9 @@ export default function BranchReconciliationTable() {
                           </a>
                         ) : (
                           <span className="text-gray-500">{c.name}</span>
+                        )}
+                        {b.matchedBy === 'name' && i === 0 && (
+                          <span title="התאמה לפי שם (לא מקושר ב-Morning)" className="text-amber-500"> ~</span>
                         )}
                       </span>
                     ))
@@ -166,8 +181,8 @@ export default function BranchReconciliationTable() {
               <td className="py-2 px-3 sticky right-0 bg-gray-100">סה״כ</td>
               <td></td>
               {data.months.map((m) => {
-                const crm = filteredBranches.reduce((s, b) => s + (b.monthly.find((x) => x.month === m)?.crm ?? 0), 0);
-                const mor = filteredBranches.reduce((s, b) => s + (b.monthly.find((x) => x.month === m)?.morning ?? 0), 0);
+                const crm = filteredBodies.reduce((s, b) => s + (b.monthly.find((x) => x.month === m)?.crm ?? 0), 0);
+                const mor = filteredBodies.reduce((s, b) => s + (b.monthly.find((x) => x.month === m)?.morning ?? 0), 0);
                 return (
                   <>
                     <td key={`tf-${m}-c`} className="py-2 px-2 text-emerald-600 text-xs">₪{crm.toLocaleString()}</td>
@@ -181,6 +196,36 @@ export default function BranchReconciliationTable() {
         </table>
       </div>
 
+      {/* Orders without a paying body but with active cycles */}
+      {missing.length > 0 && (
+        <div className="border-t border-gray-100 pt-3">
+          <button
+            onClick={() => setShowMissing(!showMissing)}
+            className="w-full flex items-center justify-between text-sm hover:bg-gray-50 rounded-lg px-2 py-1.5"
+          >
+            <span className="flex items-center gap-2 text-rose-700">
+              <AlertTriangle className="w-4 h-4" />
+              {missing.length} הזמנות עם מחזורים פעילים ללא גוף משלם — דורש השלמה
+            </span>
+            {showMissing ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+          {showMissing && (
+            <div className="mt-2 space-y-1">
+              {missing.map((o) => (
+                <div key={o.orderId} className="flex items-start justify-between text-sm text-gray-700 px-2 py-1 border-b border-gray-50">
+                  <div>
+                    <span className="font-medium">{o.orderName || 'ללא שם'}</span>
+                    {o.branchName && <span className="text-gray-400"> · {o.branchName}</span>}
+                    {o.legacyPayingBody && <span className="text-gray-400"> · גוף משלם (טקסט): {o.legacyPayingBody}</span>}
+                  </div>
+                  <span className="text-rose-600 text-xs whitespace-nowrap">{o.activeCycles.length} מחזורים פעילים</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Unmatched Morning clients */}
       {data.unmatchedClients.length > 0 && (
         <div className="border-t border-gray-100 pt-3">
@@ -190,7 +235,7 @@ export default function BranchReconciliationTable() {
           >
             <span className="flex items-center gap-2 text-amber-700">
               <AlertTriangle className="w-4 h-4" />
-              {data.unmatchedClients.length} לקוחות במורנינג ללא התאמה לסניף — סה״כ ₪{unmatchedTotal.toLocaleString()}
+              {data.unmatchedClients.length} לקוחות במורנינג ללא התאמה לגוף משלם — סה״כ ₪{unmatchedTotal.toLocaleString()}
             </span>
             {showUnmatched ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>

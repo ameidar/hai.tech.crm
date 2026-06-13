@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square, ArrowUpDown, ArrowUp, ArrowDown, Filter, Columns, Download } from 'lucide-react';
-import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useBulkGenerateMeetings, useViewData, useSyncAllCycles, api } from '../hooks/useApi';
+import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useBulkGenerateMeetings, useViewData, useSyncAllCycles, useInstitutionalOrders, api } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading, { SkeletonTable } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
@@ -883,6 +883,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     courseId: '',
     branchId: '',
     instructorId: '',
+    institutionalOrderId: '',
     type: 'private' as CycleType,
     startDate: '',
     endDate: '',
@@ -904,11 +905,20 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     location: '',
   });
 
+  const { data: instOrdersData } = useInstitutionalOrders({ limit: 500 });
+  const institutionalOrders: any[] = (instOrdersData as any)?.data || [];
+  const isInstitutionalType = formData.type === 'institutional_per_child' || formData.type === 'institutional_fixed';
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.courseId || !formData.branchId || !formData.instructorId) {
       alert('יש לבחור קורס, סניף ומדריך');
+      return;
+    }
+
+    if (isInstitutionalType && !formData.institutionalOrderId) {
+      alert('חובה לשייך הזמנה מוסדית למחזור מסוג מוסדי');
       return;
     }
 
@@ -949,6 +959,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
       ...formData,
       durationMinutes,
       totalMeetings: Number(formData.totalMeetings),
+      institutionalOrderId: isInstitutionalType ? formData.institutionalOrderId : undefined,
       pricePerStudent: (formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && priceValue > 0 ? priceValue : undefined,
       meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'trial_private') && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
       instructorPaymentMode: formData.instructorPaymentMode,
@@ -1032,6 +1043,26 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
             <option value="institutional_fixed">מוסדי (סכום קבוע)</option>
           </select>
         </div>
+
+        {isInstitutionalType && (
+          <div className="col-span-2">
+            <label className="form-label">הזמנה מוסדית *</label>
+            <select
+              value={formData.institutionalOrderId}
+              onChange={(e) => setFormData({ ...formData, institutionalOrderId: e.target.value })}
+              className="form-input"
+              required
+            >
+              <option value="">בחר הזמנה מוסדית</option>
+              {institutionalOrders.map((order: any) => (
+                <option key={order.id} value={order.id}>
+                  {order.orderName || order.orderNumber || order.id}
+                  {order.branch?.name ? ` — ${order.branch.name}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div>
           <label className="form-label">תשלום מדריך</label>
@@ -1318,6 +1349,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     courseId: cycle.courseId,
     branchId: cycle.branchId,
     instructorId: cycle.instructorId,
+    institutionalOrderId: cycle.institutionalOrderId || '',
     type: cycle.type,
     status: cycle.status,
     dayOfWeek: cycle.dayOfWeek,
@@ -1337,11 +1369,20 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     location: cycle.location || '',
   });
 
+  const { data: instOrdersData } = useInstitutionalOrders({ limit: 500 });
+  const institutionalOrders: any[] = (instOrdersData as any)?.data || [];
+  const isInstitutionalType = formData.type === 'institutional_per_child' || formData.type === 'institutional_fixed';
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.courseId || !formData.branchId || !formData.instructorId) {
       alert('יש לבחור קורס, סניף ומדריך');
+      return;
+    }
+
+    if (isInstitutionalType && !formData.institutionalOrderId) {
+      alert('חובה לשייך הזמנה מוסדית למחזור מסוג מוסדי');
       return;
     }
 
@@ -1383,6 +1424,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
       courseId: formData.courseId,
       branchId: formData.branchId,
       instructorId: formData.instructorId,
+      institutionalOrderId: isInstitutionalType ? formData.institutionalOrderId : null,
       type: formData.type,
       status: formData.status,
       dayOfWeek: formData.dayOfWeek,
@@ -1467,6 +1509,26 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
             <option value="institutional_fixed">מוסדי (סכום קבוע)</option>
           </select>
         </div>
+
+        {isInstitutionalType && (
+          <div className="col-span-2">
+            <label className="form-label">הזמנה מוסדית *</label>
+            <select
+              value={formData.institutionalOrderId}
+              onChange={(e) => setFormData({ ...formData, institutionalOrderId: e.target.value })}
+              className="form-input"
+              required
+            >
+              <option value="">בחר הזמנה מוסדית</option>
+              {institutionalOrders.map((order: any) => (
+                <option key={order.id} value={order.id}>
+                  {order.orderName || order.orderNumber || order.id}
+                  {order.branch?.name ? ` — ${order.branch.name}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div>
           <label className="form-label">סטטוס</label>

@@ -385,6 +385,17 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     });
     if (!existingCycle) throw new AppError(404, 'Cycle not found');
 
+    // Institutional cycles must stay linked to an institutional order. Guard against
+    // switching a cycle to an institutional type, or clearing the order, without one —
+    // otherwise its meetings become unbillable orphans.
+    const effectiveType = data.type ?? existingCycle.type;
+    const orderProvided = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'institutionalOrderId');
+    const effectiveOrderId = orderProvided ? data.institutionalOrderId : existingCycle.institutionalOrderId;
+    const isInstitutional = effectiveType === 'institutional_per_child' || effectiveType === 'institutional_fixed';
+    if (isInstitutional && !effectiveOrderId?.trim()) {
+      throw new AppError(400, 'חובה לשייך הזמנה מוסדית למחזור מסוג מוסדי');
+    }
+
     const updateData: any = { ...data };
     
     if (data.startDate) updateData.startDate = new Date(data.startDate);

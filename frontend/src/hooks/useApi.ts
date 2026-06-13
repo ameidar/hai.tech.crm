@@ -1335,12 +1335,10 @@ export interface PayingBodyReconciliationRow {
   taxId: string | null;
   isComplete: boolean;
   morningClientId: string | null;
-  matchedBy: 'morningClientId' | 'name' | null;
-  matchedClients: { name: string; clientId: string | null }[];
-  crmTotal: number;
-  morningTotal: number;
-  diff: number;
-  monthly: { month: string; crm: number; morning: number; diff: number }[];
+  shouldBillTotal: number;
+  issuedTotal: number;
+  paidTotal: number;
+  monthly: { month: string; shouldBill: number; issued: number; paid: number }[];
 }
 
 export interface OrderWithoutPayingBody {
@@ -1356,7 +1354,6 @@ export interface OrderWithoutPayingBody {
 export interface PayingBodyReconciliationResult {
   months: string[];
   payingBodies: PayingBodyReconciliationRow[];
-  unmatchedClients: { name: string; total: number; monthly: Record<string, number> }[];
   ordersWithoutPayingBody: OrderWithoutPayingBody[];
 }
 

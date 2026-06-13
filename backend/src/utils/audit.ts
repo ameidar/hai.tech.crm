@@ -5,7 +5,7 @@ import { prisma } from './prisma.js';
 export interface AuditLogParams {
   userId?: string;
   userName?: string;
-  action: 'CREATE' | 'UPDATE' | 'DELETE';
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'MERGE';
   entity: string;
   entityId: string;
   oldValue?: Record<string, any>;

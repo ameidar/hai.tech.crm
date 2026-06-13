@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Phone, Mail, MapPin, Plus, Edit, Pencil, User, Trash2, BookOpen, MessageCircle, Send, ExternalLink, Clock, CreditCard, FileText } from 'lucide-react';
+import { ArrowRight, Phone, Mail, MapPin, Plus, Edit, Pencil, User, Trash2, BookOpen, MessageCircle, Send, ExternalLink, Clock, CreditCard, FileText, GitMerge } from 'lucide-react';
 import { useCustomer, useStudents, useCreateStudent, useUpdateCustomer, useUpdateStudent, useDeleteStudent, useDeleteCustomer, useCycles, useCreateRegistration, useSendWhatsApp, useSendEmail, useCourses, useBranches, useInstructors, useCreateCycle } from '../hooks/useApi';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
@@ -11,6 +11,7 @@ import Modal from '../components/ui/Modal';
 import EmptyState from '../components/ui/EmptyState';
 import WooPayModal from '../components/WooPayModal';
 import CustomerWhatsAppPanel from '../components/CustomerWhatsAppPanel';
+import MergeCustomerModal from '../components/MergeCustomerModal';
 import type { Customer, Student, Cycle, PaymentStatus, PaymentMethod } from '../types';
 
 export default function CustomerDetail() {
@@ -22,6 +23,7 @@ export default function CustomerDetail() {
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
+  const [showMergeModal, setShowMergeModal] = useState(false);
 
   const { data: customer, isLoading } = useCustomer(id!);
   const { data: students } = useStudents(id);
@@ -174,6 +176,10 @@ export default function CustomerDetail() {
             <button onClick={() => setShowEditModal(true)} className="btn btn-primary">
               <Edit size={18} />
               עריכה
+            </button>
+            <button onClick={() => setShowMergeModal(true)} className="btn btn-secondary">
+              <GitMerge size={18} />
+              מיזוג כפילות
             </button>
             <button onClick={handleDeleteCustomer} className="btn btn-danger">
               <Trash2 size={18} />
@@ -534,6 +540,14 @@ export default function CustomerDetail() {
           customerName={customer.name}
           customerPhone={customer.phone}
           customerEmail={customer.email || undefined}
+        />
+      )}
+
+      {showMergeModal && (
+        <MergeCustomerModal
+          keeper={customer}
+          onClose={() => setShowMergeModal(false)}
+          onMerged={() => setShowMergeModal(false)}
         />
       )}
     </>

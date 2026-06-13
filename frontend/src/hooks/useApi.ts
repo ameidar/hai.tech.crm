@@ -118,6 +118,48 @@ export const useDeleteCustomer = () => {
   });
 };
 
+export interface CustomerRelationCounts {
+  students: number;
+  quotes: number;
+  leadAppointments: number;
+  upsellLeads: number;
+  campaignRecipients: number;
+  facebookLeads: number;
+  payments: number;
+  paymentLinks: number;
+}
+
+export const useCustomerRelationCounts = (id: string | undefined, enabled = true) => {
+  return useQuery({
+    queryKey: ['customer-relation-counts', id],
+    queryFn: () => fetchData<CustomerRelationCounts>(`/customers/${id}/relation-counts`),
+    enabled: !!id && enabled,
+  });
+};
+
+export interface MergeCustomersResult {
+  customer: Customer;
+  moved: CustomerRelationCounts;
+}
+
+export const useMergeCustomers = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ keepId, sourceId, overrides }: { keepId: string; sourceId: string; overrides?: Record<string, string | null> }) =>
+      mutateData<MergeCustomersResult, { sourceId: string; overrides?: Record<string, string | null> }>(
+        `/customers/${keepId}/merge`,
+        'post',
+        { sourceId, overrides }
+      ),
+    onSuccess: (_, { keepId, sourceId }) => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['customer', keepId] });
+      queryClient.invalidateQueries({ queryKey: ['customer', sourceId] });
+      queryClient.invalidateQueries({ queryKey: ['customer-relation-counts', keepId] });
+    },
+  });
+};
+
 // ==================== Students ====================
 export const useStudents = (
   customerId?: string,

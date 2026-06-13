@@ -1,9 +1,40 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin, salesOrAbove } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createCustomerSchema, updateCustomerSchema, createStudentSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
 import { logAudit } from '../utils/audit.js';
+
+// Customer ids are usually UUIDs, but Fireberry-imported records use CUIDs — accept any non-empty id here.
+const customerIdSchema = z.string().min(1);
+
+// Count related records pointing at a customer (used by the merge preview + executor).
+async function countCustomerRelations(customerId: string) {
+  const [students, quotes, leadAppointments, upsellLeads, campaignRecipients, facebookLeads, payments, paymentLinks] =
+    await Promise.all([
+      prisma.student.count({ where: { customerId } }),
+      prisma.quote.count({ where: { customerId } }),
+      prisma.leadAppointment.count({ where: { customerId } }),
+      prisma.upsellLead.count({ where: { customerId } }),
+      prisma.campaignRecipient.count({ where: { customerId } }),
+      prisma.facebookLead.count({ where: { crmCustomerId: customerId } }),
+      prisma.payment.count({ where: { customerId } }),
+      prisma.paymentLink.count({ where: { customerId } }),
+    ]);
+  return { students, quotes, leadAppointments, upsellLeads, campaignRecipients, facebookLeads, payments, paymentLinks };
+}
+
+// Scalar fields that can be carried over from the merged (source) customer.
+const MERGE_FILLABLE_FIELDS = [
+  'name', 'email', 'phone', 'address', 'city', 'notes',
+  'lmsUsername', 'lmsPassword', 'source', 'leadStatus', 'leadNote', 'morningClientId',
+] as const;
+
+const mergeSchema = z.object({
+  sourceId: customerIdSchema,
+  overrides: z.record(z.string(), z.string().nullable()).optional(),
+});
 
 export const customersRouter = Router();
 
@@ -340,6 +371,113 @@ customersRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
     }
 
     res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Count of related records for a customer — used by the merge dialog to show what will move.
+customersRouter.get('/:id/relation-counts', managerOrAdmin, async (req, res, next) => {
+  try {
+    const id = customerIdSchema.parse(req.params.id);
+    const customer = await prisma.customer.findUnique({ where: { id } });
+    if (!customer) throw new AppError(404, 'Customer not found');
+    const counts = await countCustomerRelations(id);
+    res.json(counts);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Merge a duplicate customer into this one. `:id` is the customer we keep; `sourceId`
+// (in the body) is the duplicate that gets absorbed and then deleted.
+//
+// Behaviour:
+//  - All related records (students, payments, quotes, lead appointments, upsell leads,
+//    campaign recipients, facebook leads, payment links) are re-pointed to the kept customer.
+//  - Scalar fields: the kept customer wins; any field it's missing is filled from the source.
+//    `overrides` lets the caller force a specific value per field (e.g. keep the source's name).
+//  - The source customer is hard-deleted once everything is moved off it.
+customersRouter.post('/:id/merge', managerOrAdmin, async (req, res, next) => {
+  try {
+    const keepId = customerIdSchema.parse(req.params.id);
+    const { sourceId, overrides } = mergeSchema.parse(req.body);
+
+    if (sourceId === keepId) {
+      throw new AppError(400, 'לא ניתן למזג לקוח עם עצמו');
+    }
+
+    const [keep, source] = await Promise.all([
+      prisma.customer.findUnique({ where: { id: keepId } }),
+      prisma.customer.findUnique({ where: { id: sourceId } }),
+    ]);
+    if (!keep) throw new AppError(404, 'לקוח היעד לא נמצא');
+    if (!source) throw new AppError(404, 'הלקוח שבחרת למיזוג לא נמצא');
+
+    // Build the merged scalar payload: keeper wins, fill blanks from source, honour overrides.
+    const mergedData: Record<string, any> = {};
+    for (const field of MERGE_FILLABLE_FIELDS) {
+      const override = overrides?.[field];
+      if (override !== undefined) {
+        const trimmed = override === null ? null : override;
+        mergedData[field] = trimmed === '' ? null : trimmed;
+      } else {
+        const keepVal = (keep as any)[field];
+        const sourceVal = (source as any)[field];
+        if ((keepVal == null || keepVal === '') && sourceVal != null && sourceVal !== '') {
+          mergedData[field] = sourceVal;
+        }
+      }
+    }
+    // Never blank out the name.
+    if (mergedData.name == null || mergedData.name === '') delete mergedData.name;
+
+    const result = await prisma.$transaction(async (tx) => {
+      const [students, quotes, leadAppointments, upsellLeads, campaignRecipients, facebookLeads, payments, paymentLinks] =
+        await Promise.all([
+          tx.student.updateMany({ where: { customerId: sourceId }, data: { customerId: keepId } }),
+          tx.quote.updateMany({ where: { customerId: sourceId }, data: { customerId: keepId } }),
+          tx.leadAppointment.updateMany({ where: { customerId: sourceId }, data: { customerId: keepId } }),
+          tx.upsellLead.updateMany({ where: { customerId: sourceId }, data: { customerId: keepId } }),
+          tx.campaignRecipient.updateMany({ where: { customerId: sourceId }, data: { customerId: keepId } }),
+          tx.facebookLead.updateMany({ where: { crmCustomerId: sourceId }, data: { crmCustomerId: keepId } }),
+          tx.payment.updateMany({ where: { customerId: sourceId }, data: { customerId: keepId } }),
+          tx.paymentLink.updateMany({ where: { customerId: sourceId }, data: { customerId: keepId } }),
+        ]);
+
+      // Delete the source first so its unique email/phone are freed before we copy them onto the keeper.
+      await tx.customer.delete({ where: { id: sourceId } });
+
+      const updated = Object.keys(mergedData).length
+        ? await tx.customer.update({ where: { id: keepId }, data: mergedData })
+        : keep;
+
+      return {
+        customer: updated,
+        moved: {
+          students: students.count,
+          quotes: quotes.count,
+          leadAppointments: leadAppointments.count,
+          upsellLeads: upsellLeads.count,
+          campaignRecipients: campaignRecipients.count,
+          facebookLeads: facebookLeads.count,
+          payments: payments.count,
+          paymentLinks: paymentLinks.count,
+        },
+      };
+    });
+
+    await logAudit({
+      userId: req.user?.userId,
+      action: 'MERGE',
+      entity: 'Customer',
+      entityId: keepId,
+      oldValue: { mergedFromId: sourceId, mergedFromName: source.name, mergedFromPhone: source.phone, mergedFromEmail: source.email },
+      newValue: { name: result.customer.name, moved: result.moved },
+      req,
+    });
+
+    res.json(result);
   } catch (error) {
     next(error);
   }

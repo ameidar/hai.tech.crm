@@ -499,11 +499,13 @@ morningRouter.get('/financials/details', managerOrAdmin, async (req, res, next) 
   }
 });
 
-// GET /api/morning/branch-reconciliation?mode=ytd|months=N
-// Per-branch monthly comparison: CRM revenue (from meetings) vs Morning invoices
-// (305 + 320, ex-VAT). Helps spot mismatches between recognized revenue and
-// actual billing.
-morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, next) => {
+// GET /api/morning/paying-body-reconciliation?mode=ytd|months=N
+// Per-paying-body monthly comparison: CRM revenue (from meetings on cycles linked
+// to an institutional order that has a paying body) vs Morning invoices (305 + 320,
+// ex-VAT). The paying body ("גוף משלם") is the real Morning client — matched by its
+// stored morningClientId when present, else by name similarity. Orders that have
+// active cycles but no paying body are surfaced separately so they can be completed.
+morningRouter.get('/paying-body-reconciliation', managerOrAdmin, async (req, res, next) => {
   try {
     if (!isMorningConfigured()) throw new AppError(503, 'Morning API is not configured');
 
@@ -530,7 +532,11 @@ morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, nex
       monthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
     }
 
-    // CRM side: per-branch, per-month revenue from past meetings
+    function norm(s: string): string {
+      return s.toLowerCase().replace(/['"״׳`]/g, '').replace(/\s+/g, ' ').trim();
+    }
+
+    // CRM side: per-paying-body, per-month revenue from past meetings.
     const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const meetings = await prisma.meeting.findMany({
       where: {
@@ -543,20 +549,54 @@ morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, nex
       select: {
         scheduledDate: true,
         revenue: true,
-        cycle: { select: { branchId: true, branch: { select: { id: true, name: true } } } },
+        cycle: {
+          select: {
+            institutionalOrder: {
+              select: {
+                payingBodyRef: {
+                  select: { id: true, name: true, taxId: true, morningClientId: true, isComplete: true },
+                },
+              },
+            },
+          },
+        },
       },
     });
 
-    type BranchAcc = { id: string; name: string; crmByMonth: Record<string, number> };
-    const branches = new Map<string, BranchAcc>();
+    type PayingBodyAcc = {
+      id: string;
+      name: string;
+      taxId: string | null;
+      morningClientId: string | null;
+      isComplete: boolean;
+      crmByMonth: Record<string, number>;
+    };
+    const bodies = new Map<string, PayingBodyAcc>();
+    function ensureBody(pb: { id: string; name: string; taxId: string | null; morningClientId: string | null; isComplete: boolean }) {
+      if (!bodies.has(pb.id)) {
+        bodies.set(pb.id, {
+          id: pb.id, name: pb.name, taxId: pb.taxId,
+          morningClientId: pb.morningClientId, isComplete: pb.isComplete, crmByMonth: {},
+        });
+      }
+      return bodies.get(pb.id)!;
+    }
     for (const m of meetings) {
-      const b = m.cycle?.branch;
-      if (!b) continue;
+      const pb = m.cycle?.institutionalOrder?.payingBodyRef;
+      if (!pb) continue;
       const key = `${m.scheduledDate.getFullYear()}-${String(m.scheduledDate.getMonth() + 1).padStart(2, '0')}`;
-      if (!branches.has(b.id)) branches.set(b.id, { id: b.id, name: b.name, crmByMonth: {} });
-      const acc = branches.get(b.id)!;
+      const acc = ensureBody(pb);
       acc.crmByMonth[key] = (acc.crmByMonth[key] ?? 0) + Number(m.revenue ?? 0);
     }
+
+    // Also include paying bodies already linked to a Morning client even if they
+    // had no CRM revenue in this window — so Morning income that should reconcile
+    // is still visible rather than silently dropping into "unmatched".
+    const linkedBodies = await prisma.payingBody.findMany({
+      where: { morningClientId: { not: null } },
+      select: { id: true, name: true, taxId: true, morningClientId: true, isComplete: true },
+    });
+    for (const pb of linkedBodies) ensureBody(pb);
 
     // Morning side: invoices in window
     async function fetchAllDocs(type: number[]): Promise<any[]> {
@@ -577,25 +617,26 @@ morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, nex
     const invoices = (await fetchAllDocs([305, 320])).filter((d: any) => d.status !== 2);
     const credits = (await fetchAllDocs([330])).filter((d: any) => d.status !== 2);
 
-    // Group Morning invoices by client name + month. Capture client.id for deep-linking.
-    type ClientAcc = { name: string; clientId: string | null; byMonth: Record<string, number>; docCount: number };
+    // Group Morning invoices by client (keyed on client.id when present, else name)
+    // so two clients sharing a name are not merged. Capture client.id for deep-linking.
+    type ClientAcc = { key: string; name: string; clientId: string | null; byMonth: Record<string, number>; docCount: number };
     const clientMap = new Map<string, ClientAcc>();
     function addInvoice(d: any, sign: 1 | -1) {
       const name = d.client?.name ?? '—';
       const cid = d.client?.id ?? null;
       const date = d.documentDate;
       if (!date || typeof date !== 'string') return;
-      const key = date.slice(0, 7);
-      if (!clientMap.has(name)) clientMap.set(name, { name, clientId: cid, byMonth: {}, docCount: 0 });
-      const acc = clientMap.get(name)!;
-      if (!acc.clientId && cid) acc.clientId = cid;
-      acc.byMonth[key] = (acc.byMonth[key] ?? 0) + sign * Number(d.amountExcludeVat ?? 0);
+      const monthKey = date.slice(0, 7);
+      const mapKey = cid ? `id:${cid}` : `name:${name}`;
+      if (!clientMap.has(mapKey)) clientMap.set(mapKey, { key: mapKey, name, clientId: cid, byMonth: {}, docCount: 0 });
+      const acc = clientMap.get(mapKey)!;
+      acc.byMonth[monthKey] = (acc.byMonth[monthKey] ?? 0) + sign * Number(d.amountExcludeVat ?? 0);
       acc.docCount++;
     }
     for (const d of invoices) addInvoice(d, 1);
     for (const d of credits) addInvoice(d, -1);
 
-    // Match branches to Morning clients by name similarity
+    // Match paying bodies to Morning clients by name similarity (fallback path).
     function matchScore(a: string, b: string): number {
       const na = norm(a);
       const nb = norm(b);
@@ -609,9 +650,13 @@ morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, nex
       return Math.round((common / Math.max(wA.length, wB.length)) * 60);
     }
 
-    type BranchOut = {
-      branchId: string;
-      branchName: string;
+    type PayingBodyOut = {
+      payingBodyId: string;
+      payingBodyName: string;
+      taxId: string | null;
+      isComplete: boolean;
+      morningClientId: string | null;
+      matchedBy: 'morningClientId' | 'name' | null;
       matchedClients: { name: string; clientId: string | null }[];
       crmTotal: number;
       morningTotal: number;
@@ -620,88 +665,55 @@ morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, nex
     };
 
     const usedClients = new Set<string>();
-    const result: BranchOut[] = [];
+    const result: PayingBodyOut[] = [];
 
-    // Branches to exclude from the reconciliation view (one-off / non-billable
-    // buckets that don't have a single Morning client to reconcile against).
-    const EXCLUDED_BRANCHES = ['כללי', 'אונליין b2c', 'עומר פרונטלי', 'אונליין'];
-    const isExcluded = (name: string) =>
-      EXCLUDED_BRANCHES.some((ex) => name.toLowerCase().trim() === ex);
-
-    // Manual mapping for branches whose name doesn't fuzzy-match the Morning
-    // client name. Keys = CRM branch name (normalized), values = Morning client
-    // name (normalized) — both lower-cased & quote-stripped via the normalize() fn.
-    function norm(s: string): string {
-      return s.toLowerCase().replace(/['"״׳`]/g, '').replace(/\s+/g, ' ').trim();
-    }
-    const BRANCH_TO_MORNING: Record<string, string> = {
-      [norm('מרכז סקו״פ חולון')]: norm('רשת קהילה ופנאי - המרכז להעשרה חינוכית'),
-      [norm('כיוונים - חוגים')]: norm('כיוונים באר שבע'),
-      [norm('בית ספר רימון רעננה')]: norm('חט"ב רימון רעננה'),
-      [norm('יסוד המעלה')]: norm('החברה העירונית לתרבות ספורט ונופש ראשל"צ'),
-      [norm('עמל')]: norm('רשת עמל 1 בע״מ'),
-      [norm('בי"ס יסודי הרעות כרמיאל')]: norm('בית ספר יסודי הרעות כרמיאל'),
-      [norm('הרעות כרמיאל')]: norm('בית ספר יסודי הרעות כרמיאל'),
-    };
-
-    // Also include any branch in the override map even if it has no CRM revenue
-    // in this window — useful when dev DB is missing meeting data but Morning has
-    // invoices, so the user can still see the gap.
-    const allBranchesInDb = await prisma.branch.findMany({
-      where: { isActive: true },
-      select: { id: true, name: true },
-    });
-    for (const b of allBranchesInDb) {
-      if (BRANCH_TO_MORNING[norm(b.name)] && !branches.has(b.id)) {
-        branches.set(b.id, { id: b.id, name: b.name, crmByMonth: {} });
-      }
-    }
-
-    // Include branches with revenue OR with a manual override mapping
-    const branchList = Array.from(branches.values()).filter((b) => {
-      if (isExcluded(b.name)) return false;
-      const hasRevenue = Object.values(b.crmByMonth).some((v) => v > 0);
-      const hasOverride = !!BRANCH_TO_MORNING[norm(b.name)];
-      return hasRevenue || hasOverride;
-    });
-    branchList.sort((a, b) => {
+    const bodyList = Array.from(bodies.values());
+    bodyList.sort((a, b) => {
       const sa = Object.values(a.crmByMonth).reduce((s, v) => s + v, 0);
       const sb = Object.values(b.crmByMonth).reduce((s, v) => s + v, 0);
       return sb - sa;
     });
 
-    for (const b of branchList) {
-      const matched: { name: string; clientId: string | null }[] = [];
-      // First, prefer manual override mapping if present.
-      const overrideTarget = BRANCH_TO_MORNING[norm(b.name)];
-      if (overrideTarget) {
-        for (const [cn, acc] of clientMap) {
-          if (norm(cn) === overrideTarget) {
-            matched.push({ name: cn, clientId: acc.clientId });
-            usedClients.add(cn);
+    for (const pb of bodyList) {
+      const matchedKeys: string[] = [];
+      let matchedBy: 'morningClientId' | 'name' | null = null;
+
+      // 1) Exact match by the stored Morning client id — the source of truth.
+      if (pb.morningClientId) {
+        for (const [mk, acc] of clientMap) {
+          if (acc.clientId && acc.clientId === pb.morningClientId) {
+            matchedKeys.push(mk);
+            usedClients.add(mk);
+            matchedBy = 'morningClientId';
             break;
           }
         }
       }
-      // Fall back to fuzzy match if no override (or override missed).
-      if (matched.length === 0) {
-        const candidates: { name: string; score: number }[] = [];
-        for (const [cn] of clientMap) {
-          if (usedClients.has(cn)) continue;
-          const s = matchScore(b.name, cn);
-          if (s >= 50) candidates.push({ name: cn, score: s });
+
+      // 2) Fall back to fuzzy name match when no Morning id link resolves.
+      if (matchedKeys.length === 0) {
+        const candidates: { mk: string; score: number }[] = [];
+        for (const [mk, acc] of clientMap) {
+          if (usedClients.has(mk)) continue;
+          const s = matchScore(pb.name, acc.name);
+          if (s >= 50) candidates.push({ mk, score: s });
         }
         candidates.sort((a, b) => b.score - a.score);
-        for (const c of candidates.slice(0, 1)) {
-          const acc = clientMap.get(c.name);
-          matched.push({ name: c.name, clientId: acc?.clientId ?? null });
-          usedClients.add(c.name);
+        if (candidates[0]) {
+          matchedKeys.push(candidates[0].mk);
+          usedClients.add(candidates[0].mk);
+          matchedBy = 'name';
         }
       }
 
+      const matchedClients = matchedKeys.map((mk) => {
+        const acc = clientMap.get(mk)!;
+        return { name: acc.name, clientId: acc.clientId };
+      });
+
       const morningByMonth: Record<string, number> = {};
-      for (const m of matched) {
-        const acc = clientMap.get(m.name);
+      for (const mk of matchedKeys) {
+        const acc = clientMap.get(mk);
         if (!acc) continue;
         for (const [k, v] of Object.entries(acc.byMonth)) {
           morningByMonth[k] = (morningByMonth[k] ?? 0) + v;
@@ -709,16 +721,20 @@ morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, nex
       }
 
       const monthly = monthKeys.map((k) => {
-        const crm = Math.round(b.crmByMonth[k] ?? 0);
+        const crm = Math.round(pb.crmByMonth[k] ?? 0);
         const morning = Math.round(morningByMonth[k] ?? 0);
         return { month: k, crm, morning, diff: crm - morning };
       });
       const crmTotal = monthly.reduce((s, m) => s + m.crm, 0);
       const morningTotal = monthly.reduce((s, m) => s + m.morning, 0);
       result.push({
-        branchId: b.id,
-        branchName: b.name,
-        matchedClients: matched,
+        payingBodyId: pb.id,
+        payingBodyName: pb.name,
+        taxId: pb.taxId,
+        isComplete: pb.isComplete,
+        morningClientId: pb.morningClientId,
+        matchedBy,
+        matchedClients,
         crmTotal,
         morningTotal,
         diff: crmTotal - morningTotal,
@@ -726,19 +742,50 @@ morningRouter.get('/branch-reconciliation', managerOrAdmin, async (req, res, nex
       });
     }
 
-    // Also list unmatched Morning clients (Morning income with no matching CRM branch)
+    // Unmatched Morning clients (Morning income with no matching paying body)
     const unmatchedClients: { name: string; total: number; monthly: Record<string, number> }[] = [];
-    for (const [name, acc] of clientMap) {
-      if (usedClients.has(name)) continue;
+    for (const [mk, acc] of clientMap) {
+      if (usedClients.has(mk)) continue;
       const total = Object.values(acc.byMonth).reduce((s, v) => s + v, 0);
-      if (total > 0) unmatchedClients.push({ name, total: Math.round(total), monthly: acc.byMonth });
+      if (total > 0) unmatchedClients.push({ name: acc.name, total: Math.round(total), monthly: acc.byMonth });
     }
     unmatchedClients.sort((a, b) => b.total - a.total);
 
+    // Institutional orders that have active cycles but no paying body linked —
+    // these can't be reconciled by paying body until completed.
+    const ordersNoPb = await prisma.institutionalOrder.findMany({
+      where: {
+        payingBodyId: null,
+        cycles: { some: { status: 'active', deletedAt: null } },
+      },
+      select: {
+        id: true,
+        orderName: true,
+        orderNumber: true,
+        status: true,
+        payingBody: true,
+        branch: { select: { name: true } },
+        cycles: {
+          where: { status: 'active', deletedAt: null },
+          select: { id: true, name: true },
+        },
+      },
+    });
+    const ordersWithoutPayingBody = ordersNoPb.map((o) => ({
+      orderId: o.id,
+      orderName: o.orderName,
+      orderNumber: o.orderNumber,
+      status: o.status,
+      branchName: o.branch?.name ?? null,
+      legacyPayingBody: o.payingBody ?? null,
+      activeCycles: o.cycles.map((c) => c.name),
+    }));
+
     res.json({
       months: monthKeys,
-      branches: result,
+      payingBodies: result,
       unmatchedClients,
+      ordersWithoutPayingBody,
     });
   } catch (err: any) {
     if (err.body) {

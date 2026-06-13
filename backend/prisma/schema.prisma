@@ -177,6 +177,7 @@ enum LeadStatus {
   in_progress
   converted
   closed
+  waiting_placement
 }
 
 model Customer {

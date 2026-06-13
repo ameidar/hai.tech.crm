@@ -30,6 +30,7 @@ const LEAD_STATUS_MAP: Record<string, { label: string; cls: string }> = {
   in_progress: { label: '⏳ בטיפול',   cls: 'bg-orange-50 text-orange-700' },
   converted:   { label: '✅ הומר',      cls: 'bg-green-50 text-green-700' },
   closed:      { label: '❌ נסגר',      cls: 'bg-gray-100 text-gray-500' },
+  waiting_placement: { label: '🧩 מחכה לשיבוץ', cls: 'bg-purple-50 text-purple-700' },
 };
 
 function LeadStatusBadge({ status }: { status?: string | null }) {
@@ -506,6 +507,7 @@ function CustomerForm({ onSubmit, onCancel, isLoading, initialData }: CustomerFo
             <option value="in_progress">⏳ בטיפול</option>
             <option value="converted">✅ הומר</option>
             <option value="closed">❌ נסגר</option>
+            <option value="waiting_placement">🧩 מחכה לשיבוץ</option>
           </select>
         </div>
       </div>

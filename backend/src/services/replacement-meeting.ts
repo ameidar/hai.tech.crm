@@ -15,6 +15,7 @@ import { isHoliday, isShabbat } from '../utils/holidays.js';
 import { sendWhatsAppMessage } from './notifications.js';
 import { calculateInstructorPayment } from './instructor-payment.js';
 import { roundMoney } from '../utils/revenue.js';
+import { syncCycleEndDate } from '../utils/cycle-sync.js';
 
 const ADMIN_PHONE = process.env.ADMIN_PHONE || '0528746137';
 
@@ -140,6 +141,9 @@ export async function addReplacementMeeting(postponedMeetingId: string, _actorUs
     where: { id: postponedMeetingId },
     data: { rescheduledToId: replacement.id },
   });
+
+  // The replacement always lands at the end of the cycle — extend the cycle's end date.
+  await syncCycleEndDate(cycle.id);
 
   // Note: totalMeetings and remainingMeetings are NOT modified here.
   // When a meeting is postponed, remainingMeetings is not decremented in the existing code,

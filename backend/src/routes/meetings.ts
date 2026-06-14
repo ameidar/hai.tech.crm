@@ -7,7 +7,7 @@ import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { zoomService } from '../services/zoom.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
-import { syncCycleProgress } from '../utils/cycle-sync.js';
+import { syncCycleProgress, syncCycleEndDate } from '../utils/cycle-sync.js';
 import { meetingRevenueFromRegistrations, roundMoney } from '../utils/revenue.js';
 import { assertCyclePeriodNotLocked, assertMeetingNotInIssuedPeriod } from '../services/billing-lock.js';
 import {
@@ -409,6 +409,9 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
       },
     });
 
+    // Adding a meeting may push the cycle past its current end date — resync it.
+    await syncCycleEndDate(cycleId);
+
     // Log audit
     await logAudit({
       action: 'CREATE',
@@ -733,6 +736,9 @@ meetingsRouter.post('/:id/postpone', managerOrAdmin, async (req, res, next) => {
         profit: 0,
       },
     });
+
+    // The replacement meeting may fall after the cycle's current end date — resync it.
+    await syncCycleEndDate(existingMeeting.cycleId);
 
     // Audit log for postponement
     await logAudit({

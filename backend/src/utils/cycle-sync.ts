@@ -28,3 +28,30 @@ export async function syncCycleProgress(cycleId: string): Promise<{
 
   return { completedMeetings, remainingMeetings };
 }
+
+/**
+ * Resync a cycle's endDate to the date of its last real meeting.
+ * Recomputes from source-of-truth (the latest non-cancelled, non-postponed meeting),
+ * so adding a meeting — manually or via a postponement replacement — extends the
+ * cycle's end date instead of leaving the stale value set at cycle creation.
+ * Cancelled/postponed meetings are excluded since they don't represent a real session.
+ * No-op when the cycle has no qualifying meetings (keeps the existing endDate).
+ */
+export async function syncCycleEndDate(cycleId: string): Promise<Date | null> {
+  const lastMeeting = await prisma.meeting.findFirst({
+    where: {
+      cycleId,
+      deletedAt: null,
+      status: { notIn: ['cancelled', 'postponed'] },
+    },
+    orderBy: { scheduledDate: 'desc' },
+    select: { scheduledDate: true },
+  });
+  if (!lastMeeting) return null;
+
+  await prisma.cycle.update({
+    where: { id: cycleId },
+    data: { endDate: lastMeeting.scheduledDate },
+  });
+  return lastMeeting.scheduledDate;
+}

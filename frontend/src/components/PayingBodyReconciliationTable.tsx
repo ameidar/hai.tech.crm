@@ -8,10 +8,10 @@ function monthLabel(m: string) {
   const [y, mm] = m.split('-').map(Number);
   return `${HEBREW_MONTHS[mm - 1].slice(0, 3)} ${String(y).slice(2)}`;
 }
+const money = (n: number) => `₪${n.toLocaleString()}`;
 
 export default function PayingBodyReconciliationTable() {
   const [range, setRange] = useState<'ytd' | number>('ytd');
-  const [showUnmatched, setShowUnmatched] = useState(false);
   const [showMissing, setShowMissing] = useState(false);
   const [hideMatched, setHideMatched] = useState(false);
   const { data, isLoading, error } = usePayingBodyReconciliation(range);
@@ -19,7 +19,10 @@ export default function PayingBodyReconciliationTable() {
   const filteredBodies = useMemo(() => {
     if (!data) return [];
     if (!hideMatched) return data.payingBodies;
-    return data.payingBodies.filter((b) => Math.abs(b.diff) > 1);
+    // A gap exists when we earned more than we billed, or billed more than we collected.
+    return data.payingBodies.filter(
+      (b) => Math.abs(b.shouldBillTotal - b.issuedTotal) > 1 || Math.abs(b.issuedTotal - b.paidTotal) > 1
+    );
   }, [data, hideMatched]);
 
   if (isLoading) {
@@ -40,10 +43,11 @@ export default function PayingBodyReconciliationTable() {
     );
   }
 
-  const totalCrm = data.payingBodies.reduce((s, b) => s + b.crmTotal, 0);
-  const totalMorning = data.payingBodies.reduce((s, b) => s + b.morningTotal, 0);
-  const totalDiff = totalCrm - totalMorning;
-  const unmatchedTotal = data.unmatchedClients.reduce((s, c) => s + c.total, 0);
+  const totalShouldBill = data.payingBodies.reduce((s, b) => s + b.shouldBillTotal, 0);
+  const totalIssued = data.payingBodies.reduce((s, b) => s + b.issuedTotal, 0);
+  const totalPaid = data.payingBodies.reduce((s, b) => s + b.paidTotal, 0);
+  const billGap = totalShouldBill - totalIssued; // earned but not yet invoiced
+  const collectGap = totalIssued - totalPaid; // invoiced but not yet collected
   const missing = data.ordersWithoutPayingBody ?? [];
 
   return (
@@ -54,8 +58,8 @@ export default function PayingBodyReconciliationTable() {
             <GitCompareArrows className="w-5 h-5 text-purple-600" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">התאמות גוף משלם — CRM ↔ מורנינג</h2>
-            <p className="text-sm text-gray-500">השוואת הכנסה מוכרת מול חשבוניות מס/קבלה לפי גוף משלם</p>
+            <h2 className="text-lg font-semibold text-gray-900">מעקב חיוב גוף משלם — צריך לחייב / חויב / שולם</h2>
+            <p className="text-sm text-gray-500">לפי חודש הפעילות: הכנסת הפגישות מול חשבונות עסקה שהונפקו ומול מה ששולם בפועל</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -79,18 +83,22 @@ export default function PayingBodyReconciliationTable() {
       {/* Summary */}
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-emerald-50 rounded-lg p-3">
-          <div className="text-xs text-emerald-700">הכנסה ב-CRM</div>
-          <div className="text-xl font-bold text-emerald-800">₪{totalCrm.toLocaleString()}</div>
+          <div className="text-xs text-emerald-700">צריך לחייב (פגישות)</div>
+          <div className="text-xl font-bold text-emerald-800">{money(totalShouldBill)}</div>
         </div>
         <div className="bg-indigo-50 rounded-lg p-3">
-          <div className="text-xs text-indigo-700">חשבוניות במורנינג</div>
-          <div className="text-xl font-bold text-indigo-800">₪{totalMorning.toLocaleString()}</div>
+          <div className="text-xs text-indigo-700">חויב — חשבון עסקה</div>
+          <div className="text-xl font-bold text-indigo-800">{money(totalIssued)}</div>
+          {Math.abs(billGap) > 1 && (
+            <div className="text-[11px] text-amber-700 mt-0.5">חסר לחיוב: {money(billGap)}</div>
+          )}
         </div>
-        <div className={`rounded-lg p-3 ${Math.abs(totalDiff) < 1000 ? 'bg-emerald-50' : 'bg-amber-50'}`}>
-          <div className={`text-xs ${Math.abs(totalDiff) < 1000 ? 'text-emerald-700' : 'text-amber-700'}`}>פער כולל</div>
-          <div className={`text-xl font-bold ${Math.abs(totalDiff) < 1000 ? 'text-emerald-800' : 'text-amber-800'}`}>
-            ₪{totalDiff.toLocaleString()}
-          </div>
+        <div className="bg-sky-50 rounded-lg p-3">
+          <div className="text-xs text-sky-700">שולם בפועל</div>
+          <div className="text-xl font-bold text-sky-800">{money(totalPaid)}</div>
+          {Math.abs(collectGap) > 1 && (
+            <div className="text-[11px] text-amber-700 mt-0.5">טרם נגבה: {money(collectGap)}</div>
+          )}
         </div>
       </div>
 
@@ -100,22 +108,23 @@ export default function PayingBodyReconciliationTable() {
           <thead>
             <tr className="text-gray-500 border-b border-gray-200 bg-gray-50">
               <th className="text-right py-2 px-3 font-semibold sticky right-0 bg-gray-50 min-w-[180px]">גוף משלם</th>
-              <th className="text-right py-2 px-3 font-semibold text-gray-400 text-xs">לקוח במורנינג</th>
               {data.months.map((m) => (
-                <th key={m} className="text-right py-2 px-2 font-semibold text-xs whitespace-nowrap" colSpan={2}>{monthLabel(m)}</th>
+                <th key={m} className="text-center py-2 px-2 font-semibold text-xs whitespace-nowrap border-r border-gray-200" colSpan={3}>{monthLabel(m)}</th>
               ))}
-              <th className="text-right py-2 px-3 font-semibold whitespace-nowrap">סה״כ פער</th>
+              <th className="text-center py-2 px-3 font-semibold whitespace-nowrap border-r border-gray-200" colSpan={3}>סה״כ</th>
             </tr>
             <tr className="text-gray-400 border-b border-gray-200 bg-gray-50 text-[10px]">
               <th className="sticky right-0 bg-gray-50"></th>
-              <th></th>
               {data.months.map((m) => (
                 <>
-                  <th key={`${m}-c`} className="text-right py-1 px-2 font-medium">CRM</th>
-                  <th key={`${m}-m`} className="text-right py-1 px-2 font-medium">מורנינג</th>
+                  <th key={`${m}-s`} className="text-right py-1 px-2 font-medium border-r border-gray-200" title="צריך לחייב (פגישות)">צריך</th>
+                  <th key={`${m}-i`} className="text-right py-1 px-2 font-medium" title="חויב — חשבון עסקה">חויב</th>
+                  <th key={`${m}-p`} className="text-right py-1 px-2 font-medium" title="שולם בפועל">שולם</th>
                 </>
               ))}
-              <th></th>
+              <th className="text-right py-1 px-2 font-medium border-r border-gray-200">צריך</th>
+              <th className="text-right py-1 px-2 font-medium">חויב</th>
+              <th className="text-right py-1 px-2 font-medium">שולם</th>
             </tr>
           </thead>
           <tbody>
@@ -132,46 +141,31 @@ export default function PayingBodyReconciliationTable() {
                   </div>
                   {b.taxId && <div className="text-[10px] text-gray-400">ח.פ {b.taxId}</div>}
                 </td>
-                <td className="py-2 px-3 text-xs">
-                  {b.matchedClients.length === 0 ? (
-                    <span className="text-amber-600 flex items-center gap-1">
-                      <AlertTriangle className="w-3 h-3" /> לא נמצאה התאמה
-                    </span>
-                  ) : (
-                    b.matchedClients.map((c, i) => (
-                      <span key={i}>
-                        {i > 0 && ', '}
-                        {c.clientId ? (
-                          <a
-                            href={`https://app.greeninvoice.co.il/i#/clients/${c.clientId}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-indigo-600 hover:underline"
-                          >
-                            {c.name} ↗
-                          </a>
-                        ) : (
-                          <span className="text-gray-500">{c.name}</span>
-                        )}
-                        {b.matchedBy === 'name' && i === 0 && (
-                          <span title="התאמה לפי שם (לא מקושר ב-Morning)" className="text-amber-500"> ~</span>
-                        )}
-                      </span>
-                    ))
-                  )}
-                </td>
                 {b.monthly.map((m) => (
                   <>
-                    <td key={`${m.month}-c`} className="py-1 px-2 text-emerald-600 text-xs">
-                      {m.crm > 0 ? `₪${m.crm.toLocaleString()}` : ''}
+                    <td key={`${m.month}-s`} className="py-1 px-2 text-emerald-600 text-xs border-r border-gray-100">
+                      {m.shouldBill > 0 ? money(m.shouldBill) : ''}
                     </td>
-                    <td key={`${m.month}-m`} className={`py-1 px-2 text-xs ${m.diff > 100 ? 'bg-amber-50 text-amber-700' : 'text-indigo-600'}`}>
-                      {m.morning > 0 ? `₪${m.morning.toLocaleString()}` : ''}
+                    <td
+                      key={`${m.month}-i`}
+                      className={`py-1 px-2 text-xs ${m.shouldBill - m.issued > 100 ? 'bg-amber-50 text-amber-700' : 'text-indigo-600'}`}
+                    >
+                      {m.issued > 0 ? money(m.issued) : ''}
+                    </td>
+                    <td
+                      key={`${m.month}-p`}
+                      className={`py-1 px-2 text-xs ${m.issued - m.paid > 100 ? 'bg-rose-50 text-rose-600' : 'text-sky-600'}`}
+                    >
+                      {m.paid > 0 ? money(m.paid) : ''}
                     </td>
                   </>
                 ))}
-                <td className={`py-2 px-3 font-bold ${Math.abs(b.diff) < 100 ? 'text-emerald-600' : b.diff > 0 ? 'text-amber-600' : 'text-rose-600'}`}>
-                  ₪{b.diff.toLocaleString()}
+                <td className="py-2 px-2 font-bold text-emerald-600 text-xs border-r border-gray-200">{money(b.shouldBillTotal)}</td>
+                <td className={`py-2 px-2 font-bold text-xs ${b.shouldBillTotal - b.issuedTotal > 100 ? 'text-amber-600' : 'text-indigo-600'}`}>
+                  {money(b.issuedTotal)}
+                </td>
+                <td className={`py-2 px-2 font-bold text-xs ${b.issuedTotal - b.paidTotal > 100 ? 'text-rose-600' : 'text-sky-600'}`}>
+                  {money(b.paidTotal)}
                 </td>
               </tr>
             ))}
@@ -179,18 +173,21 @@ export default function PayingBodyReconciliationTable() {
           <tfoot>
             <tr className="bg-gray-100 font-semibold">
               <td className="py-2 px-3 sticky right-0 bg-gray-100">סה״כ</td>
-              <td></td>
               {data.months.map((m) => {
-                const crm = filteredBodies.reduce((s, b) => s + (b.monthly.find((x) => x.month === m)?.crm ?? 0), 0);
-                const mor = filteredBodies.reduce((s, b) => s + (b.monthly.find((x) => x.month === m)?.morning ?? 0), 0);
+                const s = filteredBodies.reduce((acc, b) => acc + (b.monthly.find((x) => x.month === m)?.shouldBill ?? 0), 0);
+                const i = filteredBodies.reduce((acc, b) => acc + (b.monthly.find((x) => x.month === m)?.issued ?? 0), 0);
+                const p = filteredBodies.reduce((acc, b) => acc + (b.monthly.find((x) => x.month === m)?.paid ?? 0), 0);
                 return (
                   <>
-                    <td key={`tf-${m}-c`} className="py-2 px-2 text-emerald-600 text-xs">₪{crm.toLocaleString()}</td>
-                    <td key={`tf-${m}-m`} className="py-2 px-2 text-indigo-600 text-xs">₪{mor.toLocaleString()}</td>
+                    <td key={`tf-${m}-s`} className="py-2 px-2 text-emerald-600 text-xs border-r border-gray-200">{money(s)}</td>
+                    <td key={`tf-${m}-i`} className="py-2 px-2 text-indigo-600 text-xs">{money(i)}</td>
+                    <td key={`tf-${m}-p`} className="py-2 px-2 text-sky-600 text-xs">{money(p)}</td>
                   </>
                 );
               })}
-              <td className={`py-2 px-3 ${Math.abs(totalDiff) < 1000 ? 'text-emerald-600' : 'text-amber-600'}`}>₪{totalDiff.toLocaleString()}</td>
+              <td className="py-2 px-2 text-emerald-700 text-xs border-r border-gray-200">{money(filteredBodies.reduce((s, b) => s + b.shouldBillTotal, 0))}</td>
+              <td className="py-2 px-2 text-indigo-700 text-xs">{money(filteredBodies.reduce((s, b) => s + b.issuedTotal, 0))}</td>
+              <td className="py-2 px-2 text-sky-700 text-xs">{money(filteredBodies.reduce((s, b) => s + b.paidTotal, 0))}</td>
             </tr>
           </tfoot>
         </table>
@@ -219,32 +216,6 @@ export default function PayingBodyReconciliationTable() {
                     {o.legacyPayingBody && <span className="text-gray-400"> · גוף משלם (טקסט): {o.legacyPayingBody}</span>}
                   </div>
                   <span className="text-rose-600 text-xs whitespace-nowrap">{o.activeCycles.length} מחזורים פעילים</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Unmatched Morning clients */}
-      {data.unmatchedClients.length > 0 && (
-        <div className="border-t border-gray-100 pt-3">
-          <button
-            onClick={() => setShowUnmatched(!showUnmatched)}
-            className="w-full flex items-center justify-between text-sm hover:bg-gray-50 rounded-lg px-2 py-1.5"
-          >
-            <span className="flex items-center gap-2 text-amber-700">
-              <AlertTriangle className="w-4 h-4" />
-              {data.unmatchedClients.length} לקוחות במורנינג ללא התאמה לגוף משלם — סה״כ ₪{unmatchedTotal.toLocaleString()}
-            </span>
-            {showUnmatched ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </button>
-          {showUnmatched && (
-            <div className="mt-2 space-y-1">
-              {data.unmatchedClients.map((c) => (
-                <div key={c.name} className="flex items-center justify-between text-sm text-gray-700 px-2 py-1">
-                  <span>{c.name}</span>
-                  <span className="text-indigo-600 font-medium">₪{c.total.toLocaleString()}</span>
                 </div>
               ))}
             </div>

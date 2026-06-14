@@ -500,11 +500,14 @@ morningRouter.get('/financials/details', managerOrAdmin, async (req, res, next) 
 });
 
 // GET /api/morning/paying-body-reconciliation?mode=ytd|months=N
-// Per-paying-body monthly comparison: CRM revenue (from meetings on cycles linked
-// to an institutional order that has a paying body) vs Morning invoices (305 + 320,
-// ex-VAT). The paying body ("גוף משלם") is the real Morning client — matched by its
-// stored morningClientId when present, else by name similarity. Orders that have
-// active cycles but no paying body are surfaced separately so they can be completed.
+// Per-paying-body monthly billing tracking with three figures per month, all sourced
+// from the CRM (no Morning document dating, so no invoice-timing artifacts):
+//   shouldBill — revenue of meetings held that month (what we earned / owe an invoice)
+//   issued     — totalAmount of issued billing periods (חשבון עסקה), spread over the
+//                months each period covers
+//   paid       — paidAmount recorded on those billing periods
+// Orders that have active cycles but no paying body are surfaced separately so they
+// can be completed.
 morningRouter.get('/paying-body-reconciliation', managerOrAdmin, async (req, res, next) => {
   try {
     if (!isMorningConfigured()) throw new AppError(503, 'Morning API is not configured');
@@ -523,20 +526,14 @@ morningRouter.get('/paying-body-reconciliation', managerOrAdmin, async (req, res
       fromDate = new Date(now.getFullYear(), now.getMonth() - monthCount + 1, 1);
       toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
     }
-    const fromStr = fromDate.toISOString().split('T')[0];
-    const toStr = toDate.toISOString().split('T')[0];
-
     const monthKeys: string[] = [];
     for (let i = 0; i < monthCount; i++) {
       const d = new Date(fromDate.getFullYear(), fromDate.getMonth() + i, 1);
       monthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
     }
 
-    function norm(s: string): string {
-      return s.toLowerCase().replace(/['"״׳`]/g, '').replace(/\s+/g, ' ').trim();
-    }
-
-    // CRM side: per-paying-body, per-month revenue from past meetings.
+    // Column 1 ("should bill"): per-paying-body, per-month revenue from past meetings,
+    // attributed to the month the lesson actually took place.
     const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const meetings = await prisma.meeting.findMany({
       where: {
@@ -569,14 +566,17 @@ morningRouter.get('/paying-body-reconciliation', managerOrAdmin, async (req, res
       taxId: string | null;
       morningClientId: string | null;
       isComplete: boolean;
-      crmByMonth: Record<string, number>;
+      shouldBillByMonth: Record<string, number>;
+      issuedByMonth: Record<string, number>;
+      paidByMonth: Record<string, number>;
     };
     const bodies = new Map<string, PayingBodyAcc>();
     function ensureBody(pb: { id: string; name: string; taxId: string | null; morningClientId: string | null; isComplete: boolean }) {
       if (!bodies.has(pb.id)) {
         bodies.set(pb.id, {
           id: pb.id, name: pb.name, taxId: pb.taxId,
-          morningClientId: pb.morningClientId, isComplete: pb.isComplete, crmByMonth: {},
+          morningClientId: pb.morningClientId, isComplete: pb.isComplete,
+          shouldBillByMonth: {}, issuedByMonth: {}, paidByMonth: {},
         });
       }
       return bodies.get(pb.id)!;
@@ -586,68 +586,52 @@ morningRouter.get('/paying-body-reconciliation', managerOrAdmin, async (req, res
       if (!pb) continue;
       const key = `${m.scheduledDate.getFullYear()}-${String(m.scheduledDate.getMonth() + 1).padStart(2, '0')}`;
       const acc = ensureBody(pb);
-      acc.crmByMonth[key] = (acc.crmByMonth[key] ?? 0) + Number(m.revenue ?? 0);
+      acc.shouldBillByMonth[key] = (acc.shouldBillByMonth[key] ?? 0) + Number(m.revenue ?? 0);
     }
 
-    // Also include paying bodies already linked to a Morning client even if they
-    // had no CRM revenue in this window — so Morning income that should reconcile
-    // is still visible rather than silently dropping into "unmatched".
-    const linkedBodies = await prisma.payingBody.findMany({
-      where: { morningClientId: { not: null } },
-      select: { id: true, name: true, taxId: true, morningClientId: true, isComplete: true },
+    // Columns 2 + 3 ("issued" / "paid"): the CRM's own billing periods, NOT Morning
+    // tax-invoice documents. A period moves to status=issued when its חשבון עסקה
+    // (proforma) goes out, carrying totalAmount + paidAmount. Using these avoids the
+    // timing artifact where May activity is invoiced (305/320) only in June/July — the
+    // proforma already reflects the charge, attributed to the months the period covers.
+    const periods = await prisma.billingPeriod.findMany({
+      where: {
+        status: 'issued',
+        monthStart: { lte: toDate },
+        monthEnd: { gte: fromDate },
+        institutionalOrder: { payingBodyId: { not: null } },
+      },
+      select: {
+        monthStart: true,
+        monthEnd: true,
+        totalAmount: true,
+        paidAmount: true,
+        institutionalOrder: {
+          select: {
+            payingBodyRef: {
+              select: { id: true, name: true, taxId: true, morningClientId: true, isComplete: true },
+            },
+          },
+        },
+      },
     });
-    for (const pb of linkedBodies) ensureBody(pb);
-
-    // Morning side: invoices in window
-    async function fetchAllDocs(type: number[]): Promise<any[]> {
-      const all: any[] = [];
-      let page = 1;
-      while (true) {
-        const r = await morningRequest<any>('POST', '/api/v1/documents/search', {
-          pageSize: 500, page, fromDate: fromStr, toDate: toStr, type,
-        });
-        const items: any[] = r.items || [];
-        all.push(...items);
-        if (items.length < 500 || all.length >= (r.total ?? all.length)) break;
-        page++;
-        if (page > 30) break;
+    for (const p of periods) {
+      const pb = p.institutionalOrder?.payingBodyRef;
+      if (!pb) continue;
+      const acc = ensureBody(pb);
+      // Spread the period's amounts evenly across the calendar months it covers, so a
+      // multi-month proforma lands on each activity month instead of a single one.
+      const startIdx = p.monthStart.getFullYear() * 12 + p.monthStart.getMonth();
+      const endIdx = p.monthEnd.getFullYear() * 12 + p.monthEnd.getMonth();
+      const span = Math.max(1, endIdx - startIdx + 1);
+      const issuedPer = Number(p.totalAmount ?? 0) / span;
+      const paidPer = Number(p.paidAmount ?? 0) / span;
+      for (let idx = startIdx; idx <= endIdx; idx++) {
+        const key = `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, '0')}`;
+        if (!monthKeys.includes(key)) continue;
+        acc.issuedByMonth[key] = (acc.issuedByMonth[key] ?? 0) + issuedPer;
+        acc.paidByMonth[key] = (acc.paidByMonth[key] ?? 0) + paidPer;
       }
-      return all;
-    }
-    const invoices = (await fetchAllDocs([305, 320])).filter((d: any) => d.status !== 2);
-    const credits = (await fetchAllDocs([330])).filter((d: any) => d.status !== 2);
-
-    // Group Morning invoices by client (keyed on client.id when present, else name)
-    // so two clients sharing a name are not merged. Capture client.id for deep-linking.
-    type ClientAcc = { key: string; name: string; clientId: string | null; byMonth: Record<string, number>; docCount: number };
-    const clientMap = new Map<string, ClientAcc>();
-    function addInvoice(d: any, sign: 1 | -1) {
-      const name = d.client?.name ?? '—';
-      const cid = d.client?.id ?? null;
-      const date = d.documentDate;
-      if (!date || typeof date !== 'string') return;
-      const monthKey = date.slice(0, 7);
-      const mapKey = cid ? `id:${cid}` : `name:${name}`;
-      if (!clientMap.has(mapKey)) clientMap.set(mapKey, { key: mapKey, name, clientId: cid, byMonth: {}, docCount: 0 });
-      const acc = clientMap.get(mapKey)!;
-      acc.byMonth[monthKey] = (acc.byMonth[monthKey] ?? 0) + sign * Number(d.amountExcludeVat ?? 0);
-      acc.docCount++;
-    }
-    for (const d of invoices) addInvoice(d, 1);
-    for (const d of credits) addInvoice(d, -1);
-
-    // Match paying bodies to Morning clients by name similarity (fallback path).
-    function matchScore(a: string, b: string): number {
-      const na = norm(a);
-      const nb = norm(b);
-      if (!na || !nb) return 0;
-      if (na === nb) return 100;
-      if (na.includes(nb) || nb.includes(na)) return 80;
-      const wA = na.split(' ').filter((w) => w.length >= 3);
-      const wB = nb.split(' ').filter((w) => w.length >= 3);
-      if (wA.length === 0 || wB.length === 0) return 0;
-      const common = wA.filter((w) => wB.includes(w)).length;
-      return Math.round((common / Math.max(wA.length, wB.length)) * 60);
     }
 
     type PayingBodyOut = {
@@ -656,100 +640,32 @@ morningRouter.get('/paying-body-reconciliation', managerOrAdmin, async (req, res
       taxId: string | null;
       isComplete: boolean;
       morningClientId: string | null;
-      matchedBy: 'morningClientId' | 'name' | null;
-      matchedClients: { name: string; clientId: string | null }[];
-      crmTotal: number;
-      morningTotal: number;
-      diff: number;
-      monthly: { month: string; crm: number; morning: number; diff: number }[];
+      shouldBillTotal: number;
+      issuedTotal: number;
+      paidTotal: number;
+      monthly: { month: string; shouldBill: number; issued: number; paid: number }[];
     };
 
-    const usedClients = new Set<string>();
-    const result: PayingBodyOut[] = [];
-
-    const bodyList = Array.from(bodies.values());
-    bodyList.sort((a, b) => {
-      const sa = Object.values(a.crmByMonth).reduce((s, v) => s + v, 0);
-      const sb = Object.values(b.crmByMonth).reduce((s, v) => s + v, 0);
-      return sb - sa;
-    });
-
-    for (const pb of bodyList) {
-      const matchedKeys: string[] = [];
-      let matchedBy: 'morningClientId' | 'name' | null = null;
-
-      // 1) Exact match by the stored Morning client id — the source of truth.
-      if (pb.morningClientId) {
-        for (const [mk, acc] of clientMap) {
-          if (acc.clientId && acc.clientId === pb.morningClientId) {
-            matchedKeys.push(mk);
-            usedClients.add(mk);
-            matchedBy = 'morningClientId';
-            break;
-          }
-        }
-      }
-
-      // 2) Fall back to fuzzy name match when no Morning id link resolves.
-      if (matchedKeys.length === 0) {
-        const candidates: { mk: string; score: number }[] = [];
-        for (const [mk, acc] of clientMap) {
-          if (usedClients.has(mk)) continue;
-          const s = matchScore(pb.name, acc.name);
-          if (s >= 50) candidates.push({ mk, score: s });
-        }
-        candidates.sort((a, b) => b.score - a.score);
-        if (candidates[0]) {
-          matchedKeys.push(candidates[0].mk);
-          usedClients.add(candidates[0].mk);
-          matchedBy = 'name';
-        }
-      }
-
-      const matchedClients = matchedKeys.map((mk) => {
-        const acc = clientMap.get(mk)!;
-        return { name: acc.name, clientId: acc.clientId };
-      });
-
-      const morningByMonth: Record<string, number> = {};
-      for (const mk of matchedKeys) {
-        const acc = clientMap.get(mk);
-        if (!acc) continue;
-        for (const [k, v] of Object.entries(acc.byMonth)) {
-          morningByMonth[k] = (morningByMonth[k] ?? 0) + v;
-        }
-      }
-
-      const monthly = monthKeys.map((k) => {
-        const crm = Math.round(pb.crmByMonth[k] ?? 0);
-        const morning = Math.round(morningByMonth[k] ?? 0);
-        return { month: k, crm, morning, diff: crm - morning };
-      });
-      const crmTotal = monthly.reduce((s, m) => s + m.crm, 0);
-      const morningTotal = monthly.reduce((s, m) => s + m.morning, 0);
-      result.push({
+    const result: PayingBodyOut[] = Array.from(bodies.values()).map((pb) => {
+      const monthly = monthKeys.map((k) => ({
+        month: k,
+        shouldBill: Math.round(pb.shouldBillByMonth[k] ?? 0),
+        issued: Math.round(pb.issuedByMonth[k] ?? 0),
+        paid: Math.round(pb.paidByMonth[k] ?? 0),
+      }));
+      return {
         payingBodyId: pb.id,
         payingBodyName: pb.name,
         taxId: pb.taxId,
         isComplete: pb.isComplete,
         morningClientId: pb.morningClientId,
-        matchedBy,
-        matchedClients,
-        crmTotal,
-        morningTotal,
-        diff: crmTotal - morningTotal,
+        shouldBillTotal: monthly.reduce((s, m) => s + m.shouldBill, 0),
+        issuedTotal: monthly.reduce((s, m) => s + m.issued, 0),
+        paidTotal: monthly.reduce((s, m) => s + m.paid, 0),
         monthly,
-      });
-    }
-
-    // Unmatched Morning clients (Morning income with no matching paying body)
-    const unmatchedClients: { name: string; total: number; monthly: Record<string, number> }[] = [];
-    for (const [mk, acc] of clientMap) {
-      if (usedClients.has(mk)) continue;
-      const total = Object.values(acc.byMonth).reduce((s, v) => s + v, 0);
-      if (total > 0) unmatchedClients.push({ name: acc.name, total: Math.round(total), monthly: acc.byMonth });
-    }
-    unmatchedClients.sort((a, b) => b.total - a.total);
+      };
+    });
+    result.sort((a, b) => b.shouldBillTotal - a.shouldBillTotal);
 
     // Institutional orders that have active cycles but no paying body linked —
     // these can't be reconciled by paying body until completed.
@@ -784,7 +700,6 @@ morningRouter.get('/paying-body-reconciliation', managerOrAdmin, async (req, res
     res.json({
       months: monthKeys,
       payingBodies: result,
-      unmatchedClients,
       ordersWithoutPayingBody,
     });
   } catch (err: any) {

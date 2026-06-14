@@ -15,6 +15,7 @@ import {
   CancelMeetingInput,
 } from '../validators/meetings.js';
 import { meetingRevenueFromRegistrations, roundMoney } from '../../../utils/revenue.js';
+import { syncCycleEndDate } from '../../../utils/cycle-sync.js';
 import {
   calculateInstructorPayment,
   recalculateDailyInstructorPaymentsForMeeting,
@@ -73,6 +74,9 @@ export class MeetingsService {
         remainingMeetings: { increment: 1 },
       },
     });
+
+    // Adding a meeting may push the cycle past its current end date — resync it.
+    await syncCycleEndDate(data.cycleId);
 
     // Audit log
     if (req) {
@@ -254,6 +258,9 @@ export class MeetingsService {
       newStartTime,
       newEndTime
     );
+
+    // The rescheduled meeting may fall after the cycle's current end date — resync it.
+    await syncCycleEndDate(existing.cycleId);
 
     // Audit log
     if (req) {

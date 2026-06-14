@@ -59,7 +59,7 @@ export default function PayingBodyReconciliationTable() {
           </div>
           <div>
             <h2 className="text-lg font-semibold text-gray-900">מעקב חיוב גוף משלם — צריך לחייב / חויב / שולם</h2>
-            <p className="text-sm text-gray-500">לפי חודש הפעילות: הכנסת הפגישות מול חשבונות עסקה שהונפקו ומול מה ששולם בפועל</p>
+            <p className="text-sm text-gray-500">לפי חודש הפעילות: הכנסת הפגישות מול חשבונות עסקה שהונפקו ומול מה ששולם בפועל · כל הסכומים כוללים מע״מ</p>
           </div>
         </div>
         <div className="flex items-center gap-2">

@@ -506,6 +506,7 @@ morningRouter.get('/financials/details', managerOrAdmin, async (req, res, next) 
 //   issued     — totalAmount of issued billing periods (חשבון עסקה), spread over the
 //                months each period covers
 //   paid       — paidAmount recorded on those billing periods
+// All three are reported GROSS (incl. VAT) so they are directly comparable.
 // Orders that have active cycles but no paying body are surfaced separately so they
 // can be completed.
 morningRouter.get('/paying-body-reconciliation', managerOrAdmin, async (req, res, next) => {
@@ -531,6 +532,12 @@ morningRouter.get('/paying-body-reconciliation', managerOrAdmin, async (req, res
       const d = new Date(fromDate.getFullYear(), fromDate.getMonth() + i, 1);
       monthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
     }
+
+    // All three columns are shown GROSS (incl. 18% VAT) so they are comparable. The CRM
+    // stores meeting.revenue and BillingPeriod.totalAmount NET, while paidAmount is the
+    // real (gross) cash received — the system's own convention is gross = totalAmount × 1.18
+    // everywhere (see billing.ts). So we gross up shouldBill + issued; paid is already gross.
+    const VAT_MULT = 1.18;
 
     // Column 1 ("should bill"): per-paying-body, per-month revenue from past meetings,
     // attributed to the month the lesson actually took place.
@@ -586,7 +593,7 @@ morningRouter.get('/paying-body-reconciliation', managerOrAdmin, async (req, res
       if (!pb) continue;
       const key = `${m.scheduledDate.getFullYear()}-${String(m.scheduledDate.getMonth() + 1).padStart(2, '0')}`;
       const acc = ensureBody(pb);
-      acc.shouldBillByMonth[key] = (acc.shouldBillByMonth[key] ?? 0) + Number(m.revenue ?? 0);
+      acc.shouldBillByMonth[key] = (acc.shouldBillByMonth[key] ?? 0) + Number(m.revenue ?? 0) * VAT_MULT;
     }
 
     // Columns 2 + 3 ("issued" / "paid"): the CRM's own billing periods, NOT Morning
@@ -624,7 +631,7 @@ morningRouter.get('/paying-body-reconciliation', managerOrAdmin, async (req, res
       const startIdx = p.monthStart.getFullYear() * 12 + p.monthStart.getMonth();
       const endIdx = p.monthEnd.getFullYear() * 12 + p.monthEnd.getMonth();
       const span = Math.max(1, endIdx - startIdx + 1);
-      const issuedPer = Number(p.totalAmount ?? 0) / span;
+      const issuedPer = (Number(p.totalAmount ?? 0) * VAT_MULT) / span;
       const paidPer = Number(p.paidAmount ?? 0) / span;
       for (let idx = startIdx; idx <= endIdx; idx++) {
         const key = `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, '0')}`;

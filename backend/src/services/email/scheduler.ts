@@ -422,8 +422,9 @@ const sendMonthlyInstructorReport = async () => {
 };
 
 // ─── Daily cycle-near-completion check ────────────────────────────────────────
-// Finds active cycles with exactly 1 remaining meeting, notifies instructor via
-// WhatsApp and sends a summary email to info@hai.tech.
+// Finds active cycles with exactly 1 remaining meeting whose last lesson is
+// tomorrow, notifies the instructor via WhatsApp and sends a summary email to
+// info@hai.tech. Runs daily but only fires the day before the last activity.
 async function checkCyclesNearCompletion(): Promise<void> {
   console.log('[CycleCheck] Checking cycles with 1 remaining meeting...');
   try {
@@ -445,15 +446,30 @@ async function checkCyclesNearCompletion(): Promise<void> {
       },
     });
 
-    if (cycles.length === 0) {
-      console.log('[CycleCheck] No cycles near completion.');
+    // Only remind the day BEFORE the last activity, not every day the count sits at 1.
+    // tomorrowKey is the Israel-local date for tomorrow; the remaining meeting's @db.Date
+    // comes back as midnight UTC, so compare on UTC date components.
+    const israelNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }));
+    israelNow.setDate(israelNow.getDate() + 1);
+    const tomorrowKey = `${israelNow.getFullYear()}-${String(israelNow.getMonth() + 1).padStart(2, '0')}-${String(israelNow.getDate()).padStart(2, '0')}`;
+
+    const dueCycles = cycles.filter(c => {
+      const m = c.meetings[0];
+      if (!m) return false;
+      const d = m.scheduledDate;
+      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+      return key === tomorrowKey;
+    });
+
+    if (dueCycles.length === 0) {
+      console.log('[CycleCheck] No cycles with last lesson tomorrow.');
       return;
     }
 
-    console.log(`[CycleCheck] ${cycles.length} cycle(s) with 1 meeting remaining`);
+    console.log(`[CycleCheck] ${dueCycles.length} cycle(s) with last lesson tomorrow`);
 
     // Build email table rows
-    const cycleRows = cycles
+    const cycleRows = dueCycles
       .map(c => {
         const nextDate = c.meetings[0]
           ? formatDateHebrew(c.meetings[0].scheduledDate)
@@ -471,11 +487,11 @@ async function checkCyclesNearCompletion(): Promise<void> {
     // Send email to management
     await queueEmail({
       to: 'info@hai.tech',
-      subject: `🔔 ${cycles.length} מחזורים עם שיעור אחרון לסיום`,
+      subject: `🔔 ${dueCycles.length} מחזורים עם שיעור אחרון לסיום`,
       html: `
         <div dir="rtl" style="font-family:Arial,sans-serif;padding:20px;max-width:700px;">
           <h2 style="color:#2563eb;">🔔 מחזורים עם שיעור אחרון בלבד</h2>
-          <p>נמצאו <strong>${cycles.length}</strong> מחזורים פעילים עם שיעור אחד בלבד שנותר לסיום.</p>
+          <p>נמצאו <strong>${dueCycles.length}</strong> מחזורים פעילים עם שיעור אחרון מחר.</p>
           <table style="border-collapse:collapse;width:100%;margin-top:12px;">
             <thead>
               <tr style="background:#f3f4f6;">
@@ -498,7 +514,7 @@ async function checkCyclesNearCompletion(): Promise<void> {
     console.log('[CycleCheck] Summary email sent to info@hai.tech');
 
     // Send WhatsApp to each instructor
-    for (const cycle of cycles) {
+    for (const cycle of dueCycles) {
       if (!cycle.instructor.phone) {
         console.warn(`[CycleCheck] No phone for instructor of cycle "${cycle.name}"`);
         continue;

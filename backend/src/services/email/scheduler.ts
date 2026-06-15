@@ -76,6 +76,9 @@ const sendInstructorReminders = async () => {
           lt: tomorrow,
         },
         status: 'scheduled',
+        // Skip meetings whose cycle has ended (completed/cancelled) so we don't
+        // remind instructors about stray scheduled meetings in closed cycles.
+        cycle: { status: 'active' },
       },
       include: {
         instructor: true,
@@ -141,7 +144,7 @@ const sendParentReminders = async () => {
           lt: dayAfter,
         },
         status: 'scheduled',
-        cycle: { sendParentReminders: true },
+        cycle: { sendParentReminders: true, status: 'active' },
       },
       include: {
         cycle: {

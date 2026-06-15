@@ -12,7 +12,7 @@ import { config } from '../config.js';
 export const filesRouter = Router();
 
 // Supported entity types
-const ALLOWED_ENTITY_TYPES = ['instructor', 'quote'];
+const ALLOWED_ENTITY_TYPES = ['instructor', 'quote', 'institutional-order'];
 
 // Upload directory
 const UPLOADS_BASE = path.join(process.cwd(), 'uploads');
@@ -124,6 +124,9 @@ filesRouter.post('/:entityType/:entityId', authenticate, upload.single('file'), 
     } else if (entityType === 'quote') {
       const quote = await prisma.quote.findUnique({ where: { id: entityId } });
       if (!quote) throw new AppError(404, 'הצעת מחיר לא נמצאה');
+    } else if (entityType === 'institutional-order') {
+      const order = await prisma.institutionalOrder.findUnique({ where: { id: entityId } });
+      if (!order) throw new AppError(404, 'הזמנה מוסדית לא נמצאה');
     }
 
     const filePath = `${entityType}/${entityId}/${req.file.filename}`;

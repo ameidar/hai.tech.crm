@@ -32,6 +32,7 @@ import PublicQuoteView from './pages/PublicQuoteView';
 import PublicCancelForm from './pages/PublicCancelForm';
 import LeadAppointments from './pages/LeadAppointments';
 import InstitutionalOrders from './pages/InstitutionalOrders';
+import InstitutionalOrderDetail from './pages/InstitutionalOrderDetail';
 import PayingBodies from './pages/PayingBodies';
 import BillingPeriods from './pages/BillingPeriods';
 import BillingPeriodDetail from './pages/BillingPeriodDetail';
@@ -190,6 +191,7 @@ function AppRoutes() {
             <Route path="quotes/:id" element={<NonSalesRoute><QuoteDetail /></NonSalesRoute>} />
             <Route path="quotes/:id/edit" element={<NonSalesRoute><QuoteEdit /></NonSalesRoute>} />
             <Route path="institutional-orders" element={<NonSalesRoute><InstitutionalOrders /></NonSalesRoute>} />
+            <Route path="institutional-orders/:id" element={<NonSalesRoute><InstitutionalOrderDetail /></NonSalesRoute>} />
             <Route path="paying-bodies" element={<NonSalesRoute><PayingBodies /></NonSalesRoute>} />
             <Route path="billing" element={<NonSalesRoute><BillingPeriods /></NonSalesRoute>} />
             <Route path="billing/:id" element={<NonSalesRoute><BillingPeriodDetail /></NonSalesRoute>} />

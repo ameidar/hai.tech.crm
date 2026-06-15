@@ -9,15 +9,16 @@ import {
 } from '../hooks/useApi';
 
 interface FileAttachmentsProps {
-  entityType: 'instructor' | 'quote';
+  entityType: 'instructor' | 'quote' | 'institutional-order';
   entityId: string;
   canDelete?: boolean; // admin/manager can delete
   className?: string;
 }
 
-const LABEL_SUGGESTIONS = {
+const LABEL_SUGGESTIONS: Record<FileAttachmentsProps['entityType'], string[]> = {
   instructor: ['חוזה', 'קורות חיים', 'תעודת זהות', 'תעודות הסמכה', 'אחר'],
   quote: ['הצעת מחיר חתומה', 'חוזה', 'אישור הזמנה', 'קבלה', 'אחר'],
+  'institutional-order': ['הזמנת רכש', 'חוזה', 'הצעת מחיר חתומה', 'חשבונית', 'קבלה', 'אחר'],
 };
 
 const formatFileSize = (bytes: number): string => {

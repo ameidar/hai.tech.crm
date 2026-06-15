@@ -11,6 +11,11 @@ import type { Course, Branch } from '../types';
 
 type ItemType = 'education' | 'project';
 
+const DEFAULT_INTRO_TEXT = 'שמחים להציג בפניכם את ההצעה שהכנו בקפידה. אנו מאמינים שנוכל להוסיף ערך אמיתי למוסד שלכם.';
+const DEFAULT_ABOUT_TEXT = 'דרך ההייטק היא חברה מובילה בתחום החינוך הטכנולוגי בישראל. אנו מתמחים בהעברת קורסים ופרויקטים טכנולוגיים למוסדות חינוך, עם צוות מדריכים מקצועי ותכניות לימוד מותאמות אישית. מאות מוסדות חינוך ברחבי הארץ כבר נהנים מהשירותים שלנו, ואנו גאים בשיעורי שביעות הרצון הגבוהים שלנו.';
+const DEFAULT_CANCELLATION_TERMS = 'ביטול עד 14 יום לפני תחילת הפעילות — ללא חיוב. ביטול לאחר מכן — חיוב מלא.';
+const DEFAULT_PAYMENT_TERMS = 'תשלום שוטף + 30 מהפקת חשבונית.';
+
 interface CourseItem {
   id?: string;
   type: ItemType;
@@ -46,6 +51,11 @@ export default function QuoteEdit() {
   const [payingBodyPhone, setPayingBodyPhone] = useState('');
   const [payingBodyEmail, setPayingBodyEmail] = useState('');
   const [payingBodyNotes, setPayingBodyNotes] = useState('');
+  const [includesVat, setIncludesVat] = useState(false);
+  const [introText, setIntroText] = useState(DEFAULT_INTRO_TEXT);
+  const [aboutText, setAboutText] = useState(DEFAULT_ABOUT_TEXT);
+  const [cancellationTerms, setCancellationTerms] = useState(DEFAULT_CANCELLATION_TERMS);
+  const [paymentTerms, setPaymentTerms] = useState(DEFAULT_PAYMENT_TERMS);
 
   const { data: quote, isLoading } = useQuery({
     queryKey: ['quote', id],
@@ -99,6 +109,11 @@ export default function QuoteEdit() {
       setPayingBodyPhone((quote as any).payingBodyPhone || '');
       setPayingBodyEmail((quote as any).payingBodyEmail || '');
       setPayingBodyNotes((quote as any).payingBodyNotes || '');
+      setIncludesVat(Boolean((quote as any).includesVat));
+      setIntroText((quote as any).introText || DEFAULT_INTRO_TEXT);
+      setAboutText((quote as any).aboutText || DEFAULT_ABOUT_TEXT);
+      setCancellationTerms((quote as any).cancellationTerms || DEFAULT_CANCELLATION_TERMS);
+      setPaymentTerms((quote as any).paymentTerms || DEFAULT_PAYMENT_TERMS);
 
       // Handle discount - could be percentage or flat amount
       const discountVal = Number(quote.discount || 0);
@@ -209,6 +224,11 @@ export default function QuoteEdit() {
       payingBodyPhone: payingBodyPhone || undefined,
       payingBodyEmail: payingBodyEmail || undefined,
       payingBodyNotes: payingBodyNotes || undefined,
+      includesVat,
+      introText: introText || undefined,
+      aboutText: aboutText || undefined,
+      cancellationTerms: cancellationTerms || undefined,
+      paymentTerms: paymentTerms || undefined,
       notes: notes || undefined,
       discount,
       content: generatedContent ? { markdown: generatedContent } : undefined,
@@ -506,8 +526,75 @@ export default function QuoteEdit() {
                 />
               </div>
               <div className="flex items-center justify-between text-lg font-bold border-t pt-3">
-                <span>סה״כ:</span>
+                <span>{includesVat ? 'סה״כ (כולל מע״מ):' : 'סה״כ (לא כולל מע״מ):'}</span>
                 <span className="text-green-600">₪{finalAmount.toLocaleString()}</span>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer border-t pt-3">
+                <input
+                  type="checkbox"
+                  checked={includesVat}
+                  onChange={(e) => setIncludesVat(e.target.checked)}
+                  className="w-4 h-4 text-blue-600 rounded"
+                />
+                <span className="text-gray-600 text-sm">המחירים כוללים מע״מ (18%)</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Section: Quote Texts (intro + about) */}
+          <div className="card">
+            <div className="card-header">
+              <h3 className="font-semibold">טקסטים בהצעה</h3>
+            </div>
+            <div className="card-body p-6 space-y-4">
+              <div>
+                <label className="form-label">משפט פתיחה (מתחת לשם המוסד)</label>
+                <textarea
+                  value={introText}
+                  onChange={(e) => setIntroText(e.target.value)}
+                  className="form-input w-full min-h-[80px] text-sm"
+                  dir="rtl"
+                  placeholder={DEFAULT_INTRO_TEXT}
+                />
+              </div>
+              <div>
+                <label className="form-label">מי אנחנו</label>
+                <textarea
+                  value={aboutText}
+                  onChange={(e) => setAboutText(e.target.value)}
+                  className="form-input w-full min-h-[120px] text-sm"
+                  dir="rtl"
+                  placeholder={DEFAULT_ABOUT_TEXT}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Section: Terms */}
+          <div className="card">
+            <div className="card-header">
+              <h3 className="font-semibold">תנאים</h3>
+            </div>
+            <div className="card-body p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="form-label">תנאי תשלום</label>
+                <textarea
+                  value={paymentTerms}
+                  onChange={(e) => setPaymentTerms(e.target.value)}
+                  className="form-input w-full min-h-[80px] text-sm"
+                  dir="rtl"
+                  placeholder={DEFAULT_PAYMENT_TERMS}
+                />
+              </div>
+              <div>
+                <label className="form-label">תנאי ביטול</label>
+                <textarea
+                  value={cancellationTerms}
+                  onChange={(e) => setCancellationTerms(e.target.value)}
+                  className="form-input w-full min-h-[80px] text-sm"
+                  dir="rtl"
+                  placeholder={DEFAULT_CANCELLATION_TERMS}
+                />
               </div>
             </div>
           </div>

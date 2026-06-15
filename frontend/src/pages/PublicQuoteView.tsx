@@ -25,6 +25,8 @@ interface PublicQuote {
   totalAmount: number;
   finalAmount?: number;
   includesVat?: boolean;
+  introText?: string;
+  aboutText?: string;
   cancellationTerms?: string;
   paymentTerms?: string;
   generatedContent?: string;
@@ -178,8 +180,8 @@ export default function PublicQuoteView() {
         <div className="relative max-w-5xl mx-auto px-4 py-16 md:py-24 text-center">
           <p className="text-blue-100 text-lg mb-2">הצעת מחיר מיוחדת עבור</p>
           <h2 className="text-3xl md:text-5xl font-extrabold mb-4">{quote.institutionName}</h2>
-          <p className="text-blue-100 text-lg max-w-2xl mx-auto">
-            שמחים להציג בפניכם את ההצעה שהכנו בקפידה. אנו מאמינים שנוכל להוסיף ערך אמיתי למוסד שלכם.
+          <p className="text-blue-100 text-lg max-w-2xl mx-auto whitespace-pre-wrap">
+            {quote.introText || 'שמחים להציג בפניכם את ההצעה שהכנו בקפידה. אנו מאמינים שנוכל להוסיף ערך אמיתי למוסד שלכם.'}
           </p>
         </div>
       </section>
@@ -219,10 +221,8 @@ export default function PublicQuoteView() {
             <span className="w-8 h-1 bg-gradient-to-l from-blue-600 to-cyan-500 rounded-full inline-block"></span>
             מי אנחנו
           </h3>
-          <p className="text-gray-600 leading-relaxed text-lg">
-            דרך ההייטק היא חברה מובילה בתחום החינוך הטכנולוגי בישראל. אנו מתמחים בהעברת קורסים
-            ופרויקטים טכנולוגיים למוסדות חינוך, עם צוות מדריכים מקצועי ותכניות לימוד מותאמות אישית.
-            מאות מוסדות חינוך ברחבי הארץ כבר נהנים מהשירותים שלנו, ואנו גאים בשיעורי שביעות הרצון הגבוהים שלנו.
+          <p className="text-gray-600 leading-relaxed text-lg whitespace-pre-wrap">
+            {quote.aboutText || 'דרך ההייטק היא חברה מובילה בתחום החינוך הטכנולוגי בישראל. אנו מתמחים בהעברת קורסים ופרויקטים טכנולוגיים למוסדות חינוך, עם צוות מדריכים מקצועי ותכניות לימוד מותאמות אישית. מאות מוסדות חינוך ברחבי הארץ כבר נהנים מהשירותים שלנו, ואנו גאים בשיעורי שביעות הרצון הגבוהים שלנו.'}
           </p>
         </div>
       </section>

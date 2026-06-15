@@ -120,6 +120,8 @@ export async function createQuote(data: {
   payingBodyEmail?: string;
   payingBodyNotes?: string;
   includesVat?: boolean;
+  introText?: string;
+  aboutText?: string;
   cancellationTerms?: string;
   paymentTerms?: string;
   validUntil?: string;
@@ -217,6 +219,8 @@ export async function createQuote(data: {
         payingBodyEmail: quoteData.payingBodyEmail || undefined,
         payingBodyNotes: quoteData.payingBodyNotes || undefined,
         includesVat: quoteData.includesVat || false,
+        introText: quoteData.introText || undefined,
+        aboutText: quoteData.aboutText || undefined,
         cancellationTerms: quoteData.cancellationTerms || undefined,
         paymentTerms: quoteData.paymentTerms || undefined,
         content: quoteData.content || undefined,
@@ -256,6 +260,8 @@ export async function updateQuote(id: string, data: {
   payingBodyEmail?: string;
   payingBodyNotes?: string;
   includesVat?: boolean;
+  introText?: string;
+  aboutText?: string;
   cancellationTerms?: string;
   paymentTerms?: string;
   validUntil?: string;
@@ -324,6 +330,8 @@ export async function updateQuote(id: string, data: {
     if (fields.payingBodyEmail !== undefined) updateData.payingBodyEmail = fields.payingBodyEmail || null;
     if (fields.payingBodyNotes !== undefined) updateData.payingBodyNotes = fields.payingBodyNotes || null;
     if (fields.includesVat !== undefined) updateData.includesVat = fields.includesVat;
+    if (fields.introText !== undefined) updateData.introText = fields.introText || null;
+    if (fields.aboutText !== undefined) updateData.aboutText = fields.aboutText || null;
     if (fields.cancellationTerms !== undefined) updateData.cancellationTerms = fields.cancellationTerms || null;
     if (fields.paymentTerms !== undefined) updateData.paymentTerms = fields.paymentTerms || null;
     if (fields.validUntil !== undefined) updateData.validUntil = new Date(fields.validUntil);

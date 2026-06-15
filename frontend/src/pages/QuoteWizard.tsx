@@ -82,6 +82,8 @@ export default function QuoteWizard() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [cancellationTerms, setCancellationTerms] = useState('ביטול עד 14 יום לפני תחילת הפעילות — ללא חיוב. ביטול לאחר מכן — חיוב מלא.');
   const [paymentTerms, setPaymentTerms] = useState('תשלום שוטף + 30 מהפקת חשבונית.');
+  const [introText, setIntroText] = useState('שמחים להציג בפניכם את ההצעה שהכנו בקפידה. אנו מאמינים שנוכל להוסיף ערך אמיתי למוסד שלכם.');
+  const [aboutText, setAboutText] = useState('דרך ההייטק היא חברה מובילה בתחום החינוך הטכנולוגי בישראל. אנו מתמחים בהעברת קורסים ופרויקטים טכנולוגיים למוסדות חינוך, עם צוות מדריכים מקצועי ותכניות לימוד מותאמות אישית. מאות מוסדות חינוך ברחבי הארץ כבר נהנים מהשירותים שלנו, ואנו גאים בשיעורי שביעות הרצון הגבוהים שלנו.');
 
   const { data: courses } = useQuery({
     queryKey: ['courses'],
@@ -243,6 +245,8 @@ export default function QuoteWizard() {
       })),
       discount,
       includesVat,
+      introText: introText || undefined,
+      aboutText: aboutText || undefined,
       cancellationTerms: cancellationTerms || undefined,
       paymentTerms: paymentTerms || undefined,
       generatedContent: generatedContent || undefined,
@@ -843,6 +847,30 @@ export default function QuoteWizard() {
                     <div>
                       <p className="text-sm text-gray-500">פריטים</p>
                       <p className="font-medium">{courseItems.length} קורסים</p>
+                    </div>
+                  </div>
+
+                  {/* Quote texts */}
+                  <div className="grid grid-cols-1 gap-4 mb-6">
+                    <div>
+                      <label className="form-label">משפט פתיחה (מתחת לשם המוסד)</label>
+                      <textarea
+                        value={introText}
+                        onChange={(e) => setIntroText(e.target.value)}
+                        className="form-input w-full text-sm"
+                        rows={2}
+                        dir="rtl"
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label">מי אנחנו</label>
+                      <textarea
+                        value={aboutText}
+                        onChange={(e) => setAboutText(e.target.value)}
+                        className="form-input w-full text-sm"
+                        rows={4}
+                        dir="rtl"
+                      />
                     </div>
                   </div>
 

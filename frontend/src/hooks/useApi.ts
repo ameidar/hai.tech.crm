@@ -1622,8 +1622,9 @@ export const useUpdateInstitutionalOrder = () => {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<InstitutionalOrderData> }) =>
       mutateData<any, Partial<InstitutionalOrderData>>(`/institutional-orders/${id}`, 'put', data),
-    onSuccess: () => {
+    onSuccess: (_res, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['institutional-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['institutional-order', id] });
     },
   });
 };

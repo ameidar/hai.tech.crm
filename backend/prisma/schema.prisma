@@ -1017,6 +1017,8 @@ model Quote {
   payingBodyEmail   String?     @map("paying_body_email")
   payingBodyNotes   String?     @map("paying_body_notes")
   content           Json?
+  introText         String?     @map("intro_text")
+  aboutText         String?     @map("about_text")
   includesVat       Boolean     @default(false) @map("includes_vat")
   cancellationTerms String?     @map("cancellation_terms")
   paymentTerms      String?     @map("payment_terms")

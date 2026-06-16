@@ -5,6 +5,7 @@ import { config } from '../config.js';
 import { sendWelcomeNotifications, notifyAdminNewLead } from '../services/notifications.js';
 import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
 import { handleStatusReply } from '../services/whatsapp-reminder.service.js';
+import { maybeAutoReply } from '../services/whatsapp-auto-bot.js';
 import { logAudit } from '../utils/audit.js';
 import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
 import { meetingRevenueFromRegistrations, roundMoney } from '../utils/revenue.js';
@@ -933,6 +934,12 @@ webhookRouter.post('/whatsapp-incoming', async (req: Request, res: Response) => 
       await handleStatusReply(phone, isYes);
     } else {
       console.log(`[WhatsApp] Unrecognized incoming message from ${phone}: "${rawMessage}"`);
+      // Catch-all bot: anything we don't otherwise process gets a one-time
+      // "I'm a bot, contact 053-300-9742" reply. State lives in a flat JSON
+      // file — see services/whatsapp-auto-bot.ts.
+      maybeAutoReply(chatId).catch(err =>
+        console.error('[WhatsApp] auto-bot reply failed:', err?.message || err),
+      );
     }
   } catch (error: any) {
     console.error('[WhatsApp] Error processing incoming message:', error.message);

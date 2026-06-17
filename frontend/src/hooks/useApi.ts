@@ -868,6 +868,7 @@ export interface AttendanceData {
   meetingId: string;
   cycleName: string;
   scheduledDate: string;
+  editable: boolean;
   attendance: AttendanceRecord[];
   stats: {
     total: number;

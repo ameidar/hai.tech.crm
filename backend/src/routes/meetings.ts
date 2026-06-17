@@ -5,7 +5,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { updateMeetingSchema, postponeMeetingSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
 import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
-import { zoomService } from '../services/zoom.js';
+import { zoomService, getIsraelOffset } from '../services/zoom.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
 import { syncCycleProgress, syncCycleEndDate } from '../utils/cycle-sync.js';
 import { meetingRevenueFromRegistrations, roundMoney } from '../utils/revenue.js';
@@ -355,7 +355,8 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
         
         const dateStr = new Date(scheduledDate).toISOString().split('T')[0];
         const timeStr = `${sHour.toString().padStart(2, '0')}:${sMin.toString().padStart(2, '0')}:00`;
-        const israelDateStr = `${dateStr}T${timeStr}+02:00`;
+        // Use the correct Israel UTC offset for the meeting date (handles DST: +02:00 winter / +03:00 summer)
+        const israelDateStr = `${dateStr}T${timeStr}${getIsraelOffset(new Date(scheduledDate))}`;
         const meetingDate = new Date(israelDateStr);
 
         // Add 10 minutes to duration to cover the early start

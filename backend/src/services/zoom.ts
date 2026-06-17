@@ -5,7 +5,7 @@ import { prisma } from '../utils/prisma.js';
  * Get the correct UTC offset string for a given date in Asia/Jerusalem timezone.
  * Returns '+02:00' in winter or '+03:00' during DST.
  */
-function getIsraelOffset(date: Date): string {
+export function getIsraelOffset(date: Date): string {
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Jerusalem',
     timeZoneName: 'shortOffset',

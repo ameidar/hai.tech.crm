@@ -89,7 +89,28 @@ export default function AttendanceModal({
     }
   };
 
-  const statusButtons = (record: AttendanceRecord) => (
+  const readOnly = data ? !data.editable : false;
+
+  const statusLabels: Record<string, { text: string; cls: string }> = {
+    present: { text: 'נוכח', cls: 'bg-green-100 text-green-700' },
+    absent: { text: 'חסר', cls: 'bg-red-100 text-red-700' },
+    late: { text: 'איחור', cls: 'bg-yellow-100 text-yellow-700' },
+  };
+
+  const statusButtons = (record: AttendanceRecord) => {
+    if (readOnly) {
+      const label = record.status ? statusLabels[record.status] : null;
+      return (
+        <span
+          className={`text-xs px-2.5 py-1 rounded-lg ${
+            label ? label.cls : 'bg-gray-100 text-gray-400'
+          }`}
+        >
+          {label ? label.text : 'לא נרשם'}
+        </span>
+      );
+    }
+    return (
     <div className="flex gap-1">
       <button
         onClick={() => handleStatusChange(record, 'present')}
@@ -125,7 +146,8 @@ export default function AttendanceModal({
         <Clock size={18} />
       </button>
     </div>
-  );
+    );
+  };
 
   const formattedDate = useMemo(() => {
     return new Date(meetingDate).toLocaleDateString('he-IL', {
@@ -142,6 +164,11 @@ export default function AttendanceModal({
         <div className="mb-4 pb-4 border-b">
           <h3 className="font-semibold text-lg">{cycleName}</h3>
           <p className="text-gray-500 text-sm">{formattedDate}</p>
+          {readOnly && (
+            <p className="mt-2 text-xs bg-gray-100 text-gray-600 rounded px-2 py-1 inline-block">
+              מחזור שהסתיים — צפייה בלבד
+            </p>
+          )}
         </div>
 
         {isLoading ? (
@@ -204,6 +231,7 @@ export default function AttendanceModal({
             </div>
 
             {/* Add Student Section */}
+            {!readOnly && (
             <div className="mt-4 pt-4 border-t">
               {!showAddStudent ? (
                 <button
@@ -296,6 +324,7 @@ export default function AttendanceModal({
                 </div>
               )}
             </div>
+            )}
           </>
         ) : (
           <div className="text-center text-gray-500 py-8">לא נמצאו נתונים</div>

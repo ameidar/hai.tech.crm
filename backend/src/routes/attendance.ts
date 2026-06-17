@@ -23,9 +23,6 @@ attendanceRouter.get('/meeting/:meetingId', async (req, res, next) => {
         cycle: {
           include: {
             registrations: {
-              where: {
-                status: { in: ['active', 'registered'] },
-              },
               include: {
                 student: {
                   include: {
@@ -82,7 +79,16 @@ attendanceRouter.get('/meeting/:meetingId', async (req, res, next) => {
       if (key) attendanceMap.set(key, a);
     });
 
-    const attendanceList: AttendanceItem[] = meeting.cycle.registrations.map((reg) => {
+    // A completed cycle is read-only: show the full historical roster (any status)
+    // so past attendance is visible. Active cycles only list active/registered kids.
+    const isCompleted = meeting.cycle.status === 'completed';
+    const visibleRegistrations = isCompleted
+      ? meeting.cycle.registrations
+      : meeting.cycle.registrations.filter((reg) =>
+          ['active', 'registered'].includes(reg.status)
+        );
+
+    const attendanceList: AttendanceItem[] = visibleRegistrations.map((reg) => {
       const existing = attendanceMap.get(reg.id);
       return {
         registrationId: reg.id,
@@ -140,6 +146,7 @@ attendanceRouter.get('/meeting/:meetingId', async (req, res, next) => {
       meetingId: meeting.id,
       cycleName: meeting.cycle.name,
       scheduledDate: meeting.scheduledDate,
+      editable: !isCompleted,
       attendance: attendanceList,
       stats: {
         total: attendanceList.length,

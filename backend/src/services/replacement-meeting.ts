@@ -10,7 +10,7 @@
  */
 
 import { prisma } from '../utils/prisma.js';
-import { zoomService } from './zoom.js';
+import { zoomService, getIsraelOffset } from './zoom.js';
 import { isHoliday, isShabbat } from '../utils/holidays.js';
 import { sendWhatsAppMessage } from './notifications.js';
 import { calculateInstructorPayment } from './instructor-payment.js';
@@ -163,7 +163,7 @@ export async function addReplacementMeeting(postponedMeetingId: string, _actorUs
 
       const dateStr = newDate.toISOString().split('T')[0];
       const timeStr = `${sHour.toString().padStart(2, '0')}:${sMin.toString().padStart(2, '0')}:00`;
-      const meetingDate = new Date(`${dateStr}T${timeStr}+02:00`);
+      const meetingDate = new Date(`${dateStr}T${timeStr}${getIsraelOffset(newDate)}`);
       const durationMin = (cycle.durationMinutes || 60) + 10;
 
       const availableUser = await zoomService.findAvailableUser(meetingDate, durationMin);

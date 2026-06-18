@@ -180,6 +180,11 @@ institutionalOrdersRouter.get('/:id', async (req, res, next) => {
       include: {
         branch: { select: { id: true, name: true, city: true, type: true } },
         payingBodyRef: { select: { id: true, name: true, taxId: true, morningClientId: true, isComplete: true } },
+        cycles: {
+          where: { deletedAt: null },
+          select: { id: true, name: true, status: true, startDate: true },
+          orderBy: { startDate: 'desc' },
+        },
         _count: { select: { cycles: true } },
       },
     });

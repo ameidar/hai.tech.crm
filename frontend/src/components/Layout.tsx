@@ -37,7 +37,11 @@ import {
   Video,
   Share2,
   Clock,
+  ListTodo,
+  ExternalLink,
 } from 'lucide-react';
+
+const TASKS_APP_URL = 'https://haitech-tasks.base44.app';
 
 // Admin/Manager navigation — grouped
 const adminNavGroups = [
@@ -57,6 +61,7 @@ const adminNavGroups = [
       { path: '/institutional-orders', icon: FileText, label: 'הזמנות מוסדיות', testId: 'nav-institutional-orders' },
       { path: '/paying-bodies', icon: Wallet, label: 'גופים משלמים', testId: 'nav-paying-bodies' },
       { path: '/billing', icon: CreditCard, label: 'חשבונות חודשיים', testId: 'nav-billing' },
+      { path: TASKS_APP_URL, icon: ListTodo, label: 'משימות תפעול', testId: 'nav-tasks', external: true },
     ],
   },
   {
@@ -172,23 +177,45 @@ export default function Layout() {
       )
     : adminNavGroups;
 
-  const renderNavItem = (item: { path: string; icon: any; label: string; testId: string }) => (
-    <NavLink
-      key={item.path}
-      to={item.path}
-      data-testid={item.testId}
-      className={({ isActive }) =>
-        `flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg transition-colors min-h-[40px] ${
-          isActive
-            ? 'bg-blue-600 text-white'
-            : 'text-slate-300 hover:bg-slate-700 hover:text-white'
-        }`
-      }
-    >
-      <item.icon size={20} className="flex-shrink-0" />
-      {sidebarOpen && <span className="text-sm">{item.label}</span>}
-    </NavLink>
-  );
+  const renderNavItem = (item: { path: string; icon: any; label: string; testId: string; external?: boolean }) => {
+    if (item.external) {
+      return (
+        <a
+          key={item.path}
+          href={item.path}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid={item.testId}
+          className="flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg transition-colors min-h-[40px] text-slate-300 hover:bg-slate-700 hover:text-white"
+        >
+          <item.icon size={20} className="flex-shrink-0" />
+          {sidebarOpen && (
+            <span className="text-sm flex items-center gap-1">
+              {item.label}
+              <ExternalLink size={12} className="opacity-60" />
+            </span>
+          )}
+        </a>
+      );
+    }
+    return (
+      <NavLink
+        key={item.path}
+        to={item.path}
+        data-testid={item.testId}
+        className={({ isActive }) =>
+          `flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg transition-colors min-h-[40px] ${
+            isActive
+              ? 'bg-blue-600 text-white'
+              : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+          }`
+        }
+      >
+        <item.icon size={20} className="flex-shrink-0" />
+        {sidebarOpen && <span className="text-sm">{item.label}</span>}
+      </NavLink>
+    );
+  };
 
   const sidebarContent = (
     <>

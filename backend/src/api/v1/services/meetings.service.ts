@@ -14,7 +14,7 @@ import {
   CompleteMeetingInput,
   CancelMeetingInput,
 } from '../validators/meetings.js';
-import { meetingRevenueFromRegistrations, roundMoney } from '../../../utils/revenue.js';
+import { meetingRevenueFromRegistrations, revenueRegistrationCount, roundMoney } from '../../../utils/revenue.js';
 import { syncCycleEndDate } from '../../../utils/cycle-sync.js';
 import {
   calculateInstructorPayment,
@@ -302,14 +302,14 @@ export class MeetingsService {
 
     // Calculate revenue based on cycle type — skipped entirely for no_revenue meetings
     let revenue = 0;
-    const activeRegistrations = cycle.registrations.filter((reg) => reg.status === 'active');
+    const registrationCount = revenueRegistrationCount(cycle.registrations);
 
     if (meeting.nature !== 'no_revenue') {
       if (cycle.type === 'private') {
         revenue = meetingRevenueFromRegistrations(cycle.registrations, cycle.totalMeetings, cycle.type);
       } else if (cycle.type === 'institutional_per_child') {
         const pricePerStudent = Number(cycle.pricePerStudent || 0);
-        const studentCount = cycle.studentCount || activeRegistrations.length;
+        const studentCount = cycle.studentCount || registrationCount;
         revenue = roundMoney(pricePerStudent * studentCount);
       } else if (cycle.type === 'institutional_fixed') {
         revenue = Number(cycle.meetingRevenue || 0);

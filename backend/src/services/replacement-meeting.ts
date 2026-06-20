@@ -14,7 +14,7 @@ import { zoomService, getIsraelOffset } from './zoom.js';
 import { isHoliday, isShabbat } from '../utils/holidays.js';
 import { sendWhatsAppMessage } from './notifications.js';
 import { calculateInstructorPayment } from './instructor-payment.js';
-import { roundMoney } from '../utils/revenue.js';
+import { meetingRevenueFromRegistrations, revenueRegistrationCount } from '../utils/revenue.js';
 import { syncCycleEndDate } from '../utils/cycle-sync.js';
 
 const ADMIN_PHONE = process.env.ADMIN_PHONE || '0528746137';
@@ -87,7 +87,7 @@ export async function addReplacementMeeting(postponedMeetingId: string, _actorUs
   const cycleWithReg = await prisma.cycle.findUnique({
     where: { id: cycle.id },
     include: {
-      registrations: { where: { status: { in: ['registered', 'active'] } } },
+      registrations: { where: { status: { in: ['registered', 'active', 'completed'] } } },
     },
   });
 
@@ -95,16 +95,15 @@ export async function addReplacementMeeting(postponedMeetingId: string, _actorUs
   if (cycle.type === 'institutional_fixed' && cycle.meetingRevenue) {
     revenue = Number(cycle.meetingRevenue);
   } else if (cycle.type === 'institutional_per_child' && cycle.pricePerStudent) {
-    const count = cycle.studentCount ?? cycleWithReg?.registrations.length ?? 0;
+    const count = cycle.studentCount ?? revenueRegistrationCount(cycleWithReg?.registrations ?? []);
     revenue = Number(cycle.pricePerStudent) * count;
   } else if (cycle.type === 'private') {
     if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
       revenue = Number(cycle.meetingRevenue);
     } else if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
-      revenue = Number(cycle.pricePerStudent) * (cycleWithReg?.registrations.length ?? 0);
+      revenue = Number(cycle.pricePerStudent) * revenueRegistrationCount(cycleWithReg?.registrations ?? []);
     } else {
-      const totalAmt = (cycleWithReg?.registrations ?? []).reduce((s: number, r: any) => s + (r.amount ? Number(r.amount) : 0), 0);
-      revenue = cycle.totalMeetings > 0 ? roundMoney(totalAmt / cycle.totalMeetings) : 0;
+      revenue = meetingRevenueFromRegistrations(cycleWithReg?.registrations ?? [], cycle.totalMeetings, cycle.type);
     }
   }
 

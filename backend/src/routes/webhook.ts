@@ -7,7 +7,7 @@ import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
 import { handleStatusReply } from '../services/whatsapp-reminder.service.js';
 import { logAudit } from '../utils/audit.js';
 import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
-import { meetingRevenueFromRegistrations, roundMoney } from '../utils/revenue.js';
+import { meetingRevenueFromRegistrations, revenueRegistrationCount, roundMoney } from '../utils/revenue.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
 import rateLimit from 'express-rate-limit';
 
@@ -757,7 +757,7 @@ async function recalculateMeetingFinancials(meetingId: string) {
       cycle: {
         include: {
           registrations: {
-            where: { status: { in: ['registered', 'active'] } },
+            where: { status: { in: ['registered', 'active', 'completed'] } },
           },
         },
       },
@@ -773,13 +773,13 @@ async function recalculateMeetingFinancials(meetingId: string) {
 
   // Calculate revenue based on cycle type
   let revenue = 0;
-  const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
+  const registrationCount = revenueRegistrationCount(cycleData.registrations);
 
   if (cycleData.type === 'private') {
     revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
   } else if (cycleData.type === 'institutional_per_child') {
     const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-    const studentCount = cycleData.studentCount || activeRegistrations.length;
+    const studentCount = cycleData.studentCount || registrationCount;
     revenue = roundMoney(pricePerStudent * studentCount);
   } else if (cycleData.type === 'institutional_fixed') {
     revenue = Number(cycleData.meetingRevenue || 0);

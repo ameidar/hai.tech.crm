@@ -104,7 +104,7 @@ billingRouter.get('/:id', async (req, res, next) => {
     const period = await prisma.billingPeriod.findUnique({
       where: { id: req.params.id },
       include: {
-        institutionalOrder: { include: { branch: true } },
+        institutionalOrder: { include: { branch: true, payingBodyRef: true } },
         lines: {
           orderBy: { sortOrder: 'asc' },
           // Include `cycle.revenueIncludesVat` so the UI can show per-line VAT

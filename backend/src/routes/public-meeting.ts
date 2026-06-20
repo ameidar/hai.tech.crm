@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
-import { meetingRevenueFromRegistrations, roundMoney } from '../utils/revenue.js';
+import { meetingRevenueFromRegistrations, revenueRegistrationCount, roundMoney } from '../utils/revenue.js';
 import {
   calculateInstructorPayment,
   recalculateDailyInstructorPaymentsForMeeting,
@@ -42,7 +42,7 @@ publicMeetingRouter.get('/:meetingId/:token', async (req, res, next) => {
             course: { select: { id: true, name: true } },
             branch: { select: { id: true, name: true } },
             registrations: {
-              where: { status: { in: ['registered', 'active'] } },
+              where: { status: { in: ['registered', 'active', 'completed'] } },
               include: {
                 student: { select: { id: true, name: true } },
               },
@@ -94,7 +94,7 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
           include: {
             instructor: true,
             registrations: {
-              where: { status: { in: ['registered', 'active'] } },
+              where: { status: { in: ['registered', 'active', 'completed'] } },
             },
           },
         },
@@ -122,7 +122,7 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
         revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
       } else if (cycleData.type === 'institutional_per_child') {
         const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-        const studentCount = cycleData.studentCount || cycleData.registrations.filter(r => r.status === 'active').length;
+        const studentCount = cycleData.studentCount || revenueRegistrationCount(cycleData.registrations);
         revenue = roundMoney(pricePerStudent * studentCount);
       } else if (cycleData.type === 'institutional_fixed') {
         revenue = Number(cycleData.meetingRevenue || 0);

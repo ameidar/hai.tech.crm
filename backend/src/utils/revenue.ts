@@ -19,6 +19,7 @@ export function roundMoney(amount: number): number {
 }
 
 const PRIVATE_TYPES = new Set(['private', 'trial_private']);
+const REVENUE_REGISTRATION_STATUSES = new Set(['registered', 'active', 'completed']);
 
 export function isVatInclusive(cycleType: string | null | undefined): boolean {
   return PRIVATE_TYPES.has(String(cycleType));
@@ -38,10 +39,29 @@ export function netAmount(
 }
 
 // Accept Prisma's Decimal alongside number/string — anything we can pass to Number().
-type RegistrationLike = { amount?: number | string | { toString(): string } | null };
+type RegistrationLike = {
+  amount?: number | string | { toString(): string } | null;
+  status?: string | null;
+  deletedAt?: Date | string | null;
+};
+
+export function isRevenueRegistration(registration: RegistrationLike): boolean {
+  if (registration.deletedAt) return false;
+  return REVENUE_REGISTRATION_STATUSES.has(String(registration.status || 'registered'));
+}
+
+export function revenueRegistrations<T extends RegistrationLike>(registrations: T[]): T[] {
+  return registrations.filter(isRevenueRegistration);
+}
+
+export function revenueRegistrationCount(registrations: RegistrationLike[]): number {
+  return revenueRegistrations(registrations).length;
+}
 
 /**
- * Sum active registration amounts and return the net per-meeting revenue.
+ * Sum revenue-bearing registration amounts and return the net per-meeting revenue.
+ * Completed registrations still count because cycle completion marks paid/active
+ * children as completed before the last replacement lesson may be recalculated.
  * `totalMeetings` of 0 (or missing) yields 0.
  */
 export function meetingRevenueFromRegistrations(
@@ -50,7 +70,7 @@ export function meetingRevenueFromRegistrations(
   cycleType: string | null | undefined
 ): number {
   if (!totalMeetings || totalMeetings <= 0) return 0;
-  const gross = registrations.reduce(
+  const gross = revenueRegistrations(registrations).reduce(
     (sum, r) => sum + (r.amount ? Number(r.amount) : 0),
     0
   );

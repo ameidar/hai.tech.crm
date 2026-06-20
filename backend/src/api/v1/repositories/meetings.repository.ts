@@ -80,7 +80,7 @@ export class MeetingsRepository {
             course: true,
             branch: true,
             registrations: {
-              where: { status: { in: ['registered', 'active'] }, deletedAt: null },
+              where: { status: { in: ['registered', 'active', 'completed'] }, deletedAt: null },
               include: {
                 student: {
                   include: {
@@ -273,7 +273,7 @@ export class MeetingsRepository {
       where: { id: cycleId },
       include: {
         registrations: {
-          where: { status: { in: ['registered', 'active'] }, deletedAt: null },
+          where: { status: { in: ['registered', 'active', 'completed'] }, deletedAt: null },
         },
         instructor: true,
       },

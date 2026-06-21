@@ -392,6 +392,7 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
         },
         status: 'scheduled',
         deletedAt: null,
+        cycle: { status: 'active', deletedAt: null },
       },
       include: {
         cycle: {
@@ -479,6 +480,7 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
         },
         status: 'scheduled',
         deletedAt: null,
+        cycle: { status: 'active', deletedAt: null },
       },
       include: {
         cycle: {
@@ -676,6 +678,7 @@ forecastRouter.get('/cycle/:id', managerOrAdmin, async (req, res, next) => {
         meetings: {
           where: {
             scheduledDate: { gte: currentMonth, lt: forecastEnd },
+            status: 'scheduled',
             deletedAt: null,
           },
           include: {
@@ -737,12 +740,14 @@ forecastRouter.get('/cycle/:id', managerOrAdmin, async (req, res, next) => {
         cycleExpensePerMeeting += toNumber(expense.amount);
       }
     }
-    if (cycle.meetings.length > 0) {
-      cycleExpensePerMeeting /= cycle.meetings.length;
+    const forecastableMeetings = cycle.status === 'active' ? cycle.meetings : [];
+
+    if (forecastableMeetings.length > 0) {
+      cycleExpensePerMeeting /= forecastableMeetings.length;
     }
 
     // Build forecast
-    const meetingsForecast = cycle.meetings.map(meeting => {
+    const meetingsForecast = forecastableMeetings.map(meeting => {
       const revenue = toNumber(meeting.revenue);
       const instructorPayment = toNumber(meeting.instructorPayment);
       const estimatedExpenses = avgMeetingExpenses + cycleExpensePerMeeting;

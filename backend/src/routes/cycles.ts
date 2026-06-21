@@ -406,10 +406,13 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     }
 
     // If totalMeetings or completedMeetings changed, recalculate remainingMeetings
-    if (data.totalMeetings !== undefined || data.completedMeetings !== undefined) {
+    if (data.totalMeetings !== undefined || data.completedMeetings !== undefined || data.status === 'completed') {
       const newTotal = data.totalMeetings ?? existingCycle.totalMeetings;
       const newCompleted = data.completedMeetings ?? existingCycle.completedMeetings;
-      updateData.remainingMeetings = newTotal - newCompleted;
+      const newStatus = data.status ?? existingCycle.status;
+      updateData.remainingMeetings = newStatus === 'completed'
+        ? 0
+        : Math.max(0, newTotal - newCompleted);
     }
 
     // Check if we need to regenerate meetings
@@ -516,7 +519,9 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
         ? new Date(new Date(lastCompleted.scheduledDate).getTime() + 7 * 24 * 60 * 60 * 1000)
         : new Date();
 
-      const remainingCount = cycle.totalMeetings - completedCount;
+      const remainingCount = cycle.status === 'completed'
+        ? 0
+        : Math.max(0, cycle.totalMeetings - completedCount);
       
       await prisma.cycle.update({
         where: { id },
@@ -1041,7 +1046,7 @@ cyclesRouter.post('/sync-all', managerOrAdmin, async (_req, res, next) => {
       const completedMeetings = await prisma.meeting.count({
         where: { cycleId: cycle.id, status: 'completed' },
       });
-      const remainingMeetings = cycle.totalMeetings - completedMeetings;
+      const remainingMeetings = Math.max(0, cycle.totalMeetings - completedMeetings);
       await prisma.cycle.update({
         where: { id: cycle.id },
         data: { completedMeetings, remainingMeetings },
@@ -1080,7 +1085,9 @@ cyclesRouter.post('/:id/sync-progress', managerOrAdmin, async (req, res, next) =
     });
 
     // totalMeetings is fixed (set by payment), only update completed/remaining
-    const remainingMeetings = cycle.totalMeetings - completedMeetings;
+    const remainingMeetings = cycle.status === 'completed'
+      ? 0
+      : Math.max(0, cycle.totalMeetings - completedMeetings);
 
     // Update cycle with synced values (don't change totalMeetings)
     const updated = await prisma.cycle.update({

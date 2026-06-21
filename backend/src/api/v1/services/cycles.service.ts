@@ -105,10 +105,13 @@ export class CyclesService {
     }
 
     // Calculate remainingMeetings if needed
-    if (data.totalMeetings !== undefined || data.completedMeetings !== undefined) {
+    if (data.totalMeetings !== undefined || data.completedMeetings !== undefined || data.status === 'completed') {
       const newTotal = data.totalMeetings ?? existing.totalMeetings;
       const newCompleted = data.completedMeetings ?? existing.completedMeetings;
-      (data as any).remainingMeetings = newTotal - newCompleted;
+      const newStatus = data.status ?? existing.status;
+      (data as any).remainingMeetings = newStatus === 'completed'
+        ? 0
+        : Math.max(0, newTotal - newCompleted);
     }
 
     const cycle = await this.repository.update(id, data);
@@ -353,7 +356,9 @@ export class CyclesService {
 
     // Use the larger of cycle.totalMeetings or actual meeting count
     const totalMeetings = Math.max(cycle.totalMeetings, totalMeetingsFromTable);
-    const remainingMeetings = totalMeetings - completedMeetings;
+    const remainingMeetings = cycle.status === 'completed'
+      ? 0
+      : Math.max(0, totalMeetings - completedMeetings);
 
     const updated = await prisma.cycle.update({
       where: { id: cycleId },

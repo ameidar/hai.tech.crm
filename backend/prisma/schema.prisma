@@ -22,6 +22,31 @@ enum UserRole {
   operations
 }
 
+enum TaskStatus {
+  new
+  in_progress
+  waiting_info
+  completed
+}
+
+enum TaskPriority {
+  low
+  normal
+  high
+  urgent
+}
+
+enum ReminderChannel {
+  whatsapp
+  email
+}
+
+enum ReminderStatus {
+  pending
+  sent
+  failed
+}
+
 enum CourseCategory {
   programming
   ai
@@ -167,8 +192,57 @@ model User {
   campaigns         Campaign[]
   apiKeys           ApiKey[]
   webhooks          Webhook[]
+  createdTasks      Task[]           @relation("TaskCreatedBy")
+  assignedTasks     Task[]           @relation("TaskAssignee")
+  completedTasks    Task[]           @relation("TaskCompletedBy")
 
   @@map("users")
+}
+
+model Task {
+  id            String       @id @default(uuid())
+  title         String
+  description   String?
+  status        TaskStatus   @default(new)
+  priority      TaskPriority @default(normal)
+  dueDate       DateTime?    @map("due_date")
+  createdById   String       @map("created_by_id")
+  assigneeId    String?      @map("assignee_id")
+  completedAt   DateTime?    @map("completed_at")
+  completedById String?      @map("completed_by_id")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+  deletedAt     DateTime?    @map("deleted_at")
+
+  createdBy   User  @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  assignee    User? @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  completedBy User? @relation("TaskCompletedBy", fields: [completedById], references: [id])
+  reminders   TaskReminder[]
+
+  @@index([status])
+  @@index([priority])
+  @@index([assigneeId])
+  @@index([createdById])
+  @@index([dueDate])
+  @@map("tasks")
+}
+
+model TaskReminder {
+  id            String          @id @default(uuid())
+  taskId        String          @map("task_id")
+  channel       ReminderChannel
+  remindAt      DateTime        @map("remind_at")
+  sentAt        DateTime?       @map("sent_at")
+  status        ReminderStatus  @default(pending)
+  failureReason String?         @map("failure_reason")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([status, remindAt])
+  @@index([taskId])
+  @@map("task_reminders")
 }
 
 enum LeadStatus {

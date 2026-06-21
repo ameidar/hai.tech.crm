@@ -13,6 +13,8 @@ export type PaymentMethod = 'credit' | 'transfer' | 'cash' | 'standing_order' | 
 export type AttendanceStatus = 'present' | 'absent' | 'late';
 export type UserRole = 'admin' | 'manager' | 'instructor' | 'sales' | 'operations';
 export type ActivityType = 'online' | 'frontal' | 'private_lesson';
+export type TaskStatus = 'new' | 'in_progress' | 'waiting_info' | 'completed';
+export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 
 // Entities
 export interface User {
@@ -32,6 +34,32 @@ export interface User {
     bankBranch?: string | null;
     accountNumber?: string | null;
   } | null;
+}
+
+export interface TaskUser {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string | null;
+  role: UserRole;
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  description?: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dueDate?: string | null;
+  createdById: string;
+  assigneeId?: string | null;
+  completedAt?: string | null;
+  completedById?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: TaskUser;
+  assignee?: TaskUser | null;
+  completedBy?: TaskUser | null;
 }
 
 export interface Customer {

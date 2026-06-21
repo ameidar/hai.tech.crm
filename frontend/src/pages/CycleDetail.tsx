@@ -924,7 +924,9 @@ export default function CycleDetail() {
                   // Total = cycle settings (totalMeetings), NOT actual meetings in table
                   const completedCount = meetings?.filter(m => m.status === 'completed').length ?? 0;
                   const totalCount = cycle.totalMeetings || 0;
-                  const remainingCount = Math.max(0, totalCount - completedCount);
+                  const remainingCount = cycle.status === 'completed'
+                    ? 0
+                    : Math.max(0, totalCount - completedCount);
                   
                   return (
                     <>
@@ -1232,7 +1234,7 @@ export default function CycleDetail() {
                     ייצוא לאקסל
                   </button>
                   {/* Generate meetings button - show when cycle has fewer meetings than totalMeetings */}
-                  {isAdmin && cycle && (meetings?.length || 0) < cycle.totalMeetings && (
+                  {isAdmin && cycle && cycle.status !== 'completed' && (meetings?.length || 0) < cycle.totalMeetings && (
                     <button
                       onClick={async () => {
                         if (confirm(`האם ליצור ${cycle.totalMeetings - (meetings?.length || 0)} פגישות חדשות?`)) {

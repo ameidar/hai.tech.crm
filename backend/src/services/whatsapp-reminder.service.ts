@@ -148,6 +148,7 @@ export async function sendMorningWhatsAppReminders(): Promise<void> {
       where: {
         scheduledDate: todayDate,
         status: 'scheduled',
+        cycle: { status: 'active' },
       },
       include: {
         cycle: { include: { branch: true, course: true } },
@@ -197,7 +198,11 @@ export async function sendMorningUnresolvedAlert(): Promise<void> {
 
   try {
     const unresolved = await prisma.meeting.findMany({
-      where: { scheduledDate: yesterdayDate, status: 'scheduled' },
+      where: {
+        scheduledDate: yesterdayDate,
+        status: 'scheduled',
+        cycle: { status: 'active' },
+      },
       include: {
         cycle: { include: { branch: true, course: true } },
         instructor: true,
@@ -256,7 +261,11 @@ export async function sendPreMeetingReminders(): Promise<void> {
 
   try {
     const meetings = await prisma.meeting.findMany({
-      where: { scheduledDate: todayDate, status: 'scheduled' },
+      where: {
+        scheduledDate: todayDate,
+        status: 'scheduled',
+        cycle: { status: 'active' },
+      },
       include: {
         cycle: { include: { branch: true, course: true } },
         instructor: true,
@@ -325,7 +334,11 @@ export async function sendEveningStatusCheck(): Promise<void> {
 
   try {
     const meetings = await prisma.meeting.findMany({
-      where: { scheduledDate: todayDate, status: 'scheduled' },
+      where: {
+        scheduledDate: todayDate,
+        status: 'scheduled',
+        cycle: { status: 'active' },
+      },
       include: {
         cycle: { include: { branch: true, course: true } },
         instructor: true,

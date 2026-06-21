@@ -36,6 +36,7 @@ import { initEmailScheduler } from './services/email/scheduler.js';
 import { initCancellationScheduler } from './services/cancellation-scheduler.js';
 import { initBillingScheduler } from './services/billing-scheduler.js';
 import { initProformaAlertScheduler } from './services/proforma-alerts.js';
+import { initTaskReminderScheduler } from './services/task-reminders.js';
 import { forecastRouter } from './routes/forecast.js';
 import { quotesRouter } from './routes/quotes.js';
 import { publicQuoteRouter } from './routes/public-quote.js';
@@ -54,6 +55,7 @@ import { payingBodiesRouter } from './routes/paying-bodies.js';
 import { meetingRequestsRouter } from './routes/meeting-requests.js';
 import { filesRouter } from './routes/files.js';
 import { systemUsersRouter } from './routes/system-users.js';
+import { tasksRouter } from './routes/tasks.js';
 import waRouter from './routes/whatsapp.js';
 import { messengerRouter } from './routes/messenger.js';
 import { instagramRouter } from './routes/instagram.js';
@@ -235,6 +237,7 @@ app.use('/api/instagram', instagramRouter); // Instagram DM inbox
 app.use('/api/payments', paymentsRouter); // WooCommerce payment links
 app.use('/api/payment-links', paymentLinksRouter); // Morning hosted payment forms
 app.use('/api/system-users', systemUsersRouter); // System users management (admin/manager)
+app.use('/api/tasks', tasksRouter); // Internal task board
 app.use('/api/upsell-leads', upsellLeadsRouter); // Upsell leads from completed cycles
 app.use('/api/reports', reportsRouter); // Instructor activity reports
 app.use('/api/work-hours', workHoursRouter); // Operations staff self-reported work hours
@@ -645,11 +648,15 @@ const start = async () => {
     initEmailQueue();
     if (process.env.DISABLE_CRON === 'true') {
       console.log('⚠️  DISABLE_CRON=true — schedulers disabled (dev mode)');
+      if (process.env.DISABLE_TASK_REMINDERS_CRON !== 'true') {
+        initTaskReminderScheduler();
+      }
     } else {
       initEmailScheduler();
       initCancellationScheduler();
       initBillingScheduler();
       initProformaAlertScheduler();
+      initTaskReminderScheduler();
     }
 
     app.listen(config.port, () => {

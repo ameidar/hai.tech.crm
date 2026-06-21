@@ -255,6 +255,7 @@ const sendManagementSummary = async () => {
       where: {
         scheduledDate: { gte: day2, lt: day4 },
         status: 'scheduled',
+        cycle: { status: 'active' },
       },
       include: {
         cycle: {

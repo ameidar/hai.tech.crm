@@ -43,6 +43,15 @@ function getIsraelDateOnly(offsetDays = 0): Date {
   return new Date(Date.UTC(y, m - 1, d + offsetDays));
 }
 
+function activeCycleOnDate(meetingDate: Date) {
+  return {
+    status: 'active' as const,
+    deletedAt: null,
+    startDate: { lte: meetingDate },
+    endDate: { gte: meetingDate },
+  };
+}
+
 
 /**
  * Get current time in Israel as total minutes since midnight (DST-aware)
@@ -148,7 +157,7 @@ export async function sendMorningWhatsAppReminders(): Promise<void> {
       where: {
         scheduledDate: todayDate,
         status: 'scheduled',
-        cycle: { status: 'active' },
+        cycle: activeCycleOnDate(todayDate),
       },
       include: {
         cycle: { include: { branch: true, course: true } },
@@ -201,7 +210,7 @@ export async function sendMorningUnresolvedAlert(): Promise<void> {
       where: {
         scheduledDate: yesterdayDate,
         status: 'scheduled',
-        cycle: { status: 'active' },
+        cycle: activeCycleOnDate(yesterdayDate),
       },
       include: {
         cycle: { include: { branch: true, course: true } },
@@ -264,7 +273,7 @@ export async function sendPreMeetingReminders(): Promise<void> {
       where: {
         scheduledDate: todayDate,
         status: 'scheduled',
-        cycle: { status: 'active' },
+        cycle: activeCycleOnDate(todayDate),
       },
       include: {
         cycle: { include: { branch: true, course: true } },
@@ -337,7 +346,7 @@ export async function sendEveningStatusCheck(): Promise<void> {
       where: {
         scheduledDate: todayDate,
         status: 'scheduled',
-        cycle: { status: 'active' },
+        cycle: activeCycleOnDate(todayDate),
       },
       include: {
         cycle: { include: { branch: true, course: true } },

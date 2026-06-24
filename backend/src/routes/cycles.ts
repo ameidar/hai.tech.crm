@@ -838,7 +838,7 @@ cyclesRouter.get('/:id/meetings', async (req, res, next) => {
     });
 
     const meetings = await prisma.meeting.findMany({
-      where: { cycleId: id },
+      where: { cycleId: id, deletedAt: null },
       include: {
         instructor: { select: { id: true, name: true } },
         attendance: {

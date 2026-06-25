@@ -1,12 +1,14 @@
+import type { Prisma } from '@prisma/client';
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { logAudit } from '../utils/audit.js';
-import { createDocument, previewDocument, DOCUMENT_TYPES } from '../services/morning/documents.js';
+import { createDocument, previewDocument, getMorningDocument, DOCUMENT_TYPES } from '../services/morning/documents.js';
 import { isMorningConfigured, morningRequest } from '../services/morning/client.js';
 import { prodPrisma as prisma } from '../utils/prodPrisma.js';
 import { calculateInstructorPayment } from '../services/instructor-payment.js';
+import { buildProformaSnapshotFromMorningDocument } from '../services/billing.js';
 
 // Fixed monthly salaries for global employees (not paid via Morning or per-meeting).
 // `monthOverrides` lets specific months override the default (e.g. partial month,
@@ -18,6 +20,12 @@ const GLOBAL_MONTHLY_SALARIES: { name: string; amount: number; monthOverrides?: 
 
 function salaryForMonth(emp: typeof GLOBAL_MONTHLY_SALARIES[number], month: string): number {
   return emp.monthOverrides?.[month] ?? emp.amount;
+}
+
+function snapshotGross(snapshot: Prisma.JsonValue | null | undefined): number | null {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null;
+  const gross = Number(snapshot.grossTotal);
+  return gross > 0 ? gross : null;
 }
 
 function morningDocumentIncomeAmount(doc: any): number {
@@ -598,7 +606,9 @@ morningRouter.get('/paying-body-reconciliation', managerOrAdmin, async (req, res
 
     // Columns 2 + 3 ("issued" / "paid"): the CRM's own billing periods, NOT Morning
     // tax-invoice documents. A period moves to status=issued when its חשבון עסקה
-    // (proforma) goes out, carrying totalAmount + paidAmount. Using these avoids the
+    // (proforma) goes out. For "issued" prefer the frozen Morning proforma snapshot
+    // when present, because manual Morning proformas may differ from the CRM's expected
+    // totalAmount. Using proforma periods avoids the
     // timing artifact where May activity is invoiced (305/320) only in June/July — the
     // proforma already reflects the charge, attributed to the months the period covers.
     const periods = await prisma.billingPeriod.findMany({
@@ -609,10 +619,14 @@ morningRouter.get('/paying-body-reconciliation', managerOrAdmin, async (req, res
         institutionalOrder: { payingBodyId: { not: null } },
       },
       select: {
+        id: true,
         monthStart: true,
         monthEnd: true,
         totalAmount: true,
         paidAmount: true,
+        proformaSource: true,
+        proformaSnapshot: true,
+        morningDocId: true,
         institutionalOrder: {
           select: {
             payingBodyRef: {
@@ -631,7 +645,27 @@ morningRouter.get('/paying-body-reconciliation', managerOrAdmin, async (req, res
       const startIdx = p.monthStart.getFullYear() * 12 + p.monthStart.getMonth();
       const endIdx = p.monthEnd.getFullYear() * 12 + p.monthEnd.getMonth();
       const span = Math.max(1, endIdx - startIdx + 1);
-      const issuedPer = (Number(p.totalAmount ?? 0) * VAT_MULT) / span;
+      let chargedGross = snapshotGross(p.proformaSnapshot);
+      if (!chargedGross && p.proformaSource === 'manual_morning' && p.morningDocId) {
+        try {
+          const doc = await getMorningDocument(p.morningDocId);
+          const snap = buildProformaSnapshotFromMorningDocument(doc);
+          if (snap) {
+            chargedGross = snap.grossTotal;
+            await prisma.billingPeriod.update({
+              where: { id: p.id },
+              data: { proformaSnapshot: snap as unknown as object },
+            });
+          }
+        } catch (err) {
+          console.warn('[morning/reconciliation] failed to reconstruct proforma snapshot', {
+            billingPeriodId: p.id,
+            morningDocId: p.morningDocId,
+            err,
+          });
+        }
+      }
+      const issuedPer = (chargedGross ?? (Number(p.totalAmount ?? 0) * VAT_MULT)) / span;
       const paidPer = Number(p.paidAmount ?? 0) / span;
       for (let idx = startIdx; idx <= endIdx; idx++) {
         const key = `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, '0')}`;

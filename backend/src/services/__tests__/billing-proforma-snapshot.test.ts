@@ -2,11 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
   grossFromIncome,
   buildProformaSnapshot,
+  buildProformaSnapshotFromMorningDocument,
   applyProformaSnapshot,
   assertProformaAmountMatch,
   type ProformaSnapshot,
 } from '../billing.js';
-import type { CreateDocumentInput, MorningIncomeItem } from '../morning/documents.js';
+import type { CreateDocumentInput, MorningDocument, MorningIncomeItem } from '../morning/documents.js';
 
 const line = (over: Partial<MorningIncomeItem> = {}): MorningIncomeItem => ({
   description: 'בינה מלאכותית — מאי 2026',
@@ -59,6 +60,29 @@ describe('buildProformaSnapshot', () => {
   it('falls back to computing the gross when Morning gives no amount', () => {
     const snap = buildProformaSnapshot(payload([line({ vatType: 0, price: 100, quantity: 1 })], 0));
     expect(snap.grossTotal).toBe(118);
+  });
+});
+
+describe('buildProformaSnapshotFromMorningDocument', () => {
+  const doc = (over: Partial<MorningDocument> = {}): MorningDocument => ({
+    id: 'doc-uuid',
+    number: 1234,
+    type: 300,
+    documentDate: '2026-05-31',
+    status: 1,
+    income: [line({ price: 100, quantity: 2, vatType: 0 })],
+    ...over,
+  });
+
+  it('uses Morning amount as the charged gross source of truth', () => {
+    const snap = buildProformaSnapshotFromMorningDocument(doc({ amount: 199.99 }));
+    expect(snap?.grossTotal).toBe(199.99);
+    expect(snap?.income).toHaveLength(1);
+  });
+
+  it('falls back to income-line gross when Morning amount is missing', () => {
+    const snap = buildProformaSnapshotFromMorningDocument(doc());
+    expect(snap?.grossTotal).toBe(236);
   });
 });
 

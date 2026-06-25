@@ -610,6 +610,27 @@ export interface ProformaSnapshot {
   grossTotal: number; // gross incl VAT — matches Morning's "סה״כ לתשלום"
 }
 
+export function proformaSnapshotGross(snapshot: unknown): number | null {
+  if (!snapshot || typeof snapshot !== 'object') return null;
+  const grossTotal = Number((snapshot as { grossTotal?: unknown }).grossTotal);
+  return grossTotal > 0 ? round2(grossTotal) : null;
+}
+
+export function billingPeriodChargedGross(period: {
+  totalAmount?: Prisma.Decimal | number | string | null;
+  proformaSnapshot?: unknown;
+}): number {
+  return proformaSnapshotGross(period.proformaSnapshot) ?? round2(Number(period.totalAmount ?? 0) * (1 + VAT_RATE));
+}
+
+export function billingPeriodOutstandingGross(period: {
+  totalAmount?: Prisma.Decimal | number | string | null;
+  proformaSnapshot?: unknown;
+  paidAmount?: Prisma.Decimal | number | string | null;
+}): number {
+  return Math.max(0, round2(billingPeriodChargedGross(period) - Number(period.paidAmount ?? 0)));
+}
+
 /** Gross total (incl VAT) of a set of income lines, honoring each line's vatType. */
 export function grossFromIncome(income: MorningIncomeItem[]): number {
   let total = 0;
@@ -1083,7 +1104,7 @@ export async function addPayment(
     });
     const paidAmount = Number(sums._sum.amount ?? 0);
     // Total includes 18% VAT — periods store NET, but the client owes gross.
-    const totalGross = Number(period.totalAmount) * 1.18;
+    const totalGross = billingPeriodChargedGross(period);
     const isFullyPaid = paidAmount + 0.01 >= totalGross;
     const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
 
@@ -1112,7 +1133,7 @@ export async function deletePayment(billingPeriodId: string, paymentId: string) 
       _sum: { amount: true },
     });
     const paidAmount = Number(sums._sum.amount ?? 0);
-    const totalGross = Number(period.totalAmount) * 1.18;
+    const totalGross = billingPeriodChargedGross(period);
     const isFullyPaid = paidAmount + 0.01 >= totalGross;
     const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
     return tx.billingPeriod.update({
@@ -1307,7 +1328,7 @@ export async function issueTaxInvoice(
 
     const sums = await tx.billingPayment.aggregate({ where: { billingPeriodId }, _sum: { amount: true } });
     const paidAmount = Number(sums._sum.amount ?? 0);
-    const totalGross = Number(period.totalAmount) * 1.18;
+    const totalGross = billingPeriodChargedGross(period);
     const isFullyPaid = paidAmount + 0.01 >= totalGross;
     const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
     const latestPaidAt = payments && payments.length > 0
@@ -1448,7 +1469,7 @@ export async function issueReceipt(
     });
     const sums = await tx.billingPayment.aggregate({ where: { billingPeriodId }, _sum: { amount: true } });
     const paidAmount = Number(sums._sum.amount ?? 0);
-    const totalGross = Number(period.totalAmount) * 1.18;
+    const totalGross = billingPeriodChargedGross(period);
     const isFullyPaid = paidAmount + 0.01 >= totalGross;
     const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
 
@@ -1610,7 +1631,7 @@ export async function linkExternalReceipt(
     });
     const sums = await tx.billingPayment.aggregate({ where: { billingPeriodId }, _sum: { amount: true } });
     const paidAmount = Number(sums._sum.amount ?? 0);
-    const totalGross = Number(period.totalAmount) * 1.18;
+    const totalGross = billingPeriodChargedGross(period);
     const isFullyPaid = paidAmount + 0.01 >= totalGross;
     const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
 
@@ -1627,7 +1648,7 @@ export async function linkExternalReceipt(
  * (outside the CRM) to this period's tax invoice fields. Mirrors issueTaxInvoiceOnly /
  * issueTaxInvoice — but does NOT create any Morning document.
  *
- * For type 320: also marks the period as fully paid (period.totalAmount × 1.18 gross),
+ * For type 320: also marks the period as fully paid against the issued proforma gross,
  * because a 320 includes a receipt — the money was received.
  * For type 305: only populates the tax invoice fields; receipts are linked separately.
  */
@@ -1690,7 +1711,7 @@ export async function linkExternalTaxInvoice(
   }
 
   const issuedAtDate = issuedAt ?? new Date();
-  const totalGross = Number(period.totalAmount) * 1.18;
+  const totalGross = billingPeriodChargedGross(period);
   const linkData = {
     taxInvoiceId: docId,
     taxInvoiceNumber: docNumber,

@@ -5,6 +5,7 @@ import {
   buildProformaSnapshotFromMorningDocument,
   applyProformaSnapshot,
   assertProformaAmountMatch,
+  billingPeriodChargedGross,
   type ProformaSnapshot,
 } from '../billing.js';
 import type { CreateDocumentInput, MorningDocument, MorningIncomeItem } from '../morning/documents.js';
@@ -83,6 +84,16 @@ describe('buildProformaSnapshotFromMorningDocument', () => {
   it('falls back to income-line gross when Morning amount is missing', () => {
     const snap = buildProformaSnapshotFromMorningDocument(doc());
     expect(snap?.grossTotal).toBe(236);
+  });
+});
+
+describe('billingPeriodChargedGross', () => {
+  it('uses the persisted Morning proforma gross when present', () => {
+    expect(billingPeriodChargedGross({ totalAmount: 100, proformaSnapshot: { grossTotal: 157.3 } })).toBe(157.3);
+  });
+
+  it('falls back to internal totalAmount gross when no proforma snapshot exists', () => {
+    expect(billingPeriodChargedGross({ totalAmount: 100 })).toBe(118);
   });
 });
 

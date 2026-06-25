@@ -45,6 +45,22 @@ const statusColors: Record<string, string> = {
   cancelled: 'bg-red-100 text-red-700 border-red-200',
 };
 
+const cycleStatusLabels: Record<string, string> = {
+  active: 'פעיל',
+  completed: 'הושלם',
+  cancelled: 'בוטל',
+  frozen: 'מוקפא',
+  retainer: 'ריטיינר',
+};
+
+const cycleStatusColors: Record<string, string> = {
+  active: 'bg-green-100 text-green-700 border-green-200',
+  completed: 'bg-blue-100 text-blue-700 border-blue-200',
+  cancelled: 'bg-red-100 text-red-700 border-red-200',
+  frozen: 'bg-cyan-100 text-cyan-700 border-cyan-200',
+  retainer: 'bg-amber-100 text-amber-700 border-amber-200',
+};
+
 function formatDate(dateStr?: string | null) {
   if (!dateStr) return '-';
   return new Date(dateStr).toLocaleDateString('he-IL');
@@ -264,6 +280,37 @@ export default function InstitutionalOrderDetail() {
               <Field label="תאריך התחלה" value={formatDate(order.startDate)} />
               <Field label="תאריך סיום" value={formatDate(order.endDate)} />
               <Field label="מחזורים מקושרים" value={order._count?.cycles != null ? <span className="inline-flex items-center gap-1"><RefreshCcw size={13} className="text-gray-400" />{order._count.cycles}</span> : '-'} />
+            </div>
+          </div>
+
+          {/* Linked cycles */}
+          <div className="card lg:col-span-3">
+            <div className="card-header">
+              <h2 className="font-semibold flex items-center gap-2">
+                <RefreshCcw size={18} />
+                מחזורים מקושרים
+                {order._count?.cycles != null && <span className="text-sm text-gray-400">({order._count.cycles})</span>}
+              </h2>
+            </div>
+            <div className="card-body">
+              {order.cycles && order.cycles.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {order.cycles.map((c: any) => (
+                    <Link
+                      key={c.id}
+                      to={`/cycles/${c.id}`}
+                      className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition-colors"
+                    >
+                      <span className="text-sm font-medium text-purple-700 truncate">{c.name}</span>
+                      <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${cycleStatusColors[c.status] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                        {cycleStatusLabels[c.status] || c.status}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">אין מחזורים מקושרים</p>
+              )}
             </div>
           </div>
 

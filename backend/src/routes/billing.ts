@@ -24,6 +24,7 @@ import {
   sendBillingPeriodAsDraft,
   markBillingPeriodIssuedManually,
   formatHebrewRange,
+  billingPeriodChargedGross,
 } from '../services/billing.js';
 import { sendWhatsApp } from '../services/messaging.js';
 
@@ -529,7 +530,7 @@ billingRouter.post('/:id/send-whatsapp', managerOrAdmin, async (req, res, next) 
 
     const orderName = period.institutionalOrder.orderName || 'מוסד';
     const monthLabel = formatHebrewRange(period.monthStart, period.monthEnd);
-    const totalGross = (Number(period.totalAmount) * 1.18).toFixed(2);
+    const totalGross = billingPeriodChargedGross(period).toFixed(2);
     const message = data.message || [
       `שלום,`,
       `מצורף חשבון עסקה מספר ${period.morningDocNumber} עבור ${orderName} — ${monthLabel}.`,

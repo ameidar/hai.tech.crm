@@ -2816,7 +2816,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     totalMeetings: cycle.totalMeetings,
     pricePerStudent: cycle.pricePerStudent || 0,
     meetingRevenue: cycle.meetingRevenue || 0,
-    includesVat: cycle.revenueIncludesVat ?? false,
+    includesVat: false,
     instructorPaymentMode: (cycle.instructorPaymentMode || 'hourly') as InstructorPaymentMode,
     instructorDailyRate: cycle.instructorDailyRate || 0,
     studentCount: cycle.studentCount || 0,
@@ -2853,12 +2853,6 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validate VAT selection for institutional_fixed
-    if (formData.type === 'institutional_fixed' && formData.includesVat === null) {
-      alert('יש לבחור האם הסכום כולל מע״מ או לא');
-      return;
-    }
-
     // Location is mandatory for frontal cycles (online/private have no physical location)
     if (formData.activityType === 'frontal' && !formData.location.trim()) {
       alert('יש למלא מיקום/עיר למחזור פרונטלי');
@@ -2884,11 +2878,8 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     // If schedule changed, regenerate meetings
     const shouldRegenerate = scheduleChanged && regenerateMeetings;
     
-    // Calculate meeting revenue - if includes VAT, divide by 1.18
+    // Amounts entered here are always before VAT. VAT is not HaiTech revenue.
     let meetingRevenueValue = Number(formData.meetingRevenue);
-    if (formData.type === 'institutional_fixed' && formData.includesVat === true && meetingRevenueValue > 0) {
-      meetingRevenueValue = Math.round((meetingRevenueValue / 1.18) * 100) / 100;
-    }
 
     onSubmit({
       name: formData.name,
@@ -2905,7 +2896,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
       totalMeetings: Number(formData.totalMeetings),
       pricePerStudent: (formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') ? Number(formData.pricePerStudent) : undefined,
       meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'trial_private') ? meetingRevenueValue : undefined,
-      revenueIncludesVat: formData.type === 'institutional_fixed' ? formData.includesVat : undefined,
+      revenueIncludesVat: formData.type === 'institutional_fixed' ? false : undefined,
       instructorPaymentMode: formData.instructorPaymentMode,
       instructorDailyRate: formData.instructorPaymentMode === 'daily' ? Number(formData.instructorDailyRate) : null,
       studentCount: formData.type === 'institutional_per_child' ? Number(formData.studentCount) : undefined,
@@ -3131,7 +3122,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
 
         {(formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && (
           <div>
-            <label className="form-label">מחיר לתלמיד {formData.type === 'institutional_per_child' ? '(למפגש)' : ''} (₪)</label>
+            <label className="form-label">מחיר לתלמיד לפני מע״מ {formData.type === 'institutional_per_child' ? '(למפגש)' : ''} (₪)</label>
             <input
               type="number"
               value={formData.pricePerStudent}
@@ -3145,7 +3136,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
 
         {(formData.type === 'private' || formData.type === 'trial_private') && (
           <div>
-            <label className="form-label">מחיר לפגישה (₪)</label>
+            <label className="form-label">מחיר לפגישה לפני מע״מ (₪)</label>
             <input
               type="number"
               value={formData.meetingRevenue}
@@ -3171,10 +3162,14 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
           </div>
         )}
 
+        <div className="col-span-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+          כל המחירים וההכנסות במחזור הם ללא מע״מ. המע״מ מתווסף בנפרד ואינו חלק מההכנסה.
+        </div>
+
         {formData.type === 'institutional_fixed' && (
           <>
             <div>
-              <label className="form-label">הכנסה לפגישה (₪) *</label>
+              <label className="form-label">הכנסה לפגישה לפני מע״מ (₪) *</label>
               <input
                 type="number"
                 value={formData.meetingRevenue}
@@ -3183,36 +3178,6 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
                 min="0"
                 step="0.01"
               />
-            </div>
-            <div>
-              <label className="form-label">מע״מ *</label>
-              <div className="flex gap-4">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="detailIncludesVat"
-                    checked={formData.includesVat === false}
-                    onChange={() => setFormData({ ...formData, includesVat: false })}
-                    className="text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="text-sm">לפני מע״מ</span>
-                </label>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="detailIncludesVat"
-                    checked={formData.includesVat === true}
-                    onChange={() => setFormData({ ...formData, includesVat: true })}
-                    className="text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="text-sm">כולל מע״מ</span>
-                </label>
-              </div>
-              {formData.includesVat === true && formData.meetingRevenue > 0 && (
-                <p className="text-xs text-gray-500 mt-1">
-                  הכנסה לפני מע״מ: ₪{(formData.meetingRevenue / 1.18).toFixed(2)}
-                </p>
-              )}
             </div>
           </>
         )}

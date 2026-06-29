@@ -10,6 +10,7 @@ interface BillingPeriod {
   monthEnd: string;
   status: 'draft' | 'issued' | 'cancelled';
   totalAmount: number | string;
+  chargedAmount?: number | string;
   morningDocNumber: number | null;
   morningDocUrl: string | null;
   generatedAt: string;
@@ -71,6 +72,7 @@ function periodOverdue(p: BillingPeriod) {
 }
 
 const ILS = (n: number) => n.toLocaleString('he-IL', { style: 'currency', currency: 'ILS' });
+const displayAmount = (p: BillingPeriod) => Number(p.chargedAmount ?? p.totalAmount);
 
 export default function BillingPeriods() {
   const [periods, setPeriods] = useState<BillingPeriod[]>([]);
@@ -130,7 +132,7 @@ export default function BillingPeriods() {
       ...g,
       count: g.periods.length,
       draftCount: g.periods.filter((p) => p.status === 'draft').length,
-      total: g.periods.reduce((s, p) => s + Number(p.totalAmount), 0),
+      total: g.periods.reduce((s, p) => s + displayAmount(p), 0),
       hasOverdue: g.periods.some(periodOverdue),
     })).sort((a, b) => a.name.localeCompare(b.name, 'he'));
   }, [periods]);
@@ -401,7 +403,7 @@ export default function BillingPeriods() {
                     <tr key={p.id} className={`border-b last:border-b-0 hover:bg-gray-50 ${isOverdue ? 'bg-red-50' : ''}`}>
                       <td className="p-3 pr-8">{rangeLabel(p.monthStart, p.monthEnd)}</td>
                       <td className="p-3">{p._count.lines}</td>
-                      <td className="p-3">{ILS(Number(p.totalAmount))}</td>
+                      <td className="p-3">{ILS(displayAmount(p))}</td>
                       <td className="p-3">
                         <span className={`px-2 py-1 rounded text-xs font-medium ${STATUS_COLOR[p.status]}`}>{STATUS_HE[p.status]}</span>
                       </td>

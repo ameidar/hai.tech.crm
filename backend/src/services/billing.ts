@@ -1136,9 +1136,31 @@ export async function deletePayment(billingPeriodId: string, paymentId: string) 
     const totalGross = billingPeriodChargedGross(period);
     const isFullyPaid = paidAmount + 0.01 >= totalGross;
     const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
+    const shouldDetach320 =
+      period.taxInvoiceType === DOCUMENT_TYPES.TAX_INVOICE_RECEIPT &&
+      payment.morningReceiptId != null &&
+      payment.morningReceiptId === period.taxInvoiceId &&
+      (await tx.billingPayment.count({
+        where: { billingPeriodId, morningReceiptId: payment.morningReceiptId },
+      })) === 0;
+
     return tx.billingPeriod.update({
       where: { id: billingPeriodId },
-      data: { paidAmount, paymentStatus, paidAt: isFullyPaid ? period.paidAt : null },
+      data: {
+        paidAmount,
+        paymentStatus,
+        paidAt: isFullyPaid ? period.paidAt : null,
+        ...(shouldDetach320
+          ? {
+              taxInvoiceId: null,
+              taxInvoiceNumber: null,
+              taxInvoiceUrl: null,
+              taxInvoiceIssuedAt: null,
+              taxInvoiceIssuedById: null,
+              taxInvoiceType: null,
+            }
+          : {}),
+      },
       include: { payments: { orderBy: { paidAt: 'desc' } } },
     });
   });

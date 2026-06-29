@@ -4,6 +4,9 @@ const prismaMock = vi.hoisted(() => ({
   billingPayment: {
     findUnique: vi.fn(),
   },
+  billingPeriod: {
+    findUnique: vi.fn(),
+  },
   $transaction: vi.fn(),
 }));
 
@@ -21,7 +24,7 @@ const tx = {
   },
 };
 
-import { deletePayment } from '../billing.js';
+import { deletePayment, detachTaxInvoiceDocument } from '../billing.js';
 
 describe('deletePayment', () => {
   beforeEach(() => {
@@ -87,5 +90,58 @@ describe('deletePayment', () => {
     expect(tx.billingPeriod.update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.not.objectContaining({ taxInvoiceId: null }),
     }));
+  });
+});
+
+describe('detachTaxInvoiceDocument', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prismaMock.$transaction.mockImplementation((fn) => fn(tx));
+  });
+
+  it('clears the linked tax invoice document without deleting or touching Morning', async () => {
+    prismaMock.billingPeriod.findUnique.mockResolvedValue({
+      id: 'period-1',
+      totalAmount: 100,
+      proformaSnapshot: null,
+      paidAt: new Date('2026-06-10T00:00:00.000Z'),
+      taxInvoiceId: 'morning-320-id',
+      taxInvoiceNumber: 1234,
+      taxInvoiceType: 320,
+    });
+    tx.billingPayment.count.mockResolvedValue(0);
+    tx.billingPayment.aggregate.mockResolvedValue({ _sum: { amount: null } });
+    tx.billingPeriod.update.mockResolvedValue({ id: 'period-1' });
+
+    await detachTaxInvoiceDocument('period-1');
+
+    expect(tx.billingPeriod.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        taxInvoiceId: null,
+        taxInvoiceNumber: null,
+        taxInvoiceUrl: null,
+        taxInvoiceIssuedAt: null,
+        taxInvoiceIssuedById: null,
+        taxInvoiceType: null,
+        paidAmount: 0,
+        paymentStatus: 'unpaid',
+        paidAt: null,
+      }),
+    }));
+  });
+
+  it('refuses to detach while Morning receipt payment rows still exist', async () => {
+    prismaMock.billingPeriod.findUnique.mockResolvedValue({
+      id: 'period-1',
+      totalAmount: 100,
+      proformaSnapshot: null,
+      taxInvoiceId: 'morning-320-id',
+      taxInvoiceNumber: 1234,
+      taxInvoiceType: 320,
+    });
+    tx.billingPayment.count.mockResolvedValue(1);
+
+    await expect(detachTaxInvoiceDocument('period-1')).rejects.toThrow(/Delete linked receipt payments/);
+    expect(tx.billingPeriod.update).not.toHaveBeenCalled();
   });
 });

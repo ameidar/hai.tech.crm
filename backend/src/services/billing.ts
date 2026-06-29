@@ -1166,6 +1166,54 @@ export async function deletePayment(billingPeriodId: string, paymentId: string) 
   });
 }
 
+export async function detachTaxInvoiceDocument(billingPeriodId: string) {
+  const period = await prisma.billingPeriod.findUnique({ where: { id: billingPeriodId } });
+  if (!period) throw new Error('Billing period not found');
+  if (!period.taxInvoiceId && !period.taxInvoiceNumber && !period.taxInvoiceType) {
+    throw new Error('Tax invoice document is not linked to this period');
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const linkedReceiptCount = await tx.billingPayment.count({
+      where: {
+        billingPeriodId,
+        OR: [
+          { morningReceiptId: { not: null } },
+          { morningReceiptNumber: { not: null } },
+        ],
+      },
+    });
+    if (linkedReceiptCount > 0) {
+      throw new Error('Delete linked receipt payments before detaching the tax invoice document');
+    }
+
+    const sums = await tx.billingPayment.aggregate({
+      where: { billingPeriodId },
+      _sum: { amount: true },
+    });
+    const paidAmount = Number(sums._sum.amount ?? 0);
+    const totalGross = billingPeriodChargedGross(period);
+    const isFullyPaid = paidAmount + 0.01 >= totalGross;
+    const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
+
+    return tx.billingPeriod.update({
+      where: { id: billingPeriodId },
+      data: {
+        taxInvoiceId: null,
+        taxInvoiceNumber: null,
+        taxInvoiceUrl: null,
+        taxInvoiceIssuedAt: null,
+        taxInvoiceIssuedById: null,
+        taxInvoiceType: null,
+        paidAmount,
+        paymentStatus,
+        paidAt: isFullyPaid ? period.paidAt : null,
+      },
+      include: { payments: { orderBy: { paidAt: 'desc' } }, lines: true, institutionalOrder: true },
+    });
+  });
+}
+
 export async function markBillingSent(
   billingPeriodId: string,
   input: { channel: string; toEmail?: string | null; toPhone?: string | null },

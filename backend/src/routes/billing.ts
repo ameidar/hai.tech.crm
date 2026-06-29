@@ -92,6 +92,7 @@ billingRouter.get('/', async (req, res, next) => {
 
     const result = periods.map((p) => ({
       ...p,
+      chargedAmount: billingPeriodChargedGross(p),
       institutionalOrder: {
         ...p.institutionalOrder,
         morningClientName: latestNameByOrder.get(p.institutionalOrderId) ?? null,

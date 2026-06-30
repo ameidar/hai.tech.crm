@@ -1,6 +1,6 @@
 {
   "name": "haitech-crm-backend",
-  "version": "1.58.2",
+  "version": "1.58.3",
   "description": "HaiTech CRM - Backend API for managing coding education business",
   "main": "dist/index.js",
   "scripts": {

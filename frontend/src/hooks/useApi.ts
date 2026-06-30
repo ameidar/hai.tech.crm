@@ -14,6 +14,10 @@ import type {
   Meeting,
   Registration,
   DailySummary,
+  Task,
+  TaskPriority,
+  TaskStatus,
+  TaskUser,
   User,
 } from '../types';
 
@@ -1484,6 +1488,82 @@ export const useDeleteSystemUser = () => {
       mutateData<void, undefined>(`/system-users/${id}`, 'delete'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['system-users'] });
+    },
+  });
+};
+
+// ===== Tasks =====
+
+export interface TaskFilters {
+  status?: TaskStatus | '';
+  priority?: TaskPriority | '';
+  assigneeId?: string;
+  createdById?: string;
+  search?: string;
+  dueFrom?: string;
+  dueTo?: string;
+}
+
+export type TaskPayload = {
+  title: string;
+  description?: string | null;
+  status?: TaskStatus;
+  priority?: TaskPriority;
+  dueDate?: string | null;
+  assigneeId?: string | null;
+};
+
+const taskQueryString = (filters?: TaskFilters) => {
+  const params = new URLSearchParams();
+  Object.entries(filters || {}).forEach(([key, value]) => {
+    if (value) params.append(key, value);
+  });
+  const qs = params.toString();
+  return qs ? `?${qs}` : '';
+};
+
+export const useTasks = (filters?: TaskFilters) => {
+  return useQuery({
+    queryKey: ['tasks', filters],
+    queryFn: () => fetchData<Task[]>(`/tasks${taskQueryString(filters)}`),
+  });
+};
+
+export const useTaskUsers = () => {
+  return useQuery({
+    queryKey: ['task-users'],
+    queryFn: () => fetchData<TaskUser[]>('/tasks/users'),
+  });
+};
+
+export const useCreateTask = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: TaskPayload) => mutateData<Task, TaskPayload>('/tasks', 'post', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    },
+  });
+};
+
+export const useUpdateTask = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<TaskPayload> }) =>
+      mutateData<Task, Partial<TaskPayload>>(`/tasks/${id}`, 'patch', data),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['task', id] });
+    },
+  });
+};
+
+export const useDeleteTask = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => mutateData<void, undefined>(`/tasks/${id}`, 'delete'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
   });
 };

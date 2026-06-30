@@ -201,7 +201,7 @@ tasksRouter.get('/', async (req, res, next) => {
     const tasks = await prisma.task.findMany({
       where,
       include: taskInclude,
-      orderBy: [{ status: 'asc' }, { dueDate: 'asc' }, { createdAt: 'desc' }],
+      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
     });
 
     res.json(tasks);

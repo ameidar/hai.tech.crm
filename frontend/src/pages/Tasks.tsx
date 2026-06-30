@@ -70,6 +70,10 @@ function isOverdue(task: Task) {
   return !!task.dueDate && task.status !== 'completed' && new Date(task.dueDate) < new Date();
 }
 
+function newestFirst(a: Task, b: Task) {
+  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+}
+
 function TaskCard({
   task,
   onEdit,
@@ -211,10 +215,14 @@ export default function Tasks() {
 
   const tasksByStatus = useMemo(() => {
     return STATUSES.reduce<Record<TaskStatus, Task[]>>((acc, status) => {
-      acc[status.value] = tasks.filter((task) => task.status === status.value);
+      acc[status.value] = tasks
+        .filter((task) => task.status === status.value)
+        .sort(newestFirst);
       return acc;
     }, {} as Record<TaskStatus, Task[]>);
   }, [tasks]);
+
+  const sortedTasks = useMemo(() => [...tasks].sort(newestFirst), [tasks]);
 
   const openNew = () => {
     setEditingTask(null);
@@ -489,7 +497,7 @@ export default function Tasks() {
               </tr>
             </thead>
             <tbody>
-              {tasks.map((task) => (
+              {sortedTasks.map((task) => (
                 <tr key={task.id}>
                   <td>
                     <button type="button" onClick={() => openEdit(task)} className="text-right">

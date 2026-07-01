@@ -12,6 +12,7 @@ import { syncCycleProgress } from '../utils/cycle-sync.js';
 import { sendWhatsApp, sendWhatsAppPoll } from './messaging.js';
 import { handleCycleCompletion } from './cycle-completion.js';
 import { generateMeetingMagicLink } from './instructor-reminder.service.js';
+import { reminderEligibleMeetingWhereForDate } from './reminder-eligibility.js';
 import {
   calculateInstructorPayment,
   recalculateDailyInstructorPaymentsForMeeting,
@@ -42,16 +43,6 @@ function getIsraelDateOnly(offsetDays = 0): Date {
   const [y, m, d] = israelDateStr.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d + offsetDays));
 }
-
-function activeCycleOnDate(meetingDate: Date) {
-  return {
-    status: 'active' as const,
-    deletedAt: null,
-    startDate: { lte: meetingDate },
-    endDate: { gte: meetingDate },
-  };
-}
-
 
 /**
  * Get current time in Israel as total minutes since midnight (DST-aware)
@@ -154,11 +145,7 @@ export async function sendMorningWhatsAppReminders(): Promise<void> {
 
   try {
     const meetings = await prisma.meeting.findMany({
-      where: {
-        scheduledDate: todayDate,
-        status: 'scheduled',
-        cycle: activeCycleOnDate(todayDate),
-      },
+      where: reminderEligibleMeetingWhereForDate(todayDate),
       include: {
         cycle: { include: { branch: true, course: true } },
         instructor: true,
@@ -207,11 +194,7 @@ export async function sendMorningUnresolvedAlert(): Promise<void> {
 
   try {
     const unresolved = await prisma.meeting.findMany({
-      where: {
-        scheduledDate: yesterdayDate,
-        status: 'scheduled',
-        cycle: activeCycleOnDate(yesterdayDate),
-      },
+      where: reminderEligibleMeetingWhereForDate(yesterdayDate),
       include: {
         cycle: { include: { branch: true, course: true } },
         instructor: true,
@@ -270,11 +253,7 @@ export async function sendPreMeetingReminders(): Promise<void> {
 
   try {
     const meetings = await prisma.meeting.findMany({
-      where: {
-        scheduledDate: todayDate,
-        status: 'scheduled',
-        cycle: activeCycleOnDate(todayDate),
-      },
+      where: reminderEligibleMeetingWhereForDate(todayDate),
       include: {
         cycle: { include: { branch: true, course: true } },
         instructor: true,
@@ -343,11 +322,7 @@ export async function sendEveningStatusCheck(): Promise<void> {
 
   try {
     const meetings = await prisma.meeting.findMany({
-      where: {
-        scheduledDate: todayDate,
-        status: 'scheduled',
-        cycle: activeCycleOnDate(todayDate),
-      },
+      where: reminderEligibleMeetingWhereForDate(todayDate),
       include: {
         cycle: { include: { branch: true, course: true } },
         instructor: true,

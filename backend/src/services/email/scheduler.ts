@@ -17,6 +17,7 @@ import { buildInstructorMonthlyReport, getPreviousMonth } from '../instructorRep
 import { generateInstructorReportExcel } from '../../utils/excelReportGenerator.js';
 import { sendInstructorMonthlyReportEmail } from './instructorReportEmail.js';
 import { sendWhatsApp } from '../messaging.js';
+import { reminderEligibleMeetingWhereForDate } from '../reminder-eligibility.js';
 
 // Management email list (configure via env or database)
 const MANAGEMENT_EMAILS = (process.env.MANAGEMENT_EMAILS || 'ami@hai.tech').split(',');
@@ -66,20 +67,11 @@ const sendInstructorReminders = async () => {
   console.log('📧 Running instructor reminder job...');
 
   try {
-    const { start: today, end: tomorrow } = getIsraelDateBoundsForDB();
+    const { start: today } = getIsraelDateBoundsForDB();
 
     // Get today's meetings with instructors
     const meetings = await prisma.meeting.findMany({
-      where: {
-        scheduledDate: {
-          gte: today,
-          lt: tomorrow,
-        },
-        status: 'scheduled',
-        // Skip meetings whose cycle has ended (completed/cancelled) so we don't
-        // remind instructors about stray scheduled meetings in closed cycles.
-        cycle: { status: 'active' },
-      },
+      where: reminderEligibleMeetingWhereForDate(today),
       include: {
         instructor: true,
         cycle: {
@@ -134,18 +126,13 @@ const sendParentReminders = async () => {
   console.log('📧 Running parent reminder job...');
 
   try {
-    const { start: tomorrow, end: dayAfter } = getIsraelDateBoundsForDB(1);
+    const { start: tomorrow } = getIsraelDateBoundsForDB(1);
 
     // Get tomorrow's meetings with students
     const meetings = await prisma.meeting.findMany({
-      where: {
-        scheduledDate: {
-          gte: tomorrow,
-          lt: dayAfter,
-        },
-        status: 'scheduled',
-        cycle: { sendParentReminders: true, status: 'active' },
-      },
+      where: reminderEligibleMeetingWhereForDate(tomorrow, {
+        cycle: { sendParentReminders: true },
+      }),
       include: {
         cycle: {
           include: {
@@ -435,6 +422,7 @@ async function checkCyclesNearCompletion(): Promise<void> {
     const cycles = await prisma.cycle.findMany({
       where: {
         status: 'active',
+        deletedAt: null,
         remainingMeetings: 1,
         type: 'private', // הודעת "שיעור אחרון" רלוונטית רק למחזורים פרטיים
       },
@@ -443,7 +431,7 @@ async function checkCyclesNearCompletion(): Promise<void> {
         branch: { select: { name: true } },
         instructor: { select: { name: true, phone: true } },
         meetings: {
-          where: { status: 'scheduled' },
+          where: { status: 'scheduled', deletedAt: null },
           orderBy: { scheduledDate: 'asc' },
           take: 1,
         },

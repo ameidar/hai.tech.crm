@@ -716,6 +716,7 @@ model Meeting {
   revenue               Decimal       @default(0) @db.Decimal(10, 2)
   instructorPayment     Decimal       @default(0) @map("instructor_payment") @db.Decimal(10, 2)
   profit                Decimal       @default(0) @db.Decimal(10, 2)
+  negativeProfitAlertSentAt DateTime? @map("negative_profit_alert_sent_at")
   activityType          ActivityType? @map("activity_type")
   topic                 String?
   notes                 String?
@@ -745,6 +746,7 @@ model Meeting {
   changeRequests        MeetingChangeRequest[]
   billingPeriodMeetings BillingPeriodMeeting[]
 
+  @@index([negativeProfitAlertSentAt])
   @@map("meetings")
 }
 

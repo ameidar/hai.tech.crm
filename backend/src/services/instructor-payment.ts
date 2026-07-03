@@ -1,4 +1,5 @@
 import { prisma } from '../utils/prisma.js';
+import { checkAndSendNegativeProfitAlert } from './negative-profit-alert.js';
 
 type RateValue = { toString(): string } | number | string | null | undefined;
 
@@ -148,6 +149,7 @@ export const recalculateDailyInstructorPaymentsForDay = async (
         profit: revenue - instructorPayment - expensesTotal,
       },
     });
+    await checkAndSendNegativeProfitAlert(meeting.id, 'daily-instructor-payment-recalc');
   }
 
   return { recalculated: meetings.length };
@@ -213,6 +215,7 @@ export const recalculateInstructorPaymentsForCycle = async (cycleId: string) => 
         profit: revenue - instructorPayment - expensesTotal,
       },
     });
+    await checkAndSendNegativeProfitAlert(meeting.id, 'cycle-instructor-payment-recalc');
   }
 
   return { recalculated: meetings.length };

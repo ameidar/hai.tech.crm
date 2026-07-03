@@ -16,6 +16,7 @@ import {
   calculateInstructorPayment,
   recalculateDailyInstructorPaymentsForMeeting,
 } from './instructor-payment.js';
+import { checkAndSendNegativeProfitAlert } from './negative-profit-alert.js';
 
 const APP_URL = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
 const TZ = 'Asia/Jerusalem';
@@ -428,6 +429,7 @@ async function recalculateCompletedMeetingFinancials(meetingId: string): Promise
     data: { revenue, instructorPayment, profit },
   });
   await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
+  await checkAndSendNegativeProfitAlert(meetingId, 'whatsapp-status-reply');
 
   if (remainingMeetings <= 0 && !['completed', 'cancelled'].includes(cycleData.status)) {
     await handleCycleCompletion(meeting.cycleId);

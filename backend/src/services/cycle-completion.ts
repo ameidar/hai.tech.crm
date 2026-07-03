@@ -1,6 +1,7 @@
 import { prisma } from '../utils/prisma.js';
 import { zoomService } from './zoom.js';
 import { sendEmail } from './email/sender.js';
+import { checkAndSendInstitutionalOrderCompletionAlert } from './institutional-order-completion-alert.js';
 
 /**
  * Cycle Completion Service
@@ -97,6 +98,8 @@ export async function handleCycleCompletion(cycleId: string): Promise<void> {
 
     // f. Send summary email
     await sendCompletionSummaryEmail(cycle, activeRegistrations);
+
+    await checkAndSendInstitutionalOrderCompletionAlert(cycle.institutionalOrderId, 'cycle-completion');
 
     console.log(`🎓 Cycle completion finished for "${cycle.name}"`);
   } catch (error) {

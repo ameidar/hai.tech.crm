@@ -475,6 +475,7 @@ model InstitutionalOrder {
   followUpDate      DateTime?      @map("follow_up_date") @db.Date
   salesperson       String?
   orderType         String?        @map("order_type")
+  completionAlertSentAt DateTime?  @map("completion_alert_sent_at")
   createdBy         String?        @map("created_by")
   createdAt         DateTime       @default(now()) @map("created_at")
   updatedAt         DateTime       @updatedAt @map("updated_at")
@@ -487,6 +488,7 @@ model InstitutionalOrder {
   billingPeriods BillingPeriod[]
 
   @@index([payingBodyId])
+  @@index([completionAlertSentAt])
   @@map("institutional_orders")
 }
 

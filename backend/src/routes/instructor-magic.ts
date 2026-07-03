@@ -20,6 +20,7 @@ import { handleCycleCompletion } from '../services/cycle-completion.js';
 import { meetingRevenueFromRegistrations, revenueRegistrationCount, roundMoney } from '../utils/revenue.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
+import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
 
 // WhatsApp group for pending meeting requests (postponements, cancellations)
 const ADMIN_PHONE = '120363353459332838@g.us';
@@ -290,6 +291,7 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
             data: { revenue, instructorPayment, profit },
           });
           await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
+          await checkAndSendNegativeProfitAlert(meetingId, 'instructor-magic');
 
           // Sync counters from actual meetings. If this instructor report completed the
           // last required meeting, trigger the same cycle-completion flow as admin updates.

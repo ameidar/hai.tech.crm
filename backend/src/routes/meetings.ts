@@ -14,61 +14,7 @@ import {
   calculateInstructorPayment,
   recalculateDailyInstructorPaymentsForMeeting,
 } from '../services/instructor-payment.js';
-
-// Send WhatsApp alert for negative profit
-async function sendNegativeProfitAlert(meetingData: {
-  cycleName: string;
-  courseName: string;
-  branchName: string;
-  instructorName: string;
-  date: string;
-  revenue: number;
-  cost: number;
-  profit: number;
-}) {
-  const alertPhone = process.env.ALERT_PHONE || '972528746137';
-  const greenApiInstanceId = process.env.GREEN_API_INSTANCE_ID;
-  const greenApiToken = process.env.GREEN_API_TOKEN;
-
-  if (!greenApiInstanceId || !greenApiToken) {
-    console.log('Green API not configured, skipping WhatsApp alert');
-    return;
-  }
-
-  const message = `⚠️ התראה: רווח שלילי בפגישה
-
-📅 תאריך: ${meetingData.date}
-📚 מחזור: ${meetingData.cycleName}
-🎓 קורס: ${meetingData.courseName}
-🏢 סניף: ${meetingData.branchName}
-👨‍🏫 מדריך: ${meetingData.instructorName}
-
-💰 הכנסה: ₪${meetingData.revenue}
-💸 עלות: ₪${meetingData.cost}
-📉 רווח: ₪${meetingData.profit}`;
-
-  try {
-    const response = await fetch(
-      `https://api.green-api.com/waInstance${greenApiInstanceId}/sendMessage/${greenApiToken}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chatId: `${alertPhone}@c.us`,
-          message,
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      console.error('Failed to send WhatsApp alert:', await response.text());
-    } else {
-      console.log('WhatsApp alert sent for negative profit');
-    }
-  } catch (error) {
-    console.error('Error sending WhatsApp alert:', error);
-  }
-}
+import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
 
 export const meetingsRouter = Router();
 
@@ -564,30 +510,6 @@ meetingsRouter.put('/:id', async (req, res, next) => {
           // Mark for post-update sync (cycle counters updated after meeting is saved)
           statusChangedToCompleted = true;
 
-          // Send WhatsApp alert if profit is negative
-          if (profit < 0) {
-            const cycleWithDetails = await prisma.cycle.findUnique({
-              where: { id: existingMeeting.cycleId },
-              include: {
-                course: { select: { name: true } },
-                branch: { select: { name: true } },
-                instructor: { select: { name: true } },
-              },
-            });
-
-            if (cycleWithDetails) {
-              sendNegativeProfitAlert({
-                cycleName: cycleWithDetails.name,
-                courseName: cycleWithDetails.course.name,
-                branchName: cycleWithDetails.branch.name,
-                instructorName: cycleWithDetails.instructor.name,
-                date: existingMeeting.scheduledDate.toLocaleDateString('he-IL'),
-                revenue,
-                cost: instructorPayment,
-                profit,
-              }).catch(err => console.error('WhatsApp alert error:', err));
-            }
-          }
         }
       }
       
@@ -628,6 +550,7 @@ meetingsRouter.put('/:id', async (req, res, next) => {
     });
     await recalculateDailyInstructorPaymentsForMeeting(existingMeeting);
     await recalculateDailyInstructorPaymentsForMeeting(meeting);
+    await checkAndSendNegativeProfitAlert(meeting.id, 'meeting-update');
 
     // Sync cycle progress AFTER meeting is updated (accurate DB count)
     if (statusChangedToCompleted || statusChangedFromCompleted) {
@@ -725,7 +648,7 @@ meetingsRouter.post('/:id/postpone', managerOrAdmin, async (req, res, next) => {
     });
 
     // Update original meeting (zero amounts — postponed meetings don't generate revenue)
-    await prisma.meeting.update({
+    const postponedMeeting = await prisma.meeting.update({
       where: { id },
       data: {
         status: 'postponed',
@@ -737,6 +660,7 @@ meetingsRouter.post('/:id/postpone', managerOrAdmin, async (req, res, next) => {
         profit: 0,
       },
     });
+    await checkAndSendNegativeProfitAlert(postponedMeeting.id, 'meeting-postpone');
 
     // The replacement meeting may fall after the cycle's current end date — resync it.
     await syncCycleEndDate(existingMeeting.cycleId);
@@ -1014,6 +938,7 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
       },
     });
     await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
+    await checkAndSendNegativeProfitAlert(updatedMeeting.id, 'meeting-recalculate');
 
     res.json(updatedMeeting);
   } catch (error) {
@@ -1089,6 +1014,7 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
         data: { revenue, instructorPayment, profit },
       });
       await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
+      await checkAndSendNegativeProfitAlert(id, 'meeting-bulk-recalculate');
 
       recalculated++;
     }
@@ -1231,6 +1157,7 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
         });
         await recalculateDailyInstructorPaymentsForMeeting(existingMeeting);
         await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
+        await checkAndSendNegativeProfitAlert(id, 'meeting-bulk-status');
 
         // Audit log
         await logAudit({
@@ -1367,6 +1294,7 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
               data: { revenue, instructorPayment, profit: revenue - instructorPayment },
             });
             await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
+            await checkAndSendNegativeProfitAlert(id, 'meeting-bulk-update');
           }
         }
 

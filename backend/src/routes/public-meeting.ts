@@ -7,6 +7,7 @@ import {
   calculateInstructorPayment,
   recalculateDailyInstructorPaymentsForMeeting,
 } from '../services/instructor-payment.js';
+import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
 import crypto from 'crypto';
 
 const MEETING_TOKEN_SECRET = process.env.MEETING_TOKEN_SECRET || 'haitech-meeting-status-2026';
@@ -145,6 +146,7 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
     });
     await recalculateDailyInstructorPaymentsForMeeting(existingMeeting);
     await recalculateDailyInstructorPaymentsForMeeting(meeting);
+    await checkAndSendNegativeProfitAlert(meetingId, 'public-meeting-status');
 
     // Sync cycle progress from actual DB counts after meeting update
     if (willStatusChange) {

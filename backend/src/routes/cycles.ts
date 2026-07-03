@@ -9,6 +9,7 @@ import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
 import { meetingRevenueFromRegistrations, netAmount, revenueRegistrations, roundMoney } from '../utils/revenue.js';
 import { recalculateInstructorPaymentsForCycle } from '../services/instructor-payment.js';
+import { checkAndSendInstitutionalOrderCompletionAlert } from '../services/institutional-order-completion-alert.js';
 
 // Make.com webhook removed — Zoom recordings handled directly via /api/zoom-webhook
 
@@ -493,6 +494,10 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     // Attach revenuePerMeeting to the response (may be partial for private if no regs loaded)
     (cycle as any).revenuePerMeeting = computeRevenuePerMeeting(cycle);
 
+    if (data.status === 'completed') {
+      await checkAndSendInstitutionalOrderCompletionAlert(cycle.institutionalOrderId, 'cycle-update');
+    }
+
     // If regenerateMeetings flag is set, delete all non-completed meetings and regenerate
     if (regenerateMeetings) {
       // Delete only scheduled/postponed meetings (not completed or cancelled)
@@ -803,7 +808,7 @@ cyclesRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
           tx.cycle.update({
             where: { id },
             data: updateData,
-            select: { id: true, name: true },
+            select: { id: true, name: true, institutionalOrderId: true },
           })
         )
       );
@@ -816,6 +821,17 @@ cyclesRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
       }
       return cycles;
     });
+
+    if (data.status === 'completed') {
+      const orderIds = [...new Set(
+        results
+          .map((cycle) => cycle.institutionalOrderId)
+          .filter((orderId): orderId is string => Boolean(orderId)),
+      )];
+      await Promise.all(
+        orderIds.map((orderId) => checkAndSendInstitutionalOrderCompletionAlert(orderId, 'cycle-bulk-update')),
+      );
+    }
 
     res.json({
       message: `עודכנו ${results.length} מחזורים בהצלחה`,

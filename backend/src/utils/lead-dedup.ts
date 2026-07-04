@@ -71,10 +71,11 @@ export async function findOrCreateLeadAppointment(
 
   // Find existing open lead with same phone in the dedup window
   // Note: deleted_at column may not exist in all deployments — omit it from WHERE
-  const existing = await prisma.$queryRaw<{ id: string; source: string; appointment_status: string; appointment_notes: string | null }[]>`
-    SELECT id, source, appointment_status, appointment_notes
+  const existing = await prisma.$queryRaw<{ id: string; source: string; appointment_status: string; appointment_notes: string | null; sales_status: string | null }[]>`
+    SELECT id, source, appointment_status, appointment_notes, sales_status
     FROM lead_appointments
     WHERE appointment_status NOT IN ('done', 'cancelled', 'rejected')
+      AND COALESCE(sales_status, 'new') NOT IN ('converted', 'not_relevant')
       AND created_at >= ${windowStart}
       AND RIGHT(REPLACE(REPLACE(REPLACE(customer_phone, '+', ''), '-', ''), ' ', ''), 9) = ${phoneLast9}
     ORDER BY created_at DESC
@@ -103,9 +104,25 @@ export async function findOrCreateLeadAppointment(
         appointment_notes = ${updatedNotes},
         customer_id       = COALESCE(customer_id, ${customerId ?? null}),
         customer_email    = COALESCE(customer_email, ${customerEmail ?? null}),
+        sales_status      = CASE
+                              WHEN sales_status IS NULL OR sales_status IN ('new', 'no_answer')
+                              THEN 'follow_up'
+                              ELSE sales_status
+                            END,
+        next_follow_up_at = COALESCE(next_follow_up_at, NOW()),
         updated_at        = NOW()
       WHERE id = ${found.id}
     `;
+
+    await prisma.leadActivity.create({
+      data: {
+        leadAppointmentId: found.id,
+        type: 'inbound',
+        result: 'duplicate_inquiry',
+        note: `פנייה חוזרת ממקור ${source}${appointmentNotes ? `: ${appointmentNotes}` : ''}${callSummary ? ` | סיכום: ${callSummary}` : ''}`,
+        nextFollowUpAt: new Date(),
+      },
+    });
 
     console.log(`[lead-dedup] Merged duplicate lead — existing ${found.id} (${found.source}) + new source ${source} for phone ...${phoneLast9}`);
 

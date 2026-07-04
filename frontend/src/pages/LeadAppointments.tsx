@@ -106,6 +106,7 @@ const contactResultLabels: Record<string, string> = {
   scheduled: 'נקבעה שיחה',
   not_relevant: 'לא רלוונטי',
   converted: 'נסגר להרשמה',
+  duplicate_inquiry: 'פנייה חוזרת',
 };
 
 const allContactResults = ['called', 'no_answer', 'whatsapp_sent', 'interested', 'scheduled', 'not_relevant', 'converted'];

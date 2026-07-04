@@ -12,6 +12,10 @@ vi.mock('../../utils/prisma.js', () => ({
       update: vi.fn(),
       delete: vi.fn(),
     },
+    leadActivity: {
+      create: vi.fn(),
+    },
+    $transaction: vi.fn(),
   },
 }));
 
@@ -47,6 +51,7 @@ app.use((err: any, _req: any, res: any, _next: any) => {
 describe('Lead Appointments API', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (mockPrisma.$transaction as any).mockImplementation(async (cb: any) => cb(mockPrisma));
   });
 
   describe('GET /api/lead-appointments', () => {
@@ -152,6 +157,31 @@ describe('Lead Appointments API', () => {
       expect(mockPrisma.leadAppointment.update).toHaveBeenCalledWith({
         where: { id: 'abc' },
         data: { appointmentStatus: 'completed' },
+        include: expect.any(Object),
+      });
+    });
+
+    it('records activity when contact result is provided', async () => {
+      const updated = { id: 'abc', appointmentStatus: 'pending', salesStatus: 'follow_up' };
+      mockPrisma.leadAppointment.update.mockResolvedValue(updated);
+      mockPrisma.leadActivity.create.mockResolvedValue({ id: 'activity-1' });
+
+      const res = await request(app)
+        .patch('/api/lead-appointments/abc')
+        .send({
+          salesStatus: 'follow_up',
+          lastContactResult: 'no_answer',
+          activityNote: 'אין מענה, לנסות שוב מחר',
+        });
+
+      expect(res.status).toBe(200);
+      expect(mockPrisma.leadActivity.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          leadAppointmentId: 'abc',
+          type: 'note',
+          result: 'no_answer',
+          note: 'אין מענה, לנסות שוב מחר',
+        }),
       });
     });
   });

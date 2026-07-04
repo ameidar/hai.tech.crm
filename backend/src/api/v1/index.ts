@@ -18,6 +18,7 @@ import webhooksRouter from './routes/webhooks.js';
 import reportsRouter from './routes/reports.js';
 import auditLogsRouter from './routes/audit-logs.js';
 import docsRouter from './routes/docs.js';
+import { leadsRouter } from './routes/leads.js';
 
 /**
  * API v1 Router
@@ -66,6 +67,7 @@ router.use('/cycles', cyclesRouter);
 router.use('/meetings', meetingsRouter);
 router.use('/registrations', registrationsRouter);
 router.use('/attendance', attendanceRouter);
+router.use('/leads', leadsRouter);
 
 // Security & Admin endpoints (protected, admin only)
 router.use('/api-keys', apiKeysRouter);

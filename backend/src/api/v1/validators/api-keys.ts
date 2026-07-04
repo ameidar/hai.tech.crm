@@ -28,6 +28,7 @@ export const AVAILABLE_SCOPES = [
   'read:reports',
   'read:leads',
   'write:leads',
+  'read:payments',
 ] as const;
 
 export type ApiKeyScope = typeof AVAILABLE_SCOPES[number];

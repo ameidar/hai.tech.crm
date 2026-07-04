@@ -27,7 +27,7 @@ const updateLeadSchema = z.object({
   lastContactResult: z.string().nullable().optional(),
   activityType: z.string().optional(),
   activityNote: z.string().nullable().optional(),
-});
+}).strict();
 
 const createActivitySchema = z.object({
   type: z.string().default('note'),
@@ -35,7 +35,7 @@ const createActivitySchema = z.object({
   note: z.string().nullable().optional(),
   nextFollowUpAt: z.string().datetime().nullable().optional(),
   salesStatus: z.string().optional(),
-});
+}).strict();
 
 function userId(req: AuthRequest) {
   return req.user?.userId || null;

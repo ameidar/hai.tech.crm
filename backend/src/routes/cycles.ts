@@ -239,6 +239,15 @@ cyclesRouter.get('/:id', async (req, res, next) => {
           orderBy: { scheduledDate: 'asc' },
           include: {
             instructor: { select: { id: true, name: true } },
+            registration: {
+              include: {
+                student: {
+                  include: {
+                    customer: { select: { id: true, name: true, phone: true } },
+                  },
+                },
+              },
+            },
             _count: { select: { attendance: true } },
             changeRequests: {
               where: { status: 'pending' },
@@ -861,7 +870,20 @@ cyclesRouter.get('/:id/meetings', async (req, res, next) => {
           include: {
             registration: {
               include: {
-                student: { select: { id: true, name: true } },
+                student: {
+                  include: {
+                    customer: { select: { id: true, name: true, phone: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+        registration: {
+          include: {
+            student: {
+              include: {
+                customer: { select: { id: true, name: true, phone: true } },
               },
             },
           },

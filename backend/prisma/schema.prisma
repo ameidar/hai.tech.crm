@@ -755,6 +755,7 @@ model Registration {
   student              Student               @relation(fields: [studentId], references: [id], onDelete: Cascade)
   cycle                Cycle                 @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   attendance           Attendance[]
+  meetings             Meeting[]
   cancellationRequests CancellationRequest[]
   upsellLeads          UpsellLead[]
 
@@ -784,6 +785,7 @@ model Meeting {
   id                        String        @id @default(uuid())
   cycleId                   String        @map("cycle_id")
   instructorId              String        @map("instructor_id")
+  registrationId            String?       @map("registration_id")
   scheduledDate             DateTime      @map("scheduled_date") @db.Date
   startTime                 DateTime      @map("start_time") @db.Time
   endTime                   DateTime      @map("end_time") @db.Time
@@ -816,6 +818,7 @@ model Meeting {
   // Relations
   cycle                 Cycle                  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   instructor            Instructor             @relation(fields: [instructorId], references: [id], onDelete: Restrict)
+  registration          Registration?          @relation(fields: [registrationId], references: [id], onDelete: SetNull)
   statusUpdatedBy       User?                  @relation("MeetingStatusUpdater", fields: [statusUpdatedById], references: [id])
   rescheduledTo         Meeting?               @relation("RescheduledMeetings", fields: [rescheduledToId], references: [id])
   rescheduledFrom       Meeting[]              @relation("RescheduledMeetings")
@@ -825,6 +828,7 @@ model Meeting {
   billingPeriodMeetings BillingPeriodMeeting[]
 
   @@index([negativeProfitAlertSentAt])
+  @@index([registrationId])
   @@map("meetings")
 }
 

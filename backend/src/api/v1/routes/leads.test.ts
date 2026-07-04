@@ -13,6 +13,9 @@ vi.mock('../../../utils/prisma.js', () => ({
     leadActivity: {
       create: vi.fn(),
     },
+    payment: {
+      findMany: vi.fn(),
+    },
     $transaction: vi.fn(),
   },
 }));
@@ -96,6 +99,56 @@ describe('API v1 leads', () => {
     );
   });
 
+  it('can include paid payment summary for lead journal items', async () => {
+    const items = [{
+      id: leadId,
+      customerId: 'customer-1',
+      customerName: 'נועה כהן',
+      customerPhone: '0501234567',
+      customerEmail: 'noa@example.com',
+    }];
+    const payment = {
+      id: 'payment-1',
+      customerId: 'customer-1',
+      customerName: 'נועה כהן',
+      customerEmail: 'noa@example.com',
+      customerPhone: '0501234567',
+      description: 'Roblox',
+      amount: 400,
+      currency: 'ILS',
+      status: 'paid',
+      paidAt: new Date('2026-07-04T09:00:00.000Z'),
+      invoiceUrl: 'https://invoice.example/1',
+      invoiceNumber: 'INV-1',
+      paymentMethod: 'creditcard',
+    };
+    mockPrisma.leadAppointment.findMany.mockResolvedValue(items);
+    mockPrisma.leadAppointment.count.mockResolvedValue(1);
+    mockPrisma.payment.findMany.mockResolvedValue([payment]);
+
+    const res = await request(app)
+      .get('/api/v1/leads?includePayments=true')
+      .set('x-test-scopes', 'read:leads,read:payments');
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.payment.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        status: 'paid',
+        OR: [
+          { customerId: { in: ['customer-1'] } },
+          { customerPhone: { in: ['0501234567'] } },
+          { customerEmail: { in: ['noa@example.com'] } },
+        ],
+      },
+    }));
+    expect(res.body.data[0].paymentSummary).toEqual(expect.objectContaining({
+      hasPaid: true,
+      paidCount: 1,
+      totalPaid: 400,
+      latestPayment: expect.objectContaining({ id: 'payment-1', amount: 400 }),
+    }));
+  });
+
   it('returns due follow-ups and excludes closed sales states', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-04T12:00:00Z'));
@@ -125,6 +178,58 @@ describe('API v1 leads', () => {
     expect(res.status).toBe(403);
     expect(res.body.error.message).toContain('read:leads');
     expect(mockPrisma.leadAppointment.findMany).not.toHaveBeenCalled();
+  });
+
+  it('denies payment summary without read:payments scope', async () => {
+    mockPrisma.leadAppointment.findMany.mockResolvedValue([]);
+    mockPrisma.leadAppointment.count.mockResolvedValue(0);
+
+    const res = await request(app)
+      .get('/api/v1/leads?includePayments=true')
+      .set('x-test-scopes', 'read:leads');
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toContain('read:payments');
+    expect(mockPrisma.payment.findMany).not.toHaveBeenCalled();
+  });
+
+  it('returns a single lead with payment summary matched by phone when no customerId exists', async () => {
+    const item = {
+      id: leadId,
+      customerId: null,
+      customerName: 'ליד ללא לקוח',
+      customerPhone: '0507654321',
+      customerEmail: null,
+    };
+    const payment = {
+      id: 'payment-2',
+      customerId: null,
+      customerName: 'ליד ללא לקוח',
+      customerEmail: null,
+      customerPhone: '0507654321',
+      description: 'Python',
+      amount: 250,
+      currency: 'ILS',
+      status: 'paid',
+      paidAt: new Date('2026-07-03T08:00:00.000Z'),
+      invoiceUrl: null,
+      invoiceNumber: null,
+      paymentMethod: 'bit',
+    };
+    mockPrisma.leadAppointment.findUnique.mockResolvedValue(item);
+    mockPrisma.payment.findMany.mockResolvedValue([payment]);
+
+    const res = await request(app)
+      .get(`/api/v1/leads/${leadId}?includePayments=true`)
+      .set('x-test-scopes', 'read:leads,read:payments');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.paymentSummary).toEqual(expect.objectContaining({
+      hasPaid: true,
+      paidCount: 1,
+      totalPaid: 250,
+      latestPayment: expect.objectContaining({ id: 'payment-2' }),
+    }));
   });
 
   it('updates only sales workflow fields and records activity', async () => {

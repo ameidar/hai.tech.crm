@@ -1,12 +1,13 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { authenticate, managerOrAdmin } from '../middleware/auth.js';
+import { authenticate, managerOrAdmin, salesOrAbove } from '../middleware/auth.js';
 import { findOrCreateCustomer } from '../utils/lead-customer.js';
 import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
 
 export const leadAppointmentsRouter = Router();
 leadAppointmentsRouter.use(authenticate);
+leadAppointmentsRouter.use(salesOrAbove);
 
 const LEAD_INCLUDE = {
   customer: { select: { id: true, name: true, phone: true, email: true } },

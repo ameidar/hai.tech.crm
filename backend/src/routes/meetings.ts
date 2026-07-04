@@ -20,6 +20,85 @@ export const meetingsRouter = Router();
 
 meetingsRouter.use(authenticate);
 
+const registrationStudentInclude = {
+  student: {
+    include: {
+      customer: { select: { id: true, name: true, phone: true } },
+    },
+  },
+};
+
+async function assertRegistrationBelongsToCycle(registrationId: string, cycleId: string) {
+  const registration = await prisma.registration.findFirst({
+    where: {
+      id: registrationId,
+      cycleId,
+      deletedAt: null,
+      status: { notIn: ['cancelled', 'pending_cancellation'] as any },
+    },
+    select: { id: true },
+  });
+
+  if (!registration) {
+    throw new AppError(400, 'ההרשמה שנבחרה לא שייכת למחזור או אינה פעילה');
+  }
+}
+
+async function findLinkedTrialRegistrationId(meetingId: string, registrationId?: string | null) {
+  if (registrationId) return registrationId;
+
+  const attendance = await prisma.attendance.findFirst({
+    where: {
+      meetingId,
+      registrationId: { not: null },
+    },
+    select: { registrationId: true },
+  });
+
+  return attendance?.registrationId ?? null;
+}
+
+async function ensureTrialMeetingHasRegistration(meeting: {
+  id: string;
+  cycleId: string;
+  registrationId?: string | null;
+  cycle?: { type?: string | null } | null;
+}) {
+  if (meeting.cycle?.type !== 'trial_private') return null;
+
+  const registrationId = await findLinkedTrialRegistrationId(meeting.id, meeting.registrationId);
+  if (!registrationId) {
+    throw new AppError(400, 'חובה לשייך תלמיד/הרשמה לפני סימון שיעור ניסיון כהושלם');
+  }
+
+  await assertRegistrationBelongsToCycle(registrationId, meeting.cycleId);
+  return registrationId;
+}
+
+async function upsertTrialAttendance(meetingId: string, registrationId: string, recordedById?: string) {
+  await prisma.attendance.upsert({
+    where: {
+      meetingId_registrationId: {
+        meetingId,
+        registrationId,
+      },
+    },
+    update: {
+      status: 'present',
+      recordedAt: new Date(),
+      recordedById,
+      isTrial: true,
+    },
+    create: {
+      meetingId,
+      registrationId,
+      status: 'present',
+      recordedById,
+      isTrial: true,
+    },
+  });
+}
+
 // List meetings
 meetingsRouter.get('/', async (req, res, next) => {
   try {
@@ -77,6 +156,12 @@ meetingsRouter.get('/', async (req, res, next) => {
             },
           },
           instructor: { select: { id: true, name: true, phone: true } },
+          registration: { include: registrationStudentInclude },
+          attendance: {
+            include: {
+              registration: { include: registrationStudentInclude },
+            },
+          },
           expenses: {
             where: { status: 'approved' },
             select: { id: true, type: true, amount: true, description: true, status: true },
@@ -173,13 +258,12 @@ meetingsRouter.get('/:id', async (req, res, next) => {
         attendance: {
           include: {
             registration: {
-              include: {
-                student: { select: { id: true, name: true } },
-              },
+              include: registrationStudentInclude,
             },
             recordedBy: { select: { id: true, name: true } },
           },
         },
+        registration: { include: registrationStudentInclude },
         statusUpdatedBy: { select: { id: true, name: true } },
         rescheduledTo: { select: { id: true, scheduledDate: true } },
         rescheduledFrom: { select: { id: true, scheduledDate: true } },
@@ -199,7 +283,7 @@ meetingsRouter.get('/:id', async (req, res, next) => {
 // Create exceptional/ad-hoc meeting for a cycle
 meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
   try {
-    const { cycleId, instructorId, scheduledDate, startTime, endTime, withZoom, activityType, topic, notes } = req.body;
+    const { cycleId, instructorId, registrationId, scheduledDate, startTime, endTime, withZoom, activityType, topic, notes } = req.body;
 
     if (!cycleId || !instructorId || !scheduledDate || !startTime || !endTime) {
       throw new AppError(400, 'Missing required fields: cycleId, instructorId, scheduledDate, startTime, endTime');
@@ -218,6 +302,15 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
 
     if (!cycle) {
       throw new AppError(404, 'Cycle not found');
+    }
+
+    if (cycle.type === 'trial_private') {
+      if (!registrationId) {
+        throw new AppError(400, 'חובה לבחור תלמיד/הרשמה לשיעור ניסיון');
+      }
+      await assertRegistrationBelongsToCycle(registrationId, cycleId);
+    } else if (registrationId) {
+      await assertRegistrationBelongsToCycle(registrationId, cycleId);
     }
 
     // Block adding meetings into a month that already has an issued billing invoice.
@@ -268,6 +361,7 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
       data: {
         cycleId,
         instructorId,
+        registrationId: registrationId || null,
         scheduledDate: new Date(scheduledDate),
         startTime: new Date(`1970-01-01T${startTime}:00Z`),
         endTime: new Date(`1970-01-01T${endTime}:00Z`),
@@ -282,6 +376,7 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
       include: {
         cycle: { include: { course: true, branch: true } },
         instructor: true,
+        registration: { include: registrationStudentInclude },
       },
     });
 
@@ -421,6 +516,13 @@ meetingsRouter.put('/:id', async (req, res, next) => {
     }
 
     const updateData: any = { ...data };
+
+    if (Object.prototype.hasOwnProperty.call(data, 'registrationId')) {
+      updateData.registrationId = data.registrationId || null;
+      if (data.registrationId) {
+        await assertRegistrationBelongsToCycle(data.registrationId, existingMeeting.cycleId);
+      }
+    }
     
     // Handle date and time updates
     if (data.scheduledDate) {
@@ -444,6 +546,11 @@ meetingsRouter.put('/:id', async (req, res, next) => {
       
       // Update cycle counters and calculate financials when completed
       if (data.status === 'completed') {
+        const trialRegistrationId = await ensureTrialMeetingHasRegistration({
+          ...existingMeeting,
+          registrationId: updateData.registrationId ?? existingMeeting.registrationId,
+        });
+
         // Get full cycle data with registrations and instructor
         const cycleData = await prisma.cycle.findUnique({
           where: { id: existingMeeting.cycleId },
@@ -510,6 +617,11 @@ meetingsRouter.put('/:id', async (req, res, next) => {
           // Mark for post-update sync (cycle counters updated after meeting is saved)
           statusChangedToCompleted = true;
 
+          if (trialRegistrationId) {
+            await upsertTrialAttendance(id, trialRegistrationId, req.user!.userId);
+            updateData.registrationId = trialRegistrationId;
+          }
+
         }
       }
       
@@ -546,6 +658,12 @@ meetingsRouter.put('/:id', async (req, res, next) => {
           },
         },
         instructor: { select: { id: true, name: true } },
+        registration: { include: registrationStudentInclude },
+        attendance: {
+          include: {
+            registration: { include: registrationStudentInclude },
+          },
+        },
       },
     });
     await recalculateDailyInstructorPaymentsForMeeting(existingMeeting);
@@ -1061,6 +1179,8 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
 
         // Handle status change to completed - calculate financials
         if (status === 'completed' && existingMeeting.status !== 'completed') {
+          const trialRegistrationId = await ensureTrialMeetingHasRegistration(existingMeeting);
+
           const cycleData = await prisma.cycle.findUnique({
             where: { id: existingMeeting.cycleId },
             include: {
@@ -1099,6 +1219,11 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
             updateData.revenue = revenue;
             updateData.instructorPayment = instructorPayment;
             updateData.profit = profit;
+
+            if (trialRegistrationId) {
+              await upsertTrialAttendance(id, trialRegistrationId, req.user!.userId);
+              updateData.registrationId = trialRegistrationId;
+            }
 
             // Update cycle counters
             const updatedCompleted = cycleData.completedMeetings + 1;
@@ -1208,7 +1333,7 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
     }
 
     // Allowed fields for bulk update
-    const allowedFields = ['status', 'activityType', 'topic', 'notes', 'scheduledDate', 'startTime', 'endTime', 'instructorId'];
+    const allowedFields = ['status', 'activityType', 'topic', 'notes', 'scheduledDate', 'startTime', 'endTime', 'instructorId', 'registrationId'];
     const updateData: Record<string, any> = {};
     
     for (const field of allowedFields) {
@@ -1238,6 +1363,7 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
       try {
         const existingMeeting = await prisma.meeting.findUnique({
           where: { id },
+          include: { cycle: true },
         });
 
         if (!existingMeeting) {
@@ -1245,15 +1371,29 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
           continue;
         }
 
+        const perMeetingUpdateData = { ...updateData };
+
         // If status changing to completed and wasn't completed before, add timestamps
-        if (updateData.status === 'completed' && existingMeeting.status !== 'completed') {
-          updateData.statusUpdatedAt = new Date();
-          updateData.statusUpdatedById = req.user!.userId;
+        if (perMeetingUpdateData.status === 'completed' && existingMeeting.status !== 'completed') {
+          const trialRegistrationId = await ensureTrialMeetingHasRegistration({
+            ...existingMeeting,
+            registrationId: perMeetingUpdateData.registrationId ?? existingMeeting.registrationId,
+          });
+          if (trialRegistrationId) {
+            await upsertTrialAttendance(id, trialRegistrationId, req.user!.userId);
+            perMeetingUpdateData.registrationId = trialRegistrationId;
+          }
+          perMeetingUpdateData.statusUpdatedAt = new Date();
+          perMeetingUpdateData.statusUpdatedById = req.user!.userId;
+        }
+
+        if (Object.prototype.hasOwnProperty.call(perMeetingUpdateData, 'registrationId') && perMeetingUpdateData.registrationId) {
+          await assertRegistrationBelongsToCycle(perMeetingUpdateData.registrationId, existingMeeting.cycleId);
         }
 
         await prisma.meeting.update({
           where: { id },
-          data: updateData,
+          data: perMeetingUpdateData,
         });
 
         // Recalculate financials if status changed to completed

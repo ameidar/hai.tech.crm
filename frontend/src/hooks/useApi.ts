@@ -706,6 +706,7 @@ export const useMeeting = (id: string | undefined) => {
 export interface CreateMeetingData {
   cycleId: string;
   instructorId: string;
+  registrationId?: string;
   scheduledDate: string;
   startTime: string;
   endTime: string;

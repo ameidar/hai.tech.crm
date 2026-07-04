@@ -7,7 +7,7 @@ export type CycleStatus = 'active' | 'completed' | 'cancelled' | 'frozen' | 'ret
 export type DayOfWeek = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday';
 export type MeetingStatus = 'scheduled' | 'completed' | 'cancelled' | 'postponed' | 'pending_cancellation' | 'pending_postponement';
 export type MeetingNature = 'regular' | 'no_revenue';
-export type RegistrationStatus = 'registered' | 'active' | 'completed' | 'pending_cancellation' | 'cancelled';
+export type RegistrationStatus = 'registered' | 'active' | 'completed' | 'pending_cancellation' | 'cancelled' | 'trial';
 export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
 export type PaymentMethod = 'credit' | 'transfer' | 'cash' | 'standing_order' | 'institutional';
 export type AttendanceStatus = 'present' | 'absent' | 'late';
@@ -287,6 +287,7 @@ export interface Meeting {
   id: string;
   cycleId: string;
   instructorId: string;
+  registrationId?: string | null;
   scheduledDate: string;
   startTime: string;
   endTime: string;
@@ -322,6 +323,7 @@ export interface Meeting {
   createdAt: string;
   cycle?: Cycle;
   instructor?: Instructor;
+  registration?: Registration | null;
   attendance?: Attendance[];
   _count?: {
     attendance: number;

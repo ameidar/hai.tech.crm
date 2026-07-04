@@ -56,15 +56,6 @@ interface LeadActivity {
   user?: { id: string; name: string; email: string; role: string };
 }
 
-const statusColors: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-800',
-  queued: 'bg-blue-100 text-blue-800',
-  scheduled: 'bg-green-100 text-green-800',
-  completed: 'bg-gray-100 text-gray-800',
-  cancelled: 'bg-red-100 text-red-800',
-  no_answer: 'bg-orange-100 text-orange-800',
-};
-
 const statusLabels: Record<string, string> = {
   pending: 'ממתין',
   queued: 'בתור',
@@ -146,14 +137,6 @@ const manualSourceOptions: { value: string; label: string }[] = [
   { value: 'website', label: 'אתר' },
   { value: 'other', label: 'אחר' },
 ];
-
-function StatusBadge({ status }: { status: string }) {
-  return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[status] || 'bg-gray-100 text-gray-800'}`}>
-      {statusLabels[status] || status}
-    </span>
-  );
-}
 
 function SalesStatusBadge({ status }: { status: string }) {
   return (
@@ -605,6 +588,10 @@ export default function LeadAppointments() {
             queryClient.invalidateQueries({ queryKey: ['lead-appointments'] });
             closeModal();
           }}
+          onUpdated={(lead) => {
+            setSelectedLead(lead);
+            queryClient.invalidateQueries({ queryKey: ['lead-appointments'] });
+          }}
         />
       )}
 
@@ -673,8 +660,11 @@ function NewLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
         sendWelcome,
       });
       onCreated();
-    } catch (err: any) {
-      setError(err?.response?.data?.message || 'שגיאה ביצירת הליד');
+    } catch (err: unknown) {
+      const message = typeof err === 'object' && err && 'response' in err
+        ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
+        : undefined;
+      setError(message || 'שגיאה ביצירת הליד');
     } finally {
       setSaving(false);
     }
@@ -849,10 +839,12 @@ function LeadDetailModal({
   lead,
   onClose,
   onSaved,
+  onUpdated,
 }: {
   lead: LeadAppointment;
   onClose: () => void;
   onSaved: () => void;
+  onUpdated: (lead: LeadAppointment) => void;
 }) {
   const { user } = useAuth();
   const [status, setStatus] = useState(lead.appointmentStatus);
@@ -892,12 +884,13 @@ function LeadDetailModal({
     if (!user?.id) return;
     setSaving(true);
     try {
-      await api.patch(`/lead-appointments/${lead.id}`, {
+      const res = await api.patch(`/lead-appointments/${lead.id}`, {
         assignedToId: user.id,
         activityType: 'assignment',
         activityNote: `${user.name} לקח/ה אחריות על הליד`,
       });
-      onSaved();
+      const updatedLead = res.data?.data ?? res.data;
+      if (updatedLead) onUpdated(updatedLead);
     } catch (err) {
       console.error('Failed to take ownership:', err);
     } finally {
@@ -906,7 +899,7 @@ function LeadDetailModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div
         className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4"
         onClick={(e) => e.stopPropagation()}

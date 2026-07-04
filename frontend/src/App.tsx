@@ -103,10 +103,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Blocks access for 'sales' role — redirects to WhatsApp inbox
+// Blocks access for 'sales' role — redirects to the lead work queue
 function NonSalesRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  if (user?.role === 'sales') return <Navigate to="/whatsapp" replace />;
+  if (user?.role === 'sales') return <Navigate to="/lead-appointments" replace />;
   return <>{children}</>;
 }
 
@@ -119,7 +119,7 @@ function AppRoutes() {
   // Redirect based on role
   const getDefaultRoute = () => {
     if (isInstructor) return '/instructor';
-    if (isSales) return '/whatsapp';
+    if (isSales) return '/lead-appointments';
     return '/';
   };
 
@@ -167,7 +167,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route index element={isInstructor ? <Navigate to="/instructor" replace /> : isSales ? <Navigate to="/whatsapp" replace /> : <Dashboard />} />
+        <Route index element={isInstructor ? <Navigate to="/instructor" replace /> : isSales ? <Navigate to="/lead-appointments" replace /> : <Dashboard />} />
         <Route path="operations" element={<OperationsHours />} />
         <Route path="tasks" element={<Tasks />} />
         {!isInstructor && (

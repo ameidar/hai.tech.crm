@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Trash2, Plus, AlertCircle, UserCheck } from 'lucide-react';
+import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Trash2, Plus, AlertCircle, UserCheck, MessageCircle, CalendarCheck, Clock, Flame, CheckCircle2 } from 'lucide-react';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -110,6 +110,32 @@ const contactResultLabels: Record<string, string> = {
 
 const allContactResults = ['called', 'no_answer', 'whatsapp_sent', 'interested', 'scheduled', 'not_relevant', 'converted'];
 
+const closedSalesStatuses = ['converted', 'not_relevant'];
+
+function isFollowUpDue(lead: LeadAppointment) {
+  if (!lead.nextFollowUpAt || closedSalesStatuses.includes(lead.salesStatus)) return false;
+  return new Date(lead.nextFollowUpAt).getTime() <= Date.now();
+}
+
+function formatFollowUp(lead: LeadAppointment) {
+  if (!lead.nextFollowUpAt) return '-';
+  return new Date(lead.nextFollowUpAt).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function normalizeWhatsAppPhone(phone: string) {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.startsWith('972')) return digits;
+  if (digits.startsWith('0')) return `972${digits.slice(1)}`;
+  return digits;
+}
+
+const quickActions = [
+  { key: 'called', label: 'דיברתי', icon: Phone, result: 'called', salesStatus: 'follow_up', appointmentStatus: undefined, note: 'בוצעה שיחה עם הליד' },
+  { key: 'no_answer', label: 'לא ענה', icon: Clock, result: 'no_answer', salesStatus: 'no_answer', appointmentStatus: undefined, note: 'לא היה מענה' },
+  { key: 'whatsapp', label: 'וואטסאפ', icon: MessageCircle, result: 'whatsapp_sent', salesStatus: 'follow_up', appointmentStatus: undefined, note: 'נשלחה הודעת WhatsApp' },
+  { key: 'scheduled', label: 'נקבעה', icon: CalendarCheck, result: 'scheduled', salesStatus: 'scheduled', appointmentStatus: 'scheduled', note: 'נקבעה שיחה' },
+] as const;
+
 // Source options offered when a salesperson manually adds an external lead
 const manualSourceOptions: { value: string; label: string }[] = [
   { value: 'phone', label: 'טלפון' },
@@ -146,7 +172,7 @@ export default function LeadAppointments() {
   const [salesStatusFilter, setSalesStatusFilter] = useState('');
   const [followUpFilter, setFollowUpFilter] = useState('');
   const [page, setPage] = useState(1);
-  const [sortBy, setSortBy] = useState<'createdAt' | 'updatedAt'>('createdAt');
+  const [sortBy, setSortBy] = useState<'createdAt' | 'updatedAt' | 'nextFollowUpAt'>('updatedAt');
   const [selectedLead, setSelectedLead] = useState<LeadAppointment | null>(null);
   const [showNewLead, setShowNewLead] = useState(false);
 
@@ -186,7 +212,7 @@ export default function LeadAppointments() {
   if (followUpFilter) params.set('followUp', followUpFilter);
   if (fromDate) params.set('from', fromDate);
   if (toDate) params.set('to', toDate);
-  if (sortBy === 'updatedAt') params.set('sortBy', 'updatedAt');
+  if (sortBy !== 'createdAt') params.set('sortBy', sortBy);
 
   const { data, isLoading } = useQuery({
     queryKey: ['lead-appointments', page, statusFilter, sourceFilter, salesStatusFilter, followUpFilter, fromDate, toDate, sortBy],
@@ -213,8 +239,36 @@ export default function LeadAppointments() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lead-appointments'] }),
   });
 
+  const quickActionMutation = useMutation({
+    mutationFn: ({
+      id,
+      result,
+      salesStatus,
+      appointmentStatus,
+      note,
+    }: {
+      id: string;
+      result: string;
+      salesStatus: string;
+      appointmentStatus?: string;
+      note: string;
+    }) =>
+      api.patch(`/lead-appointments/${id}`, {
+        salesStatus,
+        appointmentStatus,
+        lastContactResult: result,
+        activityType: result === 'whatsapp_sent' ? 'whatsapp' : 'call',
+        activityNote: note,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lead-appointments'] }),
+  });
+
   const leads: LeadAppointment[] = data?.data || data || [];
   const pagination = data?.pagination;
+  const totalPages = pagination?.totalPages || pagination?.pages || 1;
+  const urgentCount = leads.filter(isFollowUpDue).length;
+  const unassignedCount = leads.filter((lead) => !lead.assignedToId && !lead.assignedTo).length;
+  const freshCount = leads.filter((lead) => (lead.salesStatus || 'new') === 'new').length;
 
   return (
     <div className="space-y-6">
@@ -231,8 +285,58 @@ export default function LeadAppointments() {
         }
       />
 
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <button
+          onClick={() => { setFollowUpFilter('due'); setSortBy('nextFollowUpAt'); setPage(1); }}
+          className={`text-right rounded-lg border p-4 transition-colors ${
+            followUpFilter === 'due'
+              ? 'border-amber-300 bg-amber-50'
+              : 'border-gray-200 bg-white hover:border-amber-200 hover:bg-amber-50/60'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-gray-500">לטיפול עכשיו בעמוד</span>
+            <Flame className="w-5 h-5 text-amber-500" />
+          </div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900">{urgentCount}</div>
+        </button>
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-gray-500">חדשים בעמוד</span>
+            <Plus className="w-5 h-5 text-sky-500" />
+          </div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900">{freshCount}</div>
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-gray-500">ללא אחראי בעמוד</span>
+            <UserCheck className="w-5 h-5 text-indigo-500" />
+          </div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900">{unassignedCount}</div>
+        </div>
+        <button
+          onClick={() => {
+            setStatusFilter('');
+            setSourceFilter('');
+            setSalesStatusFilter('');
+            setFollowUpFilter('');
+            setFromDate('');
+            setToDate('');
+            setSortBy('updatedAt');
+            setPage(1);
+          }}
+          className="rounded-lg border border-gray-200 bg-white p-4 text-right hover:border-blue-200 hover:bg-blue-50/60 transition-colors"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-gray-500">תצוגת עבודה</span>
+            <CheckCircle2 className="w-5 h-5 text-blue-500" />
+          </div>
+          <div className="mt-2 text-sm font-medium text-gray-900">איפוס סינונים</div>
+        </button>
+      </div>
+
       {/* Filters */}
-      <div className="bg-white rounded-lg shadow p-4 flex flex-wrap gap-4 items-end">
+      <div className="bg-white rounded-lg border border-gray-200 p-4 flex flex-wrap gap-4 items-end">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">סטטוס מכירה</label>
           <select
@@ -306,11 +410,12 @@ export default function LeadAppointments() {
           <label className="block text-sm font-medium text-gray-700 mb-1">מיון לפי</label>
           <select
             value={sortBy}
-            onChange={(e) => { setSortBy(e.target.value as 'createdAt' | 'updatedAt'); setPage(1); }}
+            onChange={(e) => { setSortBy(e.target.value as 'createdAt' | 'updatedAt' | 'nextFollowUpAt'); setPage(1); }}
             className={`border rounded-md px-3 py-2 text-sm font-medium transition-colors ${sortBy === 'updatedAt' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-700'}`}
           >
             <option value="createdAt">תאריך פנייה</option>
             <option value="updatedAt">עדכון אחרון</option>
+            <option value="nextFollowUpAt">חזרה הבאה</option>
           </select>
         </div>
       </div>
@@ -340,8 +445,16 @@ export default function LeadAppointments() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {leads.map((lead) => (
-                <tr key={lead.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedLead(lead)}>
+              {leads.map((lead) => {
+                const due = isFollowUpDue(lead);
+                return (
+                <tr
+                  key={lead.id}
+                  className={`cursor-pointer transition-colors ${
+                    due ? 'bg-amber-50 hover:bg-amber-100/70' : 'hover:bg-gray-50'
+                  }`}
+                  onClick={() => setSelectedLead(lead)}
+                >
                   <td className="px-4 py-3 text-sm whitespace-nowrap">
                     {sortBy === 'updatedAt' ? (
                       <div>
@@ -351,21 +464,37 @@ export default function LeadAppointments() {
                           <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">עודכן</span>
                         )}
                       </div>
+                    ) : sortBy === 'nextFollowUpAt' ? (
+                      <div>
+                        <div className={`font-medium ${due ? 'text-amber-800' : 'text-gray-900'}`}>{formatFollowUp(lead)}</div>
+                        {due && <span className="text-xs bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-medium">עכשיו</span>}
+                      </div>
                     ) : (
                       new Date(lead.createdAt).toLocaleDateString('he-IL')
                     )}
                   </td>
                   <td className="px-4 py-3 text-sm font-medium">{lead.customerName}</td>
-                  <td className="px-4 py-3 text-sm" dir="ltr">{lead.customerPhone}</td>
+                  <td className="px-4 py-3 text-sm" dir="ltr">
+                    {lead.customerPhone ? (
+                      <a
+                        href={`tel:${lead.customerPhone}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 text-blue-700 hover:text-blue-900"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        {lead.customerPhone}
+                      </a>
+                    ) : '-'}
+                  </td>
                   <td className="px-4 py-3 text-sm">{lead.childName || '-'}</td>
                   <td className="px-4 py-3 text-sm">{lead.interest || '-'}</td>
                   <td className="px-4 py-3 text-sm">
                     <SalesStatusBadge status={lead.salesStatus || 'new'} />
                   </td>
                   <td className="px-4 py-3 text-sm whitespace-nowrap">
-                    {lead.nextFollowUpAt
-                      ? new Date(lead.nextFollowUpAt).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' })
-                      : '-'}
+                    <span className={due ? 'font-semibold text-amber-800' : ''}>
+                      {formatFollowUp(lead)}
+                    </span>
                   </td>
                   <td className="px-4 py-3 text-sm">{lead.assignedTo?.name || '-'}</td>
                   <td className="px-4 py-3 text-sm">
@@ -381,42 +510,80 @@ export default function LeadAppointments() {
                     </select>
                   </td>
                   <td className="px-4 py-3 text-sm">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
+                      {quickActions.map((action) => {
+                        const Icon = action.icon;
+                        return (
+                          <button
+                            key={action.key}
+                            title={action.label}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              quickActionMutation.mutate({
+                                id: lead.id,
+                                result: action.result,
+                                salesStatus: action.salesStatus,
+                                appointmentStatus: action.appointmentStatus,
+                                note: action.note,
+                              });
+                            }}
+                            disabled={quickActionMutation.isPending}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 text-gray-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50"
+                          >
+                            <Icon className="w-4 h-4" />
+                          </button>
+                        );
+                      })}
+                      {lead.customerPhone && (
+                        <a
+                          href={`https://wa.me/${normalizeWhatsAppPhone(lead.customerPhone)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="פתח WhatsApp"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-green-200 text-green-700 hover:bg-green-50"
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                        </a>
+                      )}
                       <button
                         onClick={(e) => { e.stopPropagation(); setSelectedLead(lead); }}
-                        className="text-blue-600 hover:text-blue-800"
+                        title="פתח פרטים"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 text-blue-600 hover:bg-blue-50"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDelete(lead.id, lead.customerName); }}
-                        className="text-red-500 hover:text-red-700"
+                        title="מחק"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 text-red-500 hover:bg-red-50"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
 
           {/* Pagination */}
-          {pagination && pagination.pages > 1 && (
+          {pagination && totalPages > 1 && (
             <div className="flex items-center justify-between px-4 py-3 border-t">
               <span className="text-sm text-gray-700">
-                עמוד {pagination.page} מתוך {pagination.pages} ({pagination.total} תוצאות)
+                עמוד {pagination.page} מתוך {totalPages} ({pagination.total} תוצאות)
               </span>
               <div className="flex gap-2">
                 <button
-                  disabled={!pagination.hasPrev}
+                  disabled={page <= 1}
                   onClick={() => setPage(page - 1)}
                   className="px-3 py-1 text-sm border rounded disabled:opacity-50"
                 >
                   הקודם
                 </button>
                 <button
-                  disabled={!pagination.hasNext}
+                  disabled={page >= totalPages}
                   onClick={() => setPage(page + 1)}
                   className="px-3 py-1 text-sm border rounded disabled:opacity-50"
                 >

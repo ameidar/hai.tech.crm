@@ -9,6 +9,7 @@ import { logAudit } from '../utils/audit.js';
 import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
 import { meetingRevenueFromRegistrations, revenueRegistrationCount, roundMoney } from '../utils/revenue.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
+import { broadcastWaSSE } from '../services/wa-events.js';
 import rateLimit from 'express-rate-limit';
 
 // Rate limiter for public lead submission endpoint
@@ -98,6 +99,14 @@ function phoneLast9(phone: string): string | null {
   return digits.length >= 9 ? digits.slice(-9) : null;
 }
 
+function normalizeWhatsAppPhone(phone: string): string | null {
+  const digits = normalizePhoneDigits(phone);
+  if (digits.length < 9) return null;
+  if (digits.startsWith('972')) return digits;
+  if (digits.startsWith('0')) return `972${digits.slice(1)}`;
+  return digits;
+}
+
 function greenMessageId(body: any): string | null {
   return (
     body?.idMessage ||
@@ -134,6 +143,9 @@ async function routeGreenInboundToCrm(params: {
 }) {
   const last9 = phoneLast9(params.phone);
   if (!last9) return;
+  const normalizedPhone = normalizeWhatsAppPhone(params.phone);
+  if (!normalizedPhone) return;
+  const greenWaMessageId = params.messageId ? `green:${params.messageId}` : null;
 
   if (params.messageId) {
     const existing = await prisma.$queryRaw<{ id: string }[]>`
@@ -144,6 +156,14 @@ async function routeGreenInboundToCrm(params: {
       LIMIT 1
     `;
     if (existing.length > 0) return;
+  }
+
+  if (greenWaMessageId) {
+    const existingMessage = await prisma.waMessage.findUnique({
+      where: { waMessageId: greenWaMessageId },
+      select: { id: true },
+    });
+    if (existingMessage) return;
   }
 
   const customers = await prisma.$queryRaw<GreenMatchedCustomer[]>`
@@ -203,6 +223,61 @@ async function routeGreenInboundToCrm(params: {
           leadAppointmentId: lead?.id,
         },
       },
+    });
+
+    let conversation = await prisma.waConversation.findFirst({
+      where: { phone: normalizedPhone },
+      orderBy: { lastMessageAt: 'desc' },
+    });
+
+    const contactName = customer.name || lead?.customer_name || normalizedPhone;
+    const now = new Date();
+
+    if (!conversation) {
+      conversation = await prisma.waConversation.create({
+        data: {
+          phone: normalizedPhone,
+          contactName,
+          status: 'open',
+          unreadCount: 0,
+          lastMessageAt: now,
+          lastMessagePreview: params.message.slice(0, 100),
+          businessPhone: 'Green API',
+          phoneNumberId: null,
+          aiEnabled: false,
+        },
+      });
+    }
+
+    const waMessage = await prisma.waMessage.create({
+      data: {
+        conversationId: conversation.id,
+        direction: 'inbound',
+        content: params.message,
+        waMessageId: greenWaMessageId,
+        status: 'received',
+      },
+    });
+
+    await prisma.waConversation.update({
+      where: { id: conversation.id },
+      data: {
+        unreadCount: { increment: 1 },
+        lastMessageAt: now,
+        lastMessagePreview: params.message.slice(0, 100),
+        contactName,
+        businessPhone: conversation.businessPhone || 'Green API',
+        aiEnabled: false,
+        updatedAt: now,
+      },
+    });
+
+    broadcastWaSSE('new_message', {
+      conversationId: conversation.id,
+      message: waMessage,
+      phone: normalizedPhone,
+      contactName,
+      provider: 'green',
     });
   }
 

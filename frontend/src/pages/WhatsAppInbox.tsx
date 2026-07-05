@@ -129,6 +129,10 @@ function StatusIcon({ status }: { status: string }) {
   return <Clock size={14} className="text-gray-300" />;
 }
 
+function isGreenMessage(messageId?: string | null): boolean {
+  return !!messageId?.startsWith('green:');
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function WhatsAppInbox() {
   const [searchParams] = useSearchParams();
@@ -1463,6 +1467,9 @@ export default function WhatsAppInbox() {
                   <div className={`flex items-center justify-end gap-1 mt-1 ${
                     msg.direction === 'outbound' && !msg.isAiGenerated ? 'text-green-100' : 'text-gray-400'
                   }`}>
+                    {isGreenMessage(msg.waMessageId) && (
+                      <span className="text-xs font-medium text-green-600">Green</span>
+                    )}
                     <span className="text-xs">{formatTime(msg.createdAt)}</span>
                     {msg.direction === 'outbound' && <StatusIcon status={msg.status} />}
                   </div>

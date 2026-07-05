@@ -93,6 +93,7 @@ const contactResultLabels: Record<string, string> = {
   called: 'התקשרתי',
   no_answer: 'לא ענה',
   whatsapp_sent: 'שלחתי WhatsApp',
+  green_reply: 'הגיב ב-WhatsApp',
   interested: 'מתעניין',
   scheduled: 'נקבעה שיחה',
   not_relevant: 'לא רלוונטי',

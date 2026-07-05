@@ -1492,43 +1492,51 @@ function CommunicationHistory({ customerId }: { customerId: string }) {
         <div className="p-8 text-center text-gray-500">טוען...</div>
       ) : logs.length > 0 ? (
         <div className="divide-y divide-gray-100 max-h-96 overflow-auto">
-          {logs.map((log: any) => (
-            <div key={log.id} className="p-4 hover:bg-gray-50">
-              <div className="flex items-start gap-3">
-                <div className={`p-2 rounded-lg ${log.entity === 'communication_whatsapp' ? 'bg-green-100' : 'bg-blue-100'}`}>
-                  {log.entity === 'communication_whatsapp' ? (
-                    <MessageCircle size={16} className="text-green-600" />
-                  ) : (
-                    <Mail size={16} className="text-blue-600" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-gray-900">
-                      {log.entity === 'communication_whatsapp' ? 'וואטסאפ' : 'אימייל'}
-                    </span>
-                    <span className="text-xs text-gray-500">{formatDate(log.createdAt)}</span>
+          {logs.map((log: any) => {
+            const isWhatsApp = log.entity === 'communication_whatsapp';
+            const isInbound = isWhatsApp && log.newValue?.direction === 'inbound';
+            const providerLabel = log.newValue?.provider === 'green' ? 'Green API' : 'CRM';
+
+            return (
+              <div key={log.id} className="p-4 hover:bg-gray-50">
+                <div className="flex items-start gap-3">
+                  <div className={`p-2 rounded-lg ${isWhatsApp ? 'bg-green-100' : 'bg-blue-100'}`}>
+                    {isWhatsApp ? (
+                      <MessageCircle size={16} className="text-green-600" />
+                    ) : (
+                      <Mail size={16} className="text-blue-600" />
+                    )}
                   </div>
-                  <p className="text-sm text-gray-500 mt-0.5">
-                    נשלח ע"י {log.userName || 'מערכת'}
-                  </p>
-                  {log.entity === 'communication_whatsapp' && log.newValue?.message && (
-                    <p className="text-sm text-gray-700 mt-2 bg-gray-50 rounded p-2 whitespace-pre-wrap">
-                      {log.newValue.message}
-                    </p>
-                  )}
-                  {log.entity === 'communication_email' && (
-                    <div className="mt-2 bg-gray-50 rounded p-2">
-                      <p className="text-sm font-medium text-gray-800">נושא: {log.newValue?.subject}</p>
-                      {log.newValue?.bodyPreview && (
-                        <p className="text-sm text-gray-600 mt-1">{log.newValue.bodyPreview}...</p>
-                      )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-gray-900">
+                        {isWhatsApp ? (isInbound ? 'וואטסאפ נכנס' : 'וואטסאפ') : 'אימייל'}
+                      </span>
+                      <span className="text-xs text-gray-500">{formatDate(log.createdAt)}</span>
                     </div>
-                  )}
+                    <p className="text-sm text-gray-500 mt-0.5">
+                      {isInbound
+                        ? `התקבל מהלקוח דרך ${providerLabel}`
+                        : `נשלח ע"י ${log.userName || 'מערכת'}${isWhatsApp ? ` דרך ${providerLabel}` : ''}`}
+                    </p>
+                    {isWhatsApp && log.newValue?.message && (
+                      <p className="text-sm text-gray-700 mt-2 bg-gray-50 rounded p-2 whitespace-pre-wrap">
+                        {log.newValue.message}
+                      </p>
+                    )}
+                    {log.entity === 'communication_email' && (
+                      <div className="mt-2 bg-gray-50 rounded p-2">
+                        <p className="text-sm font-medium text-gray-800">נושא: {log.newValue?.subject}</p>
+                        {log.newValue?.bodyPreview && (
+                          <p className="text-sm text-gray-600 mt-1">{log.newValue.bodyPreview}...</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="p-8 text-center">

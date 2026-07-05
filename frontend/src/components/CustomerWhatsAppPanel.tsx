@@ -25,6 +25,10 @@ function fillTemplate(text: string, vars: string[]): string {
   return text.replace(/\{\{\s*(\d+)\s*\}\}/g, (_, n) => vars[parseInt(n, 10) - 1] || `{{${n}}}`);
 }
 
+function isGreenMessage(messageId?: string | null): boolean {
+  return !!messageId?.startsWith('green:');
+}
+
 export default function CustomerWhatsAppPanel({ customerId }: { customerId: string }) {
   const { data, isLoading, refetch, isRefetching } = useCustomerWhatsApp(customerId);
   const sendText = useSendWaText();
@@ -158,6 +162,7 @@ export default function CustomerWhatsAppPanel({ customerId }: { customerId: stri
               >
                 <div>{m.content}</div>
                 <div className="text-[10px] text-gray-400 mt-1 flex items-center gap-1 justify-end">
+                  {isGreenMessage(m.waMessageId) && <span className="text-green-600 font-medium">Green</span>}
                   {m.isAiGenerated && <span title="נשלח ע״י הבוט">🤖</span>}
                   {new Date(m.createdAt).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                 </div>

@@ -11,6 +11,15 @@ vi.mock('../../utils/prisma.js', () => ({
     auditLog: {
       create: vi.fn(),
     },
+    waConversation: {
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+    },
+    waMessage: {
+      findUnique: vi.fn(),
+      create: vi.fn(),
+    },
     leadActivity: {
       create: vi.fn(),
     },
@@ -41,6 +50,10 @@ vi.mock('../../services/lead-welcome.js', () => ({
   sendLeadWelcomeTemplate: vi.fn(),
 }));
 
+vi.mock('../../services/wa-events.js', () => ({
+  broadcastWaSSE: vi.fn(),
+}));
+
 vi.mock('../../utils/revenue.js', () => ({
   meetingRevenueFromRegistrations: vi.fn(),
   revenueRegistrationCount: vi.fn(),
@@ -53,6 +66,7 @@ vi.mock('../../services/instructor-payment.js', () => ({
 }));
 
 import { prisma } from '../../utils/prisma.js';
+import { broadcastWaSSE } from '../../services/wa-events.js';
 import { webhookRouter } from '../webhook.js';
 
 const app = express();
@@ -81,6 +95,20 @@ describe('POST /api/webhook/whatsapp-incoming — Green inbound CRM routing', ()
     consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     (prisma.customer.findFirst as any).mockResolvedValue(null);
     (prisma.auditLog.create as any).mockResolvedValue({ id: 'audit-1' });
+    (prisma.waConversation.findFirst as any).mockResolvedValue({ id: 'conv-1', businessPhone: null });
+    (prisma.waConversation.create as any).mockResolvedValue({ id: 'conv-1', businessPhone: 'Green API' });
+    (prisma.waConversation.update as any).mockResolvedValue({ id: 'conv-1' });
+    (prisma.waMessage.findUnique as any).mockResolvedValue(null);
+    (prisma.waMessage.create as any).mockResolvedValue({
+      id: 'wa-message-1',
+      conversationId: 'conv-1',
+      direction: 'inbound',
+      content: 'היי, אשמח לפרטים',
+      waMessageId: 'green:green-msg-1',
+      status: 'received',
+      isAiGenerated: false,
+      createdAt: new Date(),
+    });
     (prisma.leadActivity.create as any).mockResolvedValue({ id: 'activity-1' });
     (prisma.leadAppointment.update as any).mockResolvedValue({ id: 'lead-1' });
   });
@@ -126,6 +154,35 @@ describe('POST /api/webhook/whatsapp-incoming — Green inbound CRM routing', ()
         }),
       }),
     });
+    expect(prisma.waConversation.findFirst).toHaveBeenCalledWith({
+      where: { phone: '972528746137' },
+      orderBy: { lastMessageAt: 'desc' },
+    });
+    expect(prisma.waMessage.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        conversationId: 'conv-1',
+        direction: 'inbound',
+        content: 'היי, אשמח לפרטים',
+        waMessageId: 'green:green-msg-1',
+        status: 'received',
+      }),
+    });
+    expect(prisma.waConversation.update).toHaveBeenCalledWith({
+      where: { id: 'conv-1' },
+      data: expect.objectContaining({
+        unreadCount: { increment: 1 },
+        lastMessagePreview: 'היי, אשמח לפרטים',
+        contactName: 'עמי',
+        businessPhone: 'Green API',
+        aiEnabled: false,
+      }),
+    });
+    expect(broadcastWaSSE).toHaveBeenCalledWith('new_message', expect.objectContaining({
+      conversationId: 'conv-1',
+      phone: '972528746137',
+      contactName: 'עמי',
+      provider: 'green',
+    }));
     expect(prisma.leadActivity.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         leadAppointmentId: 'lead-1',
@@ -156,6 +213,7 @@ describe('POST /api/webhook/whatsapp-incoming — Green inbound CRM routing', ()
     await waitForWebhookWork();
 
     expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(prisma.waMessage.create).toHaveBeenCalledTimes(1);
     expect(prisma.leadActivity.create).not.toHaveBeenCalled();
     expect(prisma.leadAppointment.update).not.toHaveBeenCalled();
   });
@@ -167,6 +225,7 @@ describe('POST /api/webhook/whatsapp-incoming — Green inbound CRM routing', ()
     await waitForWebhookWork();
 
     expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    expect(prisma.waMessage.create).not.toHaveBeenCalled();
     expect(prisma.leadActivity.create).not.toHaveBeenCalled();
     expect(prisma.leadAppointment.update).not.toHaveBeenCalled();
   });

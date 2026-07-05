@@ -1014,6 +1014,7 @@ export interface WaMessage {
   conversationId: string;
   direction: 'inbound' | 'outbound';
   content: string;
+  waMessageId?: string | null;
   status: string;
   isAiGenerated: boolean;
   createdAt: string;

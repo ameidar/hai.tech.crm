@@ -33,11 +33,39 @@ function requestUserId(req: Request) {
   return (req.user as any)?.userId || (req.user as any)?.id || null;
 }
 
+function buildLeadSearchClauses(search: string) {
+  const digits = search.replace(/\D/g, '');
+  const phoneVariants = [digits];
+  if (digits.startsWith('972')) phoneVariants.push(`0${digits.slice(3)}`);
+  if (digits.startsWith('0')) phoneVariants.push(`972${digits.slice(1)}`);
+
+  const terms = Array.from(new Set([search, ...phoneVariants].filter((term) => term.length >= 2)));
+
+  return terms.flatMap((term) => [
+    { customerName: { contains: term, mode: 'insensitive' as const } },
+    { customerPhone: { contains: term } },
+    { customerEmail: { contains: term, mode: 'insensitive' as const } },
+    { childName: { contains: term, mode: 'insensitive' as const } },
+    {
+      customer: {
+        is: {
+          OR: [
+            { name: { contains: term, mode: 'insensitive' as const } },
+            { phone: { contains: term } },
+            { email: { contains: term, mode: 'insensitive' as const } },
+          ],
+        },
+      },
+    },
+  ]);
+}
+
 // GET /api/lead-appointments
 leadAppointmentsRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
+    const search = String(req.query.search || req.query.q || '').trim();
     const status = req.query.status as string;
     const salesStatus = req.query.salesStatus as string;
     const assignedToId = req.query.assignedToId as string;
@@ -54,6 +82,7 @@ leadAppointmentsRouter.get('/', async (req: Request, res: Response, next: NextFu
         : 'createdAt';
 
     const where: any = {};
+    if (search.length >= 2) where.OR = buildLeadSearchClauses(search);
     if (status) where.appointmentStatus = status;
     if (salesStatus) where.salesStatus = salesStatus;
     if (assignedToId) where.assignedToId = assignedToId === 'unassigned' ? null : assignedToId;

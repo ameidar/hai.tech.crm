@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Trash2, Plus, AlertCircle, UserCheck, MessageCircle, CalendarCheck, Clock, Flame, CheckCircle2, UserRound, ExternalLink } from 'lucide-react';
+import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Trash2, Plus, AlertCircle, UserCheck, MessageCircle, CalendarCheck, Clock, Flame, CheckCircle2, UserRound, ExternalLink, Search } from 'lucide-react';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -158,6 +158,8 @@ export default function LeadAppointments() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
+  const [searchDraft, setSearchDraft] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [salesStatusFilter, setSalesStatusFilter] = useState('');
@@ -197,6 +199,7 @@ export default function LeadAppointments() {
   const params = new URLSearchParams();
   params.set('page', String(page));
   params.set('limit', '25');
+  if (searchQuery.trim()) params.set('search', searchQuery.trim());
   if (statusFilter) params.set('status', statusFilter);
   if (sourceFilter) params.set('source', sourceFilter);
   if (salesStatusFilter) params.set('salesStatus', salesStatusFilter);
@@ -206,7 +209,7 @@ export default function LeadAppointments() {
   if (sortBy !== 'createdAt') params.set('sortBy', sortBy);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['lead-appointments', page, statusFilter, sourceFilter, salesStatusFilter, followUpFilter, fromDate, toDate, sortBy],
+    queryKey: ['lead-appointments', page, searchQuery, statusFilter, sourceFilter, salesStatusFilter, followUpFilter, fromDate, toDate, sortBy],
     queryFn: async () => {
       const res = await api.get(`/lead-appointments?${params.toString()}`);
       return res.data;
@@ -309,6 +312,8 @@ export default function LeadAppointments() {
           onClick={() => {
             setStatusFilter('');
             setSourceFilter('');
+            setSearchDraft('');
+            setSearchQuery('');
             setSalesStatusFilter('');
             setFollowUpFilter('');
             setFromDate('');
@@ -328,6 +333,46 @@ export default function LeadAppointments() {
 
       {/* Filters */}
       <div className="bg-white rounded-lg border border-gray-200 p-4 flex flex-wrap gap-4 items-end">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            setSearchQuery(searchDraft.trim());
+            setPage(1);
+          }}
+          className="min-w-[260px] flex-1"
+        >
+          <label className="block text-sm font-medium text-gray-700 mb-1">חיפוש לקוח</label>
+          <div className="flex rounded-md border border-gray-300 bg-white focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
+            <input
+              type="search"
+              value={searchDraft}
+              onChange={(e) => setSearchDraft(e.target.value)}
+              className="w-full min-w-0 rounded-r-md border-0 px-3 py-2 text-sm focus:ring-0"
+              placeholder="שם, טלפון, אימייל או ילד/ה"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchDraft('');
+                  setSearchQuery('');
+                  setPage(1);
+                }}
+                title="נקה חיפוש"
+                className="inline-flex w-9 items-center justify-center text-gray-400 hover:text-gray-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+            <button
+              type="submit"
+              title="חפש"
+              className="inline-flex h-[38px] w-10 items-center justify-center rounded-l-md bg-blue-600 text-white hover:bg-blue-700"
+            >
+              <Search className="h-4 w-4" />
+            </button>
+          </div>
+        </form>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">סטטוס מכירה</label>
           <select

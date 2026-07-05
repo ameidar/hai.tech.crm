@@ -42,6 +42,9 @@ export default function CustomerWhatsAppPanel({ customerId }: { customerId: stri
   const conversation = data?.conversation || null;
   const windowOpen = data?.windowOpen ?? false;
   const phone = data?.normalizedPhone || null;
+  const messages = data?.messages || [];
+  const metaMessages = messages.filter((m) => !isGreenMessage(m.waMessageId));
+  const greenMessages = messages.filter((m) => isGreenMessage(m.waMessageId));
 
   // Outside the 24h service window (or no inbound yet) only templates may be sent.
   const templatesOnly = !windowOpen;
@@ -56,7 +59,7 @@ export default function CustomerWhatsAppPanel({ customerId }: { customerId: stri
   const threadRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
-  }, [data?.messages?.length]);
+  }, [messages.length]);
 
   useEffect(() => {
     setMode(templatesOnly ? 'template' : 'text');
@@ -120,6 +123,55 @@ export default function CustomerWhatsAppPanel({ customerId }: { customerId: stri
     }
   };
 
+  const renderThread = (
+    threadMessages: typeof messages,
+    emptyText: string,
+    options: { channel: 'meta' | 'green'; scrollRef?: typeof threadRef }
+  ) => (
+    <div
+      ref={options.scrollRef}
+      className={`flex-1 overflow-y-auto p-4 space-y-2 ${
+        options.channel === 'green' ? 'bg-emerald-50/70' : 'bg-gray-50'
+      }`}
+      style={{ maxHeight: 360, minHeight: 200 }}
+    >
+      {!conversation || threadMessages.length === 0 ? (
+        <div className="h-full flex items-center justify-center text-gray-400 text-sm text-center px-4">
+          {emptyText}
+        </div>
+      ) : (
+        threadMessages.map((m) => (
+          <div key={m.id} className={`flex ${m.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
+            <div
+              className={`max-w-[85%] px-3 py-2 rounded-2xl text-sm whitespace-pre-wrap break-words ${
+                options.channel === 'green'
+                  ? m.direction === 'outbound'
+                    ? 'bg-emerald-600 text-white rounded-br-sm border border-emerald-700'
+                    : 'bg-white text-gray-900 rounded-bl-sm border-2 border-emerald-300'
+                  : m.direction === 'outbound'
+                    ? 'bg-green-100 text-gray-800 rounded-br-sm'
+                    : 'bg-white border text-gray-800 rounded-bl-sm'
+              }`}
+            >
+              {options.channel === 'green' && (
+                <div className={`mb-1 text-[11px] font-semibold ${m.direction === 'outbound' ? 'text-emerald-50' : 'text-emerald-700'}`}>
+                  WhatsApp Green
+                </div>
+              )}
+              <div>{m.content}</div>
+              <div className={`text-[10px] mt-1 flex items-center gap-1 justify-end ${
+                options.channel === 'green' && m.direction === 'outbound' ? 'text-emerald-50' : 'text-gray-400'
+              }`}>
+                {m.isAiGenerated && <span title="נשלח ע״י הבוט">🤖</span>}
+                {new Date(m.createdAt).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+
   return (
     <div className="lg:col-span-3 card flex flex-col">
       <div className="card-header flex items-center justify-between">
@@ -144,36 +196,41 @@ export default function CustomerWhatsAppPanel({ customerId }: { customerId: stri
         </div>
       </div>
 
-      {/* Thread */}
-      <div ref={threadRef} className="flex-1 overflow-y-auto p-4 bg-gray-50 space-y-2" style={{ maxHeight: 360, minHeight: 200 }}>
-        {!conversation || data!.messages.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-gray-400 text-sm">
-            אין עדיין שיחה עם הלקוח. אפשר לפתוח שיחה בשליחת תבנית מאושרת למטה.
-          </div>
-        ) : (
-          data!.messages.map((m) => (
-            <div key={m.id} className={`flex ${m.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
-              <div
-                className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm whitespace-pre-wrap break-words ${
-                  m.direction === 'outbound'
-                    ? 'bg-green-100 text-gray-800 rounded-br-sm'
-                    : 'bg-white border text-gray-800 rounded-bl-sm'
-                }`}
-              >
-                <div>{m.content}</div>
-                <div className="text-[10px] text-gray-400 mt-1 flex items-center gap-1 justify-end">
-                  {isGreenMessage(m.waMessageId) && <span className="text-green-600 font-medium">Green</span>}
-                  {m.isAiGenerated && <span title="נשלח ע״י הבוט">🤖</span>}
-                  {new Date(m.createdAt).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                </div>
-              </div>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-0 border-b border-gray-200">
+        <div className="flex flex-col min-h-0 border-b xl:border-b-0 xl:border-l border-gray-200">
+          <div className="px-4 py-2 bg-white border-b border-gray-200 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
+              <span className="text-sm font-semibold text-gray-800">WhatsApp רשמי / Meta</span>
             </div>
-          ))
-        )}
+            <span className="text-xs text-gray-400">{metaMessages.length} הודעות</span>
+          </div>
+          {renderThread(
+            metaMessages,
+            'אין עדיין שיחה רשמית. אפשר לפתוח שיחה בשליחת תבנית מאושרת למטה.',
+            { channel: 'meta', scrollRef: threadRef }
+          )}
+        </div>
+
+        <div className="flex flex-col min-h-0">
+          <div className="px-4 py-2 bg-emerald-50 border-b border-emerald-200 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-700" />
+              <span className="text-sm font-semibold text-emerald-900">WhatsApp Green רגיל</span>
+            </div>
+            <span className="text-xs text-emerald-700">{greenMessages.length} הודעות</span>
+          </div>
+          {renderThread(
+            greenMessages,
+            'אין הודעות Green ללקוח הזה.',
+            { channel: 'green' }
+          )}
+        </div>
       </div>
 
-      {/* Composer */}
+      {/* Official Meta composer */}
       <div className="p-3 border-t bg-white">
+        <div className="mb-2 text-xs font-medium text-gray-500">שליחה בערוץ הרשמי / Meta</div>
         {templatesOnly && (
           <div className="mb-2 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
             <Lock size={14} />

@@ -25,12 +25,19 @@ export const errorHandler = (
 
   // Zod validation errors
   if (err instanceof ZodError) {
+    const details = err.issues.map((e) => ({
+      field: e.path.join('.'),
+      message: e.message,
+    }));
+    const summary = details
+      .map((detail) => [detail.field, detail.message].filter(Boolean).join(': '))
+      .filter(Boolean)
+      .join('; ');
+
     return res.status(400).json({
       error: 'Validation error',
-      details: err.errors.map((e) => ({
-        field: e.path.join('.'),
-        message: e.message,
-      })),
+      message: summary ? `Validation error: ${summary}` : 'Validation error',
+      details,
     });
   }
 

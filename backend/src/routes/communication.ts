@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../middleware/auth.js';
 import { logAudit } from '../utils/audit.js';
+import { prisma } from '../utils/prisma.js';
+import { broadcastWaSSE } from '../services/wa-events.js';
 import nodemailer from 'nodemailer';
 
 const router = Router();
@@ -46,6 +48,98 @@ function formatPhoneForWhatsApp(phone: string): string {
   return cleaned + '@c.us';
 }
 
+function normalizeWhatsAppPhone(phone: string): string | null {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 9) return null;
+  if (digits.startsWith('972')) return digits;
+  if (digits.startsWith('0')) return `972${digits.slice(1)}`;
+  return digits;
+}
+
+async function saveGreenOutboundMessage(params: {
+  phone: string;
+  message: string;
+  greenMessageId?: string | null;
+  customerId?: string;
+  customerName?: string;
+}) {
+  const normalizedPhone = normalizeWhatsAppPhone(params.phone);
+  if (!normalizedPhone) return null;
+
+  const waMessageId = params.greenMessageId ? `green:${params.greenMessageId}` : undefined;
+  if (waMessageId) {
+    const existing = await prisma.waMessage.findUnique({
+      where: { waMessageId },
+      select: { id: true },
+    });
+    if (existing) return existing;
+  }
+
+  let customerName = params.customerName;
+  if (!customerName && params.customerId) {
+    const customer = await prisma.customer.findFirst({
+      where: { id: params.customerId, deletedAt: null },
+      select: { name: true },
+    });
+    customerName = customer?.name || undefined;
+  }
+
+  const now = new Date();
+  let conversation = await prisma.waConversation.findFirst({
+    where: { phone: normalizedPhone },
+    orderBy: { lastMessageAt: 'desc' },
+  });
+
+  if (!conversation) {
+    conversation = await prisma.waConversation.create({
+      data: {
+        phone: normalizedPhone,
+        contactName: customerName || normalizedPhone,
+        status: 'open',
+        unreadCount: 0,
+        lastMessageAt: now,
+        lastMessagePreview: params.message.slice(0, 100),
+        businessPhone: 'Green API',
+        phoneNumberId: null,
+        aiEnabled: false,
+      },
+    });
+  }
+
+  const waMessage = await prisma.waMessage.create({
+    data: {
+      conversationId: conversation.id,
+      direction: 'outbound',
+      content: params.message,
+      waMessageId,
+      status: 'sent',
+      isAiGenerated: false,
+    },
+  });
+
+  await prisma.waConversation.update({
+    where: { id: conversation.id },
+    data: {
+      lastMessageAt: now,
+      lastMessagePreview: params.message.slice(0, 100),
+      contactName: customerName || conversation.contactName || normalizedPhone,
+      businessPhone: conversation.businessPhone || 'Green API',
+      aiEnabled: false,
+      updatedAt: now,
+    },
+  });
+
+  broadcastWaSSE('new_message', {
+    conversationId: conversation.id,
+    message: waMessage,
+    phone: normalizedPhone,
+    contactName: customerName || conversation.contactName || normalizedPhone,
+    provider: 'green',
+  });
+
+  return waMessage;
+}
+
 // Send WhatsApp message via Green API
 router.post('/whatsapp', authenticate, async (req: Request, res: Response) => {
   try {
@@ -78,6 +172,14 @@ router.post('/whatsapp', authenticate, async (req: Request, res: Response) => {
     }
 
     console.log(`WhatsApp message sent to ${phone}:`, data);
+
+    await saveGreenOutboundMessage({
+      phone,
+      message,
+      greenMessageId: data.idMessage,
+      customerId,
+      customerName,
+    });
 
     // Log to audit
     await logAudit({

@@ -98,6 +98,40 @@ describe('Lead Appointments API', () => {
       );
     });
 
+    it('supports customer search by name, phone, email, or child name', async () => {
+      mockPrisma.leadAppointment.findMany.mockResolvedValue([]);
+      mockPrisma.leadAppointment.count.mockResolvedValue(0);
+
+      await request(app).get('/api/lead-appointments?search=0501234567');
+
+      expect(mockPrisma.leadAppointment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: expect.arrayContaining([
+              { customerName: { contains: '0501234567', mode: 'insensitive' } },
+              { customerPhone: { contains: '0501234567' } },
+              { customerPhone: { contains: '972501234567' } },
+              { childName: { contains: '0501234567', mode: 'insensitive' } },
+              expect.objectContaining({
+                customer: expect.objectContaining({
+                  is: expect.objectContaining({
+                    OR: expect.arrayContaining([
+                      { phone: { contains: '0501234567' } },
+                    ]),
+                  }),
+                }),
+              }),
+            ]),
+          }),
+        })
+      );
+      expect(mockPrisma.leadAppointment.count).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ OR: expect.any(Array) }),
+        })
+      );
+    });
+
     it('supports from/to as aliases for dateFrom/dateTo', async () => {
       mockPrisma.leadAppointment.findMany.mockResolvedValue([]);
       mockPrisma.leadAppointment.count.mockResolvedValue(0);

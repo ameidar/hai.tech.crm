@@ -172,7 +172,7 @@ async function routeGreenInboundToCrm(params: {
   `;
 
   const lead = leads[0];
-  let customer = customers[0];
+  let customer: GreenMatchedCustomer | undefined = customers[0];
 
   if (!customer && lead?.customer_id) {
     const leadCustomer = await prisma.customer.findFirst({

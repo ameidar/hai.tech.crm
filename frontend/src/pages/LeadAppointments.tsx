@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
-import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Trash2, Plus, AlertCircle, UserCheck, MessageCircle, CalendarCheck, Clock, Flame, CheckCircle2 } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Trash2, Plus, AlertCircle, UserCheck, MessageCircle, CalendarCheck, Clock, Flame, CheckCircle2, UserRound, ExternalLink } from 'lucide-react';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -10,9 +10,11 @@ import { useAuth } from '../context/AuthContext';
 
 interface LeadAppointment {
   id: string;
+  customerId?: string | null;
   customerName: string;
   customerPhone: string;
   customerEmail: string;
+  customer?: { id: string; name: string; phone?: string | null; email?: string | null } | null;
   childName?: string;
   interest: string;
   source: string;
@@ -120,6 +122,10 @@ function normalizeWhatsAppPhone(phone: string) {
   if (digits.startsWith('972')) return digits;
   if (digits.startsWith('0')) return `972${digits.slice(1)}`;
   return digits;
+}
+
+function linkedCustomerId(lead: LeadAppointment) {
+  return lead.customer?.id || lead.customerId || null;
 }
 
 const quickActions = [
@@ -432,6 +438,7 @@ export default function LeadAppointments() {
             <tbody className="bg-white divide-y divide-gray-200">
               {leads.map((lead) => {
                 const due = isFollowUpDue(lead);
+                const customerId = linkedCustomerId(lead);
                 return (
                 <tr
                   key={lead.id}
@@ -530,6 +537,16 @@ export default function LeadAppointments() {
                         >
                           <MessageCircle className="w-4 h-4" />
                         </a>
+                      )}
+                      {customerId && (
+                        <Link
+                          to={`/customers/${customerId}`}
+                          title="פתח כרטיס לקוח"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                        >
+                          <UserRound className="w-4 h-4" />
+                        </Link>
                       )}
                       <button
                         onClick={(e) => { e.stopPropagation(); setSelectedLead(lead); }}
@@ -848,6 +865,7 @@ function LeadDetailModal({
   onUpdated: (lead: LeadAppointment) => void;
 }) {
   const { user } = useAuth();
+  const customerId = linkedCustomerId(lead);
   const [status, setStatus] = useState(lead.appointmentStatus);
   const [salesStatus, setSalesStatus] = useState(lead.salesStatus || 'new');
   const [date, setDate] = useState(lead.appointmentDate?.split('T')[0] || '');
@@ -908,7 +926,19 @@ function LeadDetailModal({
       >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-lg font-semibold">פרטי ליד - {lead.customerName}</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-semibold">פרטי ליד - {lead.customerName}</h2>
+            {customerId && (
+              <Link
+                to={`/customers/${customerId}`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+              >
+                <UserRound className="w-4 h-4" />
+                כרטיס לקוח
+                <ExternalLink className="w-3.5 h-3.5" />
+              </Link>
+            )}
+          </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X className="w-5 h-5" />
           </button>

@@ -35,7 +35,11 @@ export const createCustomerSchema = z.object({
   notes: z.string().optional().nullable(),
   lmsUsername: z.string().optional().nullable(),
   lmsPassword: z.string().optional().nullable(),
-  source: z.enum(['whatsapp', 'facebook', 'instagram', 'website', 'phone', 'upsell', 'manual', 'fireberry', 'woocommerce', 'other']).optional().nullable(),
+  source: z.union([
+    z.enum(['whatsapp', 'facebook', 'instagram', 'website', 'phone', 'upsell', 'manual', 'fireberry', 'woocommerce', 'other']),
+    z.literal('').transform(() => null),
+    z.null(),
+  ]).optional().nullable(),
   leadStatus: z.enum(['new', 'contacted', 'in_progress', 'converted', 'closed', 'waiting_placement']).optional().nullable(),
   leadNote: z.string().optional().nullable(),
 });

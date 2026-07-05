@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Phone, Mail, MapPin, Plus, Edit, Pencil, User, Trash2, BookOpen, MessageCircle, Send, ExternalLink, Clock, CreditCard, FileText, GitMerge } from 'lucide-react';
+import { ArrowRight, Phone, Mail, MapPin, Plus, Edit, Pencil, User, Trash2, BookOpen, MessageCircle, Send, Clock, CreditCard, FileText, GitMerge } from 'lucide-react';
 import { useCustomer, useStudents, useCreateStudent, useUpdateCustomer, useUpdateStudent, useDeleteStudent, useDeleteCustomer, useCycles, useCreateRegistration, useSendWhatsApp, useSendEmail, useCourses, useBranches, useInstructors, useCreateCycle } from '../hooks/useApi';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
@@ -13,6 +13,56 @@ import WooPayModal from '../components/WooPayModal';
 import CustomerWhatsAppPanel from '../components/CustomerWhatsAppPanel';
 import MergeCustomerModal from '../components/MergeCustomerModal';
 import type { Customer, Student, Cycle, PaymentStatus, PaymentMethod } from '../types';
+
+type ApiValidationDetail = {
+  field?: string;
+  message?: string;
+};
+
+type ApiErrorData = {
+  error?: string;
+  message?: string;
+  details?: ApiValidationDetail[];
+};
+
+const customerFieldLabels: Record<string, string> = {
+  name: 'שם',
+  phone: 'טלפון',
+  email: 'אימייל',
+  address: 'כתובת',
+  city: 'עיר',
+  notes: 'הערות',
+  source: 'מקור הגעה',
+  leadStatus: 'סטטוס ליד',
+  lmsUsername: 'שם משתמש לקורסים',
+  lmsPassword: 'סיסמה לקורסים',
+};
+
+function translateValidationMessage(message?: string) {
+  if (!message) return 'ערך לא תקין';
+  if (/invalid email/i.test(message)) return 'כתובת אימייל לא תקינה';
+  if (/must be at least (\d+) characters/i.test(message)) {
+    const [, count] = message.match(/must be at least (\d+) characters/i) || [];
+    return count ? `חייב להכיל לפחות ${count} תווים` : 'הערך קצר מדי';
+  }
+  if (/invalid option|invalid enum|expected/i.test(message)) return 'ערך לא תקין';
+  return message;
+}
+
+function formatCustomerUpdateError(error: unknown) {
+  const data = (error as { response?: { data?: ApiErrorData } })?.response?.data;
+  const details = data?.details?.filter((detail) => detail.field || detail.message) || [];
+
+  if (details.length > 0) {
+    const formattedDetails = details.map((detail) => {
+      const field = detail.field ? customerFieldLabels[detail.field] || detail.field : 'שדה';
+      return `${field}: ${translateValidationMessage(detail.message)}`;
+    });
+    return `לא ניתן לשמור את פרטי הלקוח:\n${formattedDetails.join('\n')}`;
+  }
+
+  return data?.message || data?.error || 'שגיאה בעדכון הלקוח';
+}
 
 export default function CustomerDetail() {
   const { id } = useParams<{ id: string }>();
@@ -130,10 +180,9 @@ export default function CustomerDetail() {
     try {
       await updateCustomer.mutateAsync({ id: id!, data });
       setShowEditModal(false);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to update customer:', error);
-      const msg = error?.response?.data?.message || error?.response?.data?.error || 'שגיאה בעדכון הלקוח';
-      setUpdateCustomerError(msg);
+      setUpdateCustomerError(formatCustomerUpdateError(error));
     }
   };
 
@@ -861,7 +910,7 @@ interface CustomerEditFormProps {
 function CustomerEditForm({ customer, onSubmit, onCancel, isLoading, error }: CustomerEditFormProps) {
   const [formData, setFormData] = useState({
     name: customer.name,
-    email: customer.email,
+    email: customer.email || '',
     phone: customer.phone,
     address: customer.address || '',
     city: customer.city || '',
@@ -874,13 +923,24 @@ function CustomerEditForm({ customer, onSubmit, onCancel, isLoading, error }: Cu
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(formData);
+    onSubmit({
+      ...formData,
+      name: formData.name.trim(),
+      phone: formData.phone.trim(),
+      email: formData.email.trim(),
+      address: formData.address.trim(),
+      city: formData.city.trim(),
+      notes: formData.notes.trim(),
+      lmsUsername: formData.lmsUsername.trim(),
+      lmsPassword: formData.lmsPassword.trim(),
+      source: formData.source || undefined,
+    });
   };
 
   return (
     <form onSubmit={handleSubmit} className="p-6 space-y-4">
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm">
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm whitespace-pre-line">
           {error}
         </div>
       )}

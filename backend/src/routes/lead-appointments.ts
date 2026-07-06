@@ -226,6 +226,9 @@ leadAppointmentsRouter.patch('/:id', async (req: Request, res: Response, next: N
     if (salesStatus) data.salesStatus = salesStatus;
     if (assignedToId !== undefined) data.assignedToId = assignedToId || null;
     const parsedNextFollowUpAt = parseNullableDate(nextFollowUpAt);
+    if (nextFollowUpAt !== undefined && parsedNextFollowUpAt === null) {
+      throw new AppError(400, 'יש למלא תאריך חזרה לפני שמירת הליד');
+    }
     if (parsedNextFollowUpAt !== undefined) data.nextFollowUpAt = parsedNextFollowUpAt;
     if (lastContactResult !== undefined) {
       data.lastContactResult = lastContactResult || null;

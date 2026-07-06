@@ -295,6 +295,16 @@ describe('Lead Appointments API', () => {
       });
     });
 
+    it('rejects saving an edited lead without a follow-up date', async () => {
+      const res = await request(app)
+        .patch('/api/lead-appointments/abc')
+        .send({ nextFollowUpAt: null });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('יש למלא תאריך חזרה לפני שמירת הליד');
+      expect(mockPrisma.leadAppointment.update).not.toHaveBeenCalled();
+    });
+
     it('records activity when contact result is provided', async () => {
       const updated = { id: 'abc', appointmentStatus: 'pending', salesStatus: 'follow_up' };
       mockPrisma.leadAppointment.update.mockResolvedValue(updated);

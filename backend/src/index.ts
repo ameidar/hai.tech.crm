@@ -37,6 +37,7 @@ import { initCancellationScheduler } from './services/cancellation-scheduler.js'
 import { initBillingScheduler } from './services/billing-scheduler.js';
 import { initProformaAlertScheduler } from './services/proforma-alerts.js';
 import { initTaskReminderScheduler } from './services/task-reminders.js';
+import { initWooBackupSyncScheduler } from './services/woo-sync-scheduler.js';
 import { forecastRouter } from './routes/forecast.js';
 import { quotesRouter } from './routes/quotes.js';
 import { publicQuoteRouter } from './routes/public-quote.js';
@@ -657,6 +658,7 @@ const start = async () => {
       initBillingScheduler();
       initProformaAlertScheduler();
       initTaskReminderScheduler();
+      initWooBackupSyncScheduler();
     }
 
     app.listen(config.port, () => {

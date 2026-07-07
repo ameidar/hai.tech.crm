@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/auth.js';
 import { config } from '../config.js';
 import { prisma } from '../utils/prisma.js';
 import { handlePostPaymentPlacement } from '../services/trial-placement.js';
+import { extractGreenInvoice, syncRecentWooPayments, upsertWooOrderPayment } from '../services/woo-sync.js';
 
 // Shared secret for WP auto-login tokens (must match WP snippet constant)
 const HAITECH_PAY_SECRET = process.env.HAITECH_PAY_SECRET || 'haitech-pay-secret-2026-xK9mP3qL7';
@@ -17,67 +18,6 @@ function generatePayToken(orderId: number): { token: string; ts: number } {
     .update(`${orderId}:${ts}`)
     .digest('hex');
   return { token, ts };
-}
-
-/**
- * Resolve or auto-create a CRM customer from WooCommerce billing info.
- * Search order: email → phone → create new.
- * Returns the customer ID (always).
- */
-async function resolveOrCreateCustomer(
-  email: string | undefined,
-  phone: string,
-  fullName: string
-): Promise<string> {
-  // 1. Try by email
-  if (email) {
-    const byEmail = await prisma.customer.findFirst({ where: { email } });
-    if (byEmail) return byEmail.id;
-  }
-  // 2. Try by phone (last 9 digits)
-  if (phone.length >= 9) {
-    const byPhone = await prisma.customer.findFirst({
-      where: { phone: { contains: phone.slice(-9) } },
-    });
-    if (byPhone) return byPhone.id;
-  }
-  // 3. Create new customer — will appear in CRM for follow-up
-  const newCustomer = await prisma.customer.create({
-    data: {
-      name: fullName || email || 'לקוח חדש',
-      email: email || undefined,
-      phone: phone || undefined,
-      source: 'website',
-    },
-  });
-  console.log(`[Payments] Auto-created customer "${newCustomer.name}" (${newCustomer.id}) from WC order`);
-  return newCustomer.id;
-}
-
-/** Extract Morning/GreenInvoice invoice URL and number from WC order meta_data */
-function extractGreenInvoice(metaData: any[]): { invoiceUrl: string | null; invoiceNumber: string | null } {
-  // Primary: greeninvoice_data JSON object (contains id → view URL)
-  const giData = metaData?.find((m: any) => m.key === 'greeninvoice_data');
-  if (giData?.value) {
-    let gd = giData.value;
-    // WooCommerce REST API may return it as a string — parse if needed
-    if (typeof gd === 'string') {
-      try { gd = JSON.parse(gd); } catch { gd = null; }
-    }
-    if (gd && typeof gd === 'object' && gd.id) {
-      return {
-        invoiceUrl: `https://app.greeninvoice.co.il/incomes/documents/${gd.id}`,
-        invoiceNumber: String(gd.number || gd.document_id || ''),
-      };
-    }
-  }
-  // Fallback: _greeninvoice_document_url (older format)
-  const urlMeta = metaData?.find((m: any) => m.key === '_greeninvoice_document_url' || m.key === 'greeninvoice_document_url');
-  const numMeta = metaData?.find((m: any) => m.key === '_greeninvoice_document_number' || m.key === 'greeninvoice_document_number');
-  return {
-    invoiceUrl: urlMeta?.value || null,
-    invoiceNumber: numMeta?.value || null,
-  };
 }
 
 const router = Router();
@@ -370,67 +310,8 @@ router.post('/wc-webhook', async (req, res) => {
   try {
     const order = req.body as any;
     if (!order?.id) return;
-
-    const paid = ['processing', 'completed', 'on-hold'].includes(order.status);
-
-    // Extract Morning invoice URL
-    const { invoiceUrl: wh_invoiceUrl, invoiceNumber: wh_invoiceNumber } = extractGreenInvoice(order.meta_data || []);
-
-    const updateData: any = {
-      status: paid ? 'paid' : order.status === 'cancelled' ? 'cancelled' : 'pending',
-      paymentMethod: order.payment_method || undefined,
-      updatedAt: new Date(),
-    };
-    if (paid) {
-      updateData.paidAt = new Date(order.date_paid || order.date_modified || Date.now());
-    }
-    if (wh_invoiceUrl) updateData.invoiceUrl = wh_invoiceUrl;
-    if (wh_invoiceNumber) updateData.invoiceNumber = wh_invoiceNumber;
-
-    // Try to update existing payment record
-    const existing = await prisma.payment.findFirst({ where: { wooOrderId: Number(order.id) } });
-
-    if (existing) {
-      await prisma.payment.update({ where: { id: existing.id }, data: updateData });
-      console.log(`[WC Webhook] Updated order ${order.id} → ${order.status}`);
-    } else if (paid) {
-      // New order from website (not initiated from CRM) — create record + link to customer
-      const email = order.billing?.email;
-      const phone = (order.billing?.phone || '').replace(/\D/g, '');
-      const firstName = order.billing?.first_name || '';
-      const lastName = order.billing?.last_name || '';
-      const fullName = `${firstName} ${lastName}`.trim();
-
-      // Always resolve (or auto-create) a CRM customer — no orphan payments
-      const customerId = await resolveOrCreateCustomer(email, phone, fullName);
-
-      // Build description from line items or fee lines
-      const items: string[] = [];
-      for (const li of order.line_items || []) items.push(li.name);
-      for (const fl of order.fee_lines || []) items.push(fl.name);
-      const description = items.join(', ') || 'קורס דיגיטלי';
-
-      const createdPayment = await prisma.payment.create({
-        data: {
-          wooOrderId: Number(order.id),
-          amount: parseFloat(order.total || '0'),
-          description,
-          status: 'paid',
-          paidAt: new Date(order.date_paid || order.date_modified || Date.now()),
-          paymentMethod: order.payment_method || undefined,
-          customerName: fullName || email || `הזמנה #${order.id}`,
-          customerEmail: email || undefined,
-          customerPhone: phone || undefined,
-          invoiceUrl: wh_invoiceUrl || undefined,
-          invoiceNumber: wh_invoiceNumber || undefined,
-          customerId,
-        },
-      });
-      console.log(`[WC Webhook] Created new payment for order ${order.id} (${fullName}, ${email}) → customer ${customerId}`);
-
-      // Trial-lesson placement automation (non-digital payments → flag + notify).
-      await handlePostPaymentPlacement(createdPayment.id);
-    }
+    const result = await upsertWooOrderPayment(order, { runPlacementAutomation: true, source: 'webhook' });
+    console.log(`[WC Webhook] ${result.action} order ${order.id} → ${order.status}`);
   } catch (e) {
     console.error('[WC Webhook] Error:', e);
   }
@@ -446,76 +327,11 @@ router.post('/sync-woo', async (req: any, res) => {
     return res.status(403).json({ error: 'אין הרשאה' });
   }
 
-  const days = Number(req.query.days) || 7;
-  const after = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-
   try {
-    const wooRes = await fetch(
-      `${config.woo.siteUrl}/wp-json/wc/v3/orders?per_page=50&status=on-hold,processing,completed&after=${after}`,
-      { headers: { Authorization: 'Basic ' + Buffer.from(`${config.woo.consumerKey}:${config.woo.consumerSecret}`).toString('base64') } }
-    );
-    if (!wooRes.ok) throw new Error('WooCommerce API error');
-    const orders = await wooRes.json() as any[];
-
-    let created = 0;
-    let skipped = 0;
-
-    let updated = 0;
-
-    for (const order of orders) {
-      const existing = await prisma.payment.findFirst({ where: { wooOrderId: Number(order.id) } });
-
-      // If exists but missing invoice URL — update it
-      if (existing) {
-        const { invoiceUrl: ex_invUrl, invoiceNumber: ex_invNum } = extractGreenInvoice(order.meta_data || []);
-        if (ex_invUrl && !existing.invoiceUrl) {
-          await prisma.payment.update({
-            where: { id: existing.id },
-            data: { invoiceUrl: ex_invUrl, invoiceNumber: ex_invNum || undefined },
-          });
-          updated++;
-        } else {
-          skipped++;
-        }
-        continue;
-      }
-
-      const email = order.billing?.email;
-      const phone = (order.billing?.phone || '').replace(/\D/g, '');
-      const firstName = order.billing?.first_name || '';
-      const lastName = order.billing?.last_name || '';
-      const fullName = `${firstName} ${lastName}`.trim();
-
-      // Always resolve (or auto-create) a CRM customer — no orphan payments
-      const customerId = await resolveOrCreateCustomer(email, phone, fullName);
-
-      const items: string[] = [];
-      for (const li of order.line_items || []) items.push(li.name);
-      for (const fl of order.fee_lines || []) items.push(fl.name);
-
-      const { invoiceUrl: sync_invoiceUrl, invoiceNumber: sync_invoiceNumber } = extractGreenInvoice(order.meta_data || []);
-
-      await prisma.payment.create({
-        data: {
-          wooOrderId: Number(order.id),
-          amount: parseFloat(order.total || '0'),
-          description: items.join(', ') || 'קורס דיגיטלי',
-          status: 'paid',
-          paidAt: new Date(order.date_paid || order.date_modified || Date.now()),
-          paymentMethod: order.payment_method || undefined,
-          customerName: fullName || email || `הזמנה #${order.id}`,
-          customerEmail: email || undefined,
-          customerPhone: phone || undefined,
-          invoiceUrl: sync_invoiceUrl || undefined,
-          invoiceNumber: sync_invoiceNumber || undefined,
-          customerId,
-        },
-      });
-      created++;
-    }
-
-    console.log(`[sync-woo] Synced ${created} new, updated ${updated} invoices, skipped ${skipped}`);
-    res.json({ ok: true, created, updated, skipped, total: orders.length, days });
+    const days = Number(req.query.days) || 7;
+    const result = await syncRecentWooPayments(days);
+    console.log(`[sync-woo] Synced ${result.created} new, updated ${result.updated}, skipped ${result.skipped}, failed ${result.failed}`);
+    res.json(result);
   } catch (err: any) {
     console.error('[sync-woo] Error:', err);
     res.status(500).json({ error: err.message });

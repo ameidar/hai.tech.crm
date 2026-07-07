@@ -14,7 +14,7 @@ import { zoomService, getIsraelOffset } from './zoom.js';
 import { isHoliday, isShabbat } from '../utils/holidays.js';
 import { sendWhatsAppMessage } from './notifications.js';
 import { calculateInstructorPayment } from './instructor-payment.js';
-import { meetingRevenueFromRegistrations, revenueRegistrationCount } from '../utils/revenue.js';
+import { meetingRevenueForCycle } from '../utils/revenue.js';
 import { syncCycleEndDate } from '../utils/cycle-sync.js';
 
 const ADMIN_PHONE = process.env.ADMIN_PHONE || '0528746137';
@@ -91,21 +91,10 @@ export async function addReplacementMeeting(postponedMeetingId: string, _actorUs
     },
   });
 
-  let revenue = 0;
-  if (cycle.type === 'institutional_fixed' && cycle.meetingRevenue) {
-    revenue = Number(cycle.meetingRevenue);
-  } else if (cycle.type === 'institutional_per_child' && cycle.pricePerStudent) {
-    const count = cycle.studentCount ?? revenueRegistrationCount(cycleWithReg?.registrations ?? []);
-    revenue = Number(cycle.pricePerStudent) * count;
-  } else if (cycle.type === 'private') {
-    if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
-      revenue = Number(cycle.meetingRevenue);
-    } else if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
-      revenue = Number(cycle.pricePerStudent) * revenueRegistrationCount(cycleWithReg?.registrations ?? []);
-    } else {
-      revenue = meetingRevenueFromRegistrations(cycleWithReg?.registrations ?? [], cycle.totalMeetings, cycle.type);
-    }
-  }
+  const revenue = meetingRevenueForCycle({
+    ...cycle,
+    registrations: cycleWithReg?.registrations ?? [],
+  });
 
   const instructorPayment = calculateInstructorPayment(cycle, instructor, {
     instructorId,

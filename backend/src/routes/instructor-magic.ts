@@ -17,7 +17,7 @@ import { authenticate, adminOnly } from '../middleware/auth.js';
 import { sendWhatsAppMessage } from '../services/notifications.js';
 import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
-import { meetingRevenueFromRegistrations, revenueRegistrationCount, roundMoney } from '../utils/revenue.js';
+import { meetingRevenueForCycle } from '../utils/revenue.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
@@ -260,19 +260,7 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
         });
 
         if (cycleData) {
-          // Calculate revenue based on cycle type
-          let revenue = 0;
-          const registrationCount = revenueRegistrationCount(cycleData.registrations);
-
-          if (cycleData.type === 'private') {
-            revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
-          } else if (cycleData.type === 'institutional_per_child') {
-            const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-            const studentCount = cycleData.studentCount || registrationCount;
-            revenue = roundMoney(pricePerStudent * studentCount);
-          } else if (cycleData.type === 'institutional_fixed') {
-            revenue = Number(cycleData.meetingRevenue || 0);
-          }
+          const revenue = meetingRevenueForCycle(cycleData);
 
           const instructor = await prisma.instructor.findUnique({ where: { id: meeting.instructorId! } });
           const instructorPayment = calculateInstructorPayment(cycleData, instructor, meeting);

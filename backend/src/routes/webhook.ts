@@ -7,7 +7,7 @@ import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
 import { handleStatusReply } from '../services/whatsapp-reminder.service.js';
 import { logAudit } from '../utils/audit.js';
 import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
-import { meetingRevenueFromRegistrations, revenueRegistrationCount, roundMoney } from '../utils/revenue.js';
+import { meetingRevenueForCycle } from '../utils/revenue.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
 import { broadcastWaSSE } from '../services/wa-events.js';
 import rateLimit from 'express-rate-limit';
@@ -1005,19 +1005,7 @@ async function recalculateMeetingFinancials(meetingId: string) {
 
   const cycleData = meeting.cycle;
 
-  // Calculate revenue based on cycle type
-  let revenue = 0;
-  const registrationCount = revenueRegistrationCount(cycleData.registrations);
-
-  if (cycleData.type === 'private') {
-    revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
-  } else if (cycleData.type === 'institutional_per_child') {
-    const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-    const studentCount = cycleData.studentCount || registrationCount;
-    revenue = roundMoney(pricePerStudent * studentCount);
-  } else if (cycleData.type === 'institutional_fixed') {
-    revenue = Number(cycleData.meetingRevenue || 0);
-  }
+  const revenue = meetingRevenueForCycle(cycleData);
 
   const instructorPayment = calculateInstructorPayment(cycleData, meeting.instructor, meeting);
 

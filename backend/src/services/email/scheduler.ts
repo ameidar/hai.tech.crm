@@ -18,6 +18,10 @@ import { generateInstructorReportExcel } from '../../utils/excelReportGenerator.
 import { sendInstructorMonthlyReportEmail } from './instructorReportEmail.js';
 import { sendWhatsApp } from '../messaging.js';
 import { reminderEligibleMeetingWhereForDate } from '../reminder-eligibility.js';
+import {
+  findZoomHostConflictsForDate,
+  formatZoomHostConflictAlert,
+} from '../zoom-conflicts.js';
 
 // Management email list (configure via env or database)
 const MANAGEMENT_EMAILS = (process.env.MANAGEMENT_EMAILS || 'ami@hai.tech').split(',');
@@ -331,6 +335,15 @@ const sendManagementSummary = async () => {
     });
     if (postponedMeetings > 0) {
       alerts.push(`${postponedMeetings} שיעורים נדחו`);
+    }
+
+    const { start: tomorrowForZoomCheck } = getIsraelDateBoundsForDB(1);
+    const zoomHostConflicts = await findZoomHostConflictsForDate(tomorrowForZoomCheck);
+    for (const conflict of zoomHostConflicts.slice(0, 5)) {
+      alerts.push(formatZoomHostConflictAlert(conflict));
+    }
+    if (zoomHostConflicts.length > 5) {
+      alerts.push(`ועוד ${zoomHostConflicts.length - 5} התנגשויות Zoom מחר שלא פורטו כאן`);
     }
 
     // Build insights

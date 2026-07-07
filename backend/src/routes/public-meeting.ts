@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
-import { meetingRevenueFromRegistrations, revenueRegistrationCount, roundMoney } from '../utils/revenue.js';
+import { meetingRevenueForCycle } from '../utils/revenue.js';
 import {
   calculateInstructorPayment,
   recalculateDailyInstructorPaymentsForMeeting,
@@ -117,17 +117,7 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
     if (status === 'completed') {
       const cycleData = existingMeeting.cycle;
       
-      // Calculate revenue
-      let revenue = 0;
-      if (cycleData.type === 'private') {
-        revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
-      } else if (cycleData.type === 'institutional_per_child') {
-        const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-        const studentCount = cycleData.studentCount || revenueRegistrationCount(cycleData.registrations);
-        revenue = roundMoney(pricePerStudent * studentCount);
-      } else if (cycleData.type === 'institutional_fixed') {
-        revenue = Number(cycleData.meetingRevenue || 0);
-      }
+      const revenue = meetingRevenueForCycle(cycleData);
 
       const instructorPayment = calculateInstructorPayment(cycleData, existingMeeting.instructor, existingMeeting);
 

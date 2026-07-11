@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { config } from '../config.js';
+import { sendGreenApiMessage } from './green-api-client.js';
 
 // Gmail SMTP transporter
 const emailTransporter = nodemailer.createTransport({
@@ -9,9 +10,6 @@ const emailTransporter = nodemailer.createTransport({
     pass: config.gmailAppPassword,
   },
 });
-
-// WhatsApp via Green API
-const greenApiBaseUrl = `https://api.green-api.com/waInstance${config.greenApiInstanceId}`;
 
 // Format phone number for WhatsApp
 // Accepts phone number OR pre-formatted chatId (e.g. "120363353459332838@g.us")
@@ -37,28 +35,15 @@ function formatPhoneForWhatsApp(phone: string): string {
 
 // Send WhatsApp message
 export async function sendWhatsAppMessage(phone: string, message: string): Promise<boolean> {
-  if (!config.greenApiInstanceId || !config.greenApiToken) {
-    console.log('[NOTIFICATION] WhatsApp not configured, skipping');
-    return false;
-  }
-
   try {
     const chatId = formatPhoneForWhatsApp(phone);
-    const response = await fetch(
-      `${greenApiBaseUrl}/sendMessage/${config.greenApiToken}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatId, message }),
-      }
-    );
-
-    if (!response.ok) {
-      console.error('[NOTIFICATION] WhatsApp send failed:', await response.text());
+    const result = await sendGreenApiMessage(chatId, message);
+    if (!result.success) {
+      console.error('[NOTIFICATION] WhatsApp send failed:', result.error);
       return false;
     }
 
-    console.log('[NOTIFICATION] WhatsApp sent to:', phone);
+    console.log(`[NOTIFICATION] WhatsApp sent to ${phone} via ${result.instanceId || 'unknown'}`);
     return true;
   } catch (error) {
     console.error('[NOTIFICATION] WhatsApp error:', error);

@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import nodemailer from 'nodemailer';
 import { processRecording } from '../services/transcription';
+import { sendGreenApiMessage } from '../services/green-api-client';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -10,8 +11,6 @@ const prisma = new PrismaClient();
 const ZOOM_SECRET_TOKEN = process.env.ZOOM_SECRET_TOKEN;
 const GMAIL_USER = process.env.GMAIL_USER;
 const GMAIL_PASS = process.env.GMAIL_PASS;
-const GREEN_API_INSTANCE_ID = process.env.GREEN_API_INSTANCE_ID;
-const GREEN_API_TOKEN = process.env.GREEN_API_TOKEN;
 
 // Format phone number for Green API (Israel format)
 function formatPhoneForWhatsApp(phone: string): string {
@@ -32,11 +31,6 @@ async function sendWhatsAppToInstructor(
   recordingUrl: string,
   summary?: string
 ) {
-  if (!GREEN_API_INSTANCE_ID || !GREEN_API_TOKEN) {
-    console.log('[Zoom Webhook] WhatsApp not configured, skipping');
-    return;
-  }
-  
   try {
     let message = `שלום ${instructorName} 👋
 
@@ -56,22 +50,11 @@ ${summary}`;
 
 בהצלחה! 🌟`;
 
-    const response = await fetch(
-      `https://api.green-api.com/waInstance${GREEN_API_INSTANCE_ID}/sendMessage/${GREEN_API_TOKEN}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chatId: formatPhoneForWhatsApp(phone),
-          message
-        })
-      }
-    );
-    
-    if (response.ok) {
-      console.log(`[Zoom Webhook] Sent WhatsApp to instructor ${instructorName}`);
+    const result = await sendGreenApiMessage(formatPhoneForWhatsApp(phone), message);
+    if (result.success) {
+      console.log(`[Zoom Webhook] Sent WhatsApp to instructor ${instructorName} via ${result.instanceId || 'unknown'}`);
     } else {
-      console.error('[Zoom Webhook] WhatsApp send failed:', await response.text());
+      console.error('[Zoom Webhook] WhatsApp send failed:', result.error);
     }
   } catch (error) {
     console.error('[Zoom Webhook] WhatsApp error:', error);

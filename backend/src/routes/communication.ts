@@ -4,13 +4,11 @@ import { authenticate } from '../middleware/auth.js';
 import { logAudit } from '../utils/audit.js';
 import { prisma } from '../utils/prisma.js';
 import { broadcastWaSSE } from '../services/wa-events.js';
+import { sendGreenApiMessage } from '../services/green-api-client.js';
 import nodemailer from 'nodemailer';
 
 const router = Router();
 
-// Environment variables
-const GREEN_API_INSTANCE_ID = process.env.GREEN_API_INSTANCE_ID;
-const GREEN_API_TOKEN = process.env.GREEN_API_TOKEN;
 const GMAIL_USER = process.env.GMAIL_USER || 'info@hai.tech';
 const GMAIL_PASS = process.env.GMAIL_PASS;
 
@@ -145,38 +143,23 @@ router.post('/whatsapp', authenticate, async (req: Request, res: Response) => {
   try {
     const { phone, message, customerId, customerName } = whatsAppSchema.parse(req.body);
 
-    if (!GREEN_API_INSTANCE_ID || !GREEN_API_TOKEN) {
-      return res.status(500).json({ 
-        error: 'Green API not configured',
-        details: 'GREEN_API_INSTANCE_ID and GREEN_API_TOKEN must be set'
-      });
-    }
-
     const chatId = formatPhoneForWhatsApp(phone);
-    const url = `https://api.green-api.com/waInstance${GREEN_API_INSTANCE_ID}/sendMessage/${GREEN_API_TOKEN}`;
+    const result = await sendGreenApiMessage(chatId, message);
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chatId, message }),
-    });
-
-    const data = await response.json() as { idMessage?: string; [key: string]: any };
-
-    if (!response.ok) {
-      console.error('Green API error:', data);
-      return res.status(response.status).json({ 
+    if (!result.success) {
+      console.error('Green API error:', result.error);
+      return res.status(502).json({
         error: 'Failed to send WhatsApp message',
-        details: data
+        details: result.error
       });
     }
 
-    console.log(`WhatsApp message sent to ${phone}:`, data);
+    console.log(`WhatsApp message sent to ${phone} via ${result.instanceId || 'unknown'}: ${result.messageId}`);
 
     await saveGreenOutboundMessage({
       phone,
       message,
-      greenMessageId: data.idMessage,
+      greenMessageId: result.messageId,
       customerId,
       customerName,
     });
@@ -187,12 +170,12 @@ router.post('/whatsapp', authenticate, async (req: Request, res: Response) => {
       userName: (req as any).user?.name || (req as any).user?.email,
       action: 'CREATE',
       entity: 'communication_whatsapp',
-      entityId: customerId || data.idMessage || 'unknown',
+      entityId: customerId || result.messageId || 'unknown',
       newValue: { phone, message, chatId, customerId, customerName },
       req,
     });
 
-    res.json({ success: true, messageId: data.idMessage });
+    res.json({ success: true, messageId: result.messageId, greenInstanceId: result.instanceId });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Validation error', details: error.errors });

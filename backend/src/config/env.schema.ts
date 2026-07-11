@@ -38,6 +38,9 @@ export const envSchema = z.object({
   GMAIL_APP_PASSWORD: z.string().optional(),
   GREEN_API_INSTANCE_ID: z.string().optional(),
   GREEN_API_TOKEN: z.string().optional(),
+  GREEN_API_FALLBACK_INSTANCE_ID: z.string().optional(),
+  GREEN_API_FALLBACK_TOKEN: z.string().optional(),
+  GREEN_API_HEALTH_CACHE_MS: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

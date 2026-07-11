@@ -22,6 +22,7 @@ import {
   findZoomHostConflictsForDate,
   formatZoomHostConflictAlert,
 } from '../zoom-conflicts.js';
+import { sendTomorrowMeetingCheckReport } from '../meeting-check-report.js';
 
 // Management email list (configure via env or database)
 const MANAGEMENT_EMAILS = (process.env.MANAGEMENT_EMAILS || 'ami@hai.tech').split(',');
@@ -550,6 +551,7 @@ const schedules = {
   managementSummary:        '0 23 * * *',   // 23:00 daily
   monthlyInstructorReport:  '0 8 1 * *',    // 08:00 on 1st of every month
   cyclesNearCompletion:     '0 9 * * *',    // 09:00 daily — cycles with 1 meeting left
+  meetingCheckReport:       process.env.MEETINGS_CHECK_REPORT_CRON || '0 20 * * *',
 };
 
 // Scheduled tasks
@@ -618,6 +620,18 @@ export const initEmailScheduler = () => {
   scheduledTasks.push(cyclesNearCompletionTask);
   console.log('   ✓ Cycles near completion check: 09:00 daily → WhatsApp instructor + email info@hai.tech');
 
+  if (process.env.MEETINGS_CHECK_REPORT_ENABLED === 'true') {
+    const meetingCheckTask = cron.schedule(schedules.meetingCheckReport, () => {
+      sendTomorrowMeetingCheckReport().catch((err: any) =>
+        console.error('[MeetingCheck] Cron failed:', err)
+      );
+    }, { timezone: 'Asia/Jerusalem' });
+    scheduledTasks.push(meetingCheckTask);
+    console.log(`   ✓ Meeting validation report: ${schedules.meetingCheckReport} Asia/Jerusalem → WhatsApp`);
+  } else {
+    console.log('   - Meeting validation report disabled; set MEETINGS_CHECK_REPORT_ENABLED=true to enable');
+  }
+
   console.log('📅 Email scheduler initialized');
 };
 
@@ -638,3 +652,4 @@ export const triggerPreMeetingWhatsApp = () => sendPreMeetingReminders();
 export const triggerEveningStatusCheck = () => sendEveningStatusCheck();
 export const triggerMonthlyInstructorReport = () => sendMonthlyInstructorReport();
 export const triggerCyclesNearCompletion = () => checkCyclesNearCompletion();
+export const triggerMeetingCheckReport = () => sendTomorrowMeetingCheckReport();

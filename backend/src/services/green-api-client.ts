@@ -123,6 +123,10 @@ async function sendWithCredentials(
   }
 }
 
+function shouldTryFallbackDespiteUncertainState(health: GreenApiHealth): boolean {
+  return health.statusInstance === 'online' && !health.stateInstance && !health.error;
+}
+
 async function sendWithFallback(
   endpoint: 'sendMessage' | 'sendPoll',
   body: Record<string, unknown>
@@ -161,6 +165,13 @@ async function sendWithFallback(
 
   const fallbackHealth = await checkHealth(fallback);
   if (!fallbackHealth.healthy) {
+    if (shouldTryFallbackDespiteUncertainState(fallbackHealth)) {
+      console.warn(
+        `[GreenAPI] fallback ${fallback.instanceId} state unknown but status=online; attempting ${endpoint}`
+      );
+      return sendWithCredentials(fallback, endpoint, body);
+    }
+
     return {
       success: false,
       error: `Fallback Green API unavailable: state=${fallbackHealth.stateInstance || 'unknown'} status=${fallbackHealth.statusInstance || 'unknown'}`,

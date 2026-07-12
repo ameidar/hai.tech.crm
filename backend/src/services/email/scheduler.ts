@@ -23,6 +23,7 @@ import {
   formatZoomHostConflictAlert,
 } from '../zoom-conflicts.js';
 import { sendTomorrowMeetingCheckReport } from '../meeting-check-report.js';
+import { sendParentWhatsAppReminder } from '../parent-whatsapp-reminders.js';
 
 // Management email list (configure via env or database)
 const MANAGEMENT_EMAILS = (process.env.MANAGEMENT_EMAILS || 'ami@hai.tech').split(',');
@@ -162,12 +163,13 @@ const sendParentReminders = async () => {
     console.log(`Found ${meetings.length} meetings for tomorrow`);
 
     let emailCount = 0;
+    let whatsAppCount = 0;
+    let whatsAppSkipped = 0;
     for (const meeting of meetings) {
       for (const registration of meeting.cycle.registrations) {
         const student = registration.student;
         const parent = student.customer;
-        
-        if (!parent?.email) continue;
+        if (!parent) continue;
 
         const isOnline = !meeting.cycle.branch;
         
@@ -183,20 +185,38 @@ const sendParentReminders = async () => {
           zoomLink: isOnline ? meeting.zoomJoinUrl || undefined : undefined,
         };
 
-        await queueEmail({
-          to: parent.email,
-          subject: `📚 תזכורת: ל-${data.studentName} יש שיעור ${data.className} מחר`,
-          html: getTemplate('parent-reminder', data),
-          priority: EmailPriority.NORMAL,
-          templateId: 'parent-reminder',
-          metadata: { meetingId: meeting.id, studentId: student.id },
-        });
+        if (parent.email) {
+          await queueEmail({
+            to: parent.email,
+            subject: `📚 תזכורת: ל-${data.studentName} יש שיעור ${data.className} מחר`,
+            html: getTemplate('parent-reminder', data),
+            priority: EmailPriority.NORMAL,
+            templateId: 'parent-reminder',
+            metadata: { meetingId: meeting.id, studentId: student.id },
+          });
+          emailCount++;
+        }
 
-        emailCount++;
+        try {
+          const result = await sendParentWhatsAppReminder({
+            phone: parent.phone,
+            contactName: parent.name,
+            data,
+          });
+          if (result.sent) {
+            whatsAppCount++;
+          } else if (result.skipped && result.skipped !== 'disabled') {
+            whatsAppSkipped++;
+            console.log(`[ParentReminderWA] skipped ${parent.name || parent.id}/${student.name}: ${result.skipped}`);
+          }
+        } catch (error: any) {
+          whatsAppSkipped++;
+          console.error(`[ParentReminderWA] failed for ${parent.name || parent.id}/${student.name}:`, error.response?.data || error.message);
+        }
       }
     }
 
-    console.log(`✅ Queued ${emailCount} parent reminders`);
+    console.log(`✅ Queued ${emailCount} parent email reminders; sent ${whatsAppCount} parent WhatsApp reminders; skipped/failed ${whatsAppSkipped}`);
   } catch (error) {
     console.error('❌ Error sending parent reminders:', error);
   }

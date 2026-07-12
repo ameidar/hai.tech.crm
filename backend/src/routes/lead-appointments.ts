@@ -213,6 +213,7 @@ leadAppointmentsRouter.patch('/:id', async (req: Request, res: Response, next: N
       salesStatus,
       assignedToId,
       nextFollowUpAt,
+      whatsappSent,
       lastContactResult,
       activityType,
       activityNote,
@@ -225,6 +226,7 @@ leadAppointmentsRouter.patch('/:id', async (req: Request, res: Response, next: N
     if (appointmentNotes !== undefined) data.appointmentNotes = appointmentNotes;
     if (salesStatus) data.salesStatus = salesStatus;
     if (assignedToId !== undefined) data.assignedToId = assignedToId || null;
+    if (whatsappSent !== undefined) data.whatsappSent = Boolean(whatsappSent);
     const parsedNextFollowUpAt = parseNullableDate(nextFollowUpAt);
     if (nextFollowUpAt !== undefined && parsedNextFollowUpAt === null) {
       throw new AppError(400, 'יש למלא תאריך חזרה לפני שמירת הליד');

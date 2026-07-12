@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Trash2, Plus, AlertCircle, UserCheck, MessageCircle, CalendarCheck, Clock, Flame, CheckCircle2, UserRound, ExternalLink, Search } from 'lucide-react';
+import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Trash2, Plus, AlertCircle, UserCheck, MessageCircle, CalendarCheck, Clock, Flame, CheckCircle2, UserRound, ExternalLink, Search, Send } from 'lucide-react';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -117,13 +117,6 @@ function formatFollowUp(lead: LeadAppointment) {
   return new Date(lead.nextFollowUpAt).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' });
 }
 
-function normalizeWhatsAppPhone(phone: string) {
-  const digits = phone.replace(/\D/g, '');
-  if (digits.startsWith('972')) return digits;
-  if (digits.startsWith('0')) return `972${digits.slice(1)}`;
-  return digits;
-}
-
 function linkedCustomerId(lead: LeadAppointment) {
   return lead.customer?.id || lead.customerId || null;
 }
@@ -131,7 +124,6 @@ function linkedCustomerId(lead: LeadAppointment) {
 const quickActions = [
   { key: 'called', label: 'דיברתי', icon: Phone, result: 'called', salesStatus: 'follow_up', appointmentStatus: undefined, note: 'בוצעה שיחה עם הליד' },
   { key: 'no_answer', label: 'לא ענה', icon: Clock, result: 'no_answer', salesStatus: 'no_answer', appointmentStatus: undefined, note: 'לא היה מענה' },
-  { key: 'whatsapp', label: 'וואטסאפ', icon: MessageCircle, result: 'whatsapp_sent', salesStatus: 'follow_up', appointmentStatus: undefined, note: 'נשלחה הודעת WhatsApp' },
   { key: 'scheduled', label: 'נקבעה', icon: CalendarCheck, result: 'scheduled', salesStatus: 'scheduled', appointmentStatus: 'scheduled', note: 'נקבעה שיחה' },
 ] as const;
 
@@ -167,6 +159,7 @@ export default function LeadAppointments() {
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState<'createdAt' | 'updatedAt' | 'nextFollowUpAt'>('updatedAt');
   const [selectedLead, setSelectedLead] = useState<LeadAppointment | null>(null);
+  const [whatsAppLead, setWhatsAppLead] = useState<LeadAppointment | null>(null);
   const [showNewLead, setShowNewLead] = useState(false);
 
   // Deep-link: if ?id=X is in the URL, fetch and auto-open that lead's modal.
@@ -571,18 +564,14 @@ export default function LeadAppointments() {
                           </button>
                         );
                       })}
-                      {lead.customerPhone && (
-                        <a
-                          href={`https://wa.me/${normalizeWhatsAppPhone(lead.customerPhone)}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="פתח WhatsApp"
-                          onClick={(e) => e.stopPropagation()}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-green-200 text-green-700 hover:bg-green-50"
-                        >
-                          <MessageCircle className="w-4 h-4" />
-                        </a>
-                      )}
+                      <button
+                        title={lead.customerPhone ? 'שלח WhatsApp דרך Green API' : 'אין מספר טלפון'}
+                        onClick={(e) => { e.stopPropagation(); if (lead.customerPhone) setWhatsAppLead(lead); }}
+                        disabled={!lead.customerPhone}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-green-200 text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-300"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                      </button>
                       {customerId && (
                         <Link
                           to={`/customers/${customerId}`}
@@ -668,6 +657,134 @@ export default function LeadAppointments() {
           }}
         />
       )}
+
+      {whatsAppLead && (
+        <LeadWhatsAppModal
+          lead={whatsAppLead}
+          onClose={() => setWhatsAppLead(null)}
+          onSent={() => {
+            queryClient.invalidateQueries({ queryKey: ['lead-appointments'] });
+            setWhatsAppLead(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function LeadWhatsAppModal({
+  lead,
+  onClose,
+  onSent,
+}: {
+  lead: LeadAppointment;
+  onClose: () => void;
+  onSent: () => void;
+}) {
+  const customerId = linkedCustomerId(lead);
+  const [message, setMessage] = useState(`שלום ${lead.customerName}, מדברים מדרך ההייטק.`);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSend = async () => {
+    const trimmedMessage = message.trim();
+    if (!trimmedMessage) {
+      setError('יש לכתוב הודעה לשליחה');
+      return;
+    }
+
+    setSending(true);
+    setError('');
+    try {
+      await api.post('/communication/whatsapp', {
+        phone: lead.customerPhone,
+        message: trimmedMessage,
+        customerId: customerId || undefined,
+        customerName: lead.customerName,
+      });
+      await api.patch(`/lead-appointments/${lead.id}`, {
+        salesStatus: 'follow_up',
+        whatsappSent: true,
+        lastContactResult: 'whatsapp_sent',
+        activityType: 'whatsapp',
+        activityNote: `נשלחה הודעת WhatsApp: ${trimmedMessage}`,
+      });
+      onSent();
+    } catch (err: unknown) {
+      console.error('Failed to send lead WhatsApp:', err);
+      const message = typeof err === 'object' && err && 'response' in err
+        ? (err as { response?: { data?: { error?: string; message?: string } } }).response?.data?.message ||
+          (err as { response?: { data?: { error?: string; message?: string } } }).response?.data?.error
+        : undefined;
+      setError(message || 'שגיאה בשליחת הוואטסאפ');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div
+        className="bg-white rounded-lg shadow-xl w-full max-w-lg m-4"
+        onClick={(e) => e.stopPropagation()}
+        dir="rtl"
+      >
+        <div className="flex items-center justify-between p-4 border-b">
+          <div className="flex items-center gap-2">
+            <MessageCircle className="w-5 h-5 text-green-600" />
+            <h2 className="text-lg font-semibold">שליחת WhatsApp</h2>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <div className="rounded-md border border-gray-200 bg-gray-50 p-3 text-sm">
+            <div className="font-medium text-gray-900">{lead.customerName}</div>
+            <div className="text-gray-500" dir="ltr">{lead.customerPhone}</div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">הודעה</label>
+            <textarea
+              value={message}
+              onChange={(e) => {
+                setMessage(e.target.value);
+                if (error) setError('');
+              }}
+              rows={6}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+              placeholder="כתוב הודעה לליד..."
+            />
+          </div>
+
+          {error && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 border-t pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm"
+            >
+              ביטול
+            </button>
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={sending || !message.trim()}
+              className="inline-flex items-center gap-2 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              <Send className="w-4 h-4" />
+              {sending ? 'שולח...' : 'שלח ב-WhatsApp'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

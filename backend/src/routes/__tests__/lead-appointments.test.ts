@@ -295,6 +295,27 @@ describe('Lead Appointments API', () => {
       });
     });
 
+    it('updates WhatsApp sent state', async () => {
+      const updated = { id: 'abc', whatsappSent: true, lastContactResult: 'whatsapp_sent' };
+      mockPrisma.leadAppointment.update.mockResolvedValue(updated);
+
+      const res = await request(app)
+        .patch('/api/lead-appointments/abc')
+        .send({ whatsappSent: true, lastContactResult: 'whatsapp_sent' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual(updated);
+      expect(mockPrisma.leadAppointment.update).toHaveBeenCalledWith({
+        where: { id: 'abc' },
+        data: {
+          whatsappSent: true,
+          lastContactResult: 'whatsapp_sent',
+          lastContactedAt: expect.any(Date),
+        },
+        include: expect.any(Object),
+      });
+    });
+
     it('rejects saving an edited lead without a follow-up date', async () => {
       const res = await request(app)
         .patch('/api/lead-appointments/abc')

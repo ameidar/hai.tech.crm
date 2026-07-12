@@ -10,6 +10,7 @@ import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
 import { meetingRevenueForCycle } from '../utils/revenue.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
 import { broadcastWaSSE } from '../services/wa-events.js';
+import { sendWhatsAppToChat } from '../services/messaging.js';
 import rateLimit from 'express-rate-limit';
 
 // Rate limiter for public lead submission endpoint
@@ -74,6 +75,8 @@ const apiKeyAuth = (req: Request, _res: Response, next: NextFunction) => {
 webhookRouter.use(apiKeyAuth);
 
 const GREEN_INBOUND_LEAD_WINDOW_HOURS = Number(process.env.GREEN_INBOUND_LEAD_WINDOW_HOURS || 6);
+const GREEN_INBOUND_ALERT_GROUP_ID = process.env.WA_INBOUND_ALERT_GROUP_ID || '120363308669020817@g.us';
+const APP_URL = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
 
 type GreenMatchedCustomer = {
   id: string;
@@ -202,13 +205,13 @@ async function routeGreenInboundToCrm(params: {
     customer = leadCustomer || undefined;
   }
 
-  if (customer) {
+  if (customer || lead) {
     await prisma.auditLog.create({
       data: {
         userName: 'Green API',
         action: 'CREATE',
         entity: 'communication_whatsapp',
-        entityId: customer.id,
+        entityId: customer?.id || lead?.id || params.messageId || params.phone,
         newValue: {
           direction: 'inbound',
           provider: 'green',
@@ -218,8 +221,8 @@ async function routeGreenInboundToCrm(params: {
           message: params.message,
           messageType: params.messageType,
           greenMessageId: params.messageId,
-          customerId: customer.id,
-          customerName: customer.name,
+          customerId: customer?.id,
+          customerName: customer?.name,
           leadAppointmentId: lead?.id,
         },
       },
@@ -230,7 +233,7 @@ async function routeGreenInboundToCrm(params: {
       orderBy: { lastMessageAt: 'desc' },
     });
 
-    const contactName = customer.name || lead?.customer_name || normalizedPhone;
+    const contactName = customer?.name || lead?.customer_name || normalizedPhone;
     const now = new Date();
 
     if (!conversation) {
@@ -304,6 +307,19 @@ async function routeGreenInboundToCrm(params: {
       nextFollowUpAt: now,
     },
   });
+
+  if (GREEN_INBOUND_ALERT_GROUP_ID) {
+    const leadName = lead.customer_name || customer?.name || params.phone;
+    const snippet = params.message.length > 200 ? params.message.slice(0, 200) + '...' : params.message;
+    const leadLink = `${APP_URL}/lead-appointments?id=${lead.id}`;
+    const alert = `🔔 ליד הגיב להודעת WhatsApp\n\n👤 ${leadName}\n📞 ${normalizedPhone}\n"${snippet}"\n\n🔗 ${leadLink}`;
+    const result = await sendWhatsAppToChat(GREEN_INBOUND_ALERT_GROUP_ID, alert);
+    if (!result.success) {
+      console.error(`[WhatsApp] Green lead-reply alert failed for lead ${lead.id}: ${result.error}`);
+    } else {
+      console.log(`[WhatsApp] Green lead-reply alert sent for lead ${lead.id}`);
+    }
+  }
 }
 
 // Search cycles by name

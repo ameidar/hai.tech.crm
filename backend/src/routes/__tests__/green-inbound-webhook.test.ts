@@ -54,6 +54,10 @@ vi.mock('../../services/wa-events.js', () => ({
   broadcastWaSSE: vi.fn(),
 }));
 
+vi.mock('../../services/messaging.js', () => ({
+  sendWhatsAppToChat: vi.fn(),
+}));
+
 vi.mock('../../utils/revenue.js', () => ({
   meetingRevenueFromRegistrations: vi.fn(),
   revenueRegistrationCount: vi.fn(),
@@ -67,6 +71,7 @@ vi.mock('../../services/instructor-payment.js', () => ({
 
 import { prisma } from '../../utils/prisma.js';
 import { broadcastWaSSE } from '../../services/wa-events.js';
+import { sendWhatsAppToChat } from '../../services/messaging.js';
 import { webhookRouter } from '../webhook.js';
 
 const app = express();
@@ -111,6 +116,7 @@ describe('POST /api/webhook/whatsapp-incoming — Green inbound CRM routing', ()
     });
     (prisma.leadActivity.create as any).mockResolvedValue({ id: 'activity-1' });
     (prisma.leadAppointment.update as any).mockResolvedValue({ id: 'lead-1' });
+    (sendWhatsAppToChat as any).mockResolvedValue({ success: true, messageId: 'alert-1' });
   });
 
   afterEach(() => {
@@ -199,6 +205,10 @@ describe('POST /api/webhook/whatsapp-incoming — Green inbound CRM routing', ()
         lastContactResult: 'green_reply',
       }),
     });
+    expect(sendWhatsAppToChat).toHaveBeenCalledWith(
+      '120363308669020817@g.us',
+      expect.stringContaining('ליד הגיב להודעת WhatsApp'),
+    );
   });
 
   it('stores the customer message without creating lead activity when no recent open lead exists', async () => {
@@ -216,6 +226,52 @@ describe('POST /api/webhook/whatsapp-incoming — Green inbound CRM routing', ()
     expect(prisma.waMessage.create).toHaveBeenCalledTimes(1);
     expect(prisma.leadActivity.create).not.toHaveBeenCalled();
     expect(prisma.leadAppointment.update).not.toHaveBeenCalled();
+    expect(sendWhatsAppToChat).not.toHaveBeenCalled();
+  });
+
+  it('stores and alerts for a matched lead even when no customer is linked yet', async () => {
+    const lead = {
+      id: 'lead-1',
+      customer_id: null,
+      customer_name: 'עמי',
+      customer_phone: '052-874-6137',
+      sales_status: 'new',
+    };
+
+    (prisma.$queryRaw as any)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([lead]);
+
+    await request(app).post('/api/webhook/whatsapp-incoming').send(greenPayload).expect(200);
+    await waitForWebhookWork();
+
+    expect(prisma.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        entity: 'communication_whatsapp',
+        entityId: 'lead-1',
+        newValue: expect.objectContaining({
+          leadAppointmentId: 'lead-1',
+          customerId: undefined,
+        }),
+      }),
+    });
+    expect(prisma.waMessage.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        direction: 'inbound',
+        content: 'היי, אשמח לפרטים',
+      }),
+    });
+    expect(prisma.leadActivity.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        leadAppointmentId: 'lead-1',
+        result: 'green_reply',
+      }),
+    });
+    expect(sendWhatsAppToChat).toHaveBeenCalledWith(
+      '120363308669020817@g.us',
+      expect.stringContaining('https://crm.orma-ai.com/lead-appointments?id=lead-1'),
+    );
   });
 
   it('ignores duplicate Green messages by greenMessageId', async () => {
@@ -228,5 +284,6 @@ describe('POST /api/webhook/whatsapp-incoming — Green inbound CRM routing', ()
     expect(prisma.waMessage.create).not.toHaveBeenCalled();
     expect(prisma.leadActivity.create).not.toHaveBeenCalled();
     expect(prisma.leadAppointment.update).not.toHaveBeenCalled();
+    expect(sendWhatsAppToChat).not.toHaveBeenCalled();
   });
 });

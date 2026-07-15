@@ -24,6 +24,7 @@ import Modal from '../components/ui/Modal';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
 import SearchableSelect from '../components/ui/SearchableSelect';
+import FileAttachments from '../components/FileAttachments';
 import type { Task, TaskPriority, TaskStatus } from '../types';
 
 const STATUSES: Array<{ value: TaskStatus; label: string; tone: string }> = [
@@ -127,6 +128,13 @@ function TaskCard({
       </div>
 
       <div className="mt-4 pt-3 border-t border-gray-100 space-y-3">
+        <div className="flex items-center gap-2 min-w-0 text-sm text-gray-700">
+          <div className="w-7 h-7 rounded-full bg-blue-50 flex items-center justify-center text-blue-500">
+            <UserRound size={15} />
+          </div>
+          <span className="text-gray-500 shrink-0">נפתח על ידי:</span>
+          <span className="font-medium break-words min-w-0">{task.createdBy?.name || '-'}</span>
+        </div>
         <div className="flex items-center gap-2 min-w-0 text-sm text-gray-700">
           <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-gray-500">
             <UserRound size={15} />
@@ -491,6 +499,7 @@ export default function Tasks() {
                 <th>משימה</th>
                 <th>סטטוס</th>
                 <th>עדיפות</th>
+                <th>נפתח על ידי</th>
                 <th>מוקצה</th>
                 <th>יעד</th>
                 <th className="w-24">פעולות</th>
@@ -511,6 +520,7 @@ export default function Tasks() {
                       {PRIORITY_LABELS[task.priority]}
                     </span>
                   </td>
+                  <td>{task.createdBy?.name || '-'}</td>
                   <td>{task.assignee?.name || '-'}</td>
                   <td className={isOverdue(task) ? 'text-red-600 font-semibold' : ''}>
                     {task.dueDate ? new Date(task.dueDate).toLocaleDateString('he-IL') : '-'}
@@ -605,6 +615,15 @@ export default function Tasks() {
               />
             </div>
           </div>
+
+          {editingTask && (
+            <div className="border-t border-gray-200 pt-4">
+              <div className="mb-3">
+                <p className="text-sm font-medium text-gray-700">קבצים מצורפים</p>
+              </div>
+              <FileAttachments entityType="task" entityId={editingTask.id} canDelete={true} />
+            </div>
+          )}
 
           {formError && <p className="text-sm text-red-600">{formError}</p>}
 

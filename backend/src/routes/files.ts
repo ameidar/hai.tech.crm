@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
+import { UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -12,7 +13,8 @@ import { config } from '../config.js';
 export const filesRouter = Router();
 
 // Supported entity types
-const ALLOWED_ENTITY_TYPES = ['instructor', 'quote', 'institutional-order'];
+const ALLOWED_ENTITY_TYPES = ['instructor', 'quote', 'institutional-order', 'task'];
+const TASK_VISIBLE_TO_ALL_ROLES: UserRole[] = ['admin', 'manager', 'operations'];
 
 // Upload directory
 const UPLOADS_BASE = path.join(process.cwd(), 'uploads');
@@ -103,6 +105,33 @@ const upload = multer({
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
 });
 
+function canSeeAllTasks(role: UserRole) {
+  return TASK_VISIBLE_TO_ALL_ROLES.includes(role);
+}
+
+async function assertTaskFileAccess(taskId: string, user: Express.Request['user'], mode: 'view' | 'modify') {
+  if (!user) throw new AppError(401, 'נדרשת התחברות');
+
+  const task = await prisma.task.findFirst({
+    where: { id: taskId, deletedAt: null },
+    select: { id: true, createdById: true, assigneeId: true },
+  });
+
+  if (!task) throw new AppError(404, 'משימה לא נמצאה');
+
+  const canView =
+    canSeeAllTasks(user.role) ||
+    task.createdById === user.userId ||
+    task.assigneeId === user.userId;
+  const canModify =
+    canSeeAllTasks(user.role) ||
+    task.createdById === user.userId ||
+    task.assigneeId === user.userId;
+
+  if (mode === 'view' && !canView) throw new AppError(403, 'אין הרשאה לצפות בקבצי משימה זו');
+  if (mode === 'modify' && !canModify) throw new AppError(403, 'אין הרשאה לערוך קבצי משימה זו');
+}
+
 // POST /api/files/:entityType/:entityId — upload a file
 filesRouter.post('/:entityType/:entityId', authenticate, upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -127,6 +156,8 @@ filesRouter.post('/:entityType/:entityId', authenticate, upload.single('file'), 
     } else if (entityType === 'institutional-order') {
       const order = await prisma.institutionalOrder.findUnique({ where: { id: entityId } });
       if (!order) throw new AppError(404, 'הזמנה מוסדית לא נמצאה');
+    } else if (entityType === 'task') {
+      await assertTaskFileAccess(entityId, req.user, 'modify');
     }
 
     const filePath = `${entityType}/${entityId}/${req.file.filename}`;
@@ -172,9 +203,17 @@ filesRouter.get('/download/:id', async (req: Request, res: Response, next: NextF
       } catch {
         throw new AppError(401, 'טוקן לא תקין');
       }
-    } else if (!req.user) {
-      // Try Authorization header via authenticate manually
-      throw new AppError(401, 'נדרשת התחברות');
+    } else {
+      const authHeader = req.headers.authorization;
+      if (!authHeader?.startsWith('Bearer ')) {
+        throw new AppError(401, 'נדרשת התחברות');
+      }
+      try {
+        const decoded = jwt.verify(authHeader.substring(7), config.jwt.secret) as any;
+        (req as any).user = decoded;
+      } catch {
+        throw new AppError(401, 'טוקן לא תקין');
+      }
     }
 
     const attachment = await prisma.fileAttachment.findUnique({
@@ -182,6 +221,9 @@ filesRouter.get('/download/:id', async (req: Request, res: Response, next: NextF
     });
 
     if (!attachment) throw new AppError(404, 'קובץ לא נמצא');
+    if (attachment.entityType === 'task') {
+      await assertTaskFileAccess(attachment.entityId, req.user, 'view');
+    }
 
     const fullPath = path.join(UPLOADS_BASE, attachment.filePath);
 
@@ -211,6 +253,9 @@ filesRouter.get('/:entityType/:entityId', authenticate, async (req: Request, res
     if (!ALLOWED_ENTITY_TYPES.includes(entityType)) {
       throw new AppError(400, `entityType לא חוקי: ${entityType}`);
     }
+    if (entityType === 'task') {
+      await assertTaskFileAccess(entityId, req.user, 'view');
+    }
 
     const attachments = await prisma.fileAttachment.findMany({
       where: { entityType, entityId },
@@ -239,6 +284,9 @@ filesRouter.delete('/:id', authenticate, async (req: Request, res: Response, nex
     });
 
     if (!attachment) throw new AppError(404, 'קובץ לא נמצא');
+    if (attachment.entityType === 'task') {
+      await assertTaskFileAccess(attachment.entityId, req.user, 'modify');
+    }
 
     // Delete from disk
     const fullPath = path.join(UPLOADS_BASE, attachment.filePath);
@@ -259,6 +307,14 @@ filesRouter.delete('/:id', authenticate, async (req: Request, res: Response, nex
 filesRouter.patch('/:id', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { label } = req.body;
+    const existing = await prisma.fileAttachment.findUnique({
+      where: { id: req.params.id },
+      select: { entityType: true, entityId: true },
+    });
+    if (!existing) throw new AppError(404, 'קובץ לא נמצא');
+    if (existing.entityType === 'task') {
+      await assertTaskFileAccess(existing.entityId, req.user, 'modify');
+    }
 
     const attachment = await prisma.fileAttachment.update({
       where: { id: req.params.id },

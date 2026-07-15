@@ -7,13 +7,17 @@ import {
   Edit3,
   List,
   ListTodo,
+  Paperclip,
   Plus,
   Send,
   Search,
   Trash2,
   UserRound,
+  Upload,
+  X,
 } from 'lucide-react';
 import {
+  uploadFileAttachment,
   useCreateTask,
   useDeleteTask,
   useTasks,
@@ -73,6 +77,12 @@ function isOverdue(task: Task) {
 
 function newestFirst(a: Task, b: Task) {
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+}
+
+function formatPendingFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function TaskCard({
@@ -191,6 +201,8 @@ export default function Tasks() {
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState('');
+  const [newTaskFiles, setNewTaskFiles] = useState<File[]>([]);
+  const [isUploadingNewTaskFiles, setIsUploadingNewTaskFiles] = useState(false);
   const [reassignTask, setReassignTask] = useState<Task | null>(null);
   const [reassignAssigneeId, setReassignAssigneeId] = useState('');
   const [reassignStatus, setReassignStatus] = useState<TaskStatus>('waiting_info');
@@ -236,6 +248,8 @@ export default function Tasks() {
     setEditingTask(null);
     setForm({ ...emptyForm, assigneeId: defaultAssigneeId });
     setFormError('');
+    setNewTaskFiles([]);
+    setIsUploadingNewTaskFiles(false);
     setShowModal(true);
   };
 
@@ -250,6 +264,8 @@ export default function Tasks() {
       assigneeId: task.assigneeId || '',
     });
     setFormError('');
+    setNewTaskFiles([]);
+    setIsUploadingNewTaskFiles(false);
     setShowModal(true);
   };
 
@@ -257,6 +273,17 @@ export default function Tasks() {
     setShowModal(false);
     setEditingTask(null);
     setFormError('');
+    setNewTaskFiles([]);
+    setIsUploadingNewTaskFiles(false);
+  };
+
+  const addNewTaskFiles = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setNewTaskFiles((current) => [...current, ...Array.from(files)]);
+  };
+
+  const removeNewTaskFile = (index: number) => {
+    setNewTaskFiles((current) => current.filter((_, itemIndex) => itemIndex !== index));
   };
 
   const openReassign = (task: Task) => {
@@ -295,7 +322,22 @@ export default function Tasks() {
       if (editingTask) {
         await updateTask.mutateAsync({ id: editingTask.id, data: payload });
       } else {
-        await createTask.mutateAsync(payload);
+        const createdTask = await createTask.mutateAsync(payload);
+        if (newTaskFiles.length > 0) {
+          setIsUploadingNewTaskFiles(true);
+          try {
+            for (const file of newTaskFiles) {
+              await uploadFileAttachment('task', createdTask.id, { file });
+            }
+          } catch (uploadError) {
+            setEditingTask(createdTask);
+            const message = (uploadError as { response?: { data?: { message?: string; error?: string } } })?.response?.data;
+            setFormError(message?.message || message?.error || 'המשימה נוצרה, אבל העלאת אחד הקבצים נכשלה');
+            return;
+          } finally {
+            setIsUploadingNewTaskFiles(false);
+          }
+        }
       }
       closeModal();
     } catch (error) {
@@ -625,6 +667,48 @@ export default function Tasks() {
             </div>
           )}
 
+          {!editingTask && (
+            <div className="border-t border-gray-200 pt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">קבצים מצורפים</label>
+              <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-center hover:border-blue-300 hover:bg-blue-50">
+                <Upload size={24} className="mb-2 text-gray-400" />
+                <span className="text-sm font-medium text-gray-700">בחר קבצים לצירוף למשימה</span>
+                <span className="mt-1 text-xs text-gray-400">PDF, Word, Excel, תמונות וקבצי עבודה</span>
+                <input
+                  type="file"
+                  multiple
+                  className="hidden"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.jpg,.jpeg,.png,.gif,.webp,.heic,.heif,.txt,.rtf,.zip,.rar"
+                  onChange={(event) => {
+                    addNewTaskFiles(event.target.files);
+                    event.target.value = '';
+                  }}
+                />
+              </label>
+              {newTaskFiles.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {newTaskFiles.map((file, index) => (
+                    <div key={`${file.name}-${file.size}-${index}`} className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                      <Paperclip size={15} className="shrink-0 text-gray-400" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-gray-800" title={file.name}>{file.name}</p>
+                        <p className="text-xs text-gray-400">{formatPendingFileSize(file.size)}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeNewTaskFile(index)}
+                        className="rounded-md p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                        title="הסר קובץ"
+                      >
+                        <X size={15} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {formError && <p className="text-sm text-red-600">{formError}</p>}
 
           <div className="flex items-center justify-end gap-3 pt-2">
@@ -633,10 +717,14 @@ export default function Tasks() {
             </button>
             <button
               type="submit"
-              disabled={createTask.isPending || updateTask.isPending}
+              disabled={createTask.isPending || updateTask.isPending || isUploadingNewTaskFiles}
               className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50"
             >
-              {createTask.isPending || updateTask.isPending ? 'שומר...' : 'שמירה'}
+              {createTask.isPending || updateTask.isPending
+                ? 'שומר...'
+                : isUploadingNewTaskFiles
+                  ? 'מעלה קבצים...'
+                  : 'שמירה'}
             </button>
           </div>
         </form>

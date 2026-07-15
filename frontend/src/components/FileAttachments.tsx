@@ -9,7 +9,7 @@ import {
 } from '../hooks/useApi';
 
 interface FileAttachmentsProps {
-  entityType: 'instructor' | 'quote' | 'institutional-order';
+  entityType: 'instructor' | 'quote' | 'institutional-order' | 'task';
   entityId: string;
   canDelete?: boolean; // admin/manager can delete
   className?: string;
@@ -19,6 +19,7 @@ const LABEL_SUGGESTIONS: Record<FileAttachmentsProps['entityType'], string[]> = 
   instructor: ['חוזה', 'קורות חיים', 'תעודת זהות', 'תעודות הסמכה', 'אחר'],
   quote: ['הצעת מחיר חתומה', 'חוזה', 'אישור הזמנה', 'קבלה', 'אחר'],
   'institutional-order': ['הזמנת רכש', 'חוזה', 'הצעת מחיר חתומה', 'חשבונית', 'קבלה', 'אחר'],
+  task: ['צילום מסך', 'מסמך לקוח', 'אישור', 'קובץ עבודה', 'אחר'],
 };
 
 const formatFileSize = (bytes: number): string => {
@@ -50,10 +51,12 @@ export default function FileAttachments({ entityType, entityId, canDelete = fals
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const handleFiles = useCallback(async (fileList: FileList) => {
-    const file = fileList[0];
-    if (!file) return;
+    const files = Array.from(fileList);
+    if (files.length === 0) return;
     try {
-      await uploadFile.mutateAsync({ file, label: uploadLabel || undefined });
+      for (const file of files) {
+        await uploadFile.mutateAsync({ file, label: uploadLabel || undefined });
+      }
       setUploadLabel('');
     } catch (err: any) {
       alert(err?.response?.data?.message || err?.response?.data?.error || 'שגיאה בהעלאת הקובץ');
@@ -110,6 +113,7 @@ export default function FileAttachments({ entityType, entityId, canDelete = fals
         <input
           ref={fileInputRef}
           type="file"
+          multiple
           className="hidden"
           onChange={(e) => e.target.files && handleFiles(e.target.files)}
           accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.jpg,.jpeg,.png,.gif,.webp,.heic,.heif,.txt,.rtf,.zip,.rar"

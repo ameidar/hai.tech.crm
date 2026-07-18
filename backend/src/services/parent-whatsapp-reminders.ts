@@ -12,16 +12,21 @@ function normalizeWhatsAppPhone(phone: string): string | null {
   return `972${digits}`;
 }
 
+function templateText(value: string | null | undefined, fallback: string): string {
+  const trimmed = (value || '').trim();
+  return trimmed || fallback;
+}
+
 export function buildParentReminderTemplateVariables(data: ParentReminderData): string[] {
   return [
-    data.parentName || 'שלום',
-    data.studentName || '',
-    data.className || '',
-    data.date || '',
-    data.time || '',
-    data.location || '',
-    data.instructorName || 'צוות HaiTech',
-    data.zoomLink || '',
+    templateText(data.parentName, 'שלום'),
+    templateText(data.studentName, 'התלמיד/ה'),
+    templateText(data.className, 'השיעור'),
+    templateText(data.date, 'מחר'),
+    templateText(data.time, 'השעה תעודכן בהמשך'),
+    templateText(data.location, 'אונליין'),
+    templateText(data.instructorName, 'צוות HaiTech'),
+    templateText(data.zoomLink, 'אין קישור זום לשיעור זה'),
   ];
 }
 

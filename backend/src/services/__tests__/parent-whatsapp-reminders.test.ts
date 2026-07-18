@@ -61,6 +61,29 @@ describe('parent WhatsApp reminders', () => {
     ]);
   });
 
+  it('never sends empty Meta text template variables', () => {
+    expect(buildParentReminderTemplateVariables({
+      parentName: '',
+      studentName: '',
+      className: '',
+      date: '',
+      time: '',
+      location: '',
+      instructorName: '',
+      isOnline: false,
+      zoomLink: '',
+    })).toEqual([
+      'שלום',
+      'התלמיד/ה',
+      'השיעור',
+      'מחר',
+      'השעה תעודכן בהמשך',
+      'אונליין',
+      'צוות HaiTech',
+      'אין קישור זום לשיעור זה',
+    ]);
+  });
+
   it('is disabled by default', async () => {
     const result = await sendParentWhatsAppReminder({
       phone: '0544431571',

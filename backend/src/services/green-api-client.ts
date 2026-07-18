@@ -124,7 +124,13 @@ async function sendWithCredentials(
 }
 
 function shouldTryFallbackDespiteUncertainState(health: GreenApiHealth): boolean {
-  return health.statusInstance === 'online' && !health.stateInstance && !health.error;
+  return (
+    !health.error &&
+    (
+      health.stateInstance === 'authorized' ||
+      (health.statusInstance === 'online' && !health.stateInstance)
+    )
+  );
 }
 
 async function sendWithFallback(
@@ -167,7 +173,7 @@ async function sendWithFallback(
   if (!fallbackHealth.healthy) {
     if (shouldTryFallbackDespiteUncertainState(fallbackHealth)) {
       console.warn(
-        `[GreenAPI] fallback ${fallback.instanceId} state unknown but status=online; attempting ${endpoint}`
+        `[GreenAPI] fallback ${fallback.instanceId} health is usable but not fully healthy: state=${fallbackHealth.stateInstance || 'unknown'} status=${fallbackHealth.statusInstance || 'unknown'}; attempting ${endpoint}`
       );
       return sendWithCredentials(fallback, endpoint, body);
     }

@@ -235,4 +235,49 @@ describe('POST /api/communication/whatsapp — Green outbound CRM thread', () =>
       }),
     });
   });
+
+  it('still attempts fallback send when fallback is authorized but status is stale/offline', async () => {
+    global.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/waInstance7103104732/getStateInstance/')) {
+        return { ok: true, status: 200, json: async () => ({ stateInstance: 'yellowCard' }) };
+      }
+      if (url.includes('/waInstance7103104732/getStatusInstance/')) {
+        return { ok: true, status: 200, json: async () => ({ statusInstance: 'offline' }) };
+      }
+      if (url.includes('/waInstance7103320181/getStateInstance/')) {
+        return { ok: true, status: 200, json: async () => ({ stateInstance: 'authorized' }) };
+      }
+      if (url.includes('/waInstance7103320181/getStatusInstance/')) {
+        return { ok: true, status: 200, json: async () => ({ statusInstance: 'offline' }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ idMessage: 'fallback-green-authorized-status-stale' }),
+      };
+    }) as any;
+
+    await request(app)
+      .post('/api/communication/whatsapp')
+      .send({
+        phone: '052-123-4567',
+        message: 'בודק fallback authorized',
+        customerId: 'customer-1',
+        customerName: 'ישראל ישראלי',
+      })
+      .expect(200);
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://api.green-api.com/waInstance7103320181/sendMessage/fallback-token',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ chatId: '972521234567@c.us', message: 'בודק fallback authorized' }),
+      }),
+    );
+    expect(prisma.waMessage.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        waMessageId: 'green:fallback-green-authorized-status-stale',
+      }),
+    });
+  });
 });

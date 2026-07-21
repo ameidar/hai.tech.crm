@@ -116,7 +116,8 @@ const salesNavItems = [
 
 // Operations staff navigation (self-reported work hours)
 const operationsNavItems = [
-  { path: '/operations', icon: Clock, label: 'דיווח שעות', testId: 'nav-operations' },
+  { path: '/operations-control', icon: Activity, label: 'מגדל שליטה', testId: 'nav-operations-control' },
+  { path: '/tasks', icon: ListTodo, label: 'משימות תפעול', testId: 'nav-tasks' },
 ];
 
 const COLLAPSED_KEY = 'nav-collapsed-sections';
@@ -159,22 +160,17 @@ export default function Layout() {
   const isInstructor = user?.role === 'instructor';
   const isSales = user?.role === 'sales';
   const isOperations = user?.role === 'operations';
-  // Operations managers see the full admin nav (plus their own "דיווח שעות" item).
-  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || isOperations;
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
   const isWhatsAppPage = location.pathname.startsWith('/whatsapp');
 
   // Flat items for non-admin roles
-  const flatNavItems = isInstructor ? instructorNavItems : isSales ? salesNavItems : [];
-
-  // Operations managers get every admin group, with their own work-hours reporting
-  // item appended to the "system" group.
-  const navGroups = isOperations
-    ? adminNavGroups.map((group) =>
-        group.key === 'system'
-          ? { ...group, items: [...group.items, operationsNavItems[0]] }
-          : group
-      )
-    : adminNavGroups;
+  const flatNavItems = isInstructor
+    ? instructorNavItems
+    : isSales
+      ? salesNavItems
+      : isOperations
+        ? operationsNavItems
+        : [];
 
   const renderNavItem = (item: { path: string; icon: any; label: string; testId: string }) => {
     return (
@@ -224,8 +220,8 @@ export default function Layout() {
       {/* Navigation */}
       <nav className="flex-1 py-2 overflow-y-auto" data-testid="main-nav">
         {isAdmin ? (
-          // Grouped navigation for admin/manager (and operations managers)
-          navGroups.map((group) => {
+          // Grouped navigation for admin/manager
+          adminNavGroups.map((group) => {
             const isCollapsed = !!collapsedSections[group.key];
             return (
               <div key={group.key} className="mb-1">

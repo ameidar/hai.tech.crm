@@ -17,6 +17,7 @@ import Meetings from './pages/Meetings';
 import Reports from './pages/Reports';
 import InstructorDashboard from './pages/InstructorDashboard';
 import OperationsHours from './pages/OperationsHours';
+import OperationsControl from './pages/OperationsControl';
 import Tasks from './pages/Tasks';
 import WorkHoursApproval from './pages/WorkHoursApproval';
 import InviteSetup from './pages/InviteSetup';
@@ -188,6 +189,7 @@ function AppRoutes() {
             <Route path="cycles/:id" element={<NonSalesRoute><CycleDetail /></NonSalesRoute>} />
             <Route path="meetings" element={<NonSalesRoute><Meetings /></NonSalesRoute>} />
             <Route path="meetings/:id" element={<NonSalesRoute><MeetingRedirect /></NonSalesRoute>} />
+            <Route path="operations-control" element={<NonSalesRoute><OperationsControl /></NonSalesRoute>} />
             <Route path="quotes" element={<NonSalesRoute><Quotes /></NonSalesRoute>} />
             <Route path="quotes/new" element={<NonSalesRoute><QuoteWizard /></NonSalesRoute>} />
             <Route path="quotes/:id" element={<NonSalesRoute><QuoteDetail /></NonSalesRoute>} />

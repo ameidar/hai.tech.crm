@@ -38,6 +38,7 @@ import {
   Share2,
   Clock,
   ListTodo,
+  Activity,
 } from 'lucide-react';
 
 // Admin/Manager navigation — grouped
@@ -54,6 +55,7 @@ const adminNavGroups = [
       { path: '/instructors', icon: UserCheck, label: 'מדריכים', testId: 'nav-instructors' },
       { path: '/cycles', icon: RefreshCcw, label: 'מחזורים', testId: 'nav-cycles' },
       { path: '/meetings', icon: Calendar, label: 'פגישות', testId: 'nav-meetings' },
+      { path: '/operations-control', icon: Activity, label: 'מגדל שליטה', testId: 'nav-operations-control' },
       { path: '/quotes', icon: Receipt, label: 'הצעות מחיר', testId: 'nav-quotes' },
       { path: '/institutional-orders', icon: FileText, label: 'הזמנות מוסדיות', testId: 'nav-institutional-orders' },
       { path: '/paying-bodies', icon: Wallet, label: 'גופים משלמים', testId: 'nav-paying-bodies' },

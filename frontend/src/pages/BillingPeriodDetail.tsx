@@ -30,6 +30,10 @@ interface Payment {
   morningReceiptUrl?: string | null;
 }
 
+interface ProformaSnapshot {
+  grossTotal?: number | string | null;
+}
+
 interface Period {
   id: string;
   monthStart: string;
@@ -50,6 +54,7 @@ interface Period {
   taxInvoiceIssuedAt: string | null;
   taxInvoiceType: number | null;
   proformaSource: string | null;
+  proformaSnapshot: ProformaSnapshot | null;
   sentAt: string | null;
   sentChannel: string | null;
   sentToEmail: string | null;
@@ -142,6 +147,11 @@ function billingTotals(lines: Line[], fallbackTotal: string | number) {
   const allVatIncluded = hasLines && vatExcluded === 0;
   const allVatExcluded = hasLines && vatIncluded === 0;
   return { vatIncluded, vatExcluded, base, vatToAdd, totalDue, allVatIncluded, allVatExcluded };
+}
+
+function chargedTotalDue(period: Period, totals = billingTotals(period.lines, period.totalAmount)) {
+  const snapshotGross = Number(period.proformaSnapshot?.grossTotal);
+  return snapshotGross > 0 ? snapshotGross : totals.totalDue;
 }
 
 function rangeLabel(startIso: string, endIso: string) {
@@ -391,7 +401,7 @@ export default function BillingPeriodDetail() {
     setWaPhone(phone);
     const orderName = period.institutionalOrder.orderName || 'מוסד';
     const monthLbl = rangeLabel(period.monthStart, period.monthEnd);
-    const totalGross = billingTotals(period.lines, period.totalAmount).totalDue.toFixed(2);
+    const totalGross = chargedTotalDue(period).toFixed(2);
     setWaMessage([
       `שלום,`,
       `מצורף חשבון עסקה מספר ${period.morningDocNumber} עבור ${orderName} — ${monthLbl}.`,
@@ -428,7 +438,7 @@ export default function BillingPeriodDetail() {
       : [{
           date: new Date().toISOString().slice(0, 10),
           type: 4,
-          amount: billingTotals(period.lines, period.totalAmount).totalDue.toFixed(2),
+          amount: chargedTotalDue(period).toFixed(2),
         }];
     setTaxPayments(rows);
     setTaxMode('320');
@@ -500,7 +510,7 @@ export default function BillingPeriodDetail() {
 
   function openReceiptModal() {
     if (!period) return;
-    const balance = billingTotals(period.lines, period.totalAmount).totalDue - Number(period.paidAmount);
+    const balance = chargedTotalDue(period) - Number(period.paidAmount);
     setReceiptForm({
       amount: balance > 0 ? balance.toFixed(2) : '',
       method: 'העברה בנקאית',
@@ -530,7 +540,7 @@ export default function BillingPeriodDetail() {
 
   function openLinkReceiptModal() {
     if (!period) return;
-    const balance = billingTotals(period.lines, period.totalAmount).totalDue - Number(period.paidAmount);
+    const balance = chargedTotalDue(period) - Number(period.paidAmount);
     setLinkReceiptForm({
       amount: balance > 0 ? balance.toFixed(2) : '',
       method: 'העברה בנקאית',
@@ -616,6 +626,8 @@ export default function BillingPeriodDetail() {
   const payer = order.payingBodyRef ?? null;
   const missingTaxId = !!payer && !payer.taxId;
   const totals = billingTotals(period.lines, period.totalAmount);
+  const chargedDue = chargedTotalDue(period, totals);
+  const hasMorningChargedTotal = period.status === 'issued' && Math.abs(chargedDue - totals.totalDue) > 0.01;
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
@@ -643,6 +655,7 @@ export default function BillingPeriodDetail() {
               מספר: <b>{period.morningDocNumber}</b>
               {period.issuedAt && <> · הופק: {new Date(period.issuedAt).toLocaleString('he-IL')}</>}
               {period.dueDate && <> · לתשלום עד: {new Date(period.dueDate).toLocaleDateString('he-IL')}</>}
+              <> · חויב בפועל: <b>{formatCurrency(chargedDue)}</b></>
             </p>
             <div className="flex flex-wrap gap-3 mt-2 text-sm">
               {period.morningDocUrl && (
@@ -852,6 +865,13 @@ export default function BillingPeriodDetail() {
                     {isDraft && <td/>}</tr>
               </>
             )}
+            {hasMorningChargedTotal && (
+              <tr className="text-indigo-700 bg-indigo-50">
+                <td colSpan={isDraft ? 3 : 2} className="p-3 text-left">חויב בפועל לפי חשבון העסקה במורנינג:</td>
+                <td className="p-3">{formatCurrency(chargedDue)}</td>
+                {isDraft && <td/>}
+              </tr>
+            )}
           </tfoot>
         </table>
       </section>
@@ -965,11 +985,11 @@ export default function BillingPeriodDetail() {
           <div className="text-sm text-gray-600">
             שולם: <b>{Number(period.paidAmount).toLocaleString('he-IL', { style: 'currency', currency: 'ILS' })}</b>
             {' '}מתוך{' '}
-            <b>{formatCurrency(totals.totalDue)}</b>
+            <b>{formatCurrency(chargedDue)}</b>
             {' '}(כולל מע"מ)
-            {Number(period.paidAmount) > 0 && Number(period.paidAmount) < totals.totalDue && (
+            {Number(period.paidAmount) > 0 && Number(period.paidAmount) < chargedDue && (
               <span className="text-amber-700 mr-2">
-                · יתרה: {formatCurrency(totals.totalDue - Number(period.paidAmount))}
+                · יתרה: {formatCurrency(chargedDue - Number(period.paidAmount))}
               </span>
             )}
           </div>
@@ -1140,7 +1160,7 @@ export default function BillingPeriodDetail() {
 
       {/* ── Tax invoice + receipt (320) preview & edit modal ──────────────── */}
       {showTaxModal && period && (() => {
-        const documentGross = billingTotals(period.lines, period.totalAmount).totalDue;
+        const documentGross = chargedTotalDue(period);
         const paymentsSum = taxPayments.reduce((s, r) => s + (Number(r.amount) || 0), 0);
         const mismatch = Math.abs(paymentsSum - documentGross) > 0.01;
         return (
@@ -1290,7 +1310,7 @@ export default function BillingPeriodDetail() {
               </p>
               <div className="text-sm text-gray-600">
                 שולם עד כה: <b>{formatCurrency(Number(period.paidAmount))}</b> מתוך{' '}
-                <b>{formatCurrency(billingTotals(period.lines, period.totalAmount).totalDue)}</b>
+                <b>{formatCurrency(chargedTotalDue(period))}</b>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1366,7 +1386,7 @@ export default function BillingPeriodDetail() {
               </div>
               {linkTaxForm.documentType === '320' && (
                 <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-                  קישור 320 יסמן את התקופה כ<b>שולם במלואו</b> (סכום: {formatCurrency(billingTotals(period.lines, period.totalAmount).totalDue)}) — כי 320 כולל קבלה.
+                  קישור 320 יסמן את התקופה כ<b>שולם במלואו</b> (סכום: {formatCurrency(chargedTotalDue(period))}) — כי 320 כולל קבלה.
                 </p>
               )}
             </div>
@@ -1395,7 +1415,7 @@ export default function BillingPeriodDetail() {
               </p>
               <div className="text-sm text-gray-600">
                 שולם עד כה: <b>{formatCurrency(Number(period.paidAmount))}</b> מתוך{' '}
-                <b>{formatCurrency(billingTotals(period.lines, period.totalAmount).totalDue)}</b>
+                <b>{formatCurrency(chargedTotalDue(period))}</b>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>

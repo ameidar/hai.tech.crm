@@ -16,6 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { sendEmail } from '../services/email/sender.js';
 import { sendWhatsAppToChat } from '../services/messaging.js';
+import { addWaSseClient, broadcastWaSSE as broadcastSSE, removeWaSseClient } from '../services/wa-events.js';
 
 const router = Router();
 
@@ -137,16 +138,6 @@ async function initBotConfigFromDB() {
 }
 // Fire-and-forget at startup
 initBotConfigFromDB();
-
-// SSE clients for real-time updates
-const sseClients = new Set<Response>();
-
-function broadcastSSE(event: string, data: any) {
-  const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  sseClients.forEach(client => {
-    try { client.write(msg); } catch {}
-  });
-}
 
 // ============================================================
 // Meta WhatsApp Cloud API helper
@@ -951,10 +942,10 @@ router.get('/events', (req: Request, res: Response) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  sseClients.add(res);
+  addWaSseClient(res);
   res.write('event: connected\ndata: {}\n\n');
 
-  req.on('close', () => sseClients.delete(res));
+  req.on('close', () => removeWaSseClient(res));
 });
 
 // ── POST /api/wa/templates — Create a new template in Meta

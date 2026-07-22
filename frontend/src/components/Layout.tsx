@@ -114,7 +114,7 @@ const salesNavItems = [
   { path: '/payment-link', icon: Link2, label: 'לינק לתשלום', testId: 'nav-payment-link' },
 ];
 
-// Operations staff navigation (self-reported work hours)
+// Operations staff navigation for Kim's review user.
 const operationsNavItems = [
   { path: '/operations-control', icon: Activity, label: 'מגדל שליטה', testId: 'nav-operations-control' },
   { path: '/tasks', icon: ListTodo, label: 'משימות תפעול', testId: 'nav-tasks' },

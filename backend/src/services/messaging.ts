@@ -1,9 +1,5 @@
 import nodemailer from 'nodemailer';
-
-// Green API configuration
-const GREEN_API_INSTANCE_ID = process.env.GREEN_API_INSTANCE_ID;
-const GREEN_API_TOKEN = process.env.GREEN_API_TOKEN;
-const GREEN_API_BASE = `https://api.green-api.com/waInstance${GREEN_API_INSTANCE_ID}`;
+import { sendGreenApiMessage, sendGreenApiPoll } from './green-api-client.js';
 
 // Gmail configuration
 const GMAIL_USER = process.env.GMAIL_USER;
@@ -64,29 +60,9 @@ function formatPhoneForWhatsApp(phone: string): string {
  * Send WhatsApp message via Green API
  */
 export async function sendWhatsApp(params: SendWhatsAppParams): Promise<MessageResult> {
-  if (!GREEN_API_INSTANCE_ID || !GREEN_API_TOKEN) {
-    return { success: false, error: 'Green API not configured' };
-  }
-
   try {
     const chatId = formatPhoneForWhatsApp(params.phone) + '@c.us';
-    
-    const response = await fetch(`${GREEN_API_BASE}/sendMessage/${GREEN_API_TOKEN}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chatId,
-        message: params.message,
-      }),
-    });
-
-    const data = await response.json() as { idMessage?: string; message?: string };
-
-    if (data.idMessage) {
-      return { success: true, messageId: data.idMessage };
-    } else {
-      return { success: false, error: data.message || 'Unknown error' };
-    }
+    return await sendGreenApiMessage(chatId, params.message);
   } catch (error: any) {
     console.error('WhatsApp send error:', error);
     return { success: false, error: error.message };
@@ -98,24 +74,8 @@ export async function sendWhatsApp(params: SendWhatsAppParams): Promise<MessageR
  * Bypasses the Israel-phone formatter — caller must pass a fully-qualified chatId.
  */
 export async function sendWhatsAppToChat(chatId: string, message: string): Promise<MessageResult> {
-  if (!GREEN_API_INSTANCE_ID || !GREEN_API_TOKEN) {
-    return { success: false, error: 'Green API not configured' };
-  }
-
   try {
-    const response = await fetch(`${GREEN_API_BASE}/sendMessage/${GREEN_API_TOKEN}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chatId, message }),
-    });
-
-    const data = await response.json() as { idMessage?: string; message?: string };
-
-    if (data.idMessage) {
-      return { success: true, messageId: data.idMessage };
-    } else {
-      return { success: false, error: data.message || 'Unknown error' };
-    }
+    return await sendGreenApiMessage(chatId, message);
   } catch (error: any) {
     console.error('WhatsApp send error (chatId):', error);
     return { success: false, error: error.message };
@@ -185,30 +145,10 @@ export async function sendWhatsAppPoll(params: {
   question: string;
   options: string[];
 }): Promise<MessageResult> {
-  if (!GREEN_API_INSTANCE_ID || !GREEN_API_TOKEN) {
-    return { success: false, error: 'Green API not configured' };
-  }
-
   const chatId = formatPhoneForWhatsApp(params.phone) + '@c.us';
-  const url = `${GREEN_API_BASE}/sendPoll/${GREEN_API_TOKEN}`;
 
   try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chatId,
-        message: params.question,
-        options: params.options.map(o => ({ optionName: o })),
-        multipleAnswers: false,
-      }),
-    });
-
-    const data = await response.json() as any;
-    if (data.idMessage) {
-      return { success: true, messageId: data.idMessage };
-    }
-    return { success: false, error: JSON.stringify(data) };
+    return await sendGreenApiPoll({ chatId, question: params.question, options: params.options });
   } catch (error: any) {
     return { success: false, error: error.message };
   }

@@ -443,6 +443,7 @@ export default function CycleDetail() {
 
   const handleCreateMeeting = async (data: {
     instructorId: string;
+    registrationId?: string;
     scheduledDate: string;
     startTime: string;
     endTime: string;
@@ -689,7 +690,20 @@ export default function CycleDetail() {
     }
   };
 
-  const handleUpdateMeetingData = async (meetingId: string, data: { status?: MeetingStatus; nature?: MeetingNature; instructorId?: string; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; activityType?: ActivityType; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => {
+  const getMeetingRegistration = (meeting: Meeting): Registration | null => {
+    if (meeting.registration) return meeting.registration;
+    const attendanceWithRegistration = meeting.attendance?.find((item) => item.registration);
+    return attendanceWithRegistration?.registration || null;
+  };
+
+  const formatRegistrationLabel = (registration: Registration) => {
+    const studentName = registration.student?.name || 'תלמיד ללא שם';
+    const customerName = registration.student?.customer?.name;
+    const phone = registration.student?.customer?.phone;
+    return [studentName, customerName, phone].filter(Boolean).join(' | ');
+  };
+
+  const handleUpdateMeetingData = async (meetingId: string, data: { status?: MeetingStatus; nature?: MeetingNature; instructorId?: string; registrationId?: string | null; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; activityType?: ActivityType; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => {
     try {
       await updateMeeting.mutateAsync({
         id: meetingId,
@@ -924,7 +938,9 @@ export default function CycleDetail() {
                   // Total = cycle settings (totalMeetings), NOT actual meetings in table
                   const completedCount = meetings?.filter(m => m.status === 'completed').length ?? 0;
                   const totalCount = cycle.totalMeetings || 0;
-                  const remainingCount = Math.max(0, totalCount - completedCount);
+                  const remainingCount = cycle.status === 'completed'
+                    ? 0
+                    : Math.max(0, totalCount - completedCount);
                   
                   return (
                     <>
@@ -1232,7 +1248,7 @@ export default function CycleDetail() {
                     ייצוא לאקסל
                   </button>
                   {/* Generate meetings button - show when cycle has fewer meetings than totalMeetings */}
-                  {isAdmin && cycle && (meetings?.length || 0) < cycle.totalMeetings && (
+                  {isAdmin && cycle && cycle.status !== 'completed' && (meetings?.length || 0) < cycle.totalMeetings && (
                     <button
                       onClick={async () => {
                         if (confirm(`האם ליצור ${cycle.totalMeetings - (meetings?.length || 0)} פגישות חדשות?`)) {
@@ -1357,8 +1373,20 @@ export default function CycleDetail() {
                                 )}
                               </div>
                             </td>
-                            <td className="text-gray-500 truncate max-w-[200px]">
-                              {meeting.topic || '-'}
+                            <td className="text-gray-500 max-w-[240px]">
+                              <div className="truncate">{meeting.topic || '-'}</div>
+                              {cycle.type === 'trial_private' && (() => {
+                                const assignedRegistration = getMeetingRegistration(meeting);
+                                return assignedRegistration ? (
+                                  <div className="mt-1 text-xs text-blue-700 truncate">
+                                    {formatRegistrationLabel(assignedRegistration)}
+                                  </div>
+                                ) : (
+                                  <div className="mt-1 text-xs text-red-600 font-medium">
+                                    לא משויך לתלמיד
+                                  </div>
+                                );
+                              })()}
                             </td>
                             <td>
                               <div className="flex items-center gap-2">
@@ -1435,6 +1463,19 @@ export default function CycleDetail() {
                 <p className="text-sm text-gray-500">נושא</p>
                 <p className="font-medium">{viewingMeeting.topic || '-'}</p>
               </div>
+              {cycle.type === 'trial_private' && (
+                <div className="col-span-2">
+                  <p className="text-sm text-gray-500">תלמיד/הורה</p>
+                  {(() => {
+                    const assignedRegistration = getMeetingRegistration(viewingMeeting);
+                    return assignedRegistration ? (
+                      <p className="font-medium">{formatRegistrationLabel(assignedRegistration)}</p>
+                    ) : (
+                      <p className="font-medium text-red-600">לא משויך לתלמיד</p>
+                    );
+                  })()}
+                </div>
+              )}
               {viewingMeeting.notes && (
                 <div className="col-span-2">
                   <p className="text-sm text-gray-500">הערות</p>
@@ -1685,6 +1726,8 @@ export default function CycleDetail() {
           <MeetingUpdateForm
             meeting={selectedMeeting}
             instructors={instructors || []}
+            cycleType={cycle?.type}
+            registrations={registrations || cycle?.registrations || []}
             defaultInstructorId={cycle?.instructorId}
             defaultActivityType={cycle?.activityType}
             onUpdate={(data) => handleUpdateMeetingData(selectedMeeting.id, data)}
@@ -1948,6 +1991,7 @@ export default function CycleDetail() {
           <CreateMeetingForm
             cycle={cycle}
             instructors={instructors || []}
+            registrations={registrations || cycle.registrations || []}
             onSubmit={handleCreateMeeting}
             onCancel={() => setShowCreateMeetingModal(false)}
             isLoading={createMeeting.isPending}
@@ -2302,15 +2346,17 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
 interface MeetingUpdateFormProps {
   meeting: Meeting;
   instructors: { id: string; name: string; isActive: boolean }[];
+  cycleType?: CycleType;
+  registrations: Registration[];
   defaultInstructorId?: string;
   defaultActivityType?: ActivityType;
-  onUpdate: (data: { status?: MeetingStatus; nature?: MeetingNature; instructorId?: string; activityType?: ActivityType; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => void;
+  onUpdate: (data: { status?: MeetingStatus; nature?: MeetingNature; instructorId?: string; registrationId?: string | null; activityType?: ActivityType; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => void;
   onCancel: () => void;
   isLoading?: boolean;
   isAdmin?: boolean;
 }
 
-function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultActivityType, onUpdate, onCancel, isLoading, isAdmin = false }: MeetingUpdateFormProps) {
+function MeetingUpdateForm({ meeting, instructors, cycleType, registrations, defaultInstructorId, defaultActivityType, onUpdate, onCancel, isLoading, isAdmin = false }: MeetingUpdateFormProps) {
   const formatTimeForInput = (time: string | Date | undefined): string => {
     if (!time) return '16:00';
     if (typeof time === 'string') {
@@ -2332,6 +2378,7 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
   const [status, setStatus] = useState(meeting.status);
   const [nature, setNature] = useState<MeetingNature>(meeting.nature || 'regular');
   const [instructorId, setInstructorId] = useState(meeting.instructor?.id || defaultInstructorId || '');
+  const [registrationId, setRegistrationId] = useState(meeting.registrationId || meeting.registration?.id || '');
   const [activityType, setActivityType] = useState<ActivityType>(meeting.activityType || defaultActivityType || 'frontal');
   const [topic, setTopic] = useState(meeting.topic || '');
   const [notes, setNotes] = useState(meeting.notes || '');
@@ -2341,6 +2388,15 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
   const [zoomJoinUrl, setZoomJoinUrl] = useState((meeting as any).zoomJoinUrl || '');
   const [zoomMeetingId, setZoomMeetingId] = useState((meeting as any).zoomMeetingId || '');
   const [zoomHostKey, setZoomHostKey] = useState((meeting as any).zoomHostKey || '');
+  const trialRegistrations = registrations.filter((registration) =>
+    ['active', 'registered', 'trial'].includes(registration.status)
+  );
+  const registrationLabel = (registration: Registration) => {
+    const studentName = registration.student?.name || 'תלמיד ללא שם';
+    const customerName = registration.student?.customer?.name;
+    const phone = registration.student?.customer?.phone;
+    return [studentName, customerName, phone].filter(Boolean).join(' | ');
+  };
 
   const formatDateDisplay = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('he-IL', {
@@ -2359,6 +2415,7 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
       status,
       nature: nature !== (meeting.nature || 'regular') ? nature : undefined,
       instructorId: instructorId !== (meeting.instructor?.id || defaultInstructorId) ? instructorId : undefined,
+      registrationId: registrationId !== (meeting.registrationId || meeting.registration?.id || '') ? (registrationId || null) : undefined,
       activityType: activityType !== (meeting.activityType || defaultActivityType) ? activityType : undefined,
       topic: topic || undefined,
       notes: notes || undefined,
@@ -2426,6 +2483,24 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
             {instructors.filter(i => i.isActive).map((instructor) => (
               <option key={instructor.id} value={instructor.id}>
                 {instructor.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {isAdmin && cycleType === 'trial_private' && (
+        <div>
+          <label className="form-label">תלמיד/הרשמה לשיעור ניסיון</label>
+          <select
+            value={registrationId}
+            onChange={(e) => setRegistrationId(e.target.value)}
+            className="form-input"
+          >
+            <option value="">בחר תלמיד</option>
+            {trialRegistrations.map((registration) => (
+              <option key={registration.id} value={registration.id}>
+                {registrationLabel(registration)}
               </option>
             ))}
           </select>
@@ -2814,7 +2889,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     totalMeetings: cycle.totalMeetings,
     pricePerStudent: cycle.pricePerStudent || 0,
     meetingRevenue: cycle.meetingRevenue || 0,
-    includesVat: cycle.revenueIncludesVat ?? false,
+    includesVat: false,
     instructorPaymentMode: (cycle.instructorPaymentMode || 'hourly') as InstructorPaymentMode,
     instructorDailyRate: cycle.instructorDailyRate || 0,
     studentCount: cycle.studentCount || 0,
@@ -2851,12 +2926,6 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validate VAT selection for institutional_fixed
-    if (formData.type === 'institutional_fixed' && formData.includesVat === null) {
-      alert('יש לבחור האם הסכום כולל מע״מ או לא');
-      return;
-    }
-
     // Location is mandatory for frontal cycles (online/private have no physical location)
     if (formData.activityType === 'frontal' && !formData.location.trim()) {
       alert('יש למלא מיקום/עיר למחזור פרונטלי');
@@ -2882,11 +2951,8 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     // If schedule changed, regenerate meetings
     const shouldRegenerate = scheduleChanged && regenerateMeetings;
     
-    // Calculate meeting revenue - if includes VAT, divide by 1.18
+    // Amounts entered here are always before VAT. VAT is not HaiTech revenue.
     let meetingRevenueValue = Number(formData.meetingRevenue);
-    if (formData.type === 'institutional_fixed' && formData.includesVat === true && meetingRevenueValue > 0) {
-      meetingRevenueValue = Math.round((meetingRevenueValue / 1.18) * 100) / 100;
-    }
 
     onSubmit({
       name: formData.name,
@@ -2903,7 +2969,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
       totalMeetings: Number(formData.totalMeetings),
       pricePerStudent: (formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') ? Number(formData.pricePerStudent) : undefined,
       meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'trial_private') ? meetingRevenueValue : undefined,
-      revenueIncludesVat: formData.type === 'institutional_fixed' ? formData.includesVat : undefined,
+      revenueIncludesVat: formData.type === 'institutional_fixed' ? false : undefined,
       instructorPaymentMode: formData.instructorPaymentMode,
       instructorDailyRate: formData.instructorPaymentMode === 'daily' ? Number(formData.instructorDailyRate) : null,
       studentCount: formData.type === 'institutional_per_child' ? Number(formData.studentCount) : undefined,
@@ -3129,7 +3195,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
 
         {(formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && (
           <div>
-            <label className="form-label">מחיר לתלמיד {formData.type === 'institutional_per_child' ? '(למפגש)' : ''} (₪)</label>
+            <label className="form-label">מחיר לתלמיד לפני מע״מ {formData.type === 'institutional_per_child' ? '(למפגש)' : ''} (₪)</label>
             <input
               type="number"
               value={formData.pricePerStudent}
@@ -3143,7 +3209,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
 
         {(formData.type === 'private' || formData.type === 'trial_private') && (
           <div>
-            <label className="form-label">מחיר לפגישה (₪)</label>
+            <label className="form-label">מחיר לפגישה לפני מע״מ (₪)</label>
             <input
               type="number"
               value={formData.meetingRevenue}
@@ -3169,10 +3235,14 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
           </div>
         )}
 
+        <div className="col-span-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+          כל המחירים וההכנסות במחזור הם ללא מע״מ. המע״מ מתווסף בנפרד ואינו חלק מההכנסה.
+        </div>
+
         {formData.type === 'institutional_fixed' && (
           <>
             <div>
-              <label className="form-label">הכנסה לפגישה (₪) *</label>
+              <label className="form-label">הכנסה לפגישה לפני מע״מ (₪) *</label>
               <input
                 type="number"
                 value={formData.meetingRevenue}
@@ -3181,36 +3251,6 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
                 min="0"
                 step="0.01"
               />
-            </div>
-            <div>
-              <label className="form-label">מע״מ *</label>
-              <div className="flex gap-4">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="detailIncludesVat"
-                    checked={formData.includesVat === false}
-                    onChange={() => setFormData({ ...formData, includesVat: false })}
-                    className="text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="text-sm">לפני מע״מ</span>
-                </label>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="detailIncludesVat"
-                    checked={formData.includesVat === true}
-                    onChange={() => setFormData({ ...formData, includesVat: true })}
-                    className="text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="text-sm">כולל מע״מ</span>
-                </label>
-              </div>
-              {formData.includesVat === true && formData.meetingRevenue > 0 && (
-                <p className="text-xs text-gray-500 mt-1">
-                  הכנסה לפני מע״מ: ₪{(formData.meetingRevenue / 1.18).toFixed(2)}
-                </p>
-              )}
             </div>
           </>
         )}
@@ -3269,8 +3309,10 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
 interface CreateMeetingFormProps {
   cycle: Cycle;
   instructors: Instructor[];
+  registrations: Registration[];
   onSubmit: (data: {
     instructorId: string;
+    registrationId?: string;
     scheduledDate: string;
     startTime: string;
     endTime: string;
@@ -3283,9 +3325,10 @@ interface CreateMeetingFormProps {
   isLoading?: boolean;
 }
 
-function CreateMeetingForm({ cycle, instructors, onSubmit, onCancel, isLoading }: CreateMeetingFormProps) {
+function CreateMeetingForm({ cycle, instructors, registrations, onSubmit, onCancel, isLoading }: CreateMeetingFormProps) {
   const [formData, setFormData] = useState({
     instructorId: cycle.instructorId || cycle.instructor?.id || '',
+    registrationId: '',
     scheduledDate: new Date().toISOString().split('T')[0],
     startTime: cycle.startTime ? (typeof cycle.startTime === 'string' ? cycle.startTime.substring(0, 5) : new Date(cycle.startTime).toISOString().substring(11, 16)) : '16:00',
     endTime: cycle.endTime ? (typeof cycle.endTime === 'string' ? cycle.endTime.substring(0, 5) : new Date(cycle.endTime).toISOString().substring(11, 16)) : '17:00',
@@ -3294,10 +3337,22 @@ function CreateMeetingForm({ cycle, instructors, onSubmit, onCancel, isLoading }
     topic: '',
     notes: '',
   });
+  const trialRegistrations = registrations.filter((registration) =>
+    ['active', 'registered', 'trial'].includes(registration.status)
+  );
+  const registrationLabel = (registration: Registration) => {
+    const studentName = registration.student?.name || 'תלמיד ללא שם';
+    const customerName = registration.student?.customer?.name;
+    const phone = registration.student?.customer?.phone;
+    return [studentName, customerName, phone].filter(Boolean).join(' | ');
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(formData);
+    onSubmit({
+      ...formData,
+      registrationId: formData.registrationId || undefined,
+    });
   };
 
   return (
@@ -3365,6 +3420,25 @@ function CreateMeetingForm({ cycle, instructors, onSubmit, onCancel, isLoading }
             <option value="private_lesson">שיעור פרטי</option>
           </select>
         </div>
+
+        {cycle.type === 'trial_private' && (
+          <div className="col-span-2">
+            <label className="form-label">תלמיד/הרשמה לשיעור ניסיון *</label>
+            <select
+              value={formData.registrationId}
+              onChange={(e) => setFormData({ ...formData, registrationId: e.target.value })}
+              className="form-input"
+              required
+            >
+              <option value="">בחר תלמיד</option>
+              {trialRegistrations.map((registration) => (
+                <option key={registration.id} value={registration.id}>
+                  {registrationLabel(registration)}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className="flex items-center">
           <label className="flex items-center gap-2 cursor-pointer mt-6">

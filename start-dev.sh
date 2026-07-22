@@ -34,6 +34,7 @@ echo "✅ Frontend ready"
 
 # Kill old backend if running
 pkill -f "haitech.*index.ts" 2>/dev/null || true
+pkill -f "node -r tsx/cjs src/index.ts" 2>/dev/null || true
 sleep 1
 
 # Start backend

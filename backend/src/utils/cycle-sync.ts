@@ -11,7 +11,7 @@ export async function syncCycleProgress(cycleId: string): Promise<{
 }> {
   const cycle = await prisma.cycle.findUnique({
     where: { id: cycleId },
-    select: { totalMeetings: true },
+    select: { totalMeetings: true, status: true },
   });
   if (!cycle) throw new Error(`Cycle ${cycleId} not found`);
 
@@ -19,7 +19,9 @@ export async function syncCycleProgress(cycleId: string): Promise<{
     where: { cycleId, status: 'completed' },
   });
 
-  const remainingMeetings = cycle.totalMeetings - completedMeetings;
+  const remainingMeetings = cycle.status === 'completed'
+    ? 0
+    : Math.max(0, cycle.totalMeetings - completedMeetings);
 
   await prisma.cycle.update({
     where: { id: cycleId },

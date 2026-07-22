@@ -1,17 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
-import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Play, Trash2, Plus, AlertCircle } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Trash2, Plus, AlertCircle, UserCheck, MessageCircle, CalendarCheck, Clock, Flame, CheckCircle2, UserRound, ExternalLink, Search, Send } from 'lucide-react';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
+import { useAuth } from '../context/AuthContext';
 
 interface LeadAppointment {
   id: string;
+  customerId?: string | null;
   customerName: string;
   customerPhone: string;
   customerEmail: string;
+  customer?: { id: string; name: string; phone?: string | null; email?: string | null } | null;
   childName?: string;
   interest: string;
   source: string;
@@ -25,6 +28,13 @@ interface LeadAppointment {
   appointmentTime?: string;
   appointmentNotes?: string;
   appointmentStatus: string;
+  salesStatus: string;
+  assignedToId?: string;
+  assignedTo?: { id: string; name: string; email: string; role: string };
+  nextFollowUpAt?: string;
+  lastContactResult?: string;
+  lastContactedAt?: string;
+  activities?: LeadActivity[];
   whatsappSent?: boolean;
   emailSent?: boolean;
   createdAt: string;
@@ -38,14 +48,15 @@ interface LeadAppointment {
   formId?: string;
 }
 
-const statusColors: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-800',
-  queued: 'bg-blue-100 text-blue-800',
-  scheduled: 'bg-green-100 text-green-800',
-  completed: 'bg-gray-100 text-gray-800',
-  cancelled: 'bg-red-100 text-red-800',
-  no_answer: 'bg-orange-100 text-orange-800',
-};
+interface LeadActivity {
+  id: string;
+  type: string;
+  result?: string;
+  note?: string;
+  nextFollowUpAt?: string;
+  createdAt: string;
+  user?: { id: string; name: string; email: string; role: string };
+}
 
 const statusLabels: Record<string, string> = {
   pending: 'ממתין',
@@ -58,6 +69,64 @@ const statusLabels: Record<string, string> = {
 
 const allStatuses = ['pending', 'queued', 'scheduled', 'completed', 'cancelled', 'no_answer'];
 
+const salesStatusColors: Record<string, string> = {
+  new: 'bg-sky-100 text-sky-800',
+  follow_up: 'bg-amber-100 text-amber-800',
+  scheduled: 'bg-green-100 text-green-800',
+  no_answer: 'bg-orange-100 text-orange-800',
+  interested: 'bg-indigo-100 text-indigo-800',
+  not_relevant: 'bg-gray-100 text-gray-700',
+  converted: 'bg-emerald-100 text-emerald-800',
+};
+
+const salesStatusLabels: Record<string, string> = {
+  new: 'חדש',
+  follow_up: 'צריך לחזור',
+  scheduled: 'נקבעה שיחה',
+  no_answer: 'לא ענה',
+  interested: 'מתעניין',
+  not_relevant: 'לא רלוונטי',
+  converted: 'נסגר להרשמה',
+};
+
+const allSalesStatuses = ['new', 'follow_up', 'scheduled', 'no_answer', 'interested', 'not_relevant', 'converted'];
+
+const contactResultLabels: Record<string, string> = {
+  called: 'התקשרתי',
+  no_answer: 'לא ענה',
+  whatsapp_sent: 'שלחתי WhatsApp',
+  green_reply: 'הגיב ב-WhatsApp',
+  interested: 'מתעניין',
+  scheduled: 'נקבעה שיחה',
+  not_relevant: 'לא רלוונטי',
+  converted: 'נסגר להרשמה',
+  duplicate_inquiry: 'פנייה חוזרת',
+};
+
+const allContactResults = ['called', 'no_answer', 'whatsapp_sent', 'interested', 'scheduled', 'not_relevant', 'converted'];
+
+const closedSalesStatuses = ['converted', 'not_relevant'];
+
+function isFollowUpDue(lead: LeadAppointment) {
+  if (!lead.nextFollowUpAt || closedSalesStatuses.includes(lead.salesStatus)) return false;
+  return new Date(lead.nextFollowUpAt).getTime() <= Date.now();
+}
+
+function formatFollowUp(lead: LeadAppointment) {
+  if (!lead.nextFollowUpAt) return '-';
+  return new Date(lead.nextFollowUpAt).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function linkedCustomerId(lead: LeadAppointment) {
+  return lead.customer?.id || lead.customerId || null;
+}
+
+const quickActions = [
+  { key: 'called', label: 'דיברתי', icon: Phone, result: 'called', salesStatus: 'follow_up', appointmentStatus: undefined, note: 'בוצעה שיחה עם הליד' },
+  { key: 'no_answer', label: 'לא ענה', icon: Clock, result: 'no_answer', salesStatus: 'no_answer', appointmentStatus: undefined, note: 'לא היה מענה' },
+  { key: 'scheduled', label: 'נקבעה', icon: CalendarCheck, result: 'scheduled', salesStatus: 'scheduled', appointmentStatus: 'scheduled', note: 'נקבעה שיחה' },
+] as const;
+
 // Source options offered when a salesperson manually adds an external lead
 const manualSourceOptions: { value: string; label: string }[] = [
   { value: 'phone', label: 'טלפון' },
@@ -68,10 +137,10 @@ const manualSourceOptions: { value: string; label: string }[] = [
   { value: 'other', label: 'אחר' },
 ];
 
-function StatusBadge({ status }: { status: string }) {
+function SalesStatusBadge({ status }: { status: string }) {
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[status] || 'bg-gray-100 text-gray-800'}`}>
-      {statusLabels[status] || status}
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${salesStatusColors[status] || 'bg-gray-100 text-gray-800'}`}>
+      {salesStatusLabels[status] || status}
     </span>
   );
 }
@@ -81,11 +150,16 @@ export default function LeadAppointments() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
+  const [searchDraft, setSearchDraft] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [salesStatusFilter, setSalesStatusFilter] = useState('');
+  const [followUpFilter, setFollowUpFilter] = useState('');
   const [page, setPage] = useState(1);
-  const [sortBy, setSortBy] = useState<'createdAt' | 'updatedAt'>('createdAt');
+  const [sortBy, setSortBy] = useState<'createdAt' | 'updatedAt' | 'nextFollowUpAt'>('updatedAt');
   const [selectedLead, setSelectedLead] = useState<LeadAppointment | null>(null);
+  const [whatsAppLead, setWhatsAppLead] = useState<LeadAppointment | null>(null);
   const [showNewLead, setShowNewLead] = useState(false);
 
   // Deep-link: if ?id=X is in the URL, fetch and auto-open that lead's modal.
@@ -118,14 +192,17 @@ export default function LeadAppointments() {
   const params = new URLSearchParams();
   params.set('page', String(page));
   params.set('limit', '25');
+  if (searchQuery.trim()) params.set('search', searchQuery.trim());
   if (statusFilter) params.set('status', statusFilter);
   if (sourceFilter) params.set('source', sourceFilter);
+  if (salesStatusFilter) params.set('salesStatus', salesStatusFilter);
+  if (followUpFilter) params.set('followUp', followUpFilter);
   if (fromDate) params.set('from', fromDate);
   if (toDate) params.set('to', toDate);
-  if (sortBy === 'updatedAt') params.set('sortBy', 'updatedAt');
+  if (sortBy !== 'createdAt') params.set('sortBy', sortBy);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['lead-appointments', page, statusFilter, sourceFilter, fromDate, toDate, sortBy],
+    queryKey: ['lead-appointments', page, searchQuery, statusFilter, sourceFilter, salesStatusFilter, followUpFilter, fromDate, toDate, sortBy],
     queryFn: async () => {
       const res = await api.get(`/lead-appointments?${params.toString()}`);
       return res.data;
@@ -149,8 +226,36 @@ export default function LeadAppointments() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lead-appointments'] }),
   });
 
+  const quickActionMutation = useMutation({
+    mutationFn: ({
+      id,
+      result,
+      salesStatus,
+      appointmentStatus,
+      note,
+    }: {
+      id: string;
+      result: string;
+      salesStatus: string;
+      appointmentStatus?: string;
+      note: string;
+    }) =>
+      api.patch(`/lead-appointments/${id}`, {
+        salesStatus,
+        appointmentStatus,
+        lastContactResult: result,
+        activityType: result === 'whatsapp_sent' ? 'whatsapp' : 'call',
+        activityNote: note,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['lead-appointments'] }),
+  });
+
   const leads: LeadAppointment[] = data?.data || data || [];
   const pagination = data?.pagination;
+  const totalPages = pagination?.totalPages || pagination?.pages || 1;
+  const urgentCount = leads.filter(isFollowUpDue).length;
+  const unassignedCount = leads.filter((lead) => !lead.assignedToId && !lead.assignedTo).length;
+  const freshCount = leads.filter((lead) => (lead.salesStatus || 'new') === 'new').length;
 
   return (
     <div className="space-y-6">
@@ -167,8 +272,124 @@ export default function LeadAppointments() {
         }
       />
 
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <button
+          onClick={() => { setFollowUpFilter('due'); setSortBy('nextFollowUpAt'); setPage(1); }}
+          className={`text-right rounded-lg border p-4 transition-colors ${
+            followUpFilter === 'due'
+              ? 'border-amber-300 bg-amber-50'
+              : 'border-gray-200 bg-white hover:border-amber-200 hover:bg-amber-50/60'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-gray-500">לטיפול עכשיו בעמוד</span>
+            <Flame className="w-5 h-5 text-amber-500" />
+          </div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900">{urgentCount}</div>
+        </button>
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-gray-500">חדשים בעמוד</span>
+            <Plus className="w-5 h-5 text-sky-500" />
+          </div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900">{freshCount}</div>
+        </div>
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-gray-500">ללא אחראי בעמוד</span>
+            <UserCheck className="w-5 h-5 text-indigo-500" />
+          </div>
+          <div className="mt-2 text-2xl font-semibold text-gray-900">{unassignedCount}</div>
+        </div>
+        <button
+          onClick={() => {
+            setStatusFilter('');
+            setSourceFilter('');
+            setSearchDraft('');
+            setSearchQuery('');
+            setSalesStatusFilter('');
+            setFollowUpFilter('');
+            setFromDate('');
+            setToDate('');
+            setSortBy('updatedAt');
+            setPage(1);
+          }}
+          className="rounded-lg border border-gray-200 bg-white p-4 text-right hover:border-blue-200 hover:bg-blue-50/60 transition-colors"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-gray-500">תצוגת עבודה</span>
+            <CheckCircle2 className="w-5 h-5 text-blue-500" />
+          </div>
+          <div className="mt-2 text-sm font-medium text-gray-900">איפוס סינונים</div>
+        </button>
+      </div>
+
       {/* Filters */}
-      <div className="bg-white rounded-lg shadow p-4 flex flex-wrap gap-4 items-end">
+      <div className="bg-white rounded-lg border border-gray-200 p-4 flex flex-wrap gap-4 items-end">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            setSearchQuery(searchDraft.trim());
+            setPage(1);
+          }}
+          className="min-w-[260px] flex-1"
+        >
+          <label className="block text-sm font-medium text-gray-700 mb-1">חיפוש לקוח</label>
+          <div className="flex rounded-md border border-gray-300 bg-white focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
+            <input
+              type="search"
+              value={searchDraft}
+              onChange={(e) => setSearchDraft(e.target.value)}
+              className="w-full min-w-0 rounded-r-md border-0 px-3 py-2 text-sm focus:ring-0"
+              placeholder="שם, טלפון, אימייל או ילד/ה"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchDraft('');
+                  setSearchQuery('');
+                  setPage(1);
+                }}
+                title="נקה חיפוש"
+                className="inline-flex w-9 items-center justify-center text-gray-400 hover:text-gray-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+            <button
+              type="submit"
+              title="חפש"
+              className="inline-flex h-[38px] w-10 items-center justify-center rounded-l-md bg-blue-600 text-white hover:bg-blue-700"
+            >
+              <Search className="h-4 w-4" />
+            </button>
+          </div>
+        </form>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">סטטוס מכירה</label>
+          <select
+            value={salesStatusFilter}
+            onChange={(e) => { setSalesStatusFilter(e.target.value); setPage(1); }}
+            className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+          >
+            <option value="">הכל</option>
+            {allSalesStatuses.map((s) => (
+              <option key={s} value={s}>{salesStatusLabels[s]}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">חזרה</label>
+          <select
+            value={followUpFilter}
+            onChange={(e) => { setFollowUpFilter(e.target.value); setPage(1); }}
+            className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+          >
+            <option value="">הכל</option>
+            <option value="due">צריך טיפול עכשיו</option>
+          </select>
+        </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">סטטוס</label>
           <select
@@ -218,11 +439,12 @@ export default function LeadAppointments() {
           <label className="block text-sm font-medium text-gray-700 mb-1">מיון לפי</label>
           <select
             value={sortBy}
-            onChange={(e) => { setSortBy(e.target.value as 'createdAt' | 'updatedAt'); setPage(1); }}
+            onChange={(e) => { setSortBy(e.target.value as 'createdAt' | 'updatedAt' | 'nextFollowUpAt'); setPage(1); }}
             className={`border rounded-md px-3 py-2 text-sm font-medium transition-colors ${sortBy === 'updatedAt' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-700'}`}
           >
             <option value="createdAt">תאריך פנייה</option>
             <option value="updatedAt">עדכון אחרון</option>
+            <option value="nextFollowUpAt">חזרה הבאה</option>
           </select>
         </div>
       </div>
@@ -244,15 +466,25 @@ export default function LeadAppointments() {
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">טלפון</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ילד/ה</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">עניין</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">סטטוס שיחה</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">פגישה</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">סטטוס מכירה</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">חזרה הבאה</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">אחראי</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">סטטוס פגישה</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">פעולות</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {leads.map((lead) => (
-                <tr key={lead.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedLead(lead)}>
+              {leads.map((lead) => {
+                const due = isFollowUpDue(lead);
+                const customerId = linkedCustomerId(lead);
+                return (
+                <tr
+                  key={lead.id}
+                  className={`cursor-pointer transition-colors ${
+                    due ? 'bg-amber-50 hover:bg-amber-100/70' : 'hover:bg-gray-50'
+                  }`}
+                  onClick={() => setSelectedLead(lead)}
+                >
                   <td className="px-4 py-3 text-sm whitespace-nowrap">
                     {sortBy === 'updatedAt' ? (
                       <div>
@@ -262,22 +494,39 @@ export default function LeadAppointments() {
                           <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">עודכן</span>
                         )}
                       </div>
+                    ) : sortBy === 'nextFollowUpAt' ? (
+                      <div>
+                        <div className={`font-medium ${due ? 'text-amber-800' : 'text-gray-900'}`}>{formatFollowUp(lead)}</div>
+                        {due && <span className="text-xs bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-medium">עכשיו</span>}
+                      </div>
                     ) : (
                       new Date(lead.createdAt).toLocaleDateString('he-IL')
                     )}
                   </td>
                   <td className="px-4 py-3 text-sm font-medium">{lead.customerName}</td>
-                  <td className="px-4 py-3 text-sm" dir="ltr">{lead.customerPhone}</td>
+                  <td className="px-4 py-3 text-sm" dir="ltr">
+                    {lead.customerPhone ? (
+                      <a
+                        href={`tel:${lead.customerPhone}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 text-blue-700 hover:text-blue-900"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        {lead.customerPhone}
+                      </a>
+                    ) : '-'}
+                  </td>
                   <td className="px-4 py-3 text-sm">{lead.childName || '-'}</td>
                   <td className="px-4 py-3 text-sm">{lead.interest || '-'}</td>
                   <td className="px-4 py-3 text-sm">
-                    {lead.callStatus ? <StatusBadge status={lead.callStatus} /> : '-'}
+                    <SalesStatusBadge status={lead.salesStatus || 'new'} />
                   </td>
                   <td className="px-4 py-3 text-sm whitespace-nowrap">
-                    {lead.appointmentDate
-                      ? `${new Date(lead.appointmentDate).toLocaleDateString('he-IL')} ${lead.appointmentTime || ''}`
-                      : '-'}
+                    <span className={due ? 'font-semibold text-amber-800' : ''}>
+                      {formatFollowUp(lead)}
+                    </span>
                   </td>
+                  <td className="px-4 py-3 text-sm">{lead.assignedTo?.name || '-'}</td>
                   <td className="px-4 py-3 text-sm">
                     <select
                       value={lead.appointmentStatus}
@@ -291,42 +540,86 @@ export default function LeadAppointments() {
                     </select>
                   </td>
                   <td className="px-4 py-3 text-sm">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
+                      {quickActions.map((action) => {
+                        const Icon = action.icon;
+                        return (
+                          <button
+                            key={action.key}
+                            title={action.label}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              quickActionMutation.mutate({
+                                id: lead.id,
+                                result: action.result,
+                                salesStatus: action.salesStatus,
+                                appointmentStatus: action.appointmentStatus,
+                                note: action.note,
+                              });
+                            }}
+                            disabled={quickActionMutation.isPending}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 text-gray-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50"
+                          >
+                            <Icon className="w-4 h-4" />
+                          </button>
+                        );
+                      })}
+                      <button
+                        title={lead.customerPhone ? 'שלח WhatsApp דרך Green API' : 'אין מספר טלפון'}
+                        onClick={(e) => { e.stopPropagation(); if (lead.customerPhone) setWhatsAppLead(lead); }}
+                        disabled={!lead.customerPhone}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-green-200 text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-300"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                      </button>
+                      {customerId && (
+                        <Link
+                          to={`/customers/${customerId}`}
+                          title="פתח כרטיס לקוח"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                        >
+                          <UserRound className="w-4 h-4" />
+                        </Link>
+                      )}
                       <button
                         onClick={(e) => { e.stopPropagation(); setSelectedLead(lead); }}
-                        className="text-blue-600 hover:text-blue-800"
+                        title="פתח פרטים"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 text-blue-600 hover:bg-blue-50"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDelete(lead.id, lead.customerName); }}
-                        className="text-red-500 hover:text-red-700"
+                        title="מחק"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 text-red-500 hover:bg-red-50"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
 
           {/* Pagination */}
-          {pagination && pagination.pages > 1 && (
+          {pagination && totalPages > 1 && (
             <div className="flex items-center justify-between px-4 py-3 border-t">
               <span className="text-sm text-gray-700">
-                עמוד {pagination.page} מתוך {pagination.pages} ({pagination.total} תוצאות)
+                עמוד {pagination.page} מתוך {totalPages} ({pagination.total} תוצאות)
               </span>
               <div className="flex gap-2">
                 <button
-                  disabled={!pagination.hasPrev}
+                  disabled={page <= 1}
                   onClick={() => setPage(page - 1)}
                   className="px-3 py-1 text-sm border rounded disabled:opacity-50"
                 >
                   הקודם
                 </button>
                 <button
-                  disabled={!pagination.hasNext}
+                  disabled={page >= totalPages}
                   onClick={() => setPage(page + 1)}
                   className="px-3 py-1 text-sm border rounded disabled:opacity-50"
                 >
@@ -347,6 +640,10 @@ export default function LeadAppointments() {
             queryClient.invalidateQueries({ queryKey: ['lead-appointments'] });
             closeModal();
           }}
+          onUpdated={(lead) => {
+            setSelectedLead(lead);
+            queryClient.invalidateQueries({ queryKey: ['lead-appointments'] });
+          }}
         />
       )}
 
@@ -360,6 +657,134 @@ export default function LeadAppointments() {
           }}
         />
       )}
+
+      {whatsAppLead && (
+        <LeadWhatsAppModal
+          lead={whatsAppLead}
+          onClose={() => setWhatsAppLead(null)}
+          onSent={() => {
+            queryClient.invalidateQueries({ queryKey: ['lead-appointments'] });
+            setWhatsAppLead(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function LeadWhatsAppModal({
+  lead,
+  onClose,
+  onSent,
+}: {
+  lead: LeadAppointment;
+  onClose: () => void;
+  onSent: () => void;
+}) {
+  const customerId = linkedCustomerId(lead);
+  const [message, setMessage] = useState(`שלום ${lead.customerName}, מדברים מדרך ההייטק.`);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSend = async () => {
+    const trimmedMessage = message.trim();
+    if (!trimmedMessage) {
+      setError('יש לכתוב הודעה לשליחה');
+      return;
+    }
+
+    setSending(true);
+    setError('');
+    try {
+      await api.post('/communication/whatsapp', {
+        phone: lead.customerPhone,
+        message: trimmedMessage,
+        customerId: customerId || undefined,
+        customerName: lead.customerName,
+      });
+      await api.patch(`/lead-appointments/${lead.id}`, {
+        salesStatus: 'follow_up',
+        whatsappSent: true,
+        lastContactResult: 'whatsapp_sent',
+        activityType: 'whatsapp',
+        activityNote: `נשלחה הודעת WhatsApp: ${trimmedMessage}`,
+      });
+      onSent();
+    } catch (err: unknown) {
+      console.error('Failed to send lead WhatsApp:', err);
+      const message = typeof err === 'object' && err && 'response' in err
+        ? (err as { response?: { data?: { error?: string; message?: string } } }).response?.data?.message ||
+          (err as { response?: { data?: { error?: string; message?: string } } }).response?.data?.error
+        : undefined;
+      setError(message || 'שגיאה בשליחת הוואטסאפ');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div
+        className="bg-white rounded-lg shadow-xl w-full max-w-lg m-4"
+        onClick={(e) => e.stopPropagation()}
+        dir="rtl"
+      >
+        <div className="flex items-center justify-between p-4 border-b">
+          <div className="flex items-center gap-2">
+            <MessageCircle className="w-5 h-5 text-green-600" />
+            <h2 className="text-lg font-semibold">שליחת WhatsApp</h2>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <div className="rounded-md border border-gray-200 bg-gray-50 p-3 text-sm">
+            <div className="font-medium text-gray-900">{lead.customerName}</div>
+            <div className="text-gray-500" dir="ltr">{lead.customerPhone}</div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">הודעה</label>
+            <textarea
+              value={message}
+              onChange={(e) => {
+                setMessage(e.target.value);
+                if (error) setError('');
+              }}
+              rows={6}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+              placeholder="כתוב הודעה לליד..."
+            />
+          </div>
+
+          {error && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 border-t pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm"
+            >
+              ביטול
+            </button>
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={sending || !message.trim()}
+              className="inline-flex items-center gap-2 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              <Send className="w-4 h-4" />
+              {sending ? 'שולח...' : 'שלח ב-WhatsApp'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -415,8 +840,11 @@ function NewLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
         sendWelcome,
       });
       onCreated();
-    } catch (err: any) {
-      setError(err?.response?.data?.message || 'שגיאה ביצירת הליד');
+    } catch (err: unknown) {
+      const message = typeof err === 'object' && err && 'response' in err
+        ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
+        : undefined;
+      setError(message || 'שגיאה ביצירת הליד');
     } finally {
       setSaving(false);
     }
@@ -591,37 +1019,79 @@ function LeadDetailModal({
   lead,
   onClose,
   onSaved,
+  onUpdated,
 }: {
   lead: LeadAppointment;
   onClose: () => void;
   onSaved: () => void;
+  onUpdated: (lead: LeadAppointment) => void;
 }) {
+  const { user } = useAuth();
+  const customerId = linkedCustomerId(lead);
   const [status, setStatus] = useState(lead.appointmentStatus);
+  const [salesStatus, setSalesStatus] = useState(lead.salesStatus || 'new');
   const [date, setDate] = useState(lead.appointmentDate?.split('T')[0] || '');
   const [time, setTime] = useState(lead.appointmentTime || '');
+  const [nextFollowUpAt, setNextFollowUpAt] = useState(lead.nextFollowUpAt ? lead.nextFollowUpAt.slice(0, 16) : '');
+  const [contactResult, setContactResult] = useState('');
+  const [activityNote, setActivityNote] = useState('');
   const [notes, setNotes] = useState(lead.appointmentNotes || '');
   const [showTranscript, setShowTranscript] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSave = async () => {
+    if (!nextFollowUpAt) {
+      setError('יש למלא תאריך חזרה לפני שמירת הליד');
+      return;
+    }
+
+    setError('');
     setSaving(true);
     try {
       await api.patch(`/lead-appointments/${lead.id}`, {
         appointmentStatus: status,
+        salesStatus,
         appointmentDate: date || null,
         appointmentTime: time || null,
+        nextFollowUpAt: nextFollowUpAt || null,
+        lastContactResult: contactResult || undefined,
+        activityType: contactResult ? 'contact' : activityNote.trim() ? 'note' : undefined,
+        activityNote: activityNote.trim() || undefined,
         appointmentNotes: notes,
       });
       onSaved();
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to save:', err);
+      const message = typeof err === 'object' && err && 'response' in err
+        ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
+        : undefined;
+      setError(message || 'שגיאה בשמירת הליד');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTakeOwnership = async () => {
+    if (!user?.id) return;
+    setSaving(true);
+    try {
+      const res = await api.patch(`/lead-appointments/${lead.id}`, {
+        assignedToId: user.id,
+        activityType: 'assignment',
+        activityNote: `${user.name} לקח/ה אחריות על הליד`,
+      });
+      const updatedLead = res.data?.data ?? res.data;
+      if (updatedLead) onUpdated(updatedLead);
+    } catch (err) {
+      console.error('Failed to take ownership:', err);
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div
         className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4"
         onClick={(e) => e.stopPropagation()}
@@ -629,7 +1099,19 @@ function LeadDetailModal({
       >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-lg font-semibold">פרטי ליד - {lead.customerName}</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-semibold">פרטי ליד - {lead.customerName}</h2>
+            {customerId && (
+              <Link
+                to={`/customers/${customerId}`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+              >
+                <UserRound className="w-4 h-4" />
+                כרטיס לקוח
+                <ExternalLink className="w-3.5 h-3.5" />
+              </Link>
+            )}
+          </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X className="w-5 h-5" />
           </button>
@@ -659,6 +1141,24 @@ function LeadDetailModal({
             <div>
               <span className="text-gray-500">עניין:</span>
               <span className="mr-2">{lead.interest || '-'}</span>
+            </div>
+            <div>
+              <span className="text-gray-500">סטטוס מכירה:</span>
+              <span className="mr-2"><SalesStatusBadge status={lead.salesStatus || 'new'} /></span>
+            </div>
+            <div>
+              <span className="text-gray-500">אחראי:</span>
+              <span className="mr-2">{lead.assignedTo?.name || '-'}</span>
+            </div>
+            <div>
+              <span className="text-gray-500">חזרה הבאה:</span>
+              <span className="mr-2">
+                {lead.nextFollowUpAt ? new Date(lead.nextFollowUpAt).toLocaleString('he-IL') : '-'}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-500">תוצאה אחרונה:</span>
+              <span className="mr-2">{lead.lastContactResult ? contactResultLabels[lead.lastContactResult] || lead.lastContactResult : '-'}</span>
             </div>
             <div>
               <span className="text-gray-500">מקור:</span>
@@ -767,6 +1267,18 @@ function LeadDetailModal({
           {/* Editable fields */}
           <div className="grid grid-cols-2 gap-4">
             <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">סטטוס מכירה</label>
+              <select
+                value={salesStatus}
+                onChange={(e) => setSalesStatus(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+              >
+                {allSalesStatuses.map((s) => (
+                  <option key={s} value={s}>{salesStatusLabels[s]}</option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">סטטוס פגישה</label>
               <select
                 value={status}
@@ -796,10 +1308,49 @@ function LeadDetailModal({
                 className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
               />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">תאריך חזרה *</label>
+              <input
+                type="datetime-local"
+                value={nextFollowUpAt}
+                onChange={(e) => {
+                  setNextFollowUpAt(e.target.value);
+                  if (error) setError('');
+                }}
+                required
+                className={`w-full rounded-md border px-3 py-2 text-sm ${
+                  error && !nextFollowUpAt ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                }`}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">תוצאת קשר</label>
+              <select
+                value={contactResult}
+                onChange={(e) => setContactResult(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+              >
+                <option value="">ללא עדכון</option>
+                {allContactResults.map((r) => (
+                  <option key={r} value={r}>{contactResultLabels[r]}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">הערות</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">הערת פעילות חדשה</label>
+            <textarea
+              value={activityNote}
+              onChange={(e) => setActivityNote(e.target.value)}
+              rows={2}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+              placeholder="מה קרה בשיחה האחרונה?"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">הערות פגישה</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -809,7 +1360,47 @@ function LeadDetailModal({
             />
           </div>
 
-          <div className="flex justify-end">
+          {lead.activities && lead.activities.length > 0 && (
+            <div>
+              <h3 className="text-sm font-medium text-gray-700 mb-2">פעילות אחרונה</h3>
+              <div className="space-y-2 max-h-52 overflow-y-auto">
+                {lead.activities.map((activity) => (
+                  <div key={activity.id} className="rounded-md border border-gray-200 p-3 text-sm">
+                    <div className="flex items-center justify-between gap-3 text-xs text-gray-500">
+                      <span>{activity.user?.name || 'מערכת'}</span>
+                      <span>{new Date(activity.createdAt).toLocaleString('he-IL')}</span>
+                    </div>
+                    <div className="mt-1 font-medium">
+                      {activity.result ? contactResultLabels[activity.result] || activity.result : activity.type}
+                    </div>
+                    {activity.note && <div className="mt-1 text-gray-700 whitespace-pre-wrap">{activity.note}</div>}
+                    {activity.nextFollowUpAt && (
+                      <div className="mt-1 text-xs text-amber-700">
+                        חזרה: {new Date(activity.nextFollowUpAt).toLocaleString('he-IL')}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <div className="flex justify-between gap-2">
+            <button
+              onClick={handleTakeOwnership}
+              disabled={saving || !user?.id}
+              className="flex items-center gap-2 border border-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-50 disabled:opacity-50 text-sm"
+            >
+              <UserCheck className="w-4 h-4" />
+              קח אחריות
+            </button>
             <button
               onClick={handleSave}
               disabled={saving}

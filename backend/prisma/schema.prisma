@@ -178,23 +178,25 @@ model User {
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
   // Relations
-  instructor        Instructor?
-  meetingUpdates    Meeting[]        @relation("MeetingStatusUpdater")
-  attendanceRecords Attendance[]
-  savedViews        SavedView[]
-  cycleExpenses         CycleExpense[]   @relation("CycleExpenseCreator")
-  reviewedCycleExpenses CycleExpense[]   @relation("CycleExpenseReviewer")
-  submittedExpenses     MeetingExpense[] @relation("ExpenseSubmitter")
-  reviewedExpenses      MeetingExpense[] @relation("ExpenseReviewer")
-  reviewedWorkHours     WorkHourEntry[]  @relation("WorkHourReviewer")
-  quotes            Quote[]
-  uploadedFiles     FileAttachment[]
-  campaigns         Campaign[]
-  apiKeys           ApiKey[]
-  webhooks          Webhook[]
-  createdTasks      Task[]           @relation("TaskCreatedBy")
-  assignedTasks     Task[]           @relation("TaskAssignee")
-  completedTasks    Task[]           @relation("TaskCompletedBy")
+  instructor               Instructor?
+  meetingUpdates           Meeting[]         @relation("MeetingStatusUpdater")
+  attendanceRecords        Attendance[]
+  savedViews               SavedView[]
+  cycleExpenses            CycleExpense[]    @relation("CycleExpenseCreator")
+  reviewedCycleExpenses    CycleExpense[]    @relation("CycleExpenseReviewer")
+  submittedExpenses        MeetingExpense[]  @relation("ExpenseSubmitter")
+  reviewedExpenses         MeetingExpense[]  @relation("ExpenseReviewer")
+  reviewedWorkHours        WorkHourEntry[]   @relation("WorkHourReviewer")
+  quotes                   Quote[]
+  uploadedFiles            FileAttachment[]
+  campaigns                Campaign[]
+  apiKeys                  ApiKey[]
+  webhooks                 Webhook[]
+  createdTasks             Task[]            @relation("TaskCreatedBy")
+  assignedTasks            Task[]            @relation("TaskAssignee")
+  completedTasks           Task[]            @relation("TaskCompletedBy")
+  assignedLeadAppointments LeadAppointment[] @relation("LeadAppointmentAssignee")
+  leadActivities           LeadActivity[]    @relation("LeadActivityUser")
 
   @@map("users")
 }
@@ -214,9 +216,9 @@ model Task {
   updatedAt     DateTime     @updatedAt @map("updated_at")
   deletedAt     DateTime?    @map("deleted_at")
 
-  createdBy   User  @relation("TaskCreatedBy", fields: [createdById], references: [id])
-  assignee    User? @relation("TaskAssignee", fields: [assigneeId], references: [id])
-  completedBy User? @relation("TaskCompletedBy", fields: [completedById], references: [id])
+  createdBy   User           @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  assignee    User?          @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  completedBy User?          @relation("TaskCompletedBy", fields: [completedById], references: [id])
   reminders   TaskReminder[]
 
   @@index([status])
@@ -358,7 +360,7 @@ model Instructor {
   name            String
   phone           String    @unique
   email           String?
-  city            String?   // city of residence — used by accounting to compute travel pay
+  city            String? // city of residence — used by accounting to compute travel pay
   rateFrontal     Decimal?  @map("rate_frontal") @db.Decimal(10, 2)
   rateOnline      Decimal?  @map("rate_online") @db.Decimal(10, 2)
   ratePrivate     Decimal?  @map("rate_private") @db.Decimal(10, 2)
@@ -376,12 +378,12 @@ model Instructor {
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
   // Relations
-  user           User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
-  cycles         Cycle[]
-  meetings       Meeting[]
-  expenseRecords MeetingExpense[]
-  cycleExpenses  CycleExpense[]
-  changeRequests MeetingChangeRequest[]
+  user            User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  cycles          Cycle[]
+  meetings        Meeting[]
+  expenseRecords  MeetingExpense[]
+  cycleExpenses   CycleExpense[]
+  changeRequests  MeetingChangeRequest[]
   workHourEntries WorkHourEntry[]
 
   @@map("instructors")
@@ -391,17 +393,17 @@ model Instructor {
 // Each row is one (date, hours) report by the staff member; it flows into the monthly
 // salary report once an admin/manager approves it.
 model WorkHourEntry {
-  id              String    @id @default(uuid())
-  instructorId    String    @map("instructor_id")
-  workDate        DateTime  @map("work_date") @db.Date
-  hours           Decimal   @db.Decimal(5, 2)
+  id              String        @id @default(uuid())
+  instructorId    String        @map("instructor_id")
+  workDate        DateTime      @map("work_date") @db.Date
+  hours           Decimal       @db.Decimal(5, 2)
   description     String?
   status          ExpenseStatus @default(pending)
-  reviewedBy      String?   @map("reviewed_by")
-  reviewedAt      DateTime? @map("reviewed_at")
-  rejectionReason String?   @map("rejection_reason")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  reviewedBy      String?       @map("reviewed_by")
+  reviewedAt      DateTime?     @map("reviewed_at")
+  rejectionReason String?       @map("rejection_reason")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
 
   instructor Instructor @relation(fields: [instructorId], references: [id], onDelete: Cascade)
   reviewer   User?      @relation("WorkHourReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
@@ -422,8 +424,8 @@ model WorkHourEntry {
 model PayingBody {
   id              String   @id @default(uuid())
   name            String
-  taxId           String?  @map("tax_id")        // ח.פ (business) or ת.ז (individual)
-  contactName     String?  @map("contact_name")  // stored CRM-side only; Morning's client name = `name`
+  taxId           String?  @map("tax_id") // ח.פ (business) or ת.ז (individual)
+  contactName     String?  @map("contact_name") // stored CRM-side only; Morning's client name = `name`
   email           String?
   phone           String?
   address         String?
@@ -440,44 +442,45 @@ model PayingBody {
 }
 
 model InstitutionalOrder {
-  id                String         @id @default(uuid())
-  branchId          String?        @map("branch_id")
-  payingBodyId      String?        @map("paying_body_id") // link to PayingBody; old free-text fields kept during transition
-  orderName         String?        @map("order_name")
-  orderNumber       String?        @map("order_number")
-  orderDate         DateTime?      @map("order_date") @db.Date
-  startDate         DateTime?      @map("start_date") @db.Date
-  endDate           DateTime?      @map("end_date") @db.Date
-  pricePerMeeting   Decimal?       @map("price_per_meeting") @db.Decimal(10, 2)
-  estimatedMeetings Int?           @map("estimated_meetings")
-  estimatedTotal    Decimal?       @map("estimated_total") @db.Decimal(10, 2)
-  contactName       String?        @map("contact_name")
-  contactPhone      String?        @map("contact_phone")
-  contactEmail      String?        @map("contact_email")
-  contractFile      String?        @map("contract_file")
-  status            OrderStatus    @default(draft)
-  fireberryStatus   String?        @map("fireberry_status")
-  notes             String?
-  taxId             String?        @map("tax_id") // ת.ז עוסק / ח.פ — required for billing
-  morningClientId   String?        @map("morning_client_id") // linked Morning (GreenInvoice) client UUID — populated lazily on first issue
-  address           String?
-  city              String?
-  zip               String?
-  totalAmount       Decimal?       @map("total_amount") @db.Decimal(10, 2)
-  invoiceNumber     String?        @map("invoice_number")
-  invoiceLink       String?        @map("invoice_link")
-  paymentStatus     PaymentStatus? @map("payment_status")
-  paidAmount        Decimal?       @default(0) @map("paid_amount") @db.Decimal(10, 2)
-  payingBody        String?        @map("paying_body")
+  id                    String         @id @default(uuid())
+  branchId              String?        @map("branch_id")
+  payingBodyId          String?        @map("paying_body_id") // link to PayingBody; old free-text fields kept during transition
+  orderName             String?        @map("order_name")
+  orderNumber           String?        @map("order_number")
+  orderDate             DateTime?      @map("order_date") @db.Date
+  startDate             DateTime?      @map("start_date") @db.Date
+  endDate               DateTime?      @map("end_date") @db.Date
+  pricePerMeeting       Decimal?       @map("price_per_meeting") @db.Decimal(10, 2)
+  estimatedMeetings     Int?           @map("estimated_meetings")
+  estimatedTotal        Decimal?       @map("estimated_total") @db.Decimal(10, 2)
+  contactName           String?        @map("contact_name")
+  contactPhone          String?        @map("contact_phone")
+  contactEmail          String?        @map("contact_email")
+  contractFile          String?        @map("contract_file")
+  status                OrderStatus    @default(draft)
+  fireberryStatus       String?        @map("fireberry_status")
+  notes                 String?
+  taxId                 String?        @map("tax_id") // ת.ז עוסק / ח.פ — required for billing
+  morningClientId       String?        @map("morning_client_id") // linked Morning (GreenInvoice) client UUID — populated lazily on first issue
+  address               String?
+  city                  String?
+  zip                   String?
+  totalAmount           Decimal?       @map("total_amount") @db.Decimal(10, 2)
+  invoiceNumber         String?        @map("invoice_number")
+  invoiceLink           String?        @map("invoice_link")
+  paymentStatus         PaymentStatus? @map("payment_status")
+  paidAmount            Decimal?       @default(0) @map("paid_amount") @db.Decimal(10, 2)
+  payingBody            String?        @map("paying_body")
   // Payment terms for open-proforma alerts: due date = end of issue month + this many days.
   // Default 30; configurable to 45/60 for slower-paying institutions.
-  paymentTermsDays  Int            @default(30) @map("payment_terms_days")
-  followUpDate      DateTime?      @map("follow_up_date") @db.Date
-  salesperson       String?
-  orderType         String?        @map("order_type")
-  createdBy         String?        @map("created_by")
-  createdAt         DateTime       @default(now()) @map("created_at")
-  updatedAt         DateTime       @updatedAt @map("updated_at")
+  paymentTermsDays      Int            @default(30) @map("payment_terms_days")
+  followUpDate          DateTime?      @map("follow_up_date") @db.Date
+  salesperson           String?
+  orderType             String?        @map("order_type")
+  completionAlertSentAt DateTime?      @map("completion_alert_sent_at")
+  createdBy             String?        @map("created_by")
+  createdAt             DateTime       @default(now()) @map("created_at")
+  updatedAt             DateTime       @updatedAt @map("updated_at")
 
   // Relations
   branch         Branch?         @relation(fields: [branchId], references: [id], onDelete: SetNull)
@@ -487,6 +490,7 @@ model InstitutionalOrder {
   billingPeriods BillingPeriod[]
 
   @@index([payingBodyId])
+  @@index([completionAlertSentAt])
   @@map("institutional_orders")
 }
 
@@ -528,10 +532,10 @@ model BillingPeriod {
   dueDate       DateTime? @map("due_date") @db.Date
 
   // Morning proforma (300) — populated after issue
-  morningDocId     String? @map("morning_doc_id")
-  morningDocNumber Int?    @map("morning_doc_number")
-  morningDocUrl    String? @map("morning_doc_url")
-  morningDocType   Int?    @map("morning_doc_type")
+  morningDocId      String? @map("morning_doc_id")
+  morningDocNumber  Int?    @map("morning_doc_number")
+  morningDocUrl     String? @map("morning_doc_url")
+  morningDocType    Int?    @map("morning_doc_type")
   // Snapshot of the Morning client (לכבוד) name as it appeared on the issued/linked document.
   // The monthly-accounts list shows this for the institution (from the most-recently-issued
   // period), so the displayed name matches Morning exactly; falls back to orderName when null.
@@ -539,7 +543,7 @@ model BillingPeriod {
   // Morning draft — set when we push a draft to Morning's drafts area without finalizing.
   // The user finalizes manually from Morning UI (lets them backdate beyond API limits)
   // and then calls our `mark-issued-manually` route to fill in the morningDoc* fields above.
-  morningDraftId   String? @map("morning_draft_id")
+  morningDraftId    String? @map("morning_draft_id")
 
   // Tax invoice — lives alongside the proforma. Either a combined 320 (חשבונית מס+קבלה,
   // the default) or a standalone 305 (חשבונית מס בלבד) issued before payment, with
@@ -666,51 +670,51 @@ model BillingPayment {
 }
 
 model Cycle {
-  id                   String       @id @default(uuid())
-  fireberryId          String?      @unique @map("fireberry_id")
-  name                 String
-  courseId             String       @map("course_id")
-  branchId             String       @map("branch_id")
-  instructorId         String       @map("instructor_id")
-  institutionalOrderId String?      @map("institutional_order_id")
-  type                 CycleType
-  startDate            DateTime     @map("start_date") @db.Date
-  endDate              DateTime     @map("end_date") @db.Date
-  dayOfWeek            DayOfWeek    @map("day_of_week")
-  startTime            DateTime     @map("start_time") @db.Time
-  endTime              DateTime     @map("end_time") @db.Time
-  durationMinutes      Int          @map("duration_minutes")
-  totalMeetings        Int          @map("total_meetings")
-  pricePerStudent      Decimal?     @map("price_per_student") @db.Decimal(10, 2)
-  meetingRevenue       Decimal?     @map("meeting_revenue") @db.Decimal(10, 2)
-  revenueIncludesVat   Boolean?     @default(false) @map("revenue_includes_vat")
+  id                    String       @id @default(uuid())
+  fireberryId           String?      @unique @map("fireberry_id")
+  name                  String
+  courseId              String       @map("course_id")
+  branchId              String       @map("branch_id")
+  instructorId          String       @map("instructor_id")
+  institutionalOrderId  String?      @map("institutional_order_id")
+  type                  CycleType
+  startDate             DateTime     @map("start_date") @db.Date
+  endDate               DateTime     @map("end_date") @db.Date
+  dayOfWeek             DayOfWeek    @map("day_of_week")
+  startTime             DateTime     @map("start_time") @db.Time
+  endTime               DateTime     @map("end_time") @db.Time
+  durationMinutes       Int          @map("duration_minutes")
+  totalMeetings         Int          @map("total_meetings")
+  pricePerStudent       Decimal?     @map("price_per_student") @db.Decimal(10, 2)
+  meetingRevenue        Decimal?     @map("meeting_revenue") @db.Decimal(10, 2)
+  revenueIncludesVat    Boolean?     @default(false) @map("revenue_includes_vat")
   instructorPaymentMode String       @default("hourly") @map("instructor_payment_mode") // hourly or daily
   instructorDailyRate   Decimal?     @map("instructor_daily_rate") @db.Decimal(10, 2)
-  studentCount         Int?         @map("student_count")
-  maxStudents          Int?         @map("max_students")
-  sendParentReminders  Boolean      @default(true) @map("send_parent_reminders")
-  isOnline             Boolean      @default(false) @map("is_online")
-  activityType         ActivityType @default(frontal) @map("activity_type")
-  location             String? // city/location where the cycle takes place — required for frontal cycles, irrelevant for online/private. Used as the location in the instructor salary report.
-  zoomHostId           String?      @map("zoom_host_id")
-  zoomHostEmail        String?      @map("zoom_host_email")
-  zoomMeetingId        String?      @map("zoom_meeting_id")
-  zoomJoinUrl          String?      @map("zoom_join_url")
-  zoomHostKey          String?      @map("zoom_host_key")
-  zoomPassword         String?      @map("zoom_password")
-  completedMeetings    Int          @default(0) @map("completed_meetings")
-  remainingMeetings    Int          @default(0) @map("remaining_meetings")
-  status               CycleStatus  @default(active)
-  frozenAt             DateTime?    @map("frozen_at")
-  frozenReason         String?      @map("frozen_reason")
-  resumeDate           DateTime?    @map("resume_date") @db.Date
-  notes                String? // free-form admin notes about the cycle (pricing assumptions,
+  studentCount          Int?         @map("student_count")
+  maxStudents           Int?         @map("max_students")
+  sendParentReminders   Boolean      @default(true) @map("send_parent_reminders")
+  isOnline              Boolean      @default(false) @map("is_online")
+  activityType          ActivityType @default(frontal) @map("activity_type")
+  location              String? // city/location where the cycle takes place — required for frontal cycles, irrelevant for online/private. Used as the location in the instructor salary report.
+  zoomHostId            String?      @map("zoom_host_id")
+  zoomHostEmail         String?      @map("zoom_host_email")
+  zoomMeetingId         String?      @map("zoom_meeting_id")
+  zoomJoinUrl           String?      @map("zoom_join_url")
+  zoomHostKey           String?      @map("zoom_host_key")
+  zoomPassword          String?      @map("zoom_password")
+  completedMeetings     Int          @default(0) @map("completed_meetings")
+  remainingMeetings     Int          @default(0) @map("remaining_meetings")
+  status                CycleStatus  @default(active)
+  frozenAt              DateTime?    @map("frozen_at")
+  frozenReason          String?      @map("frozen_reason")
+  resumeDate            DateTime?    @map("resume_date") @db.Date
+  notes                 String? // free-form admin notes about the cycle (pricing assumptions,
   // contract structure, etc.) — surfaced in cycle detail UI
   // but not on customer-facing documents.
-  createdAt            DateTime     @default(now()) @map("created_at")
-  updatedAt            DateTime     @updatedAt @map("updated_at")
-  deletedAt            DateTime?    @map("deleted_at")
-  deletedBy            String?      @map("deleted_by")
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime     @updatedAt @map("updated_at")
+  deletedAt             DateTime?    @map("deleted_at")
+  deletedBy             String?      @map("deleted_by")
 
   // Relations
   course             Course              @relation(fields: [courseId], references: [id], onDelete: Restrict)
@@ -751,6 +755,7 @@ model Registration {
   student              Student               @relation(fields: [studentId], references: [id], onDelete: Cascade)
   cycle                Cycle                 @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   attendance           Attendance[]
+  meetings             Meeting[]
   cancellationRequests CancellationRequest[]
   upsellLeads          UpsellLead[]
 
@@ -777,40 +782,43 @@ model CancellationRequest {
 }
 
 model Meeting {
-  id                    String        @id @default(uuid())
-  cycleId               String        @map("cycle_id")
-  instructorId          String        @map("instructor_id")
-  scheduledDate         DateTime      @map("scheduled_date") @db.Date
-  startTime             DateTime      @map("start_time") @db.Time
-  endTime               DateTime      @map("end_time") @db.Time
-  status                MeetingStatus @default(scheduled)
-  nature                MeetingNature @default(regular)
-  statusUpdatedAt       DateTime?     @map("status_updated_at")
-  statusUpdatedById     String?       @map("status_updated_by")
-  revenue               Decimal       @default(0) @db.Decimal(10, 2)
-  instructorPayment     Decimal       @default(0) @map("instructor_payment") @db.Decimal(10, 2)
-  profit                Decimal       @default(0) @db.Decimal(10, 2)
-  activityType          ActivityType? @map("activity_type")
-  topic                 String?
-  notes                 String?
-  zoomMeetingId         String?       @map("zoom_meeting_id")
-  zoomJoinUrl           String?       @map("zoom_join_url")
-  zoomStartUrl          String?       @map("zoom_start_url")
-  zoomPassword          String?       @map("zoom_password")
-  zoomHostKey           String?       @map("zoom_host_key")
-  zoomHostEmail         String?       @map("zoom_host_email")
-  zoomRecordingUrl      String?       @map("zoom_recording_url")
-  zoomRecordingPassword String?       @map("zoom_recording_password")
-  lessonTranscript      String?       @map("lesson_transcript")
-  rescheduledToId       String?       @map("rescheduled_to_id")
-  createdAt             DateTime      @default(now()) @map("created_at")
-  updatedAt             DateTime      @updatedAt @map("updated_at")
-  deletedAt             DateTime?     @map("deleted_at")
-  deletedBy             String?       @map("deleted_by")
+  id                        String        @id @default(uuid())
+  cycleId                   String        @map("cycle_id")
+  instructorId              String        @map("instructor_id")
+  registrationId            String?       @map("registration_id")
+  scheduledDate             DateTime      @map("scheduled_date") @db.Date
+  startTime                 DateTime      @map("start_time") @db.Time
+  endTime                   DateTime      @map("end_time") @db.Time
+  status                    MeetingStatus @default(scheduled)
+  nature                    MeetingNature @default(regular)
+  statusUpdatedAt           DateTime?     @map("status_updated_at")
+  statusUpdatedById         String?       @map("status_updated_by")
+  revenue                   Decimal       @default(0) @db.Decimal(10, 2)
+  instructorPayment         Decimal       @default(0) @map("instructor_payment") @db.Decimal(10, 2)
+  profit                    Decimal       @default(0) @db.Decimal(10, 2)
+  negativeProfitAlertSentAt DateTime?     @map("negative_profit_alert_sent_at")
+  activityType              ActivityType? @map("activity_type")
+  topic                     String?
+  notes                     String?
+  zoomMeetingId             String?       @map("zoom_meeting_id")
+  zoomJoinUrl               String?       @map("zoom_join_url")
+  zoomStartUrl              String?       @map("zoom_start_url")
+  zoomPassword              String?       @map("zoom_password")
+  zoomHostKey               String?       @map("zoom_host_key")
+  zoomHostEmail             String?       @map("zoom_host_email")
+  zoomRecordingUrl          String?       @map("zoom_recording_url")
+  zoomRecordingPassword     String?       @map("zoom_recording_password")
+  lessonTranscript          String?       @map("lesson_transcript")
+  rescheduledToId           String?       @map("rescheduled_to_id")
+  createdAt                 DateTime      @default(now()) @map("created_at")
+  updatedAt                 DateTime      @updatedAt @map("updated_at")
+  deletedAt                 DateTime?     @map("deleted_at")
+  deletedBy                 String?       @map("deleted_by")
 
   // Relations
   cycle                 Cycle                  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   instructor            Instructor             @relation(fields: [instructorId], references: [id], onDelete: Restrict)
+  registration          Registration?          @relation(fields: [registrationId], references: [id], onDelete: SetNull)
   statusUpdatedBy       User?                  @relation("MeetingStatusUpdater", fields: [statusUpdatedById], references: [id])
   rescheduledTo         Meeting?               @relation("RescheduledMeetings", fields: [rescheduledToId], references: [id])
   rescheduledFrom       Meeting[]              @relation("RescheduledMeetings")
@@ -819,6 +827,8 @@ model Meeting {
   changeRequests        MeetingChangeRequest[]
   billingPeriodMeetings BillingPeriodMeeting[]
 
+  @@index([negativeProfitAlertSentAt])
+  @@index([registrationId])
   @@map("meetings")
 }
 
@@ -1176,6 +1186,13 @@ model LeadAppointment {
   appointmentNotes  String?   @map("appointment_notes")
   appointmentStatus String    @default("pending") @map("appointment_status")
 
+  // Sales workflow
+  salesStatus       String    @default("new") @map("sales_status")
+  assignedToId      String?   @map("assigned_to_id")
+  nextFollowUpAt    DateTime? @map("next_follow_up_at")
+  lastContactResult String?   @map("last_contact_result")
+  lastContactedAt   DateTime? @map("last_contacted_at")
+
   // Notifications
   whatsappSent Boolean @default(false) @map("whatsapp_sent")
   emailSent    Boolean @default(false) @map("email_sent")
@@ -1183,9 +1200,33 @@ model LeadAppointment {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  customer Customer? @relation(fields: [customerId], references: [id])
+  customer   Customer?      @relation(fields: [customerId], references: [id])
+  assignedTo User?          @relation("LeadAppointmentAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  activities LeadActivity[]
 
+  @@index([salesStatus])
+  @@index([assignedToId])
+  @@index([nextFollowUpAt])
   @@map("lead_appointments")
+}
+
+model LeadActivity {
+  id                String    @id @default(uuid())
+  leadAppointmentId String    @map("lead_appointment_id")
+  userId            String?   @map("user_id")
+  type              String
+  result            String?
+  note              String?
+  nextFollowUpAt    DateTime? @map("next_follow_up_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  lead LeadAppointment @relation(fields: [leadAppointmentId], references: [id], onDelete: Cascade)
+  user User?           @relation("LeadActivityUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([leadAppointmentId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("lead_activities")
 }
 
 // ===================

@@ -7,8 +7,9 @@ import { fetchHolidays, dayNameToNumber, calculateCycleEndDate } from '../utils/
 import { zoomService, getHostKeyByEmail } from '../services/zoom.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
-import { meetingRevenueFromRegistrations, netAmount, roundMoney } from '../utils/revenue.js';
+import { meetingRevenueFromRegistrations, netAmount, revenueRegistrations, roundMoney } from '../utils/revenue.js';
 import { recalculateInstructorPaymentsForCycle } from '../services/instructor-payment.js';
+import { checkAndSendInstitutionalOrderCompletionAlert } from '../services/institutional-order-completion-alert.js';
 
 // Make.com webhook removed — Zoom recordings handled directly via /api/zoom-webhook
 
@@ -33,10 +34,9 @@ function computeRevenuePerMeeting(cycle: any): number {
       const count = cycle.registrations?.length ?? cycle._count?.registrations ?? 0;
       return roundMoney(Number(cycle.pricePerStudent) * count);
     }
-    // Sum active registration amounts (available in detail endpoint)
+    // Sum revenue-bearing registration amounts (available in detail endpoint)
     if (Array.isArray(cycle.registrations) && cycle.registrations.length > 0) {
-      const activeRegs = cycle.registrations.filter((r: any) => !['cancelled', 'pending_cancellation'].includes(r.status));
-      return meetingRevenueFromRegistrations(activeRegs, totalMeetings, cycle.type);
+      return meetingRevenueFromRegistrations(revenueRegistrations(cycle.registrations), totalMeetings, cycle.type);
     }
     // Fallback: aggregated sum if available (list endpoint — already filtered to active)
     if (cycle._sum?.registrations?.amount) {
@@ -239,6 +239,15 @@ cyclesRouter.get('/:id', async (req, res, next) => {
           orderBy: { scheduledDate: 'asc' },
           include: {
             instructor: { select: { id: true, name: true } },
+            registration: {
+              include: {
+                student: {
+                  include: {
+                    customer: { select: { id: true, name: true, phone: true } },
+                  },
+                },
+              },
+            },
             _count: { select: { attendance: true } },
             changeRequests: {
               where: { status: 'pending' },
@@ -407,10 +416,13 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     }
 
     // If totalMeetings or completedMeetings changed, recalculate remainingMeetings
-    if (data.totalMeetings !== undefined || data.completedMeetings !== undefined) {
+    if (data.totalMeetings !== undefined || data.completedMeetings !== undefined || data.status === 'completed') {
       const newTotal = data.totalMeetings ?? existingCycle.totalMeetings;
       const newCompleted = data.completedMeetings ?? existingCycle.completedMeetings;
-      updateData.remainingMeetings = newTotal - newCompleted;
+      const newStatus = data.status ?? existingCycle.status;
+      updateData.remainingMeetings = newStatus === 'completed'
+        ? 0
+        : Math.max(0, newTotal - newCompleted);
     }
 
     // Check if we need to regenerate meetings
@@ -491,6 +503,10 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
     // Attach revenuePerMeeting to the response (may be partial for private if no regs loaded)
     (cycle as any).revenuePerMeeting = computeRevenuePerMeeting(cycle);
 
+    if (data.status === 'completed') {
+      await checkAndSendInstitutionalOrderCompletionAlert(cycle.institutionalOrderId, 'cycle-update');
+    }
+
     // If regenerateMeetings flag is set, delete all non-completed meetings and regenerate
     if (regenerateMeetings) {
       // Delete only scheduled/postponed meetings (not completed or cancelled)
@@ -517,7 +533,9 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
         ? new Date(new Date(lastCompleted.scheduledDate).getTime() + 7 * 24 * 60 * 60 * 1000)
         : new Date();
 
-      const remainingCount = cycle.totalMeetings - completedCount;
+      const remainingCount = cycle.status === 'completed'
+        ? 0
+        : Math.max(0, cycle.totalMeetings - completedCount);
       
       await prisma.cycle.update({
         where: { id },
@@ -799,7 +817,7 @@ cyclesRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
           tx.cycle.update({
             where: { id },
             data: updateData,
-            select: { id: true, name: true },
+            select: { id: true, name: true, institutionalOrderId: true },
           })
         )
       );
@@ -812,6 +830,17 @@ cyclesRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
       }
       return cycles;
     });
+
+    if (data.status === 'completed') {
+      const orderIds = [...new Set(
+        results
+          .map((cycle) => cycle.institutionalOrderId)
+          .filter((orderId): orderId is string => Boolean(orderId)),
+      )];
+      await Promise.all(
+        orderIds.map((orderId) => checkAndSendInstitutionalOrderCompletionAlert(orderId, 'cycle-bulk-update')),
+      );
+    }
 
     res.json({
       message: `עודכנו ${results.length} מחזורים בהצלחה`,
@@ -834,14 +863,27 @@ cyclesRouter.get('/:id/meetings', async (req, res, next) => {
     });
 
     const meetings = await prisma.meeting.findMany({
-      where: { cycleId: id },
+      where: { cycleId: id, deletedAt: null },
       include: {
         instructor: { select: { id: true, name: true } },
         attendance: {
           include: {
             registration: {
               include: {
-                student: { select: { id: true, name: true } },
+                student: {
+                  include: {
+                    customer: { select: { id: true, name: true, phone: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+        registration: {
+          include: {
+            student: {
+              include: {
+                customer: { select: { id: true, name: true, phone: true } },
               },
             },
           },
@@ -1042,7 +1084,7 @@ cyclesRouter.post('/sync-all', managerOrAdmin, async (_req, res, next) => {
       const completedMeetings = await prisma.meeting.count({
         where: { cycleId: cycle.id, status: 'completed' },
       });
-      const remainingMeetings = cycle.totalMeetings - completedMeetings;
+      const remainingMeetings = Math.max(0, cycle.totalMeetings - completedMeetings);
       await prisma.cycle.update({
         where: { id: cycle.id },
         data: { completedMeetings, remainingMeetings },
@@ -1081,7 +1123,9 @@ cyclesRouter.post('/:id/sync-progress', managerOrAdmin, async (req, res, next) =
     });
 
     // totalMeetings is fixed (set by payment), only update completed/remaining
-    const remainingMeetings = cycle.totalMeetings - completedMeetings;
+    const remainingMeetings = cycle.status === 'completed'
+      ? 0
+      : Math.max(0, cycle.totalMeetings - completedMeetings);
 
     // Update cycle with synced values (don't change totalMeetings)
     const updated = await prisma.cycle.update({

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { logAudit } from '../utils/audit.js';
+import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -460,6 +461,7 @@ router.post('/meeting', authenticate, managerOrAdmin, async (req: Request, res: 
         where: { id: meetingId },
         data: { profit: newProfit },
       });
+      await checkAndSendNegativeProfitAlert(meetingId, 'meeting-expense-create');
     }
 
     res.status(201).json(expense);
@@ -526,6 +528,7 @@ router.delete('/meeting/:id', authenticate, managerOrAdmin, async (req: Request,
           where: { id: meetingId },
           data: { profit: newProfit },
         });
+        await checkAndSendNegativeProfitAlert(meetingId, 'meeting-expense-delete');
       }
     }
 

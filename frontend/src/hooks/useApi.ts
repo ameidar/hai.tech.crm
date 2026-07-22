@@ -706,6 +706,7 @@ export const useMeeting = (id: string | undefined) => {
 export interface CreateMeetingData {
   cycleId: string;
   instructorId: string;
+  registrationId?: string;
   scheduledDate: string;
   startTime: string;
   endTime: string;
@@ -1013,6 +1014,7 @@ export interface WaMessage {
   conversationId: string;
   direction: 'inbound' | 'outbound';
   content: string;
+  waMessageId?: string | null;
   status: string;
   isAiGenerated: boolean;
   createdAt: string;
@@ -1587,6 +1589,20 @@ export interface FileAttachment {
   uploadedBy?: { id: string; name: string } | null;
 }
 
+export const uploadFileAttachment = async (
+  entityType: string,
+  entityId: string,
+  { file, label }: { file: File; label?: string }
+) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (label) formData.append('label', label);
+  const res = await api.post<FileAttachment>(`/files/${entityType}/${entityId}`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return res.data;
+};
+
 export const useFileAttachments = (entityType: string, entityId: string | undefined) => {
   return useQuery({
     queryKey: ['files', entityType, entityId],
@@ -1598,15 +1614,7 @@ export const useFileAttachments = (entityType: string, entityId: string | undefi
 export const useUploadFile = (entityType: string, entityId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ file, label }: { file: File; label?: string }) => {
-      const formData = new FormData();
-      formData.append('file', file);
-      if (label) formData.append('label', label);
-      const res = await api.post<FileAttachment>(`/files/${entityType}/${entityId}`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      return res.data;
-    },
+    mutationFn: (payload: { file: File; label?: string }) => uploadFileAttachment(entityType, entityId, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['files', entityType, entityId] });
     },

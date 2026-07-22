@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { prisma } from '../utils/prisma.js';
 import { sendEmail, sendWhatsAppToChat } from './messaging.js';
+import { billingPeriodChargedGross } from './billing.js';
 
 // Internal recipients for open-proforma alerts (NOT the customer).
 const ALERT_EMAIL = process.env.OPEN_PROFORMA_ALERT_EMAIL || 'info@hai.tech';
@@ -75,7 +76,7 @@ export async function runOpenProformaAlerts(now: Date = new Date()): Promise<Ove
       if (sinceLast < ALERT_INTERVAL_DAYS) continue;
     }
 
-    const totalGross = Number(p.totalAmount) * 1.18;
+    const totalGross = billingPeriodChargedGross(p);
     const paidAmount = Number(p.paidAmount);
     const daysOverdue = Math.round((today.getTime() - startOfUTCDay(dueDate).getTime()) / MS_PER_DAY);
 

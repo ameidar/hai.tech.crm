@@ -8,71 +8,96 @@ import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { zoomService, getIsraelOffset } from '../services/zoom.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
 import { syncCycleProgress, syncCycleEndDate } from '../utils/cycle-sync.js';
-import { meetingRevenueFromRegistrations, roundMoney } from '../utils/revenue.js';
+import { meetingRevenueFromRegistrations, revenueRegistrationCount, roundMoney } from '../utils/revenue.js';
 import { assertCyclePeriodNotLocked, assertMeetingNotInIssuedPeriod } from '../services/billing-lock.js';
 import {
   calculateInstructorPayment,
   recalculateDailyInstructorPaymentsForMeeting,
 } from '../services/instructor-payment.js';
-
-// Send WhatsApp alert for negative profit
-async function sendNegativeProfitAlert(meetingData: {
-  cycleName: string;
-  courseName: string;
-  branchName: string;
-  instructorName: string;
-  date: string;
-  revenue: number;
-  cost: number;
-  profit: number;
-}) {
-  const alertPhone = process.env.ALERT_PHONE || '972528746137';
-  const greenApiInstanceId = process.env.GREEN_API_INSTANCE_ID;
-  const greenApiToken = process.env.GREEN_API_TOKEN;
-
-  if (!greenApiInstanceId || !greenApiToken) {
-    console.log('Green API not configured, skipping WhatsApp alert');
-    return;
-  }
-
-  const message = `⚠️ התראה: רווח שלילי בפגישה
-
-📅 תאריך: ${meetingData.date}
-📚 מחזור: ${meetingData.cycleName}
-🎓 קורס: ${meetingData.courseName}
-🏢 סניף: ${meetingData.branchName}
-👨‍🏫 מדריך: ${meetingData.instructorName}
-
-💰 הכנסה: ₪${meetingData.revenue}
-💸 עלות: ₪${meetingData.cost}
-📉 רווח: ₪${meetingData.profit}`;
-
-  try {
-    const response = await fetch(
-      `https://api.green-api.com/waInstance${greenApiInstanceId}/sendMessage/${greenApiToken}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chatId: `${alertPhone}@c.us`,
-          message,
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      console.error('Failed to send WhatsApp alert:', await response.text());
-    } else {
-      console.log('WhatsApp alert sent for negative profit');
-    }
-  } catch (error) {
-    console.error('Error sending WhatsApp alert:', error);
-  }
-}
+import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
 
 export const meetingsRouter = Router();
 
 meetingsRouter.use(authenticate);
+
+const registrationStudentInclude = {
+  student: {
+    include: {
+      customer: { select: { id: true, name: true, phone: true } },
+    },
+  },
+};
+
+async function assertRegistrationBelongsToCycle(registrationId: string, cycleId: string) {
+  const registration = await prisma.registration.findFirst({
+    where: {
+      id: registrationId,
+      cycleId,
+      deletedAt: null,
+      status: { notIn: ['cancelled', 'pending_cancellation'] as any },
+    },
+    select: { id: true },
+  });
+
+  if (!registration) {
+    throw new AppError(400, 'ההרשמה שנבחרה לא שייכת למחזור או אינה פעילה');
+  }
+}
+
+async function findLinkedTrialRegistrationId(meetingId: string, registrationId?: string | null) {
+  if (registrationId) return registrationId;
+
+  const attendance = await prisma.attendance.findFirst({
+    where: {
+      meetingId,
+      registrationId: { not: null },
+    },
+    select: { registrationId: true },
+  });
+
+  return attendance?.registrationId ?? null;
+}
+
+async function ensureTrialMeetingHasRegistration(meeting: {
+  id: string;
+  cycleId: string;
+  registrationId?: string | null;
+  cycle?: { type?: string | null } | null;
+}) {
+  if (meeting.cycle?.type !== 'trial_private') return null;
+
+  const registrationId = await findLinkedTrialRegistrationId(meeting.id, meeting.registrationId);
+  if (!registrationId) {
+    throw new AppError(400, 'חובה לשייך תלמיד/הרשמה לפני סימון שיעור ניסיון כהושלם');
+  }
+
+  await assertRegistrationBelongsToCycle(registrationId, meeting.cycleId);
+  return registrationId;
+}
+
+async function upsertTrialAttendance(meetingId: string, registrationId: string, recordedById?: string) {
+  await prisma.attendance.upsert({
+    where: {
+      meetingId_registrationId: {
+        meetingId,
+        registrationId,
+      },
+    },
+    update: {
+      status: 'present',
+      recordedAt: new Date(),
+      recordedById,
+      isTrial: true,
+    },
+    create: {
+      meetingId,
+      registrationId,
+      status: 'present',
+      recordedById,
+      isTrial: true,
+    },
+  });
+}
 
 // List meetings
 meetingsRouter.get('/', async (req, res, next) => {
@@ -131,6 +156,12 @@ meetingsRouter.get('/', async (req, res, next) => {
             },
           },
           instructor: { select: { id: true, name: true, phone: true } },
+          registration: { include: registrationStudentInclude },
+          attendance: {
+            include: {
+              registration: { include: registrationStudentInclude },
+            },
+          },
           expenses: {
             where: { status: 'approved' },
             select: { id: true, type: true, amount: true, description: true, status: true },
@@ -212,7 +243,7 @@ meetingsRouter.get('/:id', async (req, res, next) => {
             course: true,
             branch: true,
             registrations: {
-              where: { status: { in: ['registered', 'active'] } },
+              where: { status: { in: ['registered', 'active', 'completed'] } },
               include: {
                 student: {
                   include: {
@@ -227,13 +258,12 @@ meetingsRouter.get('/:id', async (req, res, next) => {
         attendance: {
           include: {
             registration: {
-              include: {
-                student: { select: { id: true, name: true } },
-              },
+              include: registrationStudentInclude,
             },
             recordedBy: { select: { id: true, name: true } },
           },
         },
+        registration: { include: registrationStudentInclude },
         statusUpdatedBy: { select: { id: true, name: true } },
         rescheduledTo: { select: { id: true, scheduledDate: true } },
         rescheduledFrom: { select: { id: true, scheduledDate: true } },
@@ -253,7 +283,7 @@ meetingsRouter.get('/:id', async (req, res, next) => {
 // Create exceptional/ad-hoc meeting for a cycle
 meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
   try {
-    const { cycleId, instructorId, scheduledDate, startTime, endTime, withZoom, activityType, topic, notes } = req.body;
+    const { cycleId, instructorId, registrationId, scheduledDate, startTime, endTime, withZoom, activityType, topic, notes } = req.body;
 
     if (!cycleId || !instructorId || !scheduledDate || !startTime || !endTime) {
       throw new AppError(400, 'Missing required fields: cycleId, instructorId, scheduledDate, startTime, endTime');
@@ -265,13 +295,22 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
       include: { 
         course: true,
         registrations: {
-          where: { status: { in: ['registered', 'active'] } },
+          where: { status: { in: ['registered', 'active', 'completed'] } },
         },
       },
     });
 
     if (!cycle) {
       throw new AppError(404, 'Cycle not found');
+    }
+
+    if (cycle.type === 'trial_private') {
+      if (!registrationId) {
+        throw new AppError(400, 'חובה לבחור תלמיד/הרשמה לשיעור ניסיון');
+      }
+      await assertRegistrationBelongsToCycle(registrationId, cycleId);
+    } else if (registrationId) {
+      await assertRegistrationBelongsToCycle(registrationId, cycleId);
     }
 
     // Block adding meetings into a month that already has an issued billing invoice.
@@ -322,6 +361,7 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
       data: {
         cycleId,
         instructorId,
+        registrationId: registrationId || null,
         scheduledDate: new Date(scheduledDate),
         startTime: new Date(`1970-01-01T${startTime}:00Z`),
         endTime: new Date(`1970-01-01T${endTime}:00Z`),
@@ -336,6 +376,7 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
       include: {
         cycle: { include: { course: true, branch: true } },
         instructor: true,
+        registration: { include: registrationStudentInclude },
       },
     });
 
@@ -475,6 +516,13 @@ meetingsRouter.put('/:id', async (req, res, next) => {
     }
 
     const updateData: any = { ...data };
+
+    if (Object.prototype.hasOwnProperty.call(data, 'registrationId')) {
+      updateData.registrationId = data.registrationId || null;
+      if (data.registrationId) {
+        await assertRegistrationBelongsToCycle(data.registrationId, existingMeeting.cycleId);
+      }
+    }
     
     // Handle date and time updates
     if (data.scheduledDate) {
@@ -498,12 +546,17 @@ meetingsRouter.put('/:id', async (req, res, next) => {
       
       // Update cycle counters and calculate financials when completed
       if (data.status === 'completed') {
+        const trialRegistrationId = await ensureTrialMeetingHasRegistration({
+          ...existingMeeting,
+          registrationId: updateData.registrationId ?? existingMeeting.registrationId,
+        });
+
         // Get full cycle data with registrations and instructor
         const cycleData = await prisma.cycle.findUnique({
           where: { id: existingMeeting.cycleId },
           include: {
             registrations: {
-              where: { status: { in: ['registered', 'active'] } },
+              where: { status: { in: ['registered', 'active', 'completed'] } },
             },
             instructor: true,
           },
@@ -513,7 +566,7 @@ meetingsRouter.put('/:id', async (req, res, next) => {
           // Calculate revenue based on cycle type. no_revenue meetings
           // (internal/operational) recognize no revenue but still accrue instructor pay.
           let revenue = 0;
-          const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
+          const registrationCount = revenueRegistrationCount(cycleData.registrations);
 
           if (existingMeeting.nature !== 'no_revenue') {
             if (['private', 'trial_private'].includes(String(cycleData.type))) {
@@ -525,7 +578,7 @@ meetingsRouter.put('/:id', async (req, res, next) => {
             } else if (cycleData.type === 'institutional_per_child') {
               // Price per student × number of students (use studentCount if set, otherwise count registrations)
               const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-              const studentCount = cycleData.studentCount || activeRegistrations.length;
+              const studentCount = cycleData.studentCount || registrationCount;
               revenue = roundMoney(pricePerStudent * studentCount);
             } else if (cycleData.type === 'institutional_fixed') {
               // Fixed meeting revenue
@@ -564,30 +617,11 @@ meetingsRouter.put('/:id', async (req, res, next) => {
           // Mark for post-update sync (cycle counters updated after meeting is saved)
           statusChangedToCompleted = true;
 
-          // Send WhatsApp alert if profit is negative
-          if (profit < 0) {
-            const cycleWithDetails = await prisma.cycle.findUnique({
-              where: { id: existingMeeting.cycleId },
-              include: {
-                course: { select: { name: true } },
-                branch: { select: { name: true } },
-                instructor: { select: { name: true } },
-              },
-            });
-
-            if (cycleWithDetails) {
-              sendNegativeProfitAlert({
-                cycleName: cycleWithDetails.name,
-                courseName: cycleWithDetails.course.name,
-                branchName: cycleWithDetails.branch.name,
-                instructorName: cycleWithDetails.instructor.name,
-                date: existingMeeting.scheduledDate.toLocaleDateString('he-IL'),
-                revenue,
-                cost: instructorPayment,
-                profit,
-              }).catch(err => console.error('WhatsApp alert error:', err));
-            }
+          if (trialRegistrationId) {
+            await upsertTrialAttendance(id, trialRegistrationId, req.user!.userId);
+            updateData.registrationId = trialRegistrationId;
           }
+
         }
       }
       
@@ -624,10 +658,17 @@ meetingsRouter.put('/:id', async (req, res, next) => {
           },
         },
         instructor: { select: { id: true, name: true } },
+        registration: { include: registrationStudentInclude },
+        attendance: {
+          include: {
+            registration: { include: registrationStudentInclude },
+          },
+        },
       },
     });
     await recalculateDailyInstructorPaymentsForMeeting(existingMeeting);
     await recalculateDailyInstructorPaymentsForMeeting(meeting);
+    await checkAndSendNegativeProfitAlert(meeting.id, 'meeting-update');
 
     // Sync cycle progress AFTER meeting is updated (accurate DB count)
     if (statusChangedToCompleted || statusChangedFromCompleted) {
@@ -725,7 +766,7 @@ meetingsRouter.post('/:id/postpone', managerOrAdmin, async (req, res, next) => {
     });
 
     // Update original meeting (zero amounts — postponed meetings don't generate revenue)
-    await prisma.meeting.update({
+    const postponedMeeting = await prisma.meeting.update({
       where: { id },
       data: {
         status: 'postponed',
@@ -737,6 +778,7 @@ meetingsRouter.post('/:id/postpone', managerOrAdmin, async (req, res, next) => {
         profit: 0,
       },
     });
+    await checkAndSendNegativeProfitAlert(postponedMeeting.id, 'meeting-postpone');
 
     // The replacement meeting may fall after the cycle's current end date — resync it.
     await syncCycleEndDate(existingMeeting.cycleId);
@@ -789,7 +831,7 @@ meetingsRouter.get('/:id/attendance', async (req, res, next) => {
         cycle: {
           include: {
             registrations: {
-              where: { status: { in: ['registered', 'active'] } },
+              where: { status: { in: ['registered', 'active', 'completed'] } },
               include: {
                 student: {
                   include: {
@@ -931,7 +973,7 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
         cycle: {
           include: {
             registrations: {
-              where: { status: { in: ['registered', 'active'] } },
+              where: { status: { in: ['registered', 'active', 'completed'] } },
             },
           },
         },
@@ -961,7 +1003,7 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
 
     // Calculate revenue based on cycle type — skipped for no_revenue meetings.
     let revenue = 0;
-    const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
+    const registrationCount = revenueRegistrationCount(cycleData.registrations);
 
     if (meeting.nature !== 'no_revenue') {
       if (['private', 'trial_private'].includes(String(cycleData.type))) {
@@ -972,7 +1014,7 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
         }
       } else if (cycleData.type === 'institutional_per_child') {
         const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-        const studentCount = cycleData.studentCount || activeRegistrations.length;
+        const studentCount = cycleData.studentCount || registrationCount;
         revenue = roundMoney(pricePerStudent * studentCount);
       } else if (cycleData.type === 'institutional_fixed') {
         revenue = Number(cycleData.meetingRevenue || 0);
@@ -1014,6 +1056,7 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
       },
     });
     await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
+    await checkAndSendNegativeProfitAlert(updatedMeeting.id, 'meeting-recalculate');
 
     res.json(updatedMeeting);
   } catch (error) {
@@ -1040,7 +1083,7 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
           cycle: {
             include: {
               registrations: {
-                where: { status: { in: ['registered', 'active'] } },
+                where: { status: { in: ['registered', 'active', 'completed'] } },
               },
             },
           },
@@ -1062,7 +1105,7 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
 
       // Calculate revenue — skipped for no_revenue meetings.
       let revenue = 0;
-      const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
+      const registrationCount = revenueRegistrationCount(cycleData.registrations);
 
       if (meeting.nature !== 'no_revenue') {
         if (['private', 'trial_private'].includes(String(cycleData.type))) {
@@ -1073,7 +1116,7 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
           }
         } else if (cycleData.type === 'institutional_per_child') {
           const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-          const studentCount = cycleData.studentCount || activeRegistrations.length;
+          const studentCount = cycleData.studentCount || registrationCount;
           revenue = roundMoney(pricePerStudent * studentCount);
         } else if (cycleData.type === 'institutional_fixed') {
           revenue = Number(cycleData.meetingRevenue || 0);
@@ -1089,6 +1132,7 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
         data: { revenue, instructorPayment, profit },
       });
       await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
+      await checkAndSendNegativeProfitAlert(id, 'meeting-bulk-recalculate');
 
       recalculated++;
     }
@@ -1135,11 +1179,13 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
 
         // Handle status change to completed - calculate financials
         if (status === 'completed' && existingMeeting.status !== 'completed') {
+          const trialRegistrationId = await ensureTrialMeetingHasRegistration(existingMeeting);
+
           const cycleData = await prisma.cycle.findUnique({
             where: { id: existingMeeting.cycleId },
             include: {
               registrations: {
-                where: { status: { in: ['registered', 'active'] } },
+                where: { status: { in: ['registered', 'active', 'completed'] } },
               },
               instructor: true,
             },
@@ -1148,7 +1194,7 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
           if (cycleData) {
             // Calculate revenue based on cycle type
             let revenue = 0;
-            const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
+            const registrationCount = revenueRegistrationCount(cycleData.registrations);
             
             if (['private', 'trial_private'].includes(String(cycleData.type))) {
               if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
@@ -1158,7 +1204,7 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
               }
             } else if (cycleData.type === 'institutional_per_child') {
               const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-              const studentCount = cycleData.studentCount || activeRegistrations.length;
+              const studentCount = cycleData.studentCount || registrationCount;
               revenue = roundMoney(pricePerStudent * studentCount);
             } else if (cycleData.type === 'institutional_fixed') {
               revenue = Number(cycleData.meetingRevenue || 0);
@@ -1173,6 +1219,11 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
             updateData.revenue = revenue;
             updateData.instructorPayment = instructorPayment;
             updateData.profit = profit;
+
+            if (trialRegistrationId) {
+              await upsertTrialAttendance(id, trialRegistrationId, req.user!.userId);
+              updateData.registrationId = trialRegistrationId;
+            }
 
             // Update cycle counters
             const updatedCompleted = cycleData.completedMeetings + 1;
@@ -1231,6 +1282,7 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
         });
         await recalculateDailyInstructorPaymentsForMeeting(existingMeeting);
         await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
+        await checkAndSendNegativeProfitAlert(id, 'meeting-bulk-status');
 
         // Audit log
         await logAudit({
@@ -1281,7 +1333,7 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
     }
 
     // Allowed fields for bulk update
-    const allowedFields = ['status', 'activityType', 'topic', 'notes', 'scheduledDate', 'startTime', 'endTime', 'instructorId'];
+    const allowedFields = ['status', 'activityType', 'topic', 'notes', 'scheduledDate', 'startTime', 'endTime', 'instructorId', 'registrationId'];
     const updateData: Record<string, any> = {};
     
     for (const field of allowedFields) {
@@ -1311,6 +1363,7 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
       try {
         const existingMeeting = await prisma.meeting.findUnique({
           where: { id },
+          include: { cycle: true },
         });
 
         if (!existingMeeting) {
@@ -1318,15 +1371,29 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
           continue;
         }
 
+        const perMeetingUpdateData = { ...updateData };
+
         // If status changing to completed and wasn't completed before, add timestamps
-        if (updateData.status === 'completed' && existingMeeting.status !== 'completed') {
-          updateData.statusUpdatedAt = new Date();
-          updateData.statusUpdatedById = req.user!.userId;
+        if (perMeetingUpdateData.status === 'completed' && existingMeeting.status !== 'completed') {
+          const trialRegistrationId = await ensureTrialMeetingHasRegistration({
+            ...existingMeeting,
+            registrationId: perMeetingUpdateData.registrationId ?? existingMeeting.registrationId,
+          });
+          if (trialRegistrationId) {
+            await upsertTrialAttendance(id, trialRegistrationId, req.user!.userId);
+            perMeetingUpdateData.registrationId = trialRegistrationId;
+          }
+          perMeetingUpdateData.statusUpdatedAt = new Date();
+          perMeetingUpdateData.statusUpdatedById = req.user!.userId;
+        }
+
+        if (Object.prototype.hasOwnProperty.call(perMeetingUpdateData, 'registrationId') && perMeetingUpdateData.registrationId) {
+          await assertRegistrationBelongsToCycle(perMeetingUpdateData.registrationId, existingMeeting.cycleId);
         }
 
         await prisma.meeting.update({
           where: { id },
-          data: updateData,
+          data: perMeetingUpdateData,
         });
 
         // Recalculate financials if status changed to completed
@@ -1336,7 +1403,7 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
             include: {
               cycle: {
                 include: {
-                  registrations: { where: { status: { in: ['registered', 'active'] } } },
+                  registrations: { where: { status: { in: ['registered', 'active', 'completed'] } } },
                 },
               },
               instructor: true,
@@ -1346,7 +1413,7 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
           if (meeting) {
             const cycleData = meeting.cycle;
             let revenue = 0;
-            const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
+            const registrationCount = revenueRegistrationCount(cycleData.registrations);
 
             if (['private', 'trial_private'].includes(String(cycleData.type))) {
               if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
@@ -1355,7 +1422,7 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
                 revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
               }
             } else if (cycleData.type === 'institutional_per_child') {
-              revenue = roundMoney(Number(cycleData.pricePerStudent || 0) * (cycleData.studentCount || activeRegistrations.length));
+              revenue = roundMoney(Number(cycleData.pricePerStudent || 0) * (cycleData.studentCount || registrationCount));
             } else if (cycleData.type === 'institutional_fixed') {
               revenue = Number(cycleData.meetingRevenue || 0);
             }
@@ -1367,6 +1434,7 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
               data: { revenue, instructorPayment, profit: revenue - instructorPayment },
             });
             await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
+            await checkAndSendNegativeProfitAlert(id, 'meeting-bulk-update');
           }
         }
 

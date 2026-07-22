@@ -20,6 +20,8 @@ const ROLE_PERMISSIONS: Record<string, ApiKeyScope[]> = {
     'write:registrations',
     'write:attendance',
     'read:reports',
+    'read:leads',
+    'write:leads',
   ],
   instructor: [
     'read:cycles',
@@ -28,6 +30,10 @@ const ROLE_PERMISSIONS: Record<string, ApiKeyScope[]> = {
     'read:attendance',
     'write:meetings',      // Can update meeting status
     'write:attendance',    // Can record attendance
+  ],
+  sales: [
+    'read:leads',
+    'write:leads',
   ],
 };
 

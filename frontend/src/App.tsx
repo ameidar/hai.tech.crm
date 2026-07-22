@@ -104,10 +104,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Blocks access for 'sales' role — redirects to WhatsApp inbox
 function defaultRouteForRole(role?: string) {
   if (role === 'instructor') return '/instructor';
-  if (role === 'sales') return '/whatsapp';
+  if (role === 'sales') return '/lead-appointments';
   if (role === 'operations') return '/operations-control';
   return '/';
 }
@@ -117,6 +116,14 @@ function RoleRoute({ allowed, children }: { allowed: string[]; children: React.R
   if (!user || !allowed.includes(user.role)) {
     return <Navigate to={defaultRouteForRole(user?.role)} replace />;
   }
+  return <>{children}</>;
+}
+
+// Blocks access for non-management roles to management screens.
+function NonSalesRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (user?.role === 'sales') return <Navigate to="/lead-appointments" replace />;
+  if (user?.role === 'operations') return <Navigate to="/operations-control" replace />;
   return <>{children}</>;
 }
 
@@ -178,51 +185,51 @@ function AppRoutes() {
       >
         <Route index element={isInstructor || isSales || isOperations ? <Navigate to={getDefaultRoute()} replace /> : <Dashboard />} />
         <Route path="operations" element={<RoleRoute allowed={['admin', 'manager']}><OperationsHours /></RoleRoute>} />
+        <Route path="operations-control" element={<RoleRoute allowed={['admin', 'manager', 'operations']}><OperationsControl /></RoleRoute>} />
         <Route path="tasks" element={<RoleRoute allowed={['admin', 'manager', 'operations']}><Tasks /></RoleRoute>} />
         {!isInstructor && (
           <>
             {/* Sales-accessible routes */}
-            <Route path="customers" element={<RoleRoute allowed={['admin', 'manager']}><Customers /></RoleRoute>} />
-            <Route path="customers/:id" element={<RoleRoute allowed={['admin', 'manager']}><CustomerDetail /></RoleRoute>} />
-            <Route path="whatsapp" element={<RoleRoute allowed={['admin', 'manager', 'sales']}><WhatsAppInbox /></RoleRoute>} />
-            <Route path="messenger" element={<RoleRoute allowed={['admin', 'manager']}><MessengerInbox /></RoleRoute>} />
-            <Route path="instagram" element={<RoleRoute allowed={['admin', 'manager']}><InstagramInbox /></RoleRoute>} />
+            <Route path="customers" element={<NonSalesRoute><Customers /></NonSalesRoute>} />
+            <Route path="customers/:id" element={<NonSalesRoute><CustomerDetail /></NonSalesRoute>} />
+            <Route path="whatsapp" element={<WhatsAppInbox />} />
+            <Route path="messenger" element={<NonSalesRoute><MessengerInbox /></NonSalesRoute>} />
+            <Route path="instagram" element={<NonSalesRoute><InstagramInbox /></NonSalesRoute>} />
 
             {/* Admin/Manager only routes — sales gets redirected to /whatsapp */}
-            <Route path="students" element={<RoleRoute allowed={['admin', 'manager']}><Students /></RoleRoute>} />
-            <Route path="courses" element={<RoleRoute allowed={['admin', 'manager']}><Courses /></RoleRoute>} />
-            <Route path="branches" element={<RoleRoute allowed={['admin', 'manager']}><Branches /></RoleRoute>} />
-            <Route path="instructors" element={<RoleRoute allowed={['admin', 'manager']}><Instructors /></RoleRoute>} />
-            <Route path="cycles" element={<RoleRoute allowed={['admin', 'manager']}><Cycles /></RoleRoute>} />
-            <Route path="cycles/:id" element={<RoleRoute allowed={['admin', 'manager']}><CycleDetail /></RoleRoute>} />
-            <Route path="meetings" element={<RoleRoute allowed={['admin', 'manager']}><Meetings /></RoleRoute>} />
-            <Route path="meetings/:id" element={<RoleRoute allowed={['admin', 'manager']}><MeetingRedirect /></RoleRoute>} />
-            <Route path="operations-control" element={<RoleRoute allowed={['admin', 'manager', 'operations']}><OperationsControl /></RoleRoute>} />
-            <Route path="quotes" element={<RoleRoute allowed={['admin', 'manager']}><Quotes /></RoleRoute>} />
-            <Route path="quotes/new" element={<RoleRoute allowed={['admin', 'manager']}><QuoteWizard /></RoleRoute>} />
-            <Route path="quotes/:id" element={<RoleRoute allowed={['admin', 'manager']}><QuoteDetail /></RoleRoute>} />
-            <Route path="quotes/:id/edit" element={<RoleRoute allowed={['admin', 'manager']}><QuoteEdit /></RoleRoute>} />
-            <Route path="institutional-orders" element={<RoleRoute allowed={['admin', 'manager']}><InstitutionalOrders /></RoleRoute>} />
-            <Route path="institutional-orders/:id" element={<RoleRoute allowed={['admin', 'manager']}><InstitutionalOrderDetail /></RoleRoute>} />
-            <Route path="paying-bodies" element={<RoleRoute allowed={['admin', 'manager']}><PayingBodies /></RoleRoute>} />
-            <Route path="billing" element={<RoleRoute allowed={['admin', 'manager']}><BillingPeriods /></RoleRoute>} />
-            <Route path="billing/:id" element={<RoleRoute allowed={['admin', 'manager']}><BillingPeriodDetail /></RoleRoute>} />
+            <Route path="students" element={<NonSalesRoute><Students /></NonSalesRoute>} />
+            <Route path="courses" element={<NonSalesRoute><Courses /></NonSalesRoute>} />
+            <Route path="branches" element={<NonSalesRoute><Branches /></NonSalesRoute>} />
+            <Route path="instructors" element={<NonSalesRoute><Instructors /></NonSalesRoute>} />
+            <Route path="cycles" element={<NonSalesRoute><Cycles /></NonSalesRoute>} />
+            <Route path="cycles/:id" element={<NonSalesRoute><CycleDetail /></NonSalesRoute>} />
+            <Route path="meetings" element={<NonSalesRoute><Meetings /></NonSalesRoute>} />
+            <Route path="meetings/:id" element={<NonSalesRoute><MeetingRedirect /></NonSalesRoute>} />
+            <Route path="quotes" element={<NonSalesRoute><Quotes /></NonSalesRoute>} />
+            <Route path="quotes/new" element={<NonSalesRoute><QuoteWizard /></NonSalesRoute>} />
+            <Route path="quotes/:id" element={<NonSalesRoute><QuoteDetail /></NonSalesRoute>} />
+            <Route path="quotes/:id/edit" element={<NonSalesRoute><QuoteEdit /></NonSalesRoute>} />
+            <Route path="institutional-orders" element={<NonSalesRoute><InstitutionalOrders /></NonSalesRoute>} />
+            <Route path="institutional-orders/:id" element={<NonSalesRoute><InstitutionalOrderDetail /></NonSalesRoute>} />
+            <Route path="paying-bodies" element={<NonSalesRoute><PayingBodies /></NonSalesRoute>} />
+            <Route path="billing" element={<NonSalesRoute><BillingPeriods /></NonSalesRoute>} />
+            <Route path="billing/:id" element={<NonSalesRoute><BillingPeriodDetail /></NonSalesRoute>} />
             <Route path="lead-appointments" element={<RoleRoute allowed={['admin', 'manager', 'sales']}><LeadAppointments /></RoleRoute>} />
-            <Route path="system-users" element={<RoleRoute allowed={['admin']}><SystemUsers /></RoleRoute>} />
-            <Route path="reports" element={<RoleRoute allowed={['admin', 'manager']}><Reports /></RoleRoute>} />
-            <Route path="work-hours" element={<RoleRoute allowed={['admin', 'manager']}><WorkHoursApproval /></RoleRoute>} />
-            <Route path="morning-invoice" element={<RoleRoute allowed={['admin', 'manager']}><MorningInvoiceTest /></RoleRoute>} />
+            <Route path="system-users" element={<NonSalesRoute><SystemUsers /></NonSalesRoute>} />
+            <Route path="reports" element={<NonSalesRoute><Reports /></NonSalesRoute>} />
+            <Route path="work-hours" element={<NonSalesRoute><WorkHoursApproval /></NonSalesRoute>} />
+            <Route path="morning-invoice" element={<NonSalesRoute><MorningInvoiceTest /></NonSalesRoute>} />
             <Route path="payment-link" element={<RoleRoute allowed={['admin', 'manager', 'sales']}><PaymentLink /></RoleRoute>} />
-            <Route path="audit" element={<RoleRoute allowed={['admin']}><AuditLog /></RoleRoute>} />
-            <Route path="campaigns" element={<RoleRoute allowed={['admin', 'manager']}><Campaigns /></RoleRoute>} />
-            <Route path="facebook-leads" element={<RoleRoute allowed={['admin', 'manager']}><FacebookLeads /></RoleRoute>} />
-            <Route path="analytics" element={<RoleRoute allowed={['admin', 'manager']}><Analytics /></RoleRoute>} />
-            <Route path="google-ads" element={<RoleRoute allowed={['admin', 'manager']}><GoogleAdsCampaigns /></RoleRoute>} />
-            <Route path="linkedin" element={<RoleRoute allowed={['admin', 'manager']}><LinkedIn /></RoleRoute>} />
-            <Route path="facebook" element={<RoleRoute allowed={['admin', 'manager']}><FacebookPage /></RoleRoute>} />
-            <Route path="instagram-post" element={<RoleRoute allowed={['admin', 'manager']}><InstagramPage /></RoleRoute>} />
-            <Route path="tiktok" element={<RoleRoute allowed={['admin', 'manager']}><TikTokPage /></RoleRoute>} />
-            <Route path="youtube" element={<RoleRoute allowed={['admin', 'manager']}><YouTubePage /></RoleRoute>} />
+            <Route path="audit" element={<NonSalesRoute><AuditLog /></NonSalesRoute>} />
+            <Route path="campaigns" element={<NonSalesRoute><Campaigns /></NonSalesRoute>} />
+            <Route path="facebook-leads" element={<NonSalesRoute><FacebookLeads /></NonSalesRoute>} />
+            <Route path="analytics" element={<NonSalesRoute><Analytics /></NonSalesRoute>} />
+            <Route path="google-ads" element={<NonSalesRoute><GoogleAdsCampaigns /></NonSalesRoute>} />
+            <Route path="linkedin" element={<NonSalesRoute><LinkedIn /></NonSalesRoute>} />
+            <Route path="facebook" element={<NonSalesRoute><FacebookPage /></NonSalesRoute>} />
+            <Route path="instagram-post" element={<NonSalesRoute><InstagramPage /></NonSalesRoute>} />
+            <Route path="tiktok" element={<NonSalesRoute><TikTokPage /></NonSalesRoute>} />
+            <Route path="youtube" element={<NonSalesRoute><YouTubePage /></NonSalesRoute>} />
           </>
         )}
         <Route path="instructor" element={<InstructorDashboard />} />

@@ -894,7 +894,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     totalMeetings: 12,
     pricePerStudent: 0,
     meetingRevenue: 0,
-    includesVat: false as boolean | null,
+    includesVat: false,
     instructorPaymentMode: 'hourly' as InstructorPaymentMode,
     instructorDailyRate: 0,
     studentCount: 0,
@@ -922,12 +922,6 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
       return;
     }
 
-    // Validate VAT selection for institutional_fixed
-    if (formData.type === 'institutional_fixed' && formData.includesVat === null) {
-      alert('יש לבחור האם הסכום כולל מע״מ או לא');
-      return;
-    }
-
     // Location is mandatory for frontal cycles (online/private have no physical location)
     if (formData.activityType === 'frontal' && !formData.location.trim()) {
       alert('יש למלא מיקום/עיר למחזור פרונטלי');
@@ -944,10 +938,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     const studentCountValue = Number(formData.studentCount);
     const maxStudentsValue = Number(formData.maxStudents);
     
-    // If includes VAT, calculate the amount before VAT (divide by 1.18)
-    if (formData.type === 'institutional_fixed' && formData.includesVat === true && meetingRevenueValue > 0) {
-      meetingRevenueValue = Math.round((meetingRevenueValue / 1.18) * 100) / 100;
-    }
+    // Amounts entered here are always before VAT. VAT is not HaiTech revenue.
     
     // Calculate duration from start/end times
     const [startHour, startMin] = formData.startTime.split(':').map(Number);
@@ -967,9 +958,8 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
       studentCount: formData.type === 'institutional_per_child' && studentCountValue > 0 ? studentCountValue : undefined,
       maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
     };
-    // Send revenueIncludesVat for institutional_fixed
     if (formData.type === 'institutional_fixed') {
-      submitData.revenueIncludesVat = formData.includesVat;
+      submitData.revenueIncludesVat = false;
     }
     delete submitData.includesVat;
     // Remove endDate if empty - it will be calculated automatically
@@ -1186,9 +1176,13 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
             />
           </div>
 
+          <div className="col-span-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+            כל המחירים וההכנסות במחזור הם ללא מע״מ. המע״מ מתווסף בנפרד ואינו חלק מההכנסה.
+          </div>
+
           {(formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && (
             <div>
-              <label className="form-label">מחיר לתלמיד {formData.type === 'institutional_per_child' ? '(למפגש)' : ''}</label>
+              <label className="form-label">מחיר לתלמיד לפני מע״מ {formData.type === 'institutional_per_child' ? '(למפגש)' : ''}</label>
               <div className="relative">
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
                 <input
@@ -1219,7 +1213,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
           {(formData.type === 'institutional_fixed' || formData.type === 'trial_private') && (
             <>
               <div>
-                <label className="form-label">הכנסה למפגש *</label>
+                <label className="form-label">הכנסה למפגש לפני מע״מ *</label>
                 <div className="relative">
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
                   <input
@@ -1231,36 +1225,6 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
                     step="0.01"
                   />
                 </div>
-              </div>
-              <div>
-                <label className="form-label">מע״מ *</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="createIncludesVat"
-                      checked={formData.includesVat === false}
-                      onChange={() => setFormData({ ...formData, includesVat: false })}
-                      className="text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm">לפני מע״מ</span>
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="createIncludesVat"
-                      checked={formData.includesVat === true}
-                      onChange={() => setFormData({ ...formData, includesVat: true })}
-                      className="text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm">כולל מע״מ</span>
-                  </label>
-                </div>
-                {formData.includesVat === true && formData.meetingRevenue > 0 && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    הכנסה לפני מע״מ: ₪{(formData.meetingRevenue / 1.18).toFixed(2)}
-                  </p>
-                )}
               </div>
             </>
           )}
@@ -1358,7 +1322,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     totalMeetings: cycle.totalMeetings,
     pricePerStudent: cycle.pricePerStudent || 0,
     meetingRevenue: cycle.meetingRevenue || 0,
-    includesVat: cycle.revenueIncludesVat ?? false,
+    includesVat: false,
     instructorPaymentMode: (cycle.instructorPaymentMode || 'hourly') as InstructorPaymentMode,
     instructorDailyRate: cycle.instructorDailyRate || 0,
     studentCount: cycle.studentCount || 0,
@@ -1392,12 +1356,6 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
       return;
     }
     
-    // Validate VAT selection for institutional_fixed
-    if (formData.type === 'institutional_fixed' && formData.includesVat === null) {
-      alert('יש לבחור האם הסכום כולל מע״מ או לא');
-      return;
-    }
-
     if (formData.instructorPaymentMode === 'daily' && Number(formData.instructorDailyRate) <= 0) {
       alert('יש להזין עלות יומית למדריך');
       return;
@@ -1408,10 +1366,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     const studentCountValue = Number(formData.studentCount);
     const maxStudentsValue = Number(formData.maxStudents);
     
-    // If includes VAT, calculate the amount before VAT (divide by 1.18)
-    if (formData.type === 'institutional_fixed' && formData.includesVat === true && meetingRevenueValue > 0) {
-      meetingRevenueValue = Math.round((meetingRevenueValue / 1.18) * 100) / 100;
-    }
+    // Amounts entered here are always before VAT. VAT is not HaiTech revenue.
     
     // Calculate duration from start/end times
     const [startHour, startMin] = formData.startTime.split(':').map(Number);
@@ -1434,7 +1389,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
       totalMeetings: Number(formData.totalMeetings),
       pricePerStudent: (formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && priceValue > 0 ? priceValue : undefined,
       meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'trial_private') && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
-      revenueIncludesVat: formData.type === 'institutional_fixed' ? formData.includesVat : undefined,
+      revenueIncludesVat: formData.type === 'institutional_fixed' ? false : undefined,
       instructorPaymentMode: formData.instructorPaymentMode,
       instructorDailyRate: formData.instructorPaymentMode === 'daily' ? Number(formData.instructorDailyRate) : null,
       studentCount: formData.type === 'institutional_per_child' && studentCountValue > 0 ? studentCountValue : undefined,
@@ -1637,9 +1592,13 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
             />
           </div>
 
+          <div className="col-span-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+            כל המחירים וההכנסות במחזור הם ללא מע״מ. המע״מ מתווסף בנפרד ואינו חלק מההכנסה.
+          </div>
+
           {(formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && (
             <div>
-              <label className="form-label">מחיר לתלמיד {formData.type === 'institutional_per_child' ? '(למפגש)' : ''}</label>
+              <label className="form-label">מחיר לתלמיד לפני מע״מ {formData.type === 'institutional_per_child' ? '(למפגש)' : ''}</label>
               <div className="relative">
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
                 <input
@@ -1670,7 +1629,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
           {(formData.type === 'institutional_fixed' || formData.type === 'trial_private') && (
             <>
               <div>
-                <label className="form-label">הכנסה למפגש *</label>
+                <label className="form-label">הכנסה למפגש לפני מע״מ *</label>
                 <div className="relative">
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
                   <input
@@ -1682,36 +1641,6 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
                     step="0.01"
                   />
                 </div>
-              </div>
-              <div>
-                <label className="form-label">מע״מ *</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="editIncludesVat"
-                      checked={formData.includesVat === false}
-                      onChange={() => setFormData({ ...formData, includesVat: false })}
-                      className="text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm">לפני מע״מ</span>
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="editIncludesVat"
-                      checked={formData.includesVat === true}
-                      onChange={() => setFormData({ ...formData, includesVat: true })}
-                      className="text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm">כולל מע״מ</span>
-                  </label>
-                </div>
-                {formData.includesVat === true && formData.meetingRevenue > 0 && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    הכנסה לפני מע״מ: ₪{(formData.meetingRevenue / 1.18).toFixed(2)}
-                  </p>
-                )}
               </div>
             </>
           )}

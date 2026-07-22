@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma.js';
 import { createDocument, previewDocument, createDraftDocument, deleteDraftDocument, getMorningDocument, searchMorningDocuments, closeMorningDocument, DOCUMENT_TYPES, PAYMENT_TYPES } from './morning/documents.js';
-import type { CreateDocumentInput, MorningClient, MorningIncomeItem, MorningPaymentItem } from './morning/documents.js';
+import type { CreateDocumentInput, MorningClient, MorningDocument, MorningIncomeItem, MorningPaymentItem } from './morning/documents.js';
 import { findClientForInstitutionalOrder } from './morning/clients.js';
 
 export type BillingMonth = string; // 'YYYY-MM' — first day of that month, UTC
@@ -259,7 +259,8 @@ async function assertNoOverlap(
  * If a draft already exists with the exact same range, its lines are replaced with
  * fresh computed data — except lines whose admin has flagged `descriptionCustomized`,
  * whose text is preserved (only quantity/unitPrice/total refresh).
- * If a non-draft period exists at the same range, refuses to regenerate.
+ * If a cancelled period exists at the same range, it is revived as a draft and
+ * regenerated in-place. Binding tax documents/payments still block regeneration.
  */
 export async function generateBillingPeriod(
   institutionalOrderId: string,
@@ -274,15 +275,15 @@ export async function generateBillingPeriod(
     where: { institutionalOrderId_monthStart_monthEnd: { institutionalOrderId, monthStart: start, monthEnd: end } },
     include: { lines: true },
   });
-  const canReviveCancelledDraft = Boolean(
-    existing &&
-    existing.status === 'cancelled' &&
-    !existing.issuedAt &&
-    !existing.morningDocNumber &&
-    !existing.morningDocId
-  );
-  if (existing && existing.status !== 'draft' && !canReviveCancelledDraft) {
+  const canReviveCancelled = Boolean(existing && existing.status === 'cancelled');
+  if (existing && existing.status !== 'draft' && !canReviveCancelled) {
     throw new Error(`Billing period already ${existing.status} — cannot regenerate`);
+  }
+  if (canReviveCancelled && (existing!.taxInvoiceNumber || existing!.taxInvoiceId)) {
+    throw new Error('Billing period has a binding tax document — cannot regenerate');
+  }
+  if (canReviveCancelled && Number(existing!.paidAmount) > 0) {
+    throw new Error('Billing period has payments — cannot regenerate');
   }
 
   await assertNoOverlap(institutionalOrderId, start, end, existing?.id);
@@ -309,7 +310,16 @@ export async function generateBillingPeriod(
         totalAmount,
         generatedAt: new Date(),
         generatedById,
+        morningDocId: null,
+        morningDocNumber: null,
+        morningDocUrl: null,
+        morningDocType: null,
         morningDraftId: null,
+        morningClientName: null,
+        proformaSource: null,
+        proformaSnapshot: Prisma.JsonNull,
+        issuedAt: null,
+        issuedById: null,
         sentAt: null,
         sentChannel: null,
         sentToEmail: null,
@@ -610,6 +620,27 @@ export interface ProformaSnapshot {
   grossTotal: number; // gross incl VAT — matches Morning's "סה״כ לתשלום"
 }
 
+export function proformaSnapshotGross(snapshot: unknown): number | null {
+  if (!snapshot || typeof snapshot !== 'object') return null;
+  const grossTotal = Number((snapshot as { grossTotal?: unknown }).grossTotal);
+  return grossTotal > 0 ? round2(grossTotal) : null;
+}
+
+export function billingPeriodChargedGross(period: {
+  totalAmount?: Prisma.Decimal | number | string | null;
+  proformaSnapshot?: unknown;
+}): number {
+  return proformaSnapshotGross(period.proformaSnapshot) ?? round2(Number(period.totalAmount ?? 0) * (1 + VAT_RATE));
+}
+
+export function billingPeriodOutstandingGross(period: {
+  totalAmount?: Prisma.Decimal | number | string | null;
+  proformaSnapshot?: unknown;
+  paidAmount?: Prisma.Decimal | number | string | null;
+}): number {
+  return Math.max(0, round2(billingPeriodChargedGross(period) - Number(period.paidAmount ?? 0)));
+}
+
 /** Gross total (incl VAT) of a set of income lines, honoring each line's vatType. */
 export function grossFromIncome(income: MorningIncomeItem[]): number {
   let total = 0;
@@ -635,6 +666,35 @@ export function buildProformaSnapshot(payload: CreateDocumentInput, morningAmoun
   };
 }
 
+/** Build a snapshot from an existing Morning proforma that may have been issued manually. */
+export function buildProformaSnapshotFromMorningDocument(doc: MorningDocument): ProformaSnapshot | null {
+  const gross = typeof doc.amount === 'number' && doc.amount > 0
+    ? round2(doc.amount)
+    : (doc.income ? grossFromIncome(doc.income) : 0);
+  if (!(gross > 0)) return null;
+
+  const snap: ProformaSnapshot = { grossTotal: gross };
+  if (doc.income && doc.income.length > 0) {
+    snap.income = doc.income.map((line) => ({ ...line }));
+    const vatTypes = doc.income.map((line) => line.vatType);
+    const firstVatType = vatTypes[0];
+    if ((firstVatType === 0 || firstVatType === 2) && vatTypes.every((v) => v === firstVatType)) {
+      snap.vatType = firstVatType;
+    }
+  }
+  return snap;
+}
+
+async function fetchMorningProformaSnapshot(docId: string): Promise<ProformaSnapshot | null> {
+  try {
+    const doc = await getMorningDocument(docId);
+    return buildProformaSnapshotFromMorningDocument(doc);
+  } catch (err) {
+    console.warn('[billing] fetchMorningProformaSnapshot: Morning lookup failed', err);
+    return null;
+  }
+}
+
 /**
  * Return the period's proforma snapshot, reconstructing + persisting it from the Morning
  * proforma document when missing (legacy / manual-Morning periods). Returns null only when
@@ -650,22 +710,13 @@ async function ensureProformaSnapshot(billingPeriodId: string): Promise<Proforma
   if (period.proformaSnapshot) return period.proformaSnapshot as unknown as ProformaSnapshot;
   if (!period.morningDocId) return null; // draft / never issued — nothing to reconstruct from
 
-  try {
-    const doc = await getMorningDocument(period.morningDocId);
-    const gross = typeof doc.amount === 'number' && doc.amount > 0
-      ? round2(doc.amount)
-      : (doc.income ? grossFromIncome(doc.income) : 0);
-    if (!(gross > 0)) return null;
-    const snap: ProformaSnapshot = { grossTotal: gross };
-    await prisma.billingPeriod.update({
-      where: { id: billingPeriodId },
-      data: { proformaSnapshot: snap as unknown as object },
-    });
-    return snap;
-  } catch (err) {
-    console.warn('[billing] ensureProformaSnapshot: Morning lookup failed', err);
-    return null;
-  }
+  const snap = await fetchMorningProformaSnapshot(period.morningDocId);
+  if (!snap) return null;
+  await prisma.billingPeriod.update({
+    where: { id: billingPeriodId },
+    data: { proformaSnapshot: snap as unknown as object },
+  });
+  return snap;
 }
 
 /** Overwrite a downstream payload's amount-bearing fields with the proforma's frozen lines. */
@@ -913,6 +964,7 @@ export interface ManualIssueInput {
   issuedAt?: Date;                    // defaults to now()
   proformaSource?: string | null;     // e.g. 'manual_morning' when linked from a doc issued directly in Morning
   morningClientName?: string | null;  // לכבוד name on the document; auto-read from morningDocId when omitted
+  proformaSnapshot?: ProformaSnapshot | null;
 }
 
 export async function markBillingPeriodIssuedManually(
@@ -936,6 +988,8 @@ export async function markBillingPeriodIssuedManually(
   // list can show it. When the caller didn't pass it, read it from the linked document.
   const morningClientName =
     input.morningClientName ?? (input.morningDocId ? await fetchMorningDocClientName(input.morningDocId) : null);
+  const proformaSnapshot =
+    input.proformaSnapshot ?? (input.morningDocId ? await fetchMorningProformaSnapshot(input.morningDocId) : null);
 
   // Snapshot meetings — same as auto-issue path.
   const summaries = await computeBillingLines(
@@ -973,6 +1027,7 @@ export async function markBillingPeriodIssuedManually(
         morningClientName,
         proformaSource: input.proformaSource ?? null,
         morningDraftId: null, // draft has graduated; clear the pointer
+        ...(proformaSnapshot ? { proformaSnapshot: proformaSnapshot as unknown as object } : {}),
       },
       include: { lines: true, institutionalOrder: true },
     });
@@ -1059,7 +1114,7 @@ export async function addPayment(
     });
     const paidAmount = Number(sums._sum.amount ?? 0);
     // Total includes 18% VAT — periods store NET, but the client owes gross.
-    const totalGross = Number(period.totalAmount) * 1.18;
+    const totalGross = billingPeriodChargedGross(period);
     const isFullyPaid = paidAmount + 0.01 >= totalGross;
     const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
 
@@ -1088,13 +1143,83 @@ export async function deletePayment(billingPeriodId: string, paymentId: string) 
       _sum: { amount: true },
     });
     const paidAmount = Number(sums._sum.amount ?? 0);
-    const totalGross = Number(period.totalAmount) * 1.18;
+    const totalGross = billingPeriodChargedGross(period);
     const isFullyPaid = paidAmount + 0.01 >= totalGross;
     const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
+    const shouldDetach320 =
+      period.taxInvoiceType === DOCUMENT_TYPES.TAX_INVOICE_RECEIPT &&
+      payment.morningReceiptId != null &&
+      payment.morningReceiptId === period.taxInvoiceId &&
+      (await tx.billingPayment.count({
+        where: { billingPeriodId, morningReceiptId: payment.morningReceiptId },
+      })) === 0;
+
     return tx.billingPeriod.update({
       where: { id: billingPeriodId },
-      data: { paidAmount, paymentStatus, paidAt: isFullyPaid ? period.paidAt : null },
+      data: {
+        paidAmount,
+        paymentStatus,
+        paidAt: isFullyPaid ? period.paidAt : null,
+        ...(shouldDetach320
+          ? {
+              taxInvoiceId: null,
+              taxInvoiceNumber: null,
+              taxInvoiceUrl: null,
+              taxInvoiceIssuedAt: null,
+              taxInvoiceIssuedById: null,
+              taxInvoiceType: null,
+            }
+          : {}),
+      },
       include: { payments: { orderBy: { paidAt: 'desc' } } },
+    });
+  });
+}
+
+export async function detachTaxInvoiceDocument(billingPeriodId: string) {
+  const period = await prisma.billingPeriod.findUnique({ where: { id: billingPeriodId } });
+  if (!period) throw new Error('Billing period not found');
+  if (!period.taxInvoiceId && !period.taxInvoiceNumber && !period.taxInvoiceType) {
+    throw new Error('Tax invoice document is not linked to this period');
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const linkedReceiptCount = await tx.billingPayment.count({
+      where: {
+        billingPeriodId,
+        OR: [
+          { morningReceiptId: { not: null } },
+          { morningReceiptNumber: { not: null } },
+        ],
+      },
+    });
+    if (linkedReceiptCount > 0) {
+      throw new Error('Delete linked receipt payments before detaching the tax invoice document');
+    }
+
+    const sums = await tx.billingPayment.aggregate({
+      where: { billingPeriodId },
+      _sum: { amount: true },
+    });
+    const paidAmount = Number(sums._sum.amount ?? 0);
+    const totalGross = billingPeriodChargedGross(period);
+    const isFullyPaid = paidAmount + 0.01 >= totalGross;
+    const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
+
+    return tx.billingPeriod.update({
+      where: { id: billingPeriodId },
+      data: {
+        taxInvoiceId: null,
+        taxInvoiceNumber: null,
+        taxInvoiceUrl: null,
+        taxInvoiceIssuedAt: null,
+        taxInvoiceIssuedById: null,
+        taxInvoiceType: null,
+        paidAmount,
+        paymentStatus,
+        paidAt: isFullyPaid ? period.paidAt : null,
+      },
+      include: { payments: { orderBy: { paidAt: 'desc' } }, lines: true, institutionalOrder: true },
     });
   });
 }
@@ -1283,7 +1408,7 @@ export async function issueTaxInvoice(
 
     const sums = await tx.billingPayment.aggregate({ where: { billingPeriodId }, _sum: { amount: true } });
     const paidAmount = Number(sums._sum.amount ?? 0);
-    const totalGross = Number(period.totalAmount) * 1.18;
+    const totalGross = billingPeriodChargedGross(period);
     const isFullyPaid = paidAmount + 0.01 >= totalGross;
     const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
     const latestPaidAt = payments && payments.length > 0
@@ -1424,7 +1549,7 @@ export async function issueReceipt(
     });
     const sums = await tx.billingPayment.aggregate({ where: { billingPeriodId }, _sum: { amount: true } });
     const paidAmount = Number(sums._sum.amount ?? 0);
-    const totalGross = Number(period.totalAmount) * 1.18;
+    const totalGross = billingPeriodChargedGross(period);
     const isFullyPaid = paidAmount + 0.01 >= totalGross;
     const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
 
@@ -1469,6 +1594,7 @@ export async function linkExternalProforma(
   let docNumber: number | null = input.documentNumber ?? null;
   let docUrl: string | null = input.url?.trim() || null;
   let issuedAt = input.issuedAt;
+  let proformaSnapshot: ProformaSnapshot | null = null;
 
   // Best-effort enrichment — never let a Morning lookup failure block the link.
   try {
@@ -1477,6 +1603,7 @@ export async function linkExternalProforma(
       docNumber = docNumber ?? doc.number ?? null;
       docUrl = docUrl ?? doc.url?.he ?? doc.url?.origin ?? null;
       if (!issuedAt && doc.documentDate) issuedAt = new Date(doc.documentDate);
+      proformaSnapshot = buildProformaSnapshotFromMorningDocument(doc);
     } else if (docNumber != null) {
       const { items } = await searchMorningDocuments({ type: [DOCUMENT_TYPES.PROFORMA], number: docNumber });
       const match = items.find((d) => d.number === docNumber) ?? items[0];
@@ -1484,6 +1611,7 @@ export async function linkExternalProforma(
         docId = match.id ?? null;
         docUrl = docUrl ?? match.url?.he ?? match.url?.origin ?? null;
         if (!issuedAt && match.documentDate) issuedAt = new Date(match.documentDate);
+        proformaSnapshot = buildProformaSnapshotFromMorningDocument(match);
       }
     }
   } catch (err) {
@@ -1504,6 +1632,7 @@ export async function linkExternalProforma(
       morningDocType: DOCUMENT_TYPES.PROFORMA, // 300
       issuedAt,
       proformaSource: 'manual_morning',
+      proformaSnapshot,
     },
     issuedById,
   );
@@ -1582,7 +1711,7 @@ export async function linkExternalReceipt(
     });
     const sums = await tx.billingPayment.aggregate({ where: { billingPeriodId }, _sum: { amount: true } });
     const paidAmount = Number(sums._sum.amount ?? 0);
-    const totalGross = Number(period.totalAmount) * 1.18;
+    const totalGross = billingPeriodChargedGross(period);
     const isFullyPaid = paidAmount + 0.01 >= totalGross;
     const paymentStatus = isFullyPaid ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
 
@@ -1599,7 +1728,7 @@ export async function linkExternalReceipt(
  * (outside the CRM) to this period's tax invoice fields. Mirrors issueTaxInvoiceOnly /
  * issueTaxInvoice — but does NOT create any Morning document.
  *
- * For type 320: also marks the period as fully paid (period.totalAmount × 1.18 gross),
+ * For type 320: also marks the period as fully paid against the issued proforma gross,
  * because a 320 includes a receipt — the money was received.
  * For type 305: only populates the tax invoice fields; receipts are linked separately.
  */
@@ -1662,7 +1791,7 @@ export async function linkExternalTaxInvoice(
   }
 
   const issuedAtDate = issuedAt ?? new Date();
-  const totalGross = Number(period.totalAmount) * 1.18;
+  const totalGross = billingPeriodChargedGross(period);
   const linkData = {
     taxInvoiceId: docId,
     taxInvoiceNumber: docNumber,

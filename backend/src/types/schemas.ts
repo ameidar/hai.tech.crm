@@ -35,7 +35,11 @@ export const createCustomerSchema = z.object({
   notes: z.string().optional().nullable(),
   lmsUsername: z.string().optional().nullable(),
   lmsPassword: z.string().optional().nullable(),
-  source: z.enum(['whatsapp', 'facebook', 'instagram', 'website', 'phone', 'upsell', 'manual', 'fireberry', 'woocommerce', 'other']).optional().nullable(),
+  source: z.union([
+    z.enum(['whatsapp', 'facebook', 'instagram', 'website', 'phone', 'upsell', 'manual', 'fireberry', 'woocommerce', 'other']),
+    z.literal('').transform(() => null),
+    z.null(),
+  ]).optional().nullable(),
   leadStatus: z.enum(['new', 'contacted', 'in_progress', 'converted', 'closed', 'waiting_placement']).optional().nullable(),
   leadNote: z.string().optional().nullable(),
 });
@@ -235,6 +239,7 @@ export const createMeetingSchema = z.object({
   activityType: z.enum(['online', 'frontal', 'private_lesson']).optional().nullable(),
   topic: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  registrationId: z.string().min(1).optional().nullable(),
   zoomMeetingId: z.string().optional().nullable(),
   zoomJoinUrl: z.string().optional().nullable(),
   zoomStartUrl: z.string().optional().nullable(),
@@ -247,6 +252,7 @@ export const updateMeetingSchema = z.object({
   notes: z.string().optional().nullable(),
   instructorId: z.string().min(1).optional(),
   activityType: z.enum(['online', 'frontal', 'private_lesson']).optional().nullable(),
+  registrationId: z.string().min(1).optional().nullable(),
   revenue: z.number().optional(),
   instructorPayment: z.number().optional(),
   profit: z.number().optional(),

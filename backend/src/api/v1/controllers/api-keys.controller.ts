@@ -155,6 +155,8 @@ export async function getAvailableScopes(req: AuthRequest, res: Response, next: 
         'read:attendance': 'Read attendance records',
         'write:attendance': 'Record attendance',
         'read:reports': 'Access reports and analytics',
+        'read:leads': 'Read lead journal records',
+        'write:leads': 'Update lead sales status and activities',
       },
     });
   } catch (error) {

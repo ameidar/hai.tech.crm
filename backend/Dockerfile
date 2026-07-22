@@ -29,14 +29,16 @@ ARG APP_VERSION=unknown
 ARG COMMIT_SHA=unknown
 ARG GIT_BRANCH=unknown
 ARG BUILD_TIME=
-RUN BUILD_TIME="${BUILD_TIME:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" \
+RUN NODE_OPTIONS=--max-old-space-size=4096 \
+    BUILD_TIME="${BUILD_TIME:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" \
     APP_VERSION="$APP_VERSION" \
     COMMIT_SHA="$COMMIT_SHA" \
     GIT_BRANCH="$GIT_BRANCH" \
     npm run build && \
+    test -f dist/index.js && \
     mkdir -p dist/data && \
-    cp -r src/data/* dist/data/ 2>/dev/null || true && \
-    cp src/version.json dist/version.json 2>/dev/null || true
+    (cp -r src/data/* dist/data/ 2>/dev/null || true) && \
+    (cp src/version.json dist/version.json 2>/dev/null || true)
 
 # Production image
 FROM node:22-alpine AS production

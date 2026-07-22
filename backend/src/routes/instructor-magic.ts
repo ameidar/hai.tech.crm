@@ -17,9 +17,10 @@ import { authenticate, adminOnly } from '../middleware/auth.js';
 import { sendWhatsAppMessage } from '../services/notifications.js';
 import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
-import { meetingRevenueFromRegistrations, roundMoney } from '../utils/revenue.js';
+import { meetingRevenueForCycle } from '../utils/revenue.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
+import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
 
 // WhatsApp group for pending meeting requests (postponements, cancellations)
 const ADMIN_PHONE = '120363353459332838@g.us';
@@ -252,26 +253,14 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
           where: { id: meeting.cycleId },
           include: {
             registrations: {
-              where: { status: { in: ['registered', 'active'] } },
+              where: { status: { in: ['registered', 'active', 'completed'] } },
             },
             instructor: true,
           },
         });
 
         if (cycleData) {
-          // Calculate revenue based on cycle type
-          let revenue = 0;
-          const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
-
-          if (cycleData.type === 'private') {
-            revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
-          } else if (cycleData.type === 'institutional_per_child') {
-            const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-            const studentCount = cycleData.studentCount || activeRegistrations.length;
-            revenue = roundMoney(pricePerStudent * studentCount);
-          } else if (cycleData.type === 'institutional_fixed') {
-            revenue = Number(cycleData.meetingRevenue || 0);
-          }
+          const revenue = meetingRevenueForCycle(cycleData);
 
           const instructor = await prisma.instructor.findUnique({ where: { id: meeting.instructorId! } });
           const instructorPayment = calculateInstructorPayment(cycleData, instructor, meeting);
@@ -290,6 +279,7 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
             data: { revenue, instructorPayment, profit },
           });
           await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
+          await checkAndSendNegativeProfitAlert(meetingId, 'instructor-magic');
 
           // Sync counters from actual meetings. If this instructor report completed the
           // last required meeting, trigger the same cycle-completion flow as admin updates.

@@ -7,15 +7,17 @@
  */
 
 import { prisma } from '../utils/prisma.js';
-import { meetingRevenueFromRegistrations, roundMoney } from '../utils/revenue.js';
+import { meetingRevenueForCycle } from '../utils/revenue.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
 import { sendWhatsApp, sendWhatsAppPoll } from './messaging.js';
 import { handleCycleCompletion } from './cycle-completion.js';
 import { generateMeetingMagicLink } from './instructor-reminder.service.js';
+import { reminderEligibleMeetingWhereForDate } from './reminder-eligibility.js';
 import {
   calculateInstructorPayment,
   recalculateDailyInstructorPaymentsForMeeting,
 } from './instructor-payment.js';
+import { checkAndSendNegativeProfitAlert } from './negative-profit-alert.js';
 
 const APP_URL = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
 const TZ = 'Asia/Jerusalem';
@@ -42,7 +44,6 @@ function getIsraelDateOnly(offsetDays = 0): Date {
   const [y, m, d] = israelDateStr.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d + offsetDays));
 }
-
 
 /**
  * Get current time in Israel as total minutes since midnight (DST-aware)
@@ -145,10 +146,7 @@ export async function sendMorningWhatsAppReminders(): Promise<void> {
 
   try {
     const meetings = await prisma.meeting.findMany({
-      where: {
-        scheduledDate: todayDate,
-        status: 'scheduled',
-      },
+      where: reminderEligibleMeetingWhereForDate(todayDate),
       include: {
         cycle: { include: { branch: true, course: true } },
         instructor: true,
@@ -197,7 +195,7 @@ export async function sendMorningUnresolvedAlert(): Promise<void> {
 
   try {
     const unresolved = await prisma.meeting.findMany({
-      where: { scheduledDate: yesterdayDate, status: 'scheduled' },
+      where: reminderEligibleMeetingWhereForDate(yesterdayDate),
       include: {
         cycle: { include: { branch: true, course: true } },
         instructor: true,
@@ -256,7 +254,7 @@ export async function sendPreMeetingReminders(): Promise<void> {
 
   try {
     const meetings = await prisma.meeting.findMany({
-      where: { scheduledDate: todayDate, status: 'scheduled' },
+      where: reminderEligibleMeetingWhereForDate(todayDate),
       include: {
         cycle: { include: { branch: true, course: true } },
         instructor: true,
@@ -325,7 +323,7 @@ export async function sendEveningStatusCheck(): Promise<void> {
 
   try {
     const meetings = await prisma.meeting.findMany({
-      where: { scheduledDate: todayDate, status: 'scheduled' },
+      where: reminderEligibleMeetingWhereForDate(todayDate),
       include: {
         cycle: { include: { branch: true, course: true } },
         instructor: true,
@@ -386,7 +384,7 @@ async function recalculateCompletedMeetingFinancials(meetingId: string): Promise
       cycle: {
         include: {
           registrations: {
-            where: { status: { in: ['registered', 'active'] } },
+            where: { status: { in: ['registered', 'active', 'completed'] } },
           },
         },
       },
@@ -401,18 +399,7 @@ async function recalculateCompletedMeetingFinancials(meetingId: string): Promise
   if (meeting.status !== 'completed') return;
 
   const cycleData = meeting.cycle;
-  const activeRegistrations = cycleData.registrations.filter(reg => reg.status === 'active');
-
-  let revenue = 0;
-  if (cycleData.type === 'private') {
-    revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
-  } else if (cycleData.type === 'institutional_per_child') {
-    const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-    const studentCount = cycleData.studentCount || activeRegistrations.length;
-    revenue = roundMoney(pricePerStudent * studentCount);
-  } else if (cycleData.type === 'institutional_fixed') {
-    revenue = Number(cycleData.meetingRevenue || 0);
-  }
+  const revenue = meetingRevenueForCycle(cycleData);
 
   const instructorPayment = calculateInstructorPayment(cycleData, meeting.instructor, meeting);
 
@@ -428,6 +415,7 @@ async function recalculateCompletedMeetingFinancials(meetingId: string): Promise
     data: { revenue, instructorPayment, profit },
   });
   await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
+  await checkAndSendNegativeProfitAlert(meetingId, 'whatsapp-status-reply');
 
   if (remainingMeetings <= 0 && !['completed', 'cancelled'].includes(cycleData.status)) {
     await handleCycleCompletion(meeting.cycleId);

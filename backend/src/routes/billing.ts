@@ -13,6 +13,7 @@ import {
   detectDrift,
   addPayment,
   deletePayment,
+  detachTaxInvoiceDocument,
   markBillingSent,
   issueTaxInvoice,
   previewTaxInvoice,
@@ -24,6 +25,7 @@ import {
   sendBillingPeriodAsDraft,
   markBillingPeriodIssuedManually,
   formatHebrewRange,
+  billingPeriodChargedGross,
 } from '../services/billing.js';
 import { sendWhatsApp } from '../services/messaging.js';
 
@@ -90,6 +92,7 @@ billingRouter.get('/', async (req, res, next) => {
 
     const result = periods.map((p) => ({
       ...p,
+      chargedAmount: billingPeriodChargedGross(p),
       institutionalOrder: {
         ...p.institutionalOrder,
         morningClientName: latestNameByOrder.get(p.institutionalOrderId) ?? null,
@@ -529,7 +532,7 @@ billingRouter.post('/:id/send-whatsapp', managerOrAdmin, async (req, res, next) 
 
     const orderName = period.institutionalOrder.orderName || 'מוסד';
     const monthLabel = formatHebrewRange(period.monthStart, period.monthEnd);
-    const totalGross = (Number(period.totalAmount) * 1.18).toFixed(2);
+    const totalGross = billingPeriodChargedGross(period).toFixed(2);
     const message = data.message || [
       `שלום,`,
       `מצורף חשבון עסקה מספר ${period.morningDocNumber} עבור ${orderName} — ${monthLabel}.`,
@@ -695,6 +698,33 @@ billingRouter.get('/:id/receipts', async (req, res, next) => {
     });
     res.json(receipts);
   } catch (err) { next(err); }
+});
+
+// Detach a linked tax invoice / tax-invoice-receipt from the billing period in the CRM only.
+// Does not delete or cancel anything in Morning. Used to release a stuck period after the
+// receipt/payment rows were removed and the Morning document link should no longer block re-linking.
+billingRouter.delete('/:id/tax-invoice', managerOrAdmin, async (req, res, next) => {
+  try {
+    const period = await detachTaxInvoiceDocument(req.params.id);
+    await logAudit({
+      req,
+      action: 'UPDATE',
+      entity: 'BillingPeriod',
+      entityId: period.id,
+      newValue: {
+        action: 'detach-tax-invoice-document',
+        paymentStatus: period.paymentStatus,
+        paidAmount: period.paidAmount,
+      },
+    });
+    res.json(period);
+  } catch (err: any) {
+    if (err.message === 'Billing period not found') return res.status(404).json({ error: err.message });
+    if (err.message?.includes('not linked') || err.message?.includes('Delete linked receipt payments')) {
+      return res.status(409).json({ error: err.message });
+    }
+    next(err);
+  }
 });
 
 // Link a חשבונית מס (305) or חשבונית מס/קבלה (320) issued directly in Morning to this period's

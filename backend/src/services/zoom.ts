@@ -1,6 +1,8 @@
 import axios from 'axios';
 import { prisma } from '../utils/prisma.js';
 
+const TZ = 'Asia/Jerusalem';
+
 /**
  * Get the correct UTC offset string for a given date in Asia/Jerusalem timezone.
  * Returns '+02:00' in winter or '+03:00' during DST.
@@ -19,6 +21,40 @@ export function getIsraelOffset(date: Date): string {
     return `${sign}${hours.padStart(2, '0')}:00`;
   }
   return '+02:00'; // fallback
+}
+
+function getIsraelDateString(date: Date): string {
+  return new Intl.DateTimeFormat('sv', { timeZone: TZ }).format(date);
+}
+
+function getIsraelTimeParts(date: Date): { hours: number; minutes: number; seconds: number } {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+
+  const part = (type: string) => Number(parts.find(p => p.type === type)?.value ?? 0);
+  return {
+    hours: part('hour'),
+    minutes: part('minute'),
+    seconds: part('second'),
+  };
+}
+
+export function buildLocalZoomBookingWindow(startTime: Date, durationMinutes: number) {
+  const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
+  const scheduledDateStr = getIsraelDateString(startTime);
+  const start = getIsraelTimeParts(startTime);
+  const end = getIsraelTimeParts(endTime);
+
+  return {
+    scheduledDate: new Date(`${scheduledDateStr}T00:00:00.000Z`),
+    newStart: new Date(Date.UTC(1970, 0, 1, start.hours, start.minutes, start.seconds)),
+    newEnd: new Date(Date.UTC(1970, 0, 1, end.hours, end.minutes, end.seconds)),
+  };
 }
 
 // Zoom API configuration
@@ -281,18 +317,7 @@ async function getLocallyBookedHostEmails(
   startTime: Date,
   durationMinutes: number
 ): Promise<Set<string>> {
-  const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
-
-  // Build the @db.Date scheduledDate (midnight UTC of that calendar day).
-  const scheduledDate = new Date(Date.UTC(
-    startTime.getUTCFullYear(),
-    startTime.getUTCMonth(),
-    startTime.getUTCDate()
-  ));
-
-  // @db.Time columns store the time on 1970-01-01, so compare against same epoch date.
-  const newStart = new Date(Date.UTC(1970, 0, 1, startTime.getUTCHours(), startTime.getUTCMinutes(), startTime.getUTCSeconds()));
-  const newEnd   = new Date(Date.UTC(1970, 0, 1, endTime.getUTCHours(),   endTime.getUTCMinutes(),   endTime.getUTCSeconds()));
+  const { scheduledDate, newStart, newEnd } = buildLocalZoomBookingWindow(startTime, durationMinutes);
 
   const overlapping = await prisma.meeting.findMany({
     where: {

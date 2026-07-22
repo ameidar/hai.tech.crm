@@ -13,7 +13,7 @@ export const tasksRouter = Router();
 
 tasksRouter.use(authenticate);
 
-const visibleToAllRoles: UserRole[] = ['admin', 'manager', 'operations'];
+const visibleToAllRoles: UserRole[] = ['admin', 'manager', 'operations', 'operations_control'];
 
 const taskInclude = {
   createdBy: { select: { id: true, name: true, email: true, phone: true, role: true } },

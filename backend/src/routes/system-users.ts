@@ -15,7 +15,7 @@ const createUserSchema = z.object({
   email: z.string().email('Invalid email').transform(v => v.trim().toLowerCase()),
   name: z.string().min(2, 'Name must be at least 2 characters'),
   phone: z.string().optional().nullable(),
-  role: z.enum(['admin', 'manager', 'sales', 'operations']),
+  role: z.enum(['admin', 'manager', 'sales', 'operations', 'operations_control']),
   password: z.string().min(6).optional(), // optional — auto-generated if not provided
   // Operations-staff config (creates a linked Instructor record)
   hourlyRate: z.number().nonnegative().optional().nullable(),
@@ -28,7 +28,7 @@ const createUserSchema = z.object({
 const updateUserSchema = z.object({
   name: z.string().min(2).optional(),
   phone: z.string().optional().nullable(),
-  role: z.enum(['admin', 'manager', 'sales', 'operations']).optional(),
+  role: z.enum(['admin', 'manager', 'sales', 'operations', 'operations_control']).optional(),
   isActive: z.boolean().optional(),
   hourlyRate: z.number().nonnegative().optional().nullable(),
   city: z.string().optional().nullable(),
@@ -37,7 +37,7 @@ const updateUserSchema = z.object({
   accountNumber: z.string().optional().nullable(),
 });
 
-const MANAGED_ROLES = ['admin', 'manager', 'sales', 'operations'] as const;
+const MANAGED_ROLES = ['admin', 'manager', 'sales', 'operations', 'operations_control'] as const;
 
 // List system users (admin + manager)
 systemUsersRouter.get('/', adminOnly, async (_req, res, next) => {

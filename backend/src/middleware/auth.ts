@@ -77,5 +77,5 @@ export const adminOnly = authorize('admin');
 // Middleware for admin or manager routes
 export const managerOrAdmin = authorize('admin', 'manager');
 
-// Middleware for sales + above (all non-instructor roles)
-export const salesOrAbove = authorize('admin', 'manager', 'sales');
+// Middleware for sales + customer-success roles.
+export const salesOrAbove = authorize('admin', 'manager', 'sales', 'operations_control');

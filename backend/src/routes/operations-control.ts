@@ -14,6 +14,9 @@ const querySchema = z.object({
     'missing_attendance',
     'overdue_task',
     'low_profit',
+    'student_absence_risk',
+    'instructor_change_risk',
+    'cycle_churn_risk',
   ]).optional(),
 });
 

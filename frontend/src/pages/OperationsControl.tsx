@@ -16,7 +16,15 @@ import {
 import api from '../api/client';
 
 type AlertPriority = 'urgent' | 'high' | 'normal';
-type AlertType = 'past_scheduled_meeting' | 'missing_topic' | 'missing_attendance' | 'overdue_task' | 'low_profit';
+type AlertType =
+  | 'past_scheduled_meeting'
+  | 'missing_topic'
+  | 'missing_attendance'
+  | 'overdue_task'
+  | 'low_profit'
+  | 'student_absence_risk'
+  | 'instructor_change_risk'
+  | 'cycle_churn_risk';
 type FreshnessStatus = 'fresh' | 'stale' | 'error';
 
 interface OperationsAlert {
@@ -24,7 +32,7 @@ interface OperationsAlert {
   priority: AlertPriority;
   type: AlertType;
   title: string;
-  entityType: 'meeting' | 'cycle' | 'task';
+  entityType: 'meeting' | 'cycle' | 'task' | 'instructor';
   entityId: string;
   entityUrl: string;
   clientName: string | null;
@@ -112,6 +120,9 @@ const typeLabels: Record<AlertType, string> = {
   missing_attendance: 'חסרה נוכחות',
   overdue_task: 'משימה באיחור',
   low_profit: 'רווחיות נמוכה',
+  student_absence_risk: 'היעדרויות תלמידים',
+  instructor_change_risk: 'ביטולי/דחיות מדריך',
+  cycle_churn_risk: 'סיכון נטישה',
 };
 
 const statusLabels: Record<string, string> = {

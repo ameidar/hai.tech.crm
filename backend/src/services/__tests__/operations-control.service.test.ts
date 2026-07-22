@@ -34,6 +34,68 @@ function task(overrides: Record<string, any> = {}) {
   } as any;
 }
 
+function absence(overrides: Record<string, any> = {}) {
+  return {
+    id: overrides.id || 'absence-1',
+    status: 'absent',
+    recordedAt: overrides.recordedAt || new Date('2026-07-21T10:00:00Z'),
+    meeting: meeting({
+      id: overrides.meetingId || 'meeting-absence-1',
+      date: overrides.date || '2026-07-21',
+      cycleId: overrides.cycleId || 'cycle-1',
+      cycleName: overrides.cycleName || 'מחזור בדיקה',
+    }),
+    registration: {
+      id: overrides.registrationId || 'registration-1',
+      cycleId: overrides.cycleId || 'cycle-1',
+      student: {
+        id: overrides.studentId || 'student-1',
+        name: overrides.studentName || 'עומר',
+        customer: { name: overrides.customerName || 'משפחת עומר' },
+      },
+      cycle: {
+        id: overrides.cycleId || 'cycle-1',
+        name: overrides.cycleName || 'מחזור בדיקה',
+        branch: { name: overrides.branchName || 'סניף בדיקה' },
+        course: { name: 'קורס בדיקה' },
+        instructor: { id: 'instructor-1', name: overrides.instructorName || 'קים' },
+      },
+    },
+  } as any;
+}
+
+function changeRequest(overrides: Record<string, any> = {}) {
+  return {
+    id: overrides.id || 'change-1',
+    instructorId: overrides.instructorId || 'instructor-1',
+    type: overrides.type || 'postpone',
+    status: overrides.status || 'pending',
+    createdAt: overrides.createdAt || new Date('2026-07-21T10:00:00Z'),
+    instructor: { id: overrides.instructorId || 'instructor-1', name: overrides.instructorName || 'קים' },
+    meeting: meeting({
+      id: overrides.meetingId || 'meeting-change-1',
+      cycleName: overrides.cycleName || 'מחזור בדיקה',
+    }),
+  } as any;
+}
+
+function cycle(overrides: Record<string, any> = {}) {
+  return {
+    id: overrides.id || 'cycle-1',
+    name: overrides.name || 'מחזור בדיקה',
+    studentCount: overrides.studentCount ?? 10,
+    maxStudents: overrides.maxStudents ?? null,
+    branch: { name: overrides.branchName || 'סניף בדיקה' },
+    course: { name: 'קורס בדיקה' },
+    instructor: { id: 'instructor-1', name: overrides.instructorName || 'קים' },
+    registrations: overrides.registrations ?? [
+      { id: 'reg-1', status: 'active', deletedAt: null, cancellationDate: null, student: { name: 'תלמיד פעיל' } },
+      { id: 'reg-2', status: 'cancelled', deletedAt: null, cancellationDate: new Date('2026-07-10T00:00:00Z'), student: { name: 'תלמיד מבוטל 1' } },
+      { id: 'reg-3', status: 'cancelled', deletedAt: null, cancellationDate: new Date('2026-07-12T00:00:00Z'), student: { name: 'תלמיד מבוטל 2' } },
+    ],
+  } as any;
+}
+
 describe('operations control alert rules', () => {
   it('creates an urgent alert for a scheduled meeting that ended more than two hours ago today', () => {
     const alerts = __operationsControlTestUtils.buildPastScheduledAlerts(
@@ -90,5 +152,52 @@ describe('operations control alert rules', () => {
 
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toMatchObject({ priority: 'urgent', type: 'low_profit' });
+  });
+
+  it('creates a churn-risk alert for repeated student absences', () => {
+    const alerts = __operationsControlTestUtils.buildStudentAbsenceRiskAlerts(
+      [
+        absence({ id: 'absence-1', meetingId: 'meeting-1', date: '2026-07-14' }),
+        absence({ id: 'absence-2', meetingId: 'meeting-2', date: '2026-07-21' }),
+      ],
+      detectedAt,
+    );
+
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({
+      priority: 'high',
+      type: 'student_absence_risk',
+      entityType: 'cycle',
+    });
+  });
+
+  it('creates an instructor-risk alert for repeated change requests', () => {
+    const alerts = __operationsControlTestUtils.buildInstructorChangeRiskAlerts(
+      [
+        changeRequest({ id: 'change-1', type: 'cancel' }),
+        changeRequest({ id: 'change-2', type: 'postpone', meetingId: 'meeting-change-2' }),
+      ],
+      detectedAt,
+    );
+
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({
+      priority: 'urgent',
+      type: 'instructor_change_risk',
+      entityType: 'instructor',
+    });
+  });
+
+  it('creates a cycle churn alert for recent registration cancellations', () => {
+    const alerts = __operationsControlTestUtils.buildCycleChurnRiskAlerts(
+      [cycle()],
+      { detectedAt, sinceDate: new Date('2026-06-01T00:00:00Z') },
+    );
+
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({
+      type: 'cycle_churn_risk',
+      entityUrl: '/cycles/cycle-1',
+    });
   });
 });

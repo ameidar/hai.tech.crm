@@ -10,7 +10,10 @@ export type OperationsAlertType =
   | 'missing_topic'
   | 'missing_attendance'
   | 'overdue_task'
-  | 'low_profit';
+  | 'low_profit'
+  | 'student_absence_risk'
+  | 'instructor_change_risk'
+  | 'cycle_churn_risk';
 export type FreshnessStatus = 'fresh' | 'stale' | 'error';
 export type OverallStatus = 'ok' | 'watch' | 'urgent' | 'data_error';
 
@@ -19,7 +22,7 @@ export interface OperationsAlert {
   priority: OperationsAlertPriority;
   type: OperationsAlertType;
   title: string;
-  entityType: 'meeting' | 'cycle' | 'task';
+  entityType: 'meeting' | 'cycle' | 'task' | 'instructor';
   entityId: string;
   entityUrl: string;
   clientName: string | null;
@@ -68,6 +71,42 @@ type InstructorLoadRow = {
   missingReports: number;
   warningState: 'ok' | 'watch';
 };
+
+type AbsenceRiskRecord = Prisma.AttendanceGetPayload<{
+  include: {
+    meeting: true;
+    registration: {
+      include: {
+        student: { include: { customer: true } };
+        cycle: { include: { branch: true; course: true; instructor: true } };
+      };
+    };
+  };
+}>;
+
+type MeetingChangeRequestWithRelations = Prisma.MeetingChangeRequestGetPayload<{
+  include: {
+    instructor: true;
+    meeting: {
+      include: {
+        cycle: { include: { branch: true; course: true } };
+      };
+    };
+  };
+}>;
+
+type CycleWithRegistrationRisk = Prisma.CycleGetPayload<{
+  include: {
+    branch: true;
+    course: true;
+    instructor: true;
+    registrations: {
+      include: {
+        student: { include: { customer: true } };
+      };
+    };
+  };
+}>;
 
 function dateStringInIsrael(date = new Date()) {
   return new Intl.DateTimeFormat('sv', { timeZone: TZ }).format(date);
@@ -126,6 +165,14 @@ function meetingUrl(id: string) {
 
 function taskUrl(id: string) {
   return `/tasks?task=${id}`;
+}
+
+function cycleUrl(id: string) {
+  return `/cycles/${id}`;
+}
+
+function instructorUrl(name: string) {
+  return `/instructors?search=${encodeURIComponent(name)}`;
 }
 
 function buildPastScheduledAlerts(meetings: MeetingWithRelations[], context: {
@@ -269,6 +316,139 @@ function buildLowProfitAlerts(meetings: MeetingWithRelations[], detectedAt: stri
     });
 }
 
+function buildStudentAbsenceRiskAlerts(absences: AbsenceRiskRecord[], detectedAt: string): AlertCandidate[] {
+  const groups = new Map<string, AbsenceRiskRecord[]>();
+
+  for (const absence of absences) {
+    if (!absence.registration) continue;
+    const key = `${absence.registration.id}:${absence.registration.cycleId}`;
+    const group = groups.get(key) || [];
+    group.push(absence);
+    groups.set(key, group);
+  }
+
+  return Array.from(groups.values())
+    .filter((group) => group.length >= 2)
+    .map((group) => {
+      const sorted = [...group].sort((a, b) => b.meeting.scheduledDate.getTime() - a.meeting.scheduledDate.getTime());
+      const latest = sorted[0];
+      const registration = latest.registration!;
+      const cycle = registration.cycle;
+      const studentName = registration.student.name;
+      const parentName = registration.student.customer?.name || null;
+      const absentDates = sorted
+        .map((absence) => toDateString(absence.meeting.scheduledDate))
+        .slice(0, 4)
+        .join(', ');
+
+      return {
+        id: `student-absence-risk:${registration.id}:${cycle.id}`,
+        priority: group.length >= 3 ? 'urgent' : 'high',
+        type: 'student_absence_risk',
+        title: 'סיכון נטישה: היעדרויות חוזרות של תלמיד',
+        entityType: 'cycle',
+        entityId: cycle.id,
+        entityUrl: cycleUrl(cycle.id),
+        clientName: parentName || cycle.branch?.name || cycle.course?.name || null,
+        cycleName: cycle.name,
+        instructorName: cycle.instructor?.name || null,
+        description: `${studentName} סומן/ה נעדר/ת ${group.length} פעמים ב-45 הימים האחרונים (${absentDates}).`,
+        recommendedAction: 'ליצור קשר עם ההורה/לקוח, להבין סיבה, ולסגור טיפול לפני ביטול הרשמה.',
+        detectedAt,
+        taskId: null,
+      } as OperationsAlert;
+    });
+}
+
+function buildInstructorChangeRiskAlerts(requests: MeetingChangeRequestWithRelations[], detectedAt: string): AlertCandidate[] {
+  const groups = new Map<string, MeetingChangeRequestWithRelations[]>();
+
+  for (const request of requests) {
+    const group = groups.get(request.instructorId) || [];
+    group.push(request);
+    groups.set(request.instructorId, group);
+  }
+
+  return Array.from(groups.values())
+    .filter((group) => group.length >= 2)
+    .map((group) => {
+      const sorted = [...group].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      const latest = sorted[0];
+      const cancelCount = group.filter((request) => request.type === 'cancel').length;
+      const postponeCount = group.filter((request) => request.type === 'postpone').length;
+      const pendingCount = group.filter((request) => request.status === 'pending').length;
+      const sampleCycles = Array.from(new Set(group.map((request) => request.meeting.cycle.name))).slice(0, 3).join(', ');
+
+      return {
+        id: `instructor-change-risk:${latest.instructorId}`,
+        priority: group.length >= 3 || pendingCount >= 2 ? 'urgent' : 'high',
+        type: 'instructor_change_risk',
+        title: 'סיכון שירות: בקשות ביטול/דחייה חוזרות ממדריך',
+        entityType: 'instructor',
+        entityId: latest.instructorId,
+        entityUrl: instructorUrl(latest.instructor.name),
+        clientName: null,
+        cycleName: sampleCycles || latest.meeting.cycle.name,
+        instructorName: latest.instructor.name,
+        description: `${latest.instructor.name} ביקש/ה ${group.length} שינויי שיעור ב-45 הימים האחרונים: ${cancelCount} ביטולים, ${postponeCount} דחיות. ${pendingCount} עדיין ממתינים לטיפול.`,
+        recommendedAction: 'לבדוק עומס/שחיקה מול המדריך ולבחון השפעה על הלקוח או צורך במדריך חלופי.',
+        detectedAt,
+        taskId: null,
+      } as OperationsAlert;
+    });
+}
+
+function buildCycleChurnRiskAlerts(cycles: CycleWithRegistrationRisk[], context: {
+  detectedAt: string;
+  sinceDate: Date;
+}): AlertCandidate[] {
+  return cycles.flatMap((cycle) => {
+    const registrations = cycle.registrations.filter((registration) => registration.deletedAt === null);
+    if (registrations.length === 0) return [];
+
+    const activeRegistrations = registrations.filter((registration) => registration.status !== 'cancelled');
+    const recentCancellations = registrations.filter((registration) => (
+      registration.status === 'cancelled'
+      && registration.cancellationDate !== null
+      && registration.cancellationDate >= context.sinceDate
+    ));
+    const cancellationRate = recentCancellations.length / registrations.length;
+    const expectedStudents = cycle.studentCount || registrations.length;
+    const activeGap = Math.max(0, expectedStudents - activeRegistrations.length);
+
+    if (
+      recentCancellations.length < 2
+      && !(recentCancellations.length >= 1 && cancellationRate >= 0.2)
+      && !(cycle.studentCount !== null && activeGap >= 2)
+    ) return [];
+
+    const cancelledStudents = recentCancellations
+      .map((registration) => registration.student.name)
+      .slice(0, 4)
+      .join(', ');
+    const priority: OperationsAlertPriority = recentCancellations.length >= 3 || cancellationRate >= 0.3 || activeGap >= 4
+      ? 'urgent'
+      : 'high';
+
+    return [{
+      id: `cycle-churn-risk:${cycle.id}`,
+      priority,
+      type: 'cycle_churn_risk',
+      title: 'סיכון נטישה/רווחיות במחזור',
+      entityType: 'cycle',
+      entityId: cycle.id,
+      entityUrl: cycleUrl(cycle.id),
+      clientName: cycle.branch?.name || cycle.course?.name || null,
+      cycleName: cycle.name,
+      instructorName: cycle.instructor?.name || null,
+      description: `${recentCancellations.length} ביטולי הרשמה ב-60 הימים האחרונים${cancelledStudents ? ` (${cancelledStudents})` : ''}. פעילים: ${activeRegistrations.length}/${expectedStudents}.`,
+      recommendedAction: 'לבדוק מול הלקוח/הורים ומול המדריך האם יש בעיית שביעות רצון, תוכן, או יציבות שיעורים.',
+      detectedAt: context.detectedAt,
+      taskId: null,
+    } as OperationsAlert];
+  });
+}
+
 export function filterAndSortAlerts(
   alerts: AlertCandidate[],
   filters: Pick<OperationsControlFilters, 'priority' | 'type'>,
@@ -284,6 +464,10 @@ export function buildOperationsAlerts(data: {
   pastScheduledMeetings: MeetingWithRelations[];
   recentCompletedMeetings: MeetingWithRelations[];
   overdueTasks: TaskWithRelations[];
+  recentAbsences: AbsenceRiskRecord[];
+  recentChangeRequests: MeetingChangeRequestWithRelations[];
+  activeCycles: CycleWithRegistrationRisk[];
+  churnSinceDate: Date;
   detectedAt: string;
   today: string;
   nowMinutes: number;
@@ -298,6 +482,12 @@ export function buildOperationsAlerts(data: {
     ...buildMissingAttendanceAlerts(data.recentCompletedMeetings, data.detectedAt),
     ...buildOverdueTaskAlerts(data.overdueTasks, data.detectedAt),
     ...buildLowProfitAlerts(data.recentCompletedMeetings, data.detectedAt),
+    ...buildStudentAbsenceRiskAlerts(data.recentAbsences, data.detectedAt),
+    ...buildInstructorChangeRiskAlerts(data.recentChangeRequests, data.detectedAt),
+    ...buildCycleChurnRiskAlerts(data.activeCycles, {
+      detectedAt: data.detectedAt,
+      sinceDate: data.churnSinceDate,
+    }),
   ];
 }
 
@@ -383,6 +573,8 @@ export async function getOperationsControlToday(filters: OperationsControlFilter
   const today = filters.date || dateStringInIsrael(generatedAt);
   const todayDate = dateFromDateString(today);
   const yesterdayDate = addDays(todayDate, -1);
+  const riskWindowStart = addDays(todayDate, -45);
+  const churnWindowStart = addDays(todayDate, -60);
   const weekStart = addDays(todayDate, -todayDate.getUTCDay());
   const weekEnd = addDays(weekStart, 7);
 
@@ -403,7 +595,7 @@ export async function getOperationsControlToday(filters: OperationsControlFilter
     createdBy: { select: { id: true, name: true, role: true } },
   } satisfies Prisma.TaskInclude;
 
-  const [todayMeetings, recentCompletedMeetings, pastScheduledMeetings, weekMeetings, overdueTasks, openTasks, openTaskCount] = await Promise.all([
+  const [todayMeetings, recentCompletedMeetings, pastScheduledMeetings, weekMeetings, overdueTasks, openTasks, openTaskCount, recentAbsences, recentChangeRequests, activeCycles] = await Promise.all([
     prisma.meeting.findMany({
       where: { scheduledDate: todayDate, deletedAt: null },
       include: meetingInclude,
@@ -463,12 +655,65 @@ export async function getOperationsControlToday(filters: OperationsControlFilter
     prisma.task.count({
       where: { deletedAt: null, status: { not: 'completed' } },
     }),
+    prisma.attendance.findMany({
+      where: {
+        status: 'absent',
+        recordedAt: { gte: riskWindowStart },
+        registrationId: { not: null },
+        meeting: { deletedAt: null },
+      },
+      include: {
+        meeting: true,
+        registration: {
+          include: {
+            student: { include: { customer: true } },
+            cycle: { include: { branch: true, course: true, instructor: true } },
+          },
+        },
+      },
+      orderBy: [{ recordedAt: 'desc' }],
+      take: 300,
+    }),
+    prisma.meetingChangeRequest.findMany({
+      where: {
+        createdAt: { gte: riskWindowStart },
+        type: { in: ['cancel', 'postpone'] },
+        status: { in: ['pending', 'approved'] },
+      },
+      include: {
+        instructor: true,
+        meeting: { include: { cycle: { include: { branch: true, course: true } } } },
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      take: 300,
+    }),
+    prisma.cycle.findMany({
+      where: {
+        status: 'active',
+        deletedAt: null,
+      },
+      include: {
+        branch: true,
+        course: true,
+        instructor: true,
+        registrations: {
+          include: {
+            student: { include: { customer: true } },
+          },
+        },
+      },
+      take: 300,
+    }),
   ]);
 
   const allAlerts = buildOperationsAlerts({
     pastScheduledMeetings,
     recentCompletedMeetings,
     overdueTasks,
+    recentAbsences,
+    recentChangeRequests,
+    activeCycles,
+    churnSinceDate: churnWindowStart,
     detectedAt: generatedAtIso,
     today,
     nowMinutes: israelMinutesNow(generatedAt),
@@ -504,7 +749,12 @@ export async function getOperationsControlToday(filters: OperationsControlFilter
     alerts,
     todayMeetings: todayMeetings.map(mapMeeting),
     instructorLoad: buildInstructorLoad(todayMeetings, weekMeetings),
-    clientRisks: alerts.filter((alert) => alert.entityType === 'cycle' || alert.type === 'low_profit'),
+    clientRisks: alerts.filter((alert) => (
+      alert.entityType === 'cycle'
+      || alert.type === 'low_profit'
+      || alert.type === 'student_absence_risk'
+      || alert.type === 'cycle_churn_risk'
+    )),
     openTasks: openTasks.map(mapTask),
   };
 }
@@ -515,5 +765,8 @@ export const __operationsControlTestUtils = {
   buildMissingAttendanceAlerts,
   buildOverdueTaskAlerts,
   buildLowProfitAlerts,
+  buildStudentAbsenceRiskAlerts,
+  buildInstructorChangeRiskAlerts,
+  buildCycleChurnRiskAlerts,
   dateFromDateString,
 };

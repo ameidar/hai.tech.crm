@@ -17,6 +17,7 @@ import Meetings from './pages/Meetings';
 import Reports from './pages/Reports';
 import InstructorDashboard from './pages/InstructorDashboard';
 import OperationsHours from './pages/OperationsHours';
+import OperationsControl from './pages/OperationsControl';
 import Tasks from './pages/Tasks';
 import WorkHoursApproval from './pages/WorkHoursApproval';
 import InviteSetup from './pages/InviteSetup';
@@ -103,10 +104,26 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Blocks access for 'sales' role — redirects to the lead work queue
+function defaultRouteForRole(role?: string) {
+  if (role === 'instructor') return '/instructor';
+  if (role === 'sales') return '/lead-appointments';
+  if (role === 'operations') return '/operations-control';
+  return '/';
+}
+
+function RoleRoute({ allowed, children }: { allowed: string[]; children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (!user || !allowed.includes(user.role)) {
+    return <Navigate to={defaultRouteForRole(user?.role)} replace />;
+  }
+  return <>{children}</>;
+}
+
+// Blocks access for non-management roles to management screens.
 function NonSalesRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   if (user?.role === 'sales') return <Navigate to="/lead-appointments" replace />;
+  if (user?.role === 'operations') return <Navigate to="/operations-control" replace />;
   return <>{children}</>;
 }
 
@@ -115,12 +132,11 @@ function AppRoutes() {
   const isMobile = useIsMobile();
   const isInstructor = user?.role === 'instructor';
   const isSales = user?.role === 'sales';
+  const isOperations = user?.role === 'operations';
 
   // Redirect based on role
   const getDefaultRoute = () => {
-    if (isInstructor) return '/instructor';
-    if (isSales) return '/lead-appointments';
-    return '/';
+    return defaultRouteForRole(user?.role);
   };
 
   return (
@@ -167,9 +183,10 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route index element={isInstructor ? <Navigate to="/instructor" replace /> : isSales ? <Navigate to="/lead-appointments" replace /> : <Dashboard />} />
-        <Route path="operations" element={<OperationsHours />} />
-        <Route path="tasks" element={<Tasks />} />
+        <Route index element={isInstructor || isSales || isOperations ? <Navigate to={getDefaultRoute()} replace /> : <Dashboard />} />
+        <Route path="operations" element={<RoleRoute allowed={['admin', 'manager']}><OperationsHours /></RoleRoute>} />
+        <Route path="operations-control" element={<RoleRoute allowed={['admin', 'manager', 'operations']}><OperationsControl /></RoleRoute>} />
+        <Route path="tasks" element={<RoleRoute allowed={['admin', 'manager', 'operations']}><Tasks /></RoleRoute>} />
         {!isInstructor && (
           <>
             {/* Sales-accessible routes */}
@@ -197,12 +214,12 @@ function AppRoutes() {
             <Route path="paying-bodies" element={<NonSalesRoute><PayingBodies /></NonSalesRoute>} />
             <Route path="billing" element={<NonSalesRoute><BillingPeriods /></NonSalesRoute>} />
             <Route path="billing/:id" element={<NonSalesRoute><BillingPeriodDetail /></NonSalesRoute>} />
-            <Route path="lead-appointments" element={<LeadAppointments />} />
+            <Route path="lead-appointments" element={<RoleRoute allowed={['admin', 'manager', 'sales']}><LeadAppointments /></RoleRoute>} />
             <Route path="system-users" element={<NonSalesRoute><SystemUsers /></NonSalesRoute>} />
             <Route path="reports" element={<NonSalesRoute><Reports /></NonSalesRoute>} />
             <Route path="work-hours" element={<NonSalesRoute><WorkHoursApproval /></NonSalesRoute>} />
             <Route path="morning-invoice" element={<NonSalesRoute><MorningInvoiceTest /></NonSalesRoute>} />
-            <Route path="payment-link" element={<PaymentLink />} />
+            <Route path="payment-link" element={<RoleRoute allowed={['admin', 'manager', 'sales']}><PaymentLink /></RoleRoute>} />
             <Route path="audit" element={<NonSalesRoute><AuditLog /></NonSalesRoute>} />
             <Route path="campaigns" element={<NonSalesRoute><Campaigns /></NonSalesRoute>} />
             <Route path="facebook-leads" element={<NonSalesRoute><FacebookLeads /></NonSalesRoute>} />

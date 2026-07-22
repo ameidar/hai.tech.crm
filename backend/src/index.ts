@@ -57,6 +57,7 @@ import { meetingRequestsRouter } from './routes/meeting-requests.js';
 import { filesRouter } from './routes/files.js';
 import { systemUsersRouter } from './routes/system-users.js';
 import { tasksRouter } from './routes/tasks.js';
+import { operationsControlRouter } from './routes/operations-control.js';
 import waRouter from './routes/whatsapp.js';
 import { messengerRouter } from './routes/messenger.js';
 import { instagramRouter } from './routes/instagram.js';
@@ -239,6 +240,7 @@ app.use('/api/payments', paymentsRouter); // WooCommerce payment links
 app.use('/api/payment-links', paymentLinksRouter); // Morning hosted payment forms
 app.use('/api/system-users', systemUsersRouter); // System users management (admin/manager)
 app.use('/api/tasks', tasksRouter); // Internal task board
+app.use('/api/operations-control', operationsControlRouter); // Daily operations control tower
 app.use('/api/upsell-leads', upsellLeadsRouter); // Upsell leads from completed cycles
 app.use('/api/reports', reportsRouter); // Instructor activity reports
 app.use('/api/work-hours', workHoursRouter); // Operations staff self-reported work hours

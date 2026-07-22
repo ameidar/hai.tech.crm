@@ -38,6 +38,7 @@ import {
   Share2,
   Clock,
   ListTodo,
+  Activity,
 } from 'lucide-react';
 
 // Admin/Manager navigation — grouped
@@ -54,6 +55,7 @@ const adminNavGroups = [
       { path: '/instructors', icon: UserCheck, label: 'מדריכים', testId: 'nav-instructors' },
       { path: '/cycles', icon: RefreshCcw, label: 'מחזורים', testId: 'nav-cycles' },
       { path: '/meetings', icon: Calendar, label: 'פגישות', testId: 'nav-meetings' },
+      { path: '/operations-control', icon: Activity, label: 'מגדל שליטה', testId: 'nav-operations-control' },
       { path: '/quotes', icon: Receipt, label: 'הצעות מחיר', testId: 'nav-quotes' },
       { path: '/institutional-orders', icon: FileText, label: 'הזמנות מוסדיות', testId: 'nav-institutional-orders' },
       { path: '/paying-bodies', icon: Wallet, label: 'גופים משלמים', testId: 'nav-paying-bodies' },
@@ -112,9 +114,10 @@ const salesNavItems = [
   { path: '/payment-link', icon: Link2, label: 'לינק לתשלום', testId: 'nav-payment-link' },
 ];
 
-// Operations staff navigation (self-reported work hours)
+// Operations staff navigation for Kim's review user.
 const operationsNavItems = [
-  { path: '/operations', icon: Clock, label: 'דיווח שעות', testId: 'nav-operations' },
+  { path: '/operations-control', icon: Activity, label: 'מגדל שליטה', testId: 'nav-operations-control' },
+  { path: '/tasks', icon: ListTodo, label: 'משימות תפעול', testId: 'nav-tasks' },
 ];
 
 const COLLAPSED_KEY = 'nav-collapsed-sections';
@@ -157,22 +160,17 @@ export default function Layout() {
   const isInstructor = user?.role === 'instructor';
   const isSales = user?.role === 'sales';
   const isOperations = user?.role === 'operations';
-  // Operations managers see the full admin nav (plus their own "דיווח שעות" item).
-  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || isOperations;
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
   const isWhatsAppPage = location.pathname.startsWith('/whatsapp');
 
   // Flat items for non-admin roles
-  const flatNavItems = isInstructor ? instructorNavItems : isSales ? salesNavItems : [];
-
-  // Operations managers get every admin group, with their own work-hours reporting
-  // item appended to the "system" group.
-  const navGroups = isOperations
-    ? adminNavGroups.map((group) =>
-        group.key === 'system'
-          ? { ...group, items: [...group.items, operationsNavItems[0]] }
-          : group
-      )
-    : adminNavGroups;
+  const flatNavItems = isInstructor
+    ? instructorNavItems
+    : isSales
+      ? salesNavItems
+      : isOperations
+        ? operationsNavItems
+        : [];
 
   const renderNavItem = (item: { path: string; icon: any; label: string; testId: string }) => {
     return (
@@ -222,8 +220,8 @@ export default function Layout() {
       {/* Navigation */}
       <nav className="flex-1 py-2 overflow-y-auto" data-testid="main-nav">
         {isAdmin ? (
-          // Grouped navigation for admin/manager (and operations managers)
-          navGroups.map((group) => {
+          // Grouped navigation for admin/manager
+          adminNavGroups.map((group) => {
             const isCollapsed = !!collapsedSections[group.key];
             return (
               <div key={group.key} className="mb-1">

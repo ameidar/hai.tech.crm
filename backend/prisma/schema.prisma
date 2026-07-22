@@ -20,6 +20,7 @@ enum UserRole {
   instructor
   sales
   operations
+  operations_control
 }
 
 enum TaskStatus {

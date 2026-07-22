@@ -107,7 +107,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function defaultRouteForRole(role?: string) {
   if (role === 'instructor') return '/instructor';
   if (role === 'sales') return '/lead-appointments';
-  if (role === 'operations') return '/operations-control';
+  if (role === 'operations' || role === 'operations_control') return '/operations-control';
   return '/';
 }
 
@@ -123,7 +123,9 @@ function RoleRoute({ allowed, children }: { allowed: string[]; children: React.R
 function NonSalesRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   if (user?.role === 'sales') return <Navigate to="/lead-appointments" replace />;
-  if (user?.role === 'operations') return <Navigate to="/operations-control" replace />;
+  if (user?.role === 'operations' || user?.role === 'operations_control') {
+    return <Navigate to="/operations-control" replace />;
+  }
   return <>{children}</>;
 }
 
@@ -133,6 +135,8 @@ function AppRoutes() {
   const isInstructor = user?.role === 'instructor';
   const isSales = user?.role === 'sales';
   const isOperations = user?.role === 'operations';
+  const isOperationsControl = user?.role === 'operations_control';
+  const isInstructorLike = isInstructor || (isOperationsControl && Boolean(user?.instructor?.id));
 
   // Redirect based on role
   const getDefaultRoute = () => {
@@ -156,7 +160,7 @@ function AppRoutes() {
       <Route path="/i/:meetingId/:token" element={<InstructorMagicMeeting />} />
       
       {/* Mobile Instructor Routes */}
-      {isInstructor && isMobile ? (
+      {isInstructorLike && isMobile ? (
         <Route
           path="/instructor"
           element={
@@ -183,10 +187,10 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route index element={isInstructor || isSales || isOperations ? <Navigate to={getDefaultRoute()} replace /> : <Dashboard />} />
+        <Route index element={isInstructor || isSales || isOperations || isOperationsControl ? <Navigate to={getDefaultRoute()} replace /> : <Dashboard />} />
         <Route path="operations" element={<RoleRoute allowed={['admin', 'manager']}><OperationsHours /></RoleRoute>} />
-        <Route path="operations-control" element={<RoleRoute allowed={['admin', 'manager', 'operations']}><OperationsControl /></RoleRoute>} />
-        <Route path="tasks" element={<RoleRoute allowed={['admin', 'manager', 'operations']}><Tasks /></RoleRoute>} />
+        <Route path="operations-control" element={<RoleRoute allowed={['admin', 'manager', 'operations', 'operations_control']}><OperationsControl /></RoleRoute>} />
+        <Route path="tasks" element={<RoleRoute allowed={['admin', 'manager', 'operations', 'operations_control']}><Tasks /></RoleRoute>} />
         {!isInstructor && (
           <>
             {/* Sales-accessible routes */}
@@ -214,12 +218,12 @@ function AppRoutes() {
             <Route path="paying-bodies" element={<NonSalesRoute><PayingBodies /></NonSalesRoute>} />
             <Route path="billing" element={<NonSalesRoute><BillingPeriods /></NonSalesRoute>} />
             <Route path="billing/:id" element={<NonSalesRoute><BillingPeriodDetail /></NonSalesRoute>} />
-            <Route path="lead-appointments" element={<RoleRoute allowed={['admin', 'manager', 'sales']}><LeadAppointments /></RoleRoute>} />
+            <Route path="lead-appointments" element={<RoleRoute allowed={['admin', 'manager', 'sales', 'operations_control']}><LeadAppointments /></RoleRoute>} />
             <Route path="system-users" element={<NonSalesRoute><SystemUsers /></NonSalesRoute>} />
             <Route path="reports" element={<NonSalesRoute><Reports /></NonSalesRoute>} />
             <Route path="work-hours" element={<NonSalesRoute><WorkHoursApproval /></NonSalesRoute>} />
             <Route path="morning-invoice" element={<NonSalesRoute><MorningInvoiceTest /></NonSalesRoute>} />
-            <Route path="payment-link" element={<RoleRoute allowed={['admin', 'manager', 'sales']}><PaymentLink /></RoleRoute>} />
+            <Route path="payment-link" element={<RoleRoute allowed={['admin', 'manager', 'sales', 'operations_control']}><PaymentLink /></RoleRoute>} />
             <Route path="audit" element={<NonSalesRoute><AuditLog /></NonSalesRoute>} />
             <Route path="campaigns" element={<NonSalesRoute><Campaigns /></NonSalesRoute>} />
             <Route path="facebook-leads" element={<NonSalesRoute><FacebookLeads /></NonSalesRoute>} />

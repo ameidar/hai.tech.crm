@@ -114,10 +114,20 @@ const salesNavItems = [
   { path: '/payment-link', icon: Link2, label: 'לינק לתשלום', testId: 'nav-payment-link' },
 ];
 
-// Operations staff navigation for Kim's review user.
+// Operations staff navigation.
 const operationsNavItems = [
   { path: '/operations-control', icon: Activity, label: 'מגדל שליטה', testId: 'nav-operations-control' },
   { path: '/tasks', icon: ListTodo, label: 'משימות תפעול', testId: 'nav-tasks' },
+];
+
+// Customer-success navigation for Kim's unified user.
+const operationsControlNavItems = [
+  { path: '/operations-control', icon: Activity, label: 'מגדל שליטה', testId: 'nav-operations-control' },
+  { path: '/tasks', icon: ListTodo, label: 'משימות תפעול', testId: 'nav-tasks' },
+  { path: '/lead-appointments', icon: PhoneCall, label: 'יומן לידים', testId: 'nav-lead-appointments' },
+  { path: '/whatsapp', icon: MessageCircle, label: 'WhatsApp', testId: 'nav-whatsapp' },
+  { path: '/payment-link', icon: Link2, label: 'לינק לתשלום', testId: 'nav-payment-link' },
+  { path: '/instructor', icon: LayoutDashboard, label: 'הפגישות שלי', testId: 'nav-instructor' },
 ];
 
 const COLLAPSED_KEY = 'nav-collapsed-sections';
@@ -160,6 +170,7 @@ export default function Layout() {
   const isInstructor = user?.role === 'instructor';
   const isSales = user?.role === 'sales';
   const isOperations = user?.role === 'operations';
+  const isOperationsControl = user?.role === 'operations_control';
   const isAdmin = user?.role === 'admin' || user?.role === 'manager';
   const isWhatsAppPage = location.pathname.startsWith('/whatsapp');
 
@@ -170,7 +181,9 @@ export default function Layout() {
       ? salesNavItems
       : isOperations
         ? operationsNavItems
-        : [];
+        : isOperationsControl
+          ? operationsControlNavItems
+          : [];
 
   const renderNavItem = (item: { path: string; icon: any; label: string; testId: string }) => {
     return (

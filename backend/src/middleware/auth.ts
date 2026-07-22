@@ -77,5 +77,8 @@ export const adminOnly = authorize('admin');
 // Middleware for admin or manager routes
 export const managerOrAdmin = authorize('admin', 'manager');
 
+// Middleware for operational management without finance/system-admin access.
+export const operationsManagerOrAdmin = authorize('admin', 'manager', 'operations_manager');
+
 // Middleware for sales + customer-success roles.
 export const salesOrAbove = authorize('admin', 'manager', 'sales', 'operations_control');

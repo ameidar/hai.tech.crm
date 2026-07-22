@@ -137,7 +137,7 @@ function isGreenMessage(messageId?: string | null): boolean {
 export default function WhatsAppInbox() {
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations' || user?.role === 'operations_manager';
   const [conversations, setConversations] = useState<WaConversation[]>([]);
   const [selected, setSelected] = useState<WaConversation | null>(null);
   const [messages, setMessages] = useState<WaMessage[]>([]);

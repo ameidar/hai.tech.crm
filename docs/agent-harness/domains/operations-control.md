@@ -43,6 +43,29 @@ Keep these areas blocked unless Ami explicitly approves a separate permission ch
 - audit log
 - broad customer/student/cycle/meeting administration
 
+## Adjacent Role: Operations Manager
+
+The `operations_manager` role is separate from `operations_control`.
+Use it for Ariel's day-to-day operations management:
+
+- primary user: אריאל
+- production email: `arielmeidar23@gmail.com`
+
+- create and edit cycles
+- create, edit, postpone, cancel, and assign meetings
+- manage students, customers, branches, courses, instructors, and registrations needed for operations
+- use the Operations Control Tower and operational tasks
+
+Keep `operations_manager` out of financial and system-admin ownership:
+
+- billing periods and monthly invoices
+- Morning / accounting documents
+- financial reports
+- paying bodies
+- expenses
+- system-user management
+- audit log
+
 ## Production User Consolidation
 
 Kim should operate through a single CRM login:
@@ -51,4 +74,3 @@ Kim should operate through a single CRM login:
 - canonical role: `operations_control`
 - linked instructor record remains attached to that user
 - legacy sales login `kim@hai.tech` should be inactive after migration
-

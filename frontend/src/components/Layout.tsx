@@ -130,6 +130,25 @@ const operationsControlNavItems = [
   { path: '/instructor', icon: LayoutDashboard, label: 'הפגישות שלי', testId: 'nav-instructor' },
 ];
 
+const operationsManagerNavGroups = [
+  {
+    key: 'operations-management',
+    label: 'תפעול',
+    items: [
+      { path: '/', icon: LayoutDashboard, label: 'דשבורד', testId: 'nav-dashboard' },
+      { path: '/customers', icon: Users, label: 'לקוחות', testId: 'nav-customers' },
+      { path: '/students', icon: GraduationCap, label: 'תלמידים', testId: 'nav-students' },
+      { path: '/courses', icon: BookOpen, label: 'קורסים', testId: 'nav-courses' },
+      { path: '/branches', icon: Building2, label: 'סניפים', testId: 'nav-branches' },
+      { path: '/instructors', icon: UserCheck, label: 'מדריכים', testId: 'nav-instructors' },
+      { path: '/cycles', icon: RefreshCcw, label: 'מחזורים', testId: 'nav-cycles' },
+      { path: '/meetings', icon: Calendar, label: 'פגישות', testId: 'nav-meetings' },
+      { path: '/operations-control', icon: Activity, label: 'מגדל שליטה', testId: 'nav-operations-control' },
+      { path: '/tasks', icon: ListTodo, label: 'משימות תפעול', testId: 'nav-tasks' },
+    ],
+  },
+];
+
 const COLLAPSED_KEY = 'nav-collapsed-sections';
 
 export default function Layout() {
@@ -171,6 +190,7 @@ export default function Layout() {
   const isSales = user?.role === 'sales';
   const isOperations = user?.role === 'operations';
   const isOperationsControl = user?.role === 'operations_control';
+  const isOperationsManager = user?.role === 'operations_manager';
   const isAdmin = user?.role === 'admin' || user?.role === 'manager';
   const isWhatsAppPage = location.pathname.startsWith('/whatsapp');
 
@@ -232,9 +252,9 @@ export default function Layout() {
 
       {/* Navigation */}
       <nav className="flex-1 py-2 overflow-y-auto" data-testid="main-nav">
-        {isAdmin ? (
+        {isAdmin || isOperationsManager ? (
           // Grouped navigation for admin/manager
-          adminNavGroups.map((group) => {
+          (isOperationsManager ? operationsManagerNavGroups : adminNavGroups).map((group) => {
             const isCollapsed = !!collapsedSections[group.key];
             return (
               <div key={group.key} className="mb-1">

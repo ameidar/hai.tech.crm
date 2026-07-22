@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
-import { authenticate, managerOrAdmin } from '../middleware/auth.js';
+import { authenticate, operationsManagerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { updateMeetingSchema, postponeMeetingSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
 import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
@@ -281,7 +281,7 @@ meetingsRouter.get('/:id', async (req, res, next) => {
 });
 
 // Create exceptional/ad-hoc meeting for a cycle
-meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
+meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const { cycleId, instructorId, registrationId, scheduledDate, startTime, endTime, withZoom, activityType, topic, notes } = req.body;
 
@@ -731,7 +731,7 @@ meetingsRouter.put('/:id', async (req, res, next) => {
 });
 
 // Postpone meeting
-meetingsRouter.post('/:id/postpone', managerOrAdmin, async (req, res, next) => {
+meetingsRouter.post('/:id/postpone', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
     const data = postponeMeetingSchema.parse(req.body);
@@ -858,7 +858,7 @@ meetingsRouter.get('/:id/attendance', async (req, res, next) => {
 });
 
 // Delete a single meeting
-meetingsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
+meetingsRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
@@ -909,7 +909,7 @@ meetingsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
 });
 
 // Add Zoom meeting to an existing meeting
-meetingsRouter.post('/:id/add-zoom', managerOrAdmin, async (req, res, next) => {
+meetingsRouter.post('/:id/add-zoom', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
@@ -962,7 +962,7 @@ meetingsRouter.post('/:id/add-zoom', managerOrAdmin, async (req, res, next) => {
 });
 
 // Recalculate meeting costs
-meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) => {
+meetingsRouter.post('/:id/recalculate', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
     const force = req.query.force === 'true' || req.body.force === true;
@@ -1065,7 +1065,7 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
 });
 
 // Bulk recalculate meetings
-meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) => {
+meetingsRouter.post('/bulk-recalculate', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const { ids, force } = req.body;
     
@@ -1144,7 +1144,7 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
 });
 
 // Bulk update meeting status
-meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next) => {
+meetingsRouter.post('/bulk-update-status', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const { ids, status } = req.body;
     
@@ -1320,7 +1320,7 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
 });
 
 // Bulk update meetings (multiple fields)
-meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
+meetingsRouter.post('/bulk-update', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const { ids, data } = req.body;
     
@@ -1455,7 +1455,7 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
 });
 
 // Bulk delete meetings
-meetingsRouter.post('/bulk-delete', managerOrAdmin, async (req, res, next) => {
+meetingsRouter.post('/bulk-delete', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const { ids } = req.body;
     

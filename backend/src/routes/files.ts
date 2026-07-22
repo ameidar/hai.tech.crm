@@ -14,7 +14,7 @@ export const filesRouter = Router();
 
 // Supported entity types
 const ALLOWED_ENTITY_TYPES = ['instructor', 'quote', 'institutional-order', 'task'];
-const TASK_VISIBLE_TO_ALL_ROLES: UserRole[] = ['admin', 'manager', 'operations', 'operations_control'];
+const TASK_VISIBLE_TO_ALL_ROLES: UserRole[] = ['admin', 'manager', 'operations', 'operations_control', 'operations_manager'];
 
 // Upload directory
 const UPLOADS_BASE = path.join(process.cwd(), 'uploads');

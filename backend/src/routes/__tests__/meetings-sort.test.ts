@@ -32,6 +32,7 @@ vi.mock('../../middleware/auth.js', () => ({
     next();
   },
   managerOrAdmin: (_req: any, _res: any, next: any) => next(),
+  operationsManagerOrAdmin: (_req: any, _res: any, next: any) => next(),
 }));
 
 vi.mock('../../services/replacement-meeting.js', () => ({

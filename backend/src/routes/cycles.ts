@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
-import { authenticate, managerOrAdmin } from '../middleware/auth.js';
+import { authenticate, operationsManagerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createCycleSchema, updateCycleSchema, createRegistrationSchema, paginationSchema, uuidSchema, bulkUpdateCyclesSchema } from '../types/schemas.js';
 import { fetchHolidays, dayNameToNumber, calculateCycleEndDate } from '../utils/holidays.js';
@@ -269,7 +269,7 @@ cyclesRouter.get('/:id', async (req, res, next) => {
 });
 
 // Create cycle
-cyclesRouter.post('/', managerOrAdmin, async (req, res, next) => {
+cyclesRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const data = createCycleSchema.parse(req.body);
 
@@ -378,7 +378,7 @@ cyclesRouter.post('/', managerOrAdmin, async (req, res, next) => {
 });
 
 // Update cycle
-cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
+cyclesRouter.put('/:id', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
     const data = updateCycleSchema.parse(req.body);
@@ -558,7 +558,7 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
 });
 
 // Delete cycle
-cyclesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
+cyclesRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
     const userId = req.user?.userId;
@@ -674,7 +674,7 @@ cyclesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
 });
 
 // Generate meetings for a cycle
-cyclesRouter.post('/:id/generate-meetings', managerOrAdmin, async (req, res, next) => {
+cyclesRouter.post('/:id/generate-meetings', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const cycleId = req.params.id;
 
@@ -719,7 +719,7 @@ cyclesRouter.post('/:id/generate-meetings', managerOrAdmin, async (req, res, nex
 });
 
 // Bulk generate meetings for multiple cycles
-cyclesRouter.post('/bulk-generate-meetings', managerOrAdmin, async (req, res, next) => {
+cyclesRouter.post('/bulk-generate-meetings', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const { ids } = req.body as { ids: string[] };
 
@@ -778,7 +778,7 @@ cyclesRouter.post('/bulk-generate-meetings', managerOrAdmin, async (req, res, ne
 });
 
 // Bulk update cycles
-cyclesRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
+cyclesRouter.post('/bulk-update', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const { ids, data } = bulkUpdateCyclesSchema.parse(req.body);
 
@@ -997,7 +997,7 @@ cyclesRouter.get('/:id/students', async (req, res, next) => {
 });
 
 // Add registration to cycle
-cyclesRouter.post('/:id/registrations', managerOrAdmin, async (req, res, next) => {
+cyclesRouter.post('/:id/registrations', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const cycleId = uuidSchema.parse(req.params.id);
     const data = createRegistrationSchema.parse({ ...req.body, cycleId });
@@ -1072,7 +1072,7 @@ cyclesRouter.post('/:id/registrations', managerOrAdmin, async (req, res, next) =
 });
 
 // Sync ALL active cycles progress from meetings table (bulk)
-cyclesRouter.post('/sync-all', managerOrAdmin, async (_req, res, next) => {
+cyclesRouter.post('/sync-all', operationsManagerOrAdmin, async (_req, res, next) => {
   try {
     const cycles = await prisma.cycle.findMany({
       where: { status: 'active', deletedAt: null },
@@ -1099,7 +1099,7 @@ cyclesRouter.post('/sync-all', managerOrAdmin, async (_req, res, next) => {
 });
 
 // Sync cycle progress from meetings table
-cyclesRouter.post('/:id/sync-progress', managerOrAdmin, async (req, res, next) => {
+cyclesRouter.post('/:id/sync-progress', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
@@ -1162,7 +1162,7 @@ cyclesRouter.post('/:id/sync-progress', managerOrAdmin, async (req, res, next) =
  * Freeze a cycle — set status=frozen, postpone future scheduled meetings.
  * Body: { reason?: string, resumeDate?: string (ISO date) }
  */
-cyclesRouter.post('/:id/freeze', managerOrAdmin, async (req, res, next) => {
+cyclesRouter.post('/:id/freeze', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { reason, resumeDate } = req.body;
@@ -1211,7 +1211,7 @@ cyclesRouter.post('/:id/freeze', managerOrAdmin, async (req, res, next) => {
  * Resume a frozen cycle — set status=active, reschedule postponed meetings from newStartDate.
  * Body: { newStartDate: string (ISO date) }
  */
-cyclesRouter.post('/:id/resume', managerOrAdmin, async (req, res, next) => {
+cyclesRouter.post('/:id/resume', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const { id } = req.params;
     const { newStartDate } = req.body;

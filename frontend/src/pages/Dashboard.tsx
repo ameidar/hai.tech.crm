@@ -34,7 +34,7 @@ import type { Meeting, MeetingStatus } from '../types';
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations' || user?.role === 'operations_manager';
   const today = new Date().toISOString().split('T')[0];
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
 

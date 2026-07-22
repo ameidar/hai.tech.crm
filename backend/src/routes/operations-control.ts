@@ -20,7 +20,7 @@ const querySchema = z.object({
   ]).optional(),
 });
 
-operationsControlRouter.use(authenticate, authorize('admin', 'manager', 'operations', 'operations_control'));
+operationsControlRouter.use(authenticate, authorize('admin', 'manager', 'operations', 'operations_control', 'operations_manager'));
 
 operationsControlRouter.get('/today', async (req, res, next) => {
   try {

@@ -119,14 +119,12 @@ function RoleRoute({ allowed, children }: { allowed: string[]; children: React.R
   return <>{children}</>;
 }
 
-// Blocks access for non-management roles to management screens.
-function NonSalesRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-  if (user?.role === 'sales') return <Navigate to="/lead-appointments" replace />;
-  if (user?.role === 'operations' || user?.role === 'operations_control') {
-    return <Navigate to="/operations-control" replace />;
-  }
-  return <>{children}</>;
+function ManagementRoute({ children }: { children: React.ReactNode }) {
+  return <RoleRoute allowed={['admin', 'manager', 'operations_manager']}>{children}</RoleRoute>;
+}
+
+function AdminManagerRoute({ children }: { children: React.ReactNode }) {
+  return <RoleRoute allowed={['admin', 'manager']}>{children}</RoleRoute>;
 }
 
 function AppRoutes() {
@@ -188,52 +186,52 @@ function AppRoutes() {
         }
       >
         <Route index element={isInstructor || isSales || isOperations || isOperationsControl ? <Navigate to={getDefaultRoute()} replace /> : <Dashboard />} />
-        <Route path="operations" element={<RoleRoute allowed={['admin', 'manager']}><OperationsHours /></RoleRoute>} />
-        <Route path="operations-control" element={<RoleRoute allowed={['admin', 'manager', 'operations', 'operations_control']}><OperationsControl /></RoleRoute>} />
-        <Route path="tasks" element={<RoleRoute allowed={['admin', 'manager', 'operations', 'operations_control']}><Tasks /></RoleRoute>} />
+        <Route path="operations" element={<AdminManagerRoute><OperationsHours /></AdminManagerRoute>} />
+        <Route path="operations-control" element={<RoleRoute allowed={['admin', 'manager', 'operations', 'operations_control', 'operations_manager']}><OperationsControl /></RoleRoute>} />
+        <Route path="tasks" element={<RoleRoute allowed={['admin', 'manager', 'operations', 'operations_control', 'operations_manager']}><Tasks /></RoleRoute>} />
         {!isInstructor && (
           <>
             {/* Sales-accessible routes */}
-            <Route path="customers" element={<NonSalesRoute><Customers /></NonSalesRoute>} />
-            <Route path="customers/:id" element={<NonSalesRoute><CustomerDetail /></NonSalesRoute>} />
+            <Route path="customers" element={<ManagementRoute><Customers /></ManagementRoute>} />
+            <Route path="customers/:id" element={<ManagementRoute><CustomerDetail /></ManagementRoute>} />
             <Route path="whatsapp" element={<WhatsAppInbox />} />
-            <Route path="messenger" element={<NonSalesRoute><MessengerInbox /></NonSalesRoute>} />
-            <Route path="instagram" element={<NonSalesRoute><InstagramInbox /></NonSalesRoute>} />
+            <Route path="messenger" element={<AdminManagerRoute><MessengerInbox /></AdminManagerRoute>} />
+            <Route path="instagram" element={<AdminManagerRoute><InstagramInbox /></AdminManagerRoute>} />
 
             {/* Admin/Manager only routes — sales gets redirected to /whatsapp */}
-            <Route path="students" element={<NonSalesRoute><Students /></NonSalesRoute>} />
-            <Route path="courses" element={<NonSalesRoute><Courses /></NonSalesRoute>} />
-            <Route path="branches" element={<NonSalesRoute><Branches /></NonSalesRoute>} />
-            <Route path="instructors" element={<NonSalesRoute><Instructors /></NonSalesRoute>} />
-            <Route path="cycles" element={<NonSalesRoute><Cycles /></NonSalesRoute>} />
-            <Route path="cycles/:id" element={<NonSalesRoute><CycleDetail /></NonSalesRoute>} />
-            <Route path="meetings" element={<NonSalesRoute><Meetings /></NonSalesRoute>} />
-            <Route path="meetings/:id" element={<NonSalesRoute><MeetingRedirect /></NonSalesRoute>} />
-            <Route path="quotes" element={<NonSalesRoute><Quotes /></NonSalesRoute>} />
-            <Route path="quotes/new" element={<NonSalesRoute><QuoteWizard /></NonSalesRoute>} />
-            <Route path="quotes/:id" element={<NonSalesRoute><QuoteDetail /></NonSalesRoute>} />
-            <Route path="quotes/:id/edit" element={<NonSalesRoute><QuoteEdit /></NonSalesRoute>} />
-            <Route path="institutional-orders" element={<NonSalesRoute><InstitutionalOrders /></NonSalesRoute>} />
-            <Route path="institutional-orders/:id" element={<NonSalesRoute><InstitutionalOrderDetail /></NonSalesRoute>} />
-            <Route path="paying-bodies" element={<NonSalesRoute><PayingBodies /></NonSalesRoute>} />
-            <Route path="billing" element={<NonSalesRoute><BillingPeriods /></NonSalesRoute>} />
-            <Route path="billing/:id" element={<NonSalesRoute><BillingPeriodDetail /></NonSalesRoute>} />
+            <Route path="students" element={<ManagementRoute><Students /></ManagementRoute>} />
+            <Route path="courses" element={<ManagementRoute><Courses /></ManagementRoute>} />
+            <Route path="branches" element={<ManagementRoute><Branches /></ManagementRoute>} />
+            <Route path="instructors" element={<ManagementRoute><Instructors /></ManagementRoute>} />
+            <Route path="cycles" element={<ManagementRoute><Cycles /></ManagementRoute>} />
+            <Route path="cycles/:id" element={<ManagementRoute><CycleDetail /></ManagementRoute>} />
+            <Route path="meetings" element={<ManagementRoute><Meetings /></ManagementRoute>} />
+            <Route path="meetings/:id" element={<ManagementRoute><MeetingRedirect /></ManagementRoute>} />
+            <Route path="quotes" element={<AdminManagerRoute><Quotes /></AdminManagerRoute>} />
+            <Route path="quotes/new" element={<AdminManagerRoute><QuoteWizard /></AdminManagerRoute>} />
+            <Route path="quotes/:id" element={<AdminManagerRoute><QuoteDetail /></AdminManagerRoute>} />
+            <Route path="quotes/:id/edit" element={<AdminManagerRoute><QuoteEdit /></AdminManagerRoute>} />
+            <Route path="institutional-orders" element={<AdminManagerRoute><InstitutionalOrders /></AdminManagerRoute>} />
+            <Route path="institutional-orders/:id" element={<AdminManagerRoute><InstitutionalOrderDetail /></AdminManagerRoute>} />
+            <Route path="paying-bodies" element={<AdminManagerRoute><PayingBodies /></AdminManagerRoute>} />
+            <Route path="billing" element={<AdminManagerRoute><BillingPeriods /></AdminManagerRoute>} />
+            <Route path="billing/:id" element={<AdminManagerRoute><BillingPeriodDetail /></AdminManagerRoute>} />
             <Route path="lead-appointments" element={<RoleRoute allowed={['admin', 'manager', 'sales', 'operations_control']}><LeadAppointments /></RoleRoute>} />
-            <Route path="system-users" element={<NonSalesRoute><SystemUsers /></NonSalesRoute>} />
-            <Route path="reports" element={<NonSalesRoute><Reports /></NonSalesRoute>} />
-            <Route path="work-hours" element={<NonSalesRoute><WorkHoursApproval /></NonSalesRoute>} />
-            <Route path="morning-invoice" element={<NonSalesRoute><MorningInvoiceTest /></NonSalesRoute>} />
+            <Route path="system-users" element={<AdminManagerRoute><SystemUsers /></AdminManagerRoute>} />
+            <Route path="reports" element={<AdminManagerRoute><Reports /></AdminManagerRoute>} />
+            <Route path="work-hours" element={<AdminManagerRoute><WorkHoursApproval /></AdminManagerRoute>} />
+            <Route path="morning-invoice" element={<AdminManagerRoute><MorningInvoiceTest /></AdminManagerRoute>} />
             <Route path="payment-link" element={<RoleRoute allowed={['admin', 'manager', 'sales', 'operations_control']}><PaymentLink /></RoleRoute>} />
-            <Route path="audit" element={<NonSalesRoute><AuditLog /></NonSalesRoute>} />
-            <Route path="campaigns" element={<NonSalesRoute><Campaigns /></NonSalesRoute>} />
-            <Route path="facebook-leads" element={<NonSalesRoute><FacebookLeads /></NonSalesRoute>} />
-            <Route path="analytics" element={<NonSalesRoute><Analytics /></NonSalesRoute>} />
-            <Route path="google-ads" element={<NonSalesRoute><GoogleAdsCampaigns /></NonSalesRoute>} />
-            <Route path="linkedin" element={<NonSalesRoute><LinkedIn /></NonSalesRoute>} />
-            <Route path="facebook" element={<NonSalesRoute><FacebookPage /></NonSalesRoute>} />
-            <Route path="instagram-post" element={<NonSalesRoute><InstagramPage /></NonSalesRoute>} />
-            <Route path="tiktok" element={<NonSalesRoute><TikTokPage /></NonSalesRoute>} />
-            <Route path="youtube" element={<NonSalesRoute><YouTubePage /></NonSalesRoute>} />
+            <Route path="audit" element={<AdminManagerRoute><AuditLog /></AdminManagerRoute>} />
+            <Route path="campaigns" element={<AdminManagerRoute><Campaigns /></AdminManagerRoute>} />
+            <Route path="facebook-leads" element={<AdminManagerRoute><FacebookLeads /></AdminManagerRoute>} />
+            <Route path="analytics" element={<AdminManagerRoute><Analytics /></AdminManagerRoute>} />
+            <Route path="google-ads" element={<AdminManagerRoute><GoogleAdsCampaigns /></AdminManagerRoute>} />
+            <Route path="linkedin" element={<AdminManagerRoute><LinkedIn /></AdminManagerRoute>} />
+            <Route path="facebook" element={<AdminManagerRoute><FacebookPage /></AdminManagerRoute>} />
+            <Route path="instagram-post" element={<AdminManagerRoute><InstagramPage /></AdminManagerRoute>} />
+            <Route path="tiktok" element={<AdminManagerRoute><TikTokPage /></AdminManagerRoute>} />
+            <Route path="youtube" element={<AdminManagerRoute><YouTubePage /></AdminManagerRoute>} />
           </>
         )}
         <Route path="instructor" element={<InstructorDashboard />} />

@@ -21,6 +21,7 @@ enum UserRole {
   sales
   operations
   operations_control
+  operations_manager
 }
 
 enum TaskStatus {

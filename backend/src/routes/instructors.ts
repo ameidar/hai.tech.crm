@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import { prisma } from '../utils/prisma.js';
-import { authenticate, managerOrAdmin } from '../middleware/auth.js';
+import { authenticate, operationsManagerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createInstructorSchema, updateInstructorSchema, uuidSchema } from '../types/schemas.js';
 import { parsePaginationParams, paginatedResponse } from '../utils/pagination.js';
@@ -106,7 +106,7 @@ instructorsRouter.get('/:id', async (req, res, next) => {
 });
 
 // Create instructor
-instructorsRouter.post('/', managerOrAdmin, async (req, res, next) => {
+instructorsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const data = createInstructorSchema.parse(req.body);
 
@@ -156,7 +156,7 @@ instructorsRouter.post('/', managerOrAdmin, async (req, res, next) => {
 });
 
 // Update instructor
-instructorsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
+instructorsRouter.put('/:id', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
     const data = updateInstructorSchema.parse(req.body);
@@ -206,7 +206,7 @@ instructorsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
 });
 
 // Delete instructor
-instructorsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
+instructorsRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
@@ -268,7 +268,7 @@ instructorsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
 });
 
 // Bulk update instructors
-instructorsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
+instructorsRouter.post('/bulk-update', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const { instructorIds, data } = req.body;
     
@@ -390,7 +390,7 @@ instructorsRouter.get('/:id/schedule', async (req, res, next) => {
 });
 
 // Generate invite for instructor
-instructorsRouter.post('/:id/invite', managerOrAdmin, async (req, res, next) => {
+instructorsRouter.post('/:id/invite', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
@@ -445,7 +445,7 @@ instructorsRouter.post('/:id/invite', managerOrAdmin, async (req, res, next) => 
 });
 
 // Reset password for instructor (admin only)
-instructorsRouter.post('/:id/reset-password', managerOrAdmin, async (req, res, next) => {
+instructorsRouter.post('/:id/reset-password', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
@@ -499,4 +499,3 @@ instructorsRouter.post('/:id/reset-password', managerOrAdmin, async (req, res, n
     next(error);
   }
 });
-

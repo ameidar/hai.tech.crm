@@ -31,6 +31,7 @@ const ROLE_LABELS: Record<string, string> = {
   sales: 'מכירות',
   operations: 'מנהל/ת תפעול',
   operations_control: 'שימור / מגדל שליטה',
+  operations_manager: 'מנהלת תפעול',
 };
 
 const ROLE_COLORS: Record<string, string> = {
@@ -39,9 +40,10 @@ const ROLE_COLORS: Record<string, string> = {
   sales: 'bg-green-100 text-green-700',
   operations: 'bg-teal-100 text-teal-700',
   operations_control: 'bg-violet-100 text-violet-700',
+  operations_manager: 'bg-cyan-100 text-cyan-700',
 };
 
-type ManagedRole = 'admin' | 'manager' | 'sales' | 'operations' | 'operations_control';
+type ManagedRole = 'admin' | 'manager' | 'sales' | 'operations' | 'operations_control' | 'operations_manager';
 
 // ===== Invite / Reset Modal =====
 interface LinkModalProps {
@@ -195,7 +197,7 @@ export default function SystemUsers() {
     return u.name.toLowerCase().includes(s) || u.email.toLowerCase().includes(s);
   });
 
-  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'operations';
+  const isAdmin = currentUser?.role === 'admin';
 
   const openAdd = () => {
     setFormData({ name: '', email: '', phone: '', role: 'manager', hourlyRate: 50, city: '', bankName: '', bankBranch: '', accountNumber: '' });
@@ -522,6 +524,7 @@ export default function SystemUsers() {
                 <option value="sales">מכירות</option>
                 <option value="operations">מנהל/ת תפעול</option>
                 <option value="operations_control">שימור / מגדל שליטה</option>
+                <option value="operations_manager">מנהלת תפעול</option>
               </select>
               <p className="text-xs text-slate-400 mt-1">
                 מנהל מערכת — ניהול מלא. מנהל — גישה לכל. <strong>מכירות</strong> — יומן לידים, WhatsApp ולינק לתשלום.

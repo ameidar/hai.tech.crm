@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
-import { authenticate, managerOrAdmin } from '../middleware/auth.js';
+import { authenticate, operationsManagerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { 
   createBranchSchema, 
@@ -98,7 +98,7 @@ branchesRouter.get('/:id', async (req, res, next) => {
 });
 
 // Create branch
-branchesRouter.post('/', managerOrAdmin, async (req, res, next) => {
+branchesRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const data = createBranchSchema.parse(req.body);
 
@@ -115,7 +115,7 @@ branchesRouter.post('/', managerOrAdmin, async (req, res, next) => {
 });
 
 // Update branch
-branchesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
+branchesRouter.put('/:id', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
     const data = updateBranchSchema.parse(req.body);
@@ -138,7 +138,7 @@ branchesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
 });
 
 // Delete branch
-branchesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
+branchesRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
@@ -186,7 +186,7 @@ branchesRouter.get('/:id/orders', async (req, res, next) => {
 });
 
 // Create institutional order for branch
-branchesRouter.post('/:id/orders', managerOrAdmin, async (req, res, next) => {
+branchesRouter.post('/:id/orders', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const branchId = uuidSchema.parse(req.params.id);
     const data = createInstitutionalOrderSchema.parse({ ...req.body, branchId });
@@ -228,7 +228,7 @@ branchesRouter.post('/:id/orders', managerOrAdmin, async (req, res, next) => {
 });
 
 // Update institutional order
-branchesRouter.put('/:id/orders/:orderId', managerOrAdmin, async (req, res, next) => {
+branchesRouter.put('/:id/orders/:orderId', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const orderId = uuidSchema.parse(req.params.orderId);
     const data = updateInstitutionalOrderSchema.parse(req.body);

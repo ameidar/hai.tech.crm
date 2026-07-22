@@ -647,6 +647,7 @@ export async function getOperationsControlToday(filters: OperationsControlFilter
           { dueDate: { lt: generatedAt } },
           { assignee: { role: 'operations' } },
           { assignee: { role: 'operations_control' } },
+          { assignee: { role: 'operations_manager' } },
         ],
       },
       include: taskInclude,

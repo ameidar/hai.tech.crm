@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { randomBytes } from 'crypto';
 import { prisma } from '../utils/prisma.js';
-import { authenticate, managerOrAdmin } from '../middleware/auth.js';
+import { authenticate, managerOrAdmin, operationsManagerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
 import { updateRegistrationSchema, uuidSchema } from '../types/schemas.js';
@@ -180,7 +180,7 @@ registrationsRouter.get('/:id', async (req, res, next) => {
 });
 
 // Update registration
-registrationsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
+registrationsRouter.put('/:id', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
     const data = updateRegistrationSchema.parse(req.body);
@@ -239,7 +239,7 @@ registrationsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
 });
 
 // Delete registration
-registrationsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
+registrationsRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
@@ -263,7 +263,7 @@ registrationsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
 });
 
 // Cancel registration
-registrationsRouter.post('/:id/cancel', managerOrAdmin, async (req, res, next) => {
+registrationsRouter.post('/:id/cancel', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
     const { reason } = z.object({ reason: z.string().optional() }).parse(req.body);
@@ -305,7 +305,7 @@ registrationsRouter.post('/:id/cancel', managerOrAdmin, async (req, res, next) =
 });
 
 // Send cancellation form to customer
-registrationsRouter.post('/:id/send-cancellation-form', managerOrAdmin, async (req, res, next) => {
+registrationsRouter.post('/:id/send-cancellation-form', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 

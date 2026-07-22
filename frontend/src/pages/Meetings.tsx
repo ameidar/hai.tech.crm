@@ -35,7 +35,7 @@ import type { Meeting, MeetingStatus } from '../types';
 
 export default function Meetings() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations' || user?.role === 'operations_manager';
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);

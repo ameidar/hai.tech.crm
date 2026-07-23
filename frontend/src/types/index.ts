@@ -255,6 +255,7 @@ export interface Cycle {
   instructorDailyRate?: number | null;
   studentCount?: number;
   maxStudents?: number;
+  minimumStudentsThreshold?: number | null;
   sendParentReminders: boolean;
   isOnline: boolean;
   activityType: ActivityType;

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   CalendarDays,
@@ -10,12 +10,15 @@ import {
   Clock,
   Filter,
   ListTodo,
+  PauseCircle,
   RefreshCw,
   Users2,
+  XCircle,
 } from 'lucide-react';
 import api from '../api/client';
 
 type AlertPriority = 'urgent' | 'high' | 'normal';
+type IssueStatus = 'new' | 'in_progress' | 'waiting' | 'closed';
 type AlertType =
   | 'past_scheduled_meeting'
   | 'missing_topic'
@@ -24,7 +27,8 @@ type AlertType =
   | 'low_profit'
   | 'student_absence_risk'
   | 'instructor_change_risk'
-  | 'cycle_churn_risk';
+  | 'cycle_churn_risk'
+  | 'low_enrollment';
 type FreshnessStatus = 'fresh' | 'stale' | 'error';
 
 interface OperationsAlert {
@@ -42,6 +46,11 @@ interface OperationsAlert {
   recommendedAction: string;
   detectedAt: string;
   taskId: string | null;
+  status: IssueStatus;
+  statusNote: string | null;
+  statusUpdatedAt: string | null;
+  contactName: string | null;
+  contactUrl: string | null;
 }
 
 interface TodayMeeting {
@@ -51,6 +60,8 @@ interface TodayMeeting {
   startTime: string;
   endTime: string;
   status: string;
+  cycleType: string;
+  activityType: string;
   cycleName: string;
   clientName: string | null;
   instructorName: string | null;
@@ -86,6 +97,7 @@ interface OperationsControlResponse {
   generatedAt: string;
   timezone: string;
   date: string;
+  operationsStartDate: string;
   freshness: {
     status: FreshnessStatus;
     generatedAt: string;
@@ -123,6 +135,7 @@ const typeLabels: Record<AlertType, string> = {
   student_absence_risk: 'היעדרויות תלמידים',
   instructor_change_risk: 'ביטולי/דחיות מדריך',
   cycle_churn_risk: 'סיכון נטישה',
+  low_enrollment: 'מתחת לסף מינימום',
 };
 
 const statusLabels: Record<string, string> = {
@@ -136,6 +149,20 @@ const statusLabels: Record<string, string> = {
   in_progress: 'בתהליך',
   waiting_info: 'ממתין למידע',
   completed_task: 'הושלמה',
+};
+
+const issueStatusLabels: Record<IssueStatus, string> = {
+  new: 'חדש',
+  in_progress: 'בטיפול',
+  waiting: 'בהמתנה',
+  closed: 'נסגר',
+};
+
+const cycleTypeLabels: Record<string, string> = {
+  private: 'פרטי',
+  trial_private: 'ניסיון פרטי',
+  institutional_per_child: 'מוסדי',
+  institutional_fixed: 'מוסדי',
 };
 
 function formatIsraelTime(value: string | Date) {
@@ -182,6 +209,21 @@ async function fetchOperationsControl(priority: string, type: string) {
   return response.data;
 }
 
+async function updateIssueStatus(input: { alert: OperationsAlert; status: IssueStatus }) {
+  const { alert, status } = input;
+  const response = await api.patch(`/operations-control/issues/${encodeURIComponent(alert.id)}/status`, {
+    status,
+    snapshot: {
+      title: alert.title,
+      type: alert.type,
+      priority: alert.priority,
+      entityType: alert.entityType,
+      entityId: alert.entityId,
+    },
+  });
+  return response.data;
+}
+
 function EmptyState({ message }: { message: string }) {
   return (
     <div className="rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center text-slate-500">
@@ -194,6 +236,7 @@ export default function OperationsControl() {
   const [priority, setPriority] = useState('');
   const [type, setType] = useState('');
   const [copied, setCopied] = useState(false);
+  const queryClient = useQueryClient();
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['operations-control', priority, type],
@@ -205,6 +248,13 @@ export default function OperationsControl() {
     () => (isError ? { status: 'error' as FreshnessStatus, message: 'לא ניתן לטעון נתוני תפעול' } : freshnessFromGeneratedAt(data?.generatedAt)),
     [data?.generatedAt, isError],
   );
+
+  const updateStatus = useMutation({
+    mutationFn: updateIssueStatus,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['operations-control'] });
+    },
+  });
 
   const summaryText = useMemo(() => {
     if (!data) return '';
@@ -281,6 +331,7 @@ export default function OperationsControl() {
               </div>
               <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-500">
                 <span>תאריך עבודה: {data.date}</span>
+                <span>התחלה: {data.operationsStartDate}</span>
                 <span>נוצר: {formatIsraelTime(data.generatedAt)}</span>
                 <span>שעון ישראל: {formatIsraelTime(new Date())}</span>
               </div>
@@ -353,6 +404,9 @@ export default function OperationsControl() {
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600">
                           {typeLabels[alert.type]}
                         </span>
+                        <span className="rounded-full border border-teal-200 bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-700">
+                          {issueStatusLabels[alert.status]}
+                        </span>
                       </div>
                       <h3 className="text-base font-semibold text-slate-900">{alert.title}</h3>
                       <p className="mt-1 text-sm text-slate-600">{alert.description}</p>
@@ -362,10 +416,44 @@ export default function OperationsControl() {
                         {alert.cycleName && <span>{alert.cycleName}</span>}
                         {alert.instructorName && <span>{alert.instructorName}</span>}
                       </div>
+                      {alert.contactUrl && (
+                        <Link to={alert.contactUrl} className="mt-3 inline-flex items-center justify-center rounded-lg border border-blue-200 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50">
+                          כרטיס לקוח: {alert.contactName || 'פתיחה'}
+                        </Link>
+                      )}
                     </div>
-                    <Link to={alert.entityUrl} className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                      פתיחה ב-CRM
-                    </Link>
+                    <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
+                      <Link to={alert.entityUrl} className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                        פתיחה ב-CRM
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => updateStatus.mutate({ alert, status: 'in_progress' })}
+                        disabled={updateStatus.isPending}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-60"
+                      >
+                        <CheckCircle2 size={16} />
+                        בטיפול
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateStatus.mutate({ alert, status: 'waiting' })}
+                        disabled={updateStatus.isPending}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-amber-200 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-60"
+                      >
+                        <PauseCircle size={16} />
+                        בהמתנה
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateStatus.mutate({ alert, status: 'closed' })}
+                        disabled={updateStatus.isPending}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                      >
+                        <XCircle size={16} />
+                        נסגר
+                      </button>
+                    </div>
                   </div>
                 </article>
               ))}
@@ -385,6 +473,7 @@ export default function OperationsControl() {
                     <tr>
                       <th className="px-2 py-2 text-right">שעה</th>
                       <th className="px-2 py-2 text-right">מחזור</th>
+                      <th className="px-2 py-2 text-right">סוג</th>
                       <th className="px-2 py-2 text-right">מדריך</th>
                       <th className="px-2 py-2 text-right">סטטוס</th>
                       <th className="px-2 py-2 text-right">דיווח</th>
@@ -398,6 +487,7 @@ export default function OperationsControl() {
                           <Link to={meeting.entityUrl} className="font-medium text-blue-700 hover:underline">{meeting.cycleName}</Link>
                           {meeting.clientName && <div className="text-xs text-slate-500">{meeting.clientName}</div>}
                         </td>
+                        <td className="px-2 py-2 text-slate-700">{cycleTypeLabels[meeting.cycleType] || meeting.cycleType || '-'}</td>
                         <td className="px-2 py-2 text-slate-700">{meeting.instructorName || '-'}</td>
                         <td className="px-2 py-2 text-slate-700">{statusLabels[meeting.status] || meeting.status}</td>
                         <td className="px-2 py-2 text-slate-600">

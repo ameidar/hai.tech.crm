@@ -181,24 +181,25 @@ model User {
 
   // Relations
   instructor               Instructor?
-  meetingUpdates           Meeting[]         @relation("MeetingStatusUpdater")
+  meetingUpdates           Meeting[]                     @relation("MeetingStatusUpdater")
   attendanceRecords        Attendance[]
   savedViews               SavedView[]
-  cycleExpenses            CycleExpense[]    @relation("CycleExpenseCreator")
-  reviewedCycleExpenses    CycleExpense[]    @relation("CycleExpenseReviewer")
-  submittedExpenses        MeetingExpense[]  @relation("ExpenseSubmitter")
-  reviewedExpenses         MeetingExpense[]  @relation("ExpenseReviewer")
-  reviewedWorkHours        WorkHourEntry[]   @relation("WorkHourReviewer")
+  cycleExpenses            CycleExpense[]                @relation("CycleExpenseCreator")
+  reviewedCycleExpenses    CycleExpense[]                @relation("CycleExpenseReviewer")
+  submittedExpenses        MeetingExpense[]              @relation("ExpenseSubmitter")
+  reviewedExpenses         MeetingExpense[]              @relation("ExpenseReviewer")
+  reviewedWorkHours        WorkHourEntry[]               @relation("WorkHourReviewer")
   quotes                   Quote[]
   uploadedFiles            FileAttachment[]
   campaigns                Campaign[]
   apiKeys                  ApiKey[]
   webhooks                 Webhook[]
-  createdTasks             Task[]            @relation("TaskCreatedBy")
-  assignedTasks            Task[]            @relation("TaskAssignee")
-  completedTasks           Task[]            @relation("TaskCompletedBy")
-  assignedLeadAppointments LeadAppointment[] @relation("LeadAppointmentAssignee")
-  leadActivities           LeadActivity[]    @relation("LeadActivityUser")
+  createdTasks             Task[]                        @relation("TaskCreatedBy")
+  assignedTasks            Task[]                        @relation("TaskAssignee")
+  completedTasks           Task[]                        @relation("TaskCompletedBy")
+  assignedLeadAppointments LeadAppointment[]             @relation("LeadAppointmentAssignee")
+  leadActivities           LeadActivity[]                @relation("LeadActivityUser")
+  operationsIssueUpdates   OperationsControlIssueState[] @relation("OperationsIssueUpdatedBy")
 
   @@map("users")
 }
@@ -247,6 +248,29 @@ model TaskReminder {
   @@index([status, remindAt])
   @@index([taskId])
   @@map("task_reminders")
+}
+
+model OperationsControlIssueState {
+  issueKey          String    @id @map("issue_key")
+  status            String    @default("new")
+  note              String?
+  title             String?
+  type              String?
+  priority          String?
+  entityType        String?   @map("entity_type")
+  entityId          String?   @map("entity_id")
+  lastAlertSnapshot Json?     @map("last_alert_snapshot")
+  closedAt          DateTime? @map("closed_at")
+  updatedById       String?   @map("updated_by")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  updatedBy User? @relation("OperationsIssueUpdatedBy", fields: [updatedById], references: [id])
+
+  @@index([status])
+  @@index([type])
+  @@index([entityType, entityId])
+  @@map("operations_control_issue_states")
 }
 
 enum LeadStatus {
@@ -672,51 +696,52 @@ model BillingPayment {
 }
 
 model Cycle {
-  id                    String       @id @default(uuid())
-  fireberryId           String?      @unique @map("fireberry_id")
-  name                  String
-  courseId              String       @map("course_id")
-  branchId              String       @map("branch_id")
-  instructorId          String       @map("instructor_id")
-  institutionalOrderId  String?      @map("institutional_order_id")
-  type                  CycleType
-  startDate             DateTime     @map("start_date") @db.Date
-  endDate               DateTime     @map("end_date") @db.Date
-  dayOfWeek             DayOfWeek    @map("day_of_week")
-  startTime             DateTime     @map("start_time") @db.Time
-  endTime               DateTime     @map("end_time") @db.Time
-  durationMinutes       Int          @map("duration_minutes")
-  totalMeetings         Int          @map("total_meetings")
-  pricePerStudent       Decimal?     @map("price_per_student") @db.Decimal(10, 2)
-  meetingRevenue        Decimal?     @map("meeting_revenue") @db.Decimal(10, 2)
-  revenueIncludesVat    Boolean?     @default(false) @map("revenue_includes_vat")
-  instructorPaymentMode String       @default("hourly") @map("instructor_payment_mode") // hourly or daily
-  instructorDailyRate   Decimal?     @map("instructor_daily_rate") @db.Decimal(10, 2)
-  studentCount          Int?         @map("student_count")
-  maxStudents           Int?         @map("max_students")
-  sendParentReminders   Boolean      @default(true) @map("send_parent_reminders")
-  isOnline              Boolean      @default(false) @map("is_online")
-  activityType          ActivityType @default(frontal) @map("activity_type")
-  location              String? // city/location where the cycle takes place — required for frontal cycles, irrelevant for online/private. Used as the location in the instructor salary report.
-  zoomHostId            String?      @map("zoom_host_id")
-  zoomHostEmail         String?      @map("zoom_host_email")
-  zoomMeetingId         String?      @map("zoom_meeting_id")
-  zoomJoinUrl           String?      @map("zoom_join_url")
-  zoomHostKey           String?      @map("zoom_host_key")
-  zoomPassword          String?      @map("zoom_password")
-  completedMeetings     Int          @default(0) @map("completed_meetings")
-  remainingMeetings     Int          @default(0) @map("remaining_meetings")
-  status                CycleStatus  @default(active)
-  frozenAt              DateTime?    @map("frozen_at")
-  frozenReason          String?      @map("frozen_reason")
-  resumeDate            DateTime?    @map("resume_date") @db.Date
-  notes                 String? // free-form admin notes about the cycle (pricing assumptions,
+  id                       String       @id @default(uuid())
+  fireberryId              String?      @unique @map("fireberry_id")
+  name                     String
+  courseId                 String       @map("course_id")
+  branchId                 String       @map("branch_id")
+  instructorId             String       @map("instructor_id")
+  institutionalOrderId     String?      @map("institutional_order_id")
+  type                     CycleType
+  startDate                DateTime     @map("start_date") @db.Date
+  endDate                  DateTime     @map("end_date") @db.Date
+  dayOfWeek                DayOfWeek    @map("day_of_week")
+  startTime                DateTime     @map("start_time") @db.Time
+  endTime                  DateTime     @map("end_time") @db.Time
+  durationMinutes          Int          @map("duration_minutes")
+  totalMeetings            Int          @map("total_meetings")
+  pricePerStudent          Decimal?     @map("price_per_student") @db.Decimal(10, 2)
+  meetingRevenue           Decimal?     @map("meeting_revenue") @db.Decimal(10, 2)
+  revenueIncludesVat       Boolean?     @default(false) @map("revenue_includes_vat")
+  instructorPaymentMode    String       @default("hourly") @map("instructor_payment_mode") // hourly or daily
+  instructorDailyRate      Decimal?     @map("instructor_daily_rate") @db.Decimal(10, 2)
+  studentCount             Int?         @map("student_count")
+  maxStudents              Int?         @map("max_students")
+  minimumStudentsThreshold Int?         @map("minimum_students_threshold")
+  sendParentReminders      Boolean      @default(true) @map("send_parent_reminders")
+  isOnline                 Boolean      @default(false) @map("is_online")
+  activityType             ActivityType @default(frontal) @map("activity_type")
+  location                 String? // city/location where the cycle takes place — required for frontal cycles, irrelevant for online/private. Used as the location in the instructor salary report.
+  zoomHostId               String?      @map("zoom_host_id")
+  zoomHostEmail            String?      @map("zoom_host_email")
+  zoomMeetingId            String?      @map("zoom_meeting_id")
+  zoomJoinUrl              String?      @map("zoom_join_url")
+  zoomHostKey              String?      @map("zoom_host_key")
+  zoomPassword             String?      @map("zoom_password")
+  completedMeetings        Int          @default(0) @map("completed_meetings")
+  remainingMeetings        Int          @default(0) @map("remaining_meetings")
+  status                   CycleStatus  @default(active)
+  frozenAt                 DateTime?    @map("frozen_at")
+  frozenReason             String?      @map("frozen_reason")
+  resumeDate               DateTime?    @map("resume_date") @db.Date
+  notes                    String? // free-form admin notes about the cycle (pricing assumptions,
   // contract structure, etc.) — surfaced in cycle detail UI
   // but not on customer-facing documents.
-  createdAt             DateTime     @default(now()) @map("created_at")
-  updatedAt             DateTime     @updatedAt @map("updated_at")
-  deletedAt             DateTime?    @map("deleted_at")
-  deletedBy             String?      @map("deleted_by")
+  createdAt                DateTime     @default(now()) @map("created_at")
+  updatedAt                DateTime     @updatedAt @map("updated_at")
+  deletedAt                DateTime?    @map("deleted_at")
+  deletedBy                String?      @map("deleted_by")
 
   // Relations
   course             Course              @relation(fields: [courseId], references: [id], onDelete: Restrict)

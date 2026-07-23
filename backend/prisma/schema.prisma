@@ -1227,14 +1227,36 @@ model LeadAppointment {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  customer   Customer?      @relation(fields: [customerId], references: [id])
-  assignedTo User?          @relation("LeadAppointmentAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
-  activities LeadActivity[]
+  customer                Customer?                   @relation(fields: [customerId], references: [id])
+  assignedTo              User?                       @relation("LeadAppointmentAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  activities              LeadActivity[]
+  internalAlertDeliveries LeadInternalAlertDelivery[]
 
   @@index([salesStatus])
   @@index([assignedToId])
   @@index([nextFollowUpAt])
   @@map("lead_appointments")
+}
+
+model LeadInternalAlertDelivery {
+  id                String    @id @default(uuid())
+  leadAppointmentId String    @map("lead_appointment_id")
+  recipientType     String    @map("recipient_type")
+  chatId            String    @map("chat_id")
+  status            String    @default("pending")
+  attempts          Int       @default(0)
+  messageId         String?   @map("message_id")
+  lastError         String?   @map("last_error")
+  sentAt            DateTime? @map("sent_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  lead LeadAppointment @relation(fields: [leadAppointmentId], references: [id], onDelete: Cascade)
+
+  @@unique([leadAppointmentId, recipientType])
+  @@index([status])
+  @@index([createdAt])
+  @@map("lead_internal_alert_deliveries")
 }
 
 model LeadActivity {

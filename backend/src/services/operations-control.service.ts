@@ -3,8 +3,10 @@ import { prisma } from '../utils/prisma.js';
 
 const TZ = 'Asia/Jerusalem';
 const LOW_PROFIT_THRESHOLD = Number(process.env.OPERATIONS_CONTROL_LOW_PROFIT_THRESHOLD || 100);
+const DEFAULT_START_DATE = '2026-07-22';
 
 export type OperationsAlertPriority = 'urgent' | 'high' | 'normal';
+export type OperationsIssueStatus = 'new' | 'in_progress' | 'waiting' | 'closed';
 export type OperationsAlertType =
   | 'past_scheduled_meeting'
   | 'missing_topic'
@@ -13,7 +15,8 @@ export type OperationsAlertType =
   | 'low_profit'
   | 'student_absence_risk'
   | 'instructor_change_risk'
-  | 'cycle_churn_risk';
+  | 'cycle_churn_risk'
+  | 'low_enrollment';
 export type FreshnessStatus = 'fresh' | 'stale' | 'error';
 export type OverallStatus = 'ok' | 'watch' | 'urgent' | 'data_error';
 
@@ -32,6 +35,11 @@ export interface OperationsAlert {
   recommendedAction: string;
   detectedAt: string;
   taskId: string | null;
+  status: OperationsIssueStatus;
+  statusNote: string | null;
+  statusUpdatedAt: string | null;
+  contactName: string | null;
+  contactUrl: string | null;
 }
 
 export interface OperationsControlFilters {
@@ -40,7 +48,10 @@ export interface OperationsControlFilters {
   type?: OperationsAlertType;
 }
 
-type AlertCandidate = OperationsAlert;
+type AlertCandidate = Omit<OperationsAlert, 'status' | 'statusNote' | 'statusUpdatedAt' | 'contactName' | 'contactUrl'> & {
+  contactName?: string | null;
+  contactUrl?: string | null;
+};
 
 type MeetingWithRelations = Prisma.MeetingGetPayload<{
   include: {
@@ -134,6 +145,10 @@ function addDays(date: Date, days: number) {
   return next;
 }
 
+function maxDate(...dates: Date[]) {
+  return dates.reduce((latest, date) => (date > latest ? date : latest), dates[0]);
+}
+
 function toDateString(date: Date) {
   return date.toISOString().slice(0, 10);
 }
@@ -155,6 +170,14 @@ function registrationCount(meeting: MeetingWithRelations) {
   return meeting.cycle.registrations.filter((registration) => registration.status !== 'cancelled').length;
 }
 
+function activeRegistrationCount(registrations: Array<{ status: string; deletedAt?: Date | null }>) {
+  return registrations.filter((registration) => (
+    registration.deletedAt === null
+    && registration.status !== 'cancelled'
+    && registration.status !== 'pending_cancellation'
+  )).length;
+}
+
 function meetingClientName(meeting: MeetingWithRelations) {
   return meeting.cycle.branch?.name || meeting.cycle.course?.name || null;
 }
@@ -173,6 +196,10 @@ function cycleUrl(id: string) {
 
 function instructorUrl(name: string) {
   return `/instructors?search=${encodeURIComponent(name)}`;
+}
+
+function customerUrl(id: string) {
+  return `/customers/${id}`;
 }
 
 function buildPastScheduledAlerts(meetings: MeetingWithRelations[], context: {
@@ -335,7 +362,8 @@ function buildStudentAbsenceRiskAlerts(absences: AbsenceRiskRecord[], detectedAt
       const registration = latest.registration!;
       const cycle = registration.cycle;
       const studentName = registration.student.name;
-      const parentName = registration.student.customer?.name || null;
+      const customer = registration.student.customer;
+      const parentName = customer?.name || null;
       const absentDates = sorted
         .map((absence) => toDateString(absence.meeting.scheduledDate))
         .slice(0, 4)
@@ -356,6 +384,8 @@ function buildStudentAbsenceRiskAlerts(absences: AbsenceRiskRecord[], detectedAt
         recommendedAction: 'ליצור קשר עם ההורה/לקוח, להבין סיבה, ולסגור טיפול לפני ביטול הרשמה.',
         detectedAt,
         taskId: null,
+        contactName: parentName,
+        contactUrl: customer?.id ? customerUrl(customer.id) : null,
       } as OperationsAlert;
     });
 }
@@ -449,8 +479,36 @@ function buildCycleChurnRiskAlerts(cycles: CycleWithRegistrationRisk[], context:
   });
 }
 
-export function filterAndSortAlerts(
-  alerts: AlertCandidate[],
+function buildLowEnrollmentAlerts(cycles: CycleWithRegistrationRisk[], detectedAt: string): AlertCandidate[] {
+  return cycles.flatMap((cycle) => {
+    const threshold = cycle.minimumStudentsThreshold || 0;
+    if (threshold <= 0) return [];
+
+    const registrations = cycle.registrations.filter((registration) => registration.deletedAt === null);
+    const activeCount = activeRegistrationCount(registrations);
+    if (activeCount >= threshold) return [];
+
+    return [{
+      id: `low-enrollment:${cycle.id}`,
+      priority: activeCount === 0 ? 'urgent' : 'high',
+      type: 'low_enrollment',
+      title: 'קבוצה מתחת לסף מינימום ילדים',
+      entityType: 'cycle',
+      entityId: cycle.id,
+      entityUrl: cycleUrl(cycle.id),
+      clientName: cycle.branch?.name || cycle.course?.name || null,
+      cycleName: cycle.name,
+      instructorName: cycle.instructor?.name || null,
+      description: `במחזור יש ${activeCount} נרשמים פעילים מול סף מינימום ${threshold}.`,
+      recommendedAction: 'לטפל בגיוס/שימור תלמידים או לקבל החלטה תפעולית לגבי רווחיות המחזור.',
+      detectedAt,
+      taskId: null,
+    } as AlertCandidate];
+  });
+}
+
+export function filterAndSortAlerts<T extends AlertCandidate>(
+  alerts: T[],
   filters: Pick<OperationsControlFilters, 'priority' | 'type'>,
 ) {
   const rank: Record<OperationsAlertPriority, number> = { urgent: 0, high: 1, normal: 2 };
@@ -488,6 +546,7 @@ export function buildOperationsAlerts(data: {
       detectedAt: data.detectedAt,
       sinceDate: data.churnSinceDate,
     }),
+    ...buildLowEnrollmentAlerts(data.activeCycles, data.detectedAt),
   ];
 }
 
@@ -495,6 +554,29 @@ function overallStatus(alerts: OperationsAlert[]): OverallStatus {
   if (alerts.some((alert) => alert.priority === 'urgent')) return 'urgent';
   if (alerts.length > 0) return 'watch';
   return 'ok';
+}
+
+function applyIssueStates(alerts: AlertCandidate[], states: Array<{
+  issueKey: string;
+  status: string;
+  note: string | null;
+  updatedAt: Date;
+}>): OperationsAlert[] {
+  const stateByKey = new Map(states.map((state) => [state.issueKey, state]));
+
+  return alerts
+    .map((alert) => {
+      const state = stateByKey.get(alert.id);
+      return {
+        ...alert,
+        status: (state?.status || 'new') as OperationsIssueStatus,
+        statusNote: state?.note || null,
+        statusUpdatedAt: state?.updatedAt?.toISOString() || null,
+        contactName: alert.contactName || null,
+        contactUrl: alert.contactUrl || null,
+      };
+    })
+    .filter((alert) => alert.status !== 'closed');
 }
 
 function mapMeeting(meeting: MeetingWithRelations) {
@@ -506,6 +588,8 @@ function mapMeeting(meeting: MeetingWithRelations) {
     startTime: formatTime(meeting.startTime),
     endTime: formatTime(meeting.endTime),
     status: meeting.status,
+    cycleType: meeting.cycle.type,
+    activityType: meeting.cycle.activityType,
     cycleName: meeting.cycle.name,
     clientName: meetingClientName(meeting),
     instructorName: meeting.instructor?.name || null,
@@ -572,10 +656,14 @@ export async function getOperationsControlToday(filters: OperationsControlFilter
   const generatedAtIso = generatedAt.toISOString();
   const today = filters.date || dateStringInIsrael(generatedAt);
   const todayDate = dateFromDateString(today);
+  const configuredStartDate = process.env.OPERATIONS_CONTROL_START_DATE || DEFAULT_START_DATE;
+  const operationsStartDate = dateFromDateString(configuredStartDate);
   const yesterdayDate = addDays(todayDate, -1);
-  const riskWindowStart = addDays(todayDate, -45);
-  const churnWindowStart = addDays(todayDate, -60);
+  const recentMeetingStart = maxDate(yesterdayDate, operationsStartDate);
+  const riskWindowStart = maxDate(addDays(todayDate, -45), operationsStartDate);
+  const churnWindowStart = maxDate(addDays(todayDate, -60), operationsStartDate);
   const weekStart = addDays(todayDate, -todayDate.getUTCDay());
+  const effectiveWeekStart = maxDate(weekStart, operationsStartDate);
   const weekEnd = addDays(weekStart, 7);
 
   const meetingInclude = {
@@ -603,7 +691,7 @@ export async function getOperationsControlToday(filters: OperationsControlFilter
     }),
     prisma.meeting.findMany({
       where: {
-        scheduledDate: { gte: yesterdayDate, lte: todayDate },
+        scheduledDate: { gte: recentMeetingStart, lte: todayDate },
         status: 'completed',
         deletedAt: null,
       },
@@ -613,7 +701,7 @@ export async function getOperationsControlToday(filters: OperationsControlFilter
     }),
     prisma.meeting.findMany({
       where: {
-        scheduledDate: { lte: todayDate },
+        scheduledDate: { gte: operationsStartDate, lte: todayDate },
         status: 'scheduled',
         deletedAt: null,
       },
@@ -623,7 +711,7 @@ export async function getOperationsControlToday(filters: OperationsControlFilter
     }),
     prisma.meeting.findMany({
       where: {
-        scheduledDate: { gte: weekStart, lt: weekEnd },
+        scheduledDate: { gte: effectiveWeekStart, lt: weekEnd },
         deletedAt: null,
       },
       include: meetingInclude,
@@ -720,7 +808,14 @@ export async function getOperationsControlToday(filters: OperationsControlFilter
     today,
     nowMinutes: israelMinutesNow(generatedAt),
   });
-  const alerts = filterAndSortAlerts(allAlerts, filters);
+  const issueStates = allAlerts.length > 0
+    ? await prisma.operationsControlIssueState.findMany({
+      where: { issueKey: { in: allAlerts.map((alert) => alert.id) } },
+      select: { issueKey: true, status: true, note: true, updatedAt: true },
+    })
+    : [];
+  const visibleAlerts = applyIssueStates(allAlerts, issueStates);
+  const alerts = filterAndSortAlerts(visibleAlerts, filters);
   const urgentCount = alerts.filter((alert) => alert.priority === 'urgent').length;
   const highCount = alerts.filter((alert) => alert.priority === 'high').length;
   const normalCount = alerts.filter((alert) => alert.priority === 'normal').length;
@@ -730,6 +825,7 @@ export async function getOperationsControlToday(filters: OperationsControlFilter
     generatedAt: generatedAtIso,
     timezone: TZ,
     date: today,
+    operationsStartDate: toDateString(operationsStartDate),
     freshness: {
       status: 'fresh' as FreshnessStatus,
       generatedAt: generatedAtIso,
@@ -742,7 +838,7 @@ export async function getOperationsControlToday(filters: OperationsControlFilter
       normalCount,
       openTaskCount,
       todayMeetingCount: todayMeetings.length,
-      unresolvedMeetingCount: allAlerts.filter((alert) => (
+      unresolvedMeetingCount: visibleAlerts.filter((alert) => (
         alert.type === 'past_scheduled_meeting'
         || alert.type === 'missing_topic'
         || alert.type === 'missing_attendance'
@@ -761,6 +857,44 @@ export async function getOperationsControlToday(filters: OperationsControlFilter
   };
 }
 
+export async function updateOperationsControlIssueStatus(input: {
+  issueKey: string;
+  status: OperationsIssueStatus;
+  note?: string | null;
+  updatedById?: string | null;
+  snapshot?: Partial<Pick<OperationsAlert, 'title' | 'type' | 'priority' | 'entityType' | 'entityId'>>;
+}) {
+  const closedAt = input.status === 'closed' ? new Date() : null;
+  return prisma.operationsControlIssueState.upsert({
+    where: { issueKey: input.issueKey },
+    create: {
+      issueKey: input.issueKey,
+      status: input.status,
+      note: input.note || null,
+      title: input.snapshot?.title || null,
+      type: input.snapshot?.type || null,
+      priority: input.snapshot?.priority || null,
+      entityType: input.snapshot?.entityType || null,
+      entityId: input.snapshot?.entityId || null,
+      lastAlertSnapshot: input.snapshot ? input.snapshot as Prisma.InputJsonValue : undefined,
+      closedAt,
+      updatedById: input.updatedById || null,
+    },
+    update: {
+      status: input.status,
+      note: input.note || null,
+      title: input.snapshot?.title,
+      type: input.snapshot?.type,
+      priority: input.snapshot?.priority,
+      entityType: input.snapshot?.entityType,
+      entityId: input.snapshot?.entityId,
+      lastAlertSnapshot: input.snapshot ? input.snapshot as Prisma.InputJsonValue : undefined,
+      closedAt,
+      updatedById: input.updatedById || null,
+    },
+  });
+}
+
 export const __operationsControlTestUtils = {
   buildPastScheduledAlerts,
   buildMissingTopicAlerts,
@@ -770,5 +904,7 @@ export const __operationsControlTestUtils = {
   buildStudentAbsenceRiskAlerts,
   buildInstructorChangeRiskAlerts,
   buildCycleChurnRiskAlerts,
+  buildLowEnrollmentAlerts,
+  applyIssueStates,
   dateFromDateString,
 };

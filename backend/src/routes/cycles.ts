@@ -331,6 +331,7 @@ cyclesRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
       instructorDailyRate: data.instructorPaymentMode === 'daily' ? data.instructorDailyRate : null,
       studentCount: data.studentCount,
       maxStudents: data.maxStudents,
+      minimumStudentsThreshold: data.minimumStudentsThreshold,
       sendParentReminders: data.sendParentReminders,
       isOnline: data.activityType === 'online',
       activityType: data.activityType,
@@ -474,6 +475,7 @@ cyclesRouter.put('/:id', operationsManagerOrAdmin, async (req, res, next) => {
       meetingRevenue: Number(existingCycle.meetingRevenue),
       pricePerStudent: Number(existingCycle.pricePerStudent),
       studentCount: existingCycle.studentCount,
+      minimumStudentsThreshold: existingCycle.minimumStudentsThreshold,
       activityType: existingCycle.activityType,
     };
     const newRecord = {
@@ -490,6 +492,7 @@ cyclesRouter.put('/:id', operationsManagerOrAdmin, async (req, res, next) => {
       meetingRevenue: Number(cycle.meetingRevenue),
       pricePerStudent: Number(cycle.pricePerStudent),
       studentCount: cycle.studentCount,
+      minimumStudentsThreshold: cycle.minimumStudentsThreshold,
       activityType: cycle.activityType,
     };
     await logUpdateAudit({
@@ -793,6 +796,7 @@ cyclesRouter.post('/bulk-update', operationsManagerOrAdmin, async (req, res, nex
     if (data.revenueIncludesVat !== undefined) updateData.revenueIncludesVat = data.revenueIncludesVat;
     if (data.pricePerStudent !== undefined) updateData.pricePerStudent = data.pricePerStudent;
     if (data.studentCount !== undefined) updateData.studentCount = data.studentCount;
+    if (data.minimumStudentsThreshold !== undefined) updateData.minimumStudentsThreshold = data.minimumStudentsThreshold;
     if (data.sendParentReminders !== undefined) updateData.sendParentReminders = data.sendParentReminders;
     if (data.activityType !== undefined) {
       updateData.activityType = data.activityType;

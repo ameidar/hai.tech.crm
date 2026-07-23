@@ -899,6 +899,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     instructorDailyRate: 0,
     studentCount: 0,
     maxStudents: 15,
+    minimumStudentsThreshold: 0,
     sendParentReminders: true,
     isOnline: false,
     activityType: 'frontal' as ActivityType,
@@ -937,6 +938,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     let meetingRevenueValue = Number(formData.meetingRevenue);
     const studentCountValue = Number(formData.studentCount);
     const maxStudentsValue = Number(formData.maxStudents);
+    const minimumStudentsThresholdValue = Number(formData.minimumStudentsThreshold);
     
     // Amounts entered here are always before VAT. VAT is not HaiTech revenue.
     
@@ -957,6 +959,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
       instructorDailyRate: formData.instructorPaymentMode === 'daily' ? Number(formData.instructorDailyRate) : null,
       studentCount: formData.type === 'institutional_per_child' && studentCountValue > 0 ? studentCountValue : undefined,
       maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
+      minimumStudentsThreshold: minimumStudentsThresholdValue > 0 ? minimumStudentsThresholdValue : null,
     };
     if (formData.type === 'institutional_fixed') {
       submitData.revenueIncludesVat = false;
@@ -1176,6 +1179,17 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
             />
           </div>
 
+          <div>
+            <label className="form-label">סף מינימום ילדים למעקב</label>
+            <input
+              type="number"
+              value={formData.minimumStudentsThreshold}
+              onChange={(e) => setFormData({ ...formData, minimumStudentsThreshold: Number(e.target.value) })}
+              className="form-input"
+              min="0"
+            />
+          </div>
+
           <div className="col-span-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
             כל המחירים וההכנסות במחזור הם ללא מע״מ. המע״מ מתווסף בנפרד ואינו חלק מההכנסה.
           </div>
@@ -1327,6 +1341,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     instructorDailyRate: cycle.instructorDailyRate || 0,
     studentCount: cycle.studentCount || 0,
     maxStudents: cycle.maxStudents || 15,
+    minimumStudentsThreshold: cycle.minimumStudentsThreshold || 0,
     sendParentReminders: cycle.sendParentReminders,
     isOnline: cycle.isOnline,
     activityType: cycle.activityType || 'frontal',
@@ -1365,6 +1380,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     let meetingRevenueValue = Number(formData.meetingRevenue);
     const studentCountValue = Number(formData.studentCount);
     const maxStudentsValue = Number(formData.maxStudents);
+    const minimumStudentsThresholdValue = Number(formData.minimumStudentsThreshold);
     
     // Amounts entered here are always before VAT. VAT is not HaiTech revenue.
     
@@ -1394,6 +1410,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
       instructorDailyRate: formData.instructorPaymentMode === 'daily' ? Number(formData.instructorDailyRate) : null,
       studentCount: formData.type === 'institutional_per_child' && studentCountValue > 0 ? studentCountValue : undefined,
       maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
+      minimumStudentsThreshold: minimumStudentsThresholdValue > 0 ? minimumStudentsThresholdValue : null,
       sendParentReminders: formData.sendParentReminders,
       isOnline: formData.isOnline,
       activityType: formData.activityType,
@@ -1589,6 +1606,17 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
               onChange={(e) => setFormData({ ...formData, maxStudents: Number(e.target.value) })}
               className="form-input"
               min="1"
+            />
+          </div>
+
+          <div>
+            <label className="form-label">סף מינימום ילדים למעקב</label>
+            <input
+              type="number"
+              value={formData.minimumStudentsThreshold}
+              onChange={(e) => setFormData({ ...formData, minimumStudentsThreshold: Number(e.target.value) })}
+              className="form-input"
+              min="0"
             />
           </div>
 

@@ -153,6 +153,7 @@ const cycleBaseSchema = z.object({
   instructorDailyRate: z.number().nonnegative().optional().nullable(),
   studentCount: z.number().int().nonnegative().optional().nullable(),
   maxStudents: z.number().int().nonnegative().optional().nullable(),
+  minimumStudentsThreshold: z.number().int().nonnegative().optional().nullable(),
   sendParentReminders: z.boolean().default(true),
   isOnline: z.boolean().default(false),
   activityType: z.enum(['online', 'frontal', 'private_lesson']).default('frontal'),
@@ -308,6 +309,7 @@ export const bulkUpdateCyclesSchema = z.object({
     revenueIncludesVat: z.boolean().optional().nullable(),
     pricePerStudent: z.number().positive().optional().nullable(),
     studentCount: z.number().int().positive().optional().nullable(),
+    minimumStudentsThreshold: z.number().int().nonnegative().optional().nullable(),
     sendParentReminders: z.boolean().optional(),
     activityType: z.enum(['online', 'frontal', 'private_lesson']).optional(),
   }).refine(

@@ -2894,6 +2894,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     instructorDailyRate: cycle.instructorDailyRate || 0,
     studentCount: cycle.studentCount || 0,
     maxStudents: cycle.maxStudents || 15,
+    minimumStudentsThreshold: cycle.minimumStudentsThreshold || 0,
     activityType: cycle.activityType || 'frontal',
     location: cycle.location || '',
   });
@@ -2974,6 +2975,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
       instructorDailyRate: formData.instructorPaymentMode === 'daily' ? Number(formData.instructorDailyRate) : null,
       studentCount: formData.type === 'institutional_per_child' ? Number(formData.studentCount) : undefined,
       maxStudents: Number(formData.maxStudents),
+      minimumStudentsThreshold: Number(formData.minimumStudentsThreshold) > 0 ? Number(formData.minimumStudentsThreshold) : null,
       activityType: formData.activityType as ActivityType,
       location: formData.location.trim() || null,
       institutionalOrderId: formData.institutionalOrderId || null,
@@ -3263,6 +3265,17 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
             onChange={(e) => setFormData({ ...formData, maxStudents: Number(e.target.value) })}
             className="form-input"
             min="1"
+          />
+        </div>
+
+        <div>
+          <label className="form-label">סף מינימום ילדים למעקב</label>
+          <input
+            type="number"
+            value={formData.minimumStudentsThreshold}
+            onChange={(e) => setFormData({ ...formData, minimumStudentsThreshold: Number(e.target.value) })}
+            className="form-input"
+            min="0"
           />
         </div>
 

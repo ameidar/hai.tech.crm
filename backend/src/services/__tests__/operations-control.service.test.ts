@@ -51,7 +51,7 @@ function absence(overrides: Record<string, any> = {}) {
       student: {
         id: overrides.studentId || 'student-1',
         name: overrides.studentName || 'עומר',
-        customer: { name: overrides.customerName || 'משפחת עומר' },
+        customer: { id: overrides.customerId || 'customer-1', name: overrides.customerName || 'משפחת עומר' },
       },
       cycle: {
         id: overrides.cycleId || 'cycle-1',
@@ -85,6 +85,7 @@ function cycle(overrides: Record<string, any> = {}) {
     name: overrides.name || 'מחזור בדיקה',
     studentCount: overrides.studentCount ?? 10,
     maxStudents: overrides.maxStudents ?? null,
+    minimumStudentsThreshold: overrides.minimumStudentsThreshold ?? null,
     branch: { name: overrides.branchName || 'סניף בדיקה' },
     course: { name: 'קורס בדיקה' },
     instructor: { id: 'instructor-1', name: overrides.instructorName || 'קים' },
@@ -168,6 +169,7 @@ describe('operations control alert rules', () => {
       priority: 'high',
       type: 'student_absence_risk',
       entityType: 'cycle',
+      contactUrl: '/customers/customer-1',
     });
   });
 
@@ -199,5 +201,64 @@ describe('operations control alert rules', () => {
       type: 'cycle_churn_risk',
       entityUrl: '/cycles/cycle-1',
     });
+  });
+
+  it('creates a low-enrollment alert when active registrations drop below configured threshold', () => {
+    const alerts = __operationsControlTestUtils.buildLowEnrollmentAlerts(
+      [cycle({ minimumStudentsThreshold: 4 })],
+      detectedAt,
+    );
+
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({
+      type: 'low_enrollment',
+      priority: 'high',
+      entityUrl: '/cycles/cycle-1',
+    });
+  });
+
+  it('applies saved issue statuses and hides closed alerts', () => {
+    const alerts = [
+      {
+        id: 'visible-alert',
+        priority: 'high',
+        type: 'missing_topic',
+        title: 'פתוח',
+        entityType: 'meeting',
+        entityId: 'meeting-1',
+        entityUrl: '/meetings/meeting-1',
+        clientName: null,
+        cycleName: null,
+        instructorName: null,
+        description: 'בדיקה',
+        recommendedAction: 'לטפל',
+        detectedAt,
+        taskId: null,
+      },
+      {
+        id: 'closed-alert',
+        priority: 'high',
+        type: 'missing_topic',
+        title: 'סגור',
+        entityType: 'meeting',
+        entityId: 'meeting-2',
+        entityUrl: '/meetings/meeting-2',
+        clientName: null,
+        cycleName: null,
+        instructorName: null,
+        description: 'בדיקה',
+        recommendedAction: 'לטפל',
+        detectedAt,
+        taskId: null,
+      },
+    ] as any;
+
+    const applied = __operationsControlTestUtils.applyIssueStates(alerts, [
+      { issueKey: 'visible-alert', status: 'in_progress', note: null, updatedAt: new Date(detectedAt) },
+      { issueKey: 'closed-alert', status: 'closed', note: null, updatedAt: new Date(detectedAt) },
+    ]);
+
+    expect(applied).toHaveLength(1);
+    expect(applied[0]).toMatchObject({ id: 'visible-alert', status: 'in_progress' });
   });
 });

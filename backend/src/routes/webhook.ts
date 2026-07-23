@@ -7,7 +7,7 @@ import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
 import { handleStatusReply } from '../services/whatsapp-reminder.service.js';
 import { logAudit } from '../utils/audit.js';
 import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
-import { meetingRevenueForCycle } from '../utils/revenue.js';
+import { meetingRevenueForMeeting } from '../utils/revenue.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
 import { broadcastWaSSE } from '../services/wa-events.js';
 import rateLimit from 'express-rate-limit';
@@ -1005,7 +1005,7 @@ async function recalculateMeetingFinancials(meetingId: string) {
 
   const cycleData = meeting.cycle;
 
-  const revenue = meetingRevenueForCycle(cycleData);
+  const revenue = meetingRevenueForMeeting(cycleData, meeting);
 
   const instructorPayment = calculateInstructorPayment(cycleData, meeting.instructor, meeting);
 

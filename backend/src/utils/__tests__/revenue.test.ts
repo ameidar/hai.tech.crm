@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   meetingRevenueForCycle,
+  meetingRevenueForMeeting,
   meetingRevenueFromRegistrations,
   revenueRegistrationCount,
 } from '../revenue.js';
@@ -63,5 +64,28 @@ describe('revenue helpers', () => {
         { status: 'active', amount: 1180 },
       ],
     })).toBe(100);
+  });
+
+  it('returns zero revenue for no-revenue meetings even when the cycle has fixed revenue', () => {
+    expect(meetingRevenueForMeeting({
+      type: 'institutional_fixed',
+      meetingRevenue: 500,
+      registrations: [],
+    }, {
+      nature: 'no_revenue',
+    })).toBe(0);
+  });
+
+  it('returns normal cycle revenue for regular meetings', () => {
+    expect(meetingRevenueForMeeting({
+      type: 'private',
+      meetingRevenue: 250,
+      totalMeetings: 10,
+      registrations: [
+        { status: 'active', amount: 1000 },
+      ],
+    }, {
+      nature: 'regular',
+    })).toBe(250);
   });
 });

@@ -54,6 +54,10 @@ type CycleRevenueLike = {
   registrations?: RegistrationLike[] | null;
 };
 
+type MeetingRevenueLike = {
+  nature?: string | null;
+};
+
 export function isRevenueRegistration(registration: RegistrationLike): boolean {
   if (registration.deletedAt) return false;
   return REVENUE_REGISTRATION_STATUSES.has(String(registration.status || 'registered'));
@@ -118,4 +122,12 @@ export function meetingRevenueForCycle(cycle: CycleRevenueLike): number {
   }
 
   return 0;
+}
+
+export function meetingRevenueForMeeting(
+  cycle: CycleRevenueLike,
+  meeting: MeetingRevenueLike | null | undefined,
+): number {
+  if (meeting?.nature === 'no_revenue') return 0;
+  return meetingRevenueForCycle(cycle);
 }

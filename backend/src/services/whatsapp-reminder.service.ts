@@ -7,7 +7,7 @@
  */
 
 import { prisma } from '../utils/prisma.js';
-import { meetingRevenueForCycle } from '../utils/revenue.js';
+import { meetingRevenueForMeeting } from '../utils/revenue.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
 import { sendWhatsApp, sendWhatsAppPoll } from './messaging.js';
 import { handleCycleCompletion } from './cycle-completion.js';
@@ -399,7 +399,7 @@ async function recalculateCompletedMeetingFinancials(meetingId: string): Promise
   if (meeting.status !== 'completed') return;
 
   const cycleData = meeting.cycle;
-  const revenue = meetingRevenueForCycle(cycleData);
+  const revenue = meetingRevenueForMeeting(cycleData, meeting);
 
   const instructorPayment = calculateInstructorPayment(cycleData, meeting.instructor, meeting);
 

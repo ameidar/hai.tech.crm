@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
-import { meetingRevenueForCycle } from '../utils/revenue.js';
+import { meetingRevenueForMeeting } from '../utils/revenue.js';
 import {
   calculateInstructorPayment,
   recalculateDailyInstructorPaymentsForMeeting,
@@ -117,7 +117,7 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
     if (status === 'completed') {
       const cycleData = existingMeeting.cycle;
       
-      const revenue = meetingRevenueForCycle(cycleData);
+      const revenue = meetingRevenueForMeeting(cycleData, existingMeeting);
 
       const instructorPayment = calculateInstructorPayment(cycleData, existingMeeting.instructor, existingMeeting);
 

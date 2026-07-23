@@ -17,7 +17,7 @@ import { authenticate, adminOnly } from '../middleware/auth.js';
 import { sendWhatsAppMessage } from '../services/notifications.js';
 import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
-import { meetingRevenueForCycle } from '../utils/revenue.js';
+import { meetingRevenueForMeeting } from '../utils/revenue.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
@@ -260,7 +260,7 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
         });
 
         if (cycleData) {
-          const revenue = meetingRevenueForCycle(cycleData);
+          const revenue = meetingRevenueForMeeting(cycleData, meeting);
 
           const instructor = await prisma.instructor.findUnique({ where: { id: meeting.instructorId! } });
           const instructorPayment = calculateInstructorPayment(cycleData, instructor, meeting);

@@ -99,6 +99,21 @@ async function upsertTrialAttendance(meetingId: string, registrationId: string, 
   });
 }
 
+async function getInstructorScopeForMeetingList(userId: string, role: string) {
+  if (role !== 'instructor' && role !== 'operations_control') return null;
+
+  const instructor = await prisma.instructor.findUnique({
+    where: { userId },
+    select: { id: true },
+  });
+
+  if (!instructor) {
+    throw new AppError(403, 'לא נמצא מדריך מקושר למשתמש הזה');
+  }
+
+  return instructor.id;
+}
+
 // List meetings
 meetingsRouter.get('/', async (req, res, next) => {
   try {
@@ -113,15 +128,9 @@ meetingsRouter.get('/', async (req, res, next) => {
     const sortParam = (req.query.sort as string | undefined)?.toLowerCase();
     const sortDir: 'asc' | 'desc' = sortParam === 'desc' ? 'desc' : 'asc';
 
-    // If user is an instructor, only show their meetings
-    if (req.user!.role === 'instructor') {
-      const instructor = await prisma.instructor.findUnique({
-        where: { userId: req.user!.userId },
-        select: { id: true },
-      });
-      if (instructor) {
-        instructorId = instructor.id;
-      }
+    const scopedInstructorId = await getInstructorScopeForMeetingList(req.user!.userId, req.user!.role);
+    if (scopedInstructorId) {
+      instructorId = scopedInstructorId;
     }
 
     const where = {

@@ -11,6 +11,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 
+let authenticatedUser = { userId: 'admin-id', role: 'admin' };
+
 vi.mock('../../utils/prisma.js', () => ({
   prisma: {
     meeting: {
@@ -28,7 +30,7 @@ vi.mock('../../utils/prisma.js', () => ({
 
 vi.mock('../../middleware/auth.js', () => ({
   authenticate: (req: any, _res: any, next: any) => {
-    req.user = { userId: 'admin-id', role: 'admin' };
+    req.user = authenticatedUser;
     next();
   },
   managerOrAdmin: (_req: any, _res: any, next: any) => next(),
@@ -69,9 +71,11 @@ app.use(errorHandler);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  authenticatedUser = { userId: 'admin-id', role: 'admin' };
   mockPrisma.meeting.count.mockResolvedValue(0);
   mockPrisma.meeting.findMany.mockResolvedValue([]);
   mockPrisma.cycleExpense.groupBy.mockResolvedValue([]);
+  mockPrisma.instructor.findUnique.mockResolvedValue(null);
 });
 
 describe('GET /api/meetings — sort param', () => {
@@ -124,5 +128,30 @@ describe('GET /api/meetings — sort param', () => {
       { scheduledDate: 'asc' },
       { startTime: 'asc' },
     ]);
+  });
+
+  it('forces operations_control users to their linked instructor meetings', async () => {
+    authenticatedUser = { userId: 'kim-user-id', role: 'operations_control' };
+    mockPrisma.instructor.findUnique.mockResolvedValue({ id: 'kim-instructor-id' } as any);
+
+    await request(app).get('/api/meetings?instructorId=other-instructor-id');
+
+    expect(mockPrisma.instructor.findUnique).toHaveBeenCalledWith({
+      where: { userId: 'kim-user-id' },
+      select: { id: true },
+    });
+    const call = mockPrisma.meeting.findMany.mock.calls[0][0] as any;
+    expect(call.where.instructorId).toBe('kim-instructor-id');
+  });
+
+  it('does not leak all meetings when operations_control has no linked instructor', async () => {
+    authenticatedUser = { userId: 'unlinked-user-id', role: 'operations_control' };
+    mockPrisma.instructor.findUnique.mockResolvedValue(null);
+
+    const response = await request(app).get('/api/meetings');
+
+    expect(response.status).toBe(403);
+    expect(mockPrisma.meeting.findMany).not.toHaveBeenCalled();
+    expect(mockPrisma.meeting.count).not.toHaveBeenCalled();
   });
 });

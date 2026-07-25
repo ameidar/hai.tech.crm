@@ -16,6 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { sendEmail } from '../services/email/sender.js';
 import { sendWhatsAppToChat } from '../services/messaging.js';
+import { handleStatusReply, parseInstructorStatusReply } from '../services/whatsapp-reminder.service.js';
 import { addWaSseClient, broadcastWaSSE as broadcastSSE, removeWaSseClient } from '../services/wa-events.js';
 
 const router = Router();
@@ -743,6 +744,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
             phone,
             contactName
           });
+
+          const instructorStatusReply = parseInstructorStatusReply(text);
+          if (instructorStatusReply !== null) {
+            const handled = await handleStatusReply(phone, instructorStatusReply);
+            if (handled) continue;
+          }
 
           // Quiet-wakeup alert — notify the management group via Green API when a
           // customer breaks silence. New conversations (no prior message) always alert.

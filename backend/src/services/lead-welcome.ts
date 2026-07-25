@@ -9,14 +9,49 @@
 import axios from 'axios';
 import { prisma } from '../utils/prisma.js';
 
+type LeadWelcomeTemplate = {
+  name: string;
+  parameters: (firstName: string, interest?: string | null) => string[];
+  preview: (firstName: string, interest?: string | null) => string;
+};
+
 // Maps a lead's `interest` to the right campaign-specific template.
-// Add new campaigns here — generic `lead_welcome_hai` stays the default.
-const CAMPAIGN_TEMPLATES: Record<string, { name: string; preview: (firstName: string) => string }> = {
+// Add new campaigns here — generic `lead_welcome_hai` stays the fallback.
+const CAMPAIGN_TEMPLATES: Record<string, LeadWelcomeTemplate> = {
   'roblox-group-may26': {
     name: 'roblox_may26_match',
+    parameters: (firstName) => [firstName],
     preview: (firstName) => `[תבנית: roblox_may26_match] התאמה מצוינת! 🎯 ${firstName}, פרטי הקורס + לינק לתשלום`,
   },
 };
+
+function selectLeadWelcomeTemplate(interest?: string | null): LeadWelcomeTemplate {
+  const exact = interest ? CAMPAIGN_TEMPLATES[interest] : null;
+  if (exact) return exact;
+
+  const normalizedInterest = (interest || '').toLowerCase();
+  if (/(trial|campaign|התנסות|ניסיון|נסיון|קמפיין)/.test(normalizedInterest)) {
+    return {
+      name: process.env.LEAD_WELCOME_TRIAL_TEMPLATE_NAME || 'lead_welcome_trial_or_campaign',
+      parameters: (name, value) => [name, value || 'הקורס'],
+      preview: (name, value) => `[תבנית: lead_welcome_trial_or_campaign] היי ${name}, תודה שהתעניינת ב-${value || 'הקורס'}.`,
+    };
+  }
+
+  if (interest) {
+    return {
+      name: process.env.LEAD_WELCOME_INTEREST_TEMPLATE_NAME || 'lead_welcome_course_interest',
+      parameters: (name) => [name],
+      preview: (name) => `[תבנית: lead_welcome_course_interest] היי ${name}, קיבלנו את ההתעניינות שלך בדרך ההייטק.`,
+    };
+  }
+
+  return {
+    name: process.env.LEAD_WELCOME_DEFAULT_TEMPLATE_NAME || 'lead_welcome_hai',
+    parameters: (name) => [name],
+    preview: (name) => `[תבנית: lead_welcome_hai] היי ${name} 👋 קיבלנו את ההתעניינות שלך!`,
+  };
+}
 
 export async function sendLeadWelcomeTemplate(phone: string, name: string, interest?: string | null): Promise<void> {
   if (process.env.LEAD_WELCOME_WA_ENABLED !== 'true') return;
@@ -28,8 +63,7 @@ export async function sendLeadWelcomeTemplate(phone: string, name: string, inter
     const waToken = process.env.WA_ACCESS_TOKEN || '';
     const firstName = name?.split(' ')[0] || name || 'שלום';
 
-    const campaign = (interest && CAMPAIGN_TEMPLATES[interest]) || null;
-    const templateName = campaign ? campaign.name : 'lead_welcome_hai';
+    const template = selectLeadWelcomeTemplate(interest);
 
     // Ensure conversation record exists
     let conv = await prisma.waConversation.findFirst({ where: { phone: normalizedPhone } });
@@ -52,18 +86,19 @@ export async function sendLeadWelcomeTemplate(phone: string, name: string, inter
         to: normalizedPhone,
         type: 'template',
         template: {
-          name: templateName,
+          name: template.name,
           language: { code: 'he' },
-          components: [{ type: 'body', parameters: [{ type: 'text', text: firstName }] }],
+          components: [{
+            type: 'body',
+            parameters: template.parameters(firstName, interest).map(text => ({ type: 'text', text })),
+          }],
         },
       },
       { headers: { Authorization: `Bearer ${waToken}`, 'Content-Type': 'application/json' } }
     );
 
     const waId = resp.data?.messages?.[0]?.id;
-    const messageContent = campaign
-      ? campaign.preview(firstName)
-      : `[תבנית: lead_welcome_hai] היי ${firstName} 👋 קיבלנו את ההתעניינות שלך!`;
+    const messageContent = template.preview(firstName, interest);
     const now = new Date();
 
     await prisma.waMessage.create({
@@ -86,7 +121,7 @@ export async function sendLeadWelcomeTemplate(phone: string, name: string, inter
       },
     });
 
-    console.log(`[LeadWelcome] Template '${templateName}' sent to ${normalizedPhone}`);
+    console.log(`[LeadWelcome] Template '${template.name}' sent to ${normalizedPhone}`);
   } catch (err: any) {
     console.error('[LeadWelcome] Failed to send template:', err.response?.data || err.message);
   }

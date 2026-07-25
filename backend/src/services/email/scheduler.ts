@@ -16,7 +16,6 @@ import {
 import { buildInstructorMonthlyReport, getPreviousMonth } from '../instructorReport.service.js';
 import { generateInstructorReportExcel } from '../../utils/excelReportGenerator.js';
 import { sendInstructorMonthlyReportEmail } from './instructorReportEmail.js';
-import { sendWhatsApp } from '../messaging.js';
 import { reminderEligibleMeetingWhereForDate } from '../reminder-eligibility.js';
 import {
   findZoomHostConflictsForDate,
@@ -24,6 +23,7 @@ import {
 } from '../zoom-conflicts.js';
 import { sendTomorrowMeetingCheckReport } from '../meeting-check-report.js';
 import { sendParentWhatsAppReminder } from '../parent-whatsapp-reminders.js';
+import { sendWhatsAppCloudTemplate, templateText } from '../whatsapp-cloud-templates.js';
 
 // Management email list (configure via env or database)
 const MANAGEMENT_EMAILS = (process.env.MANAGEMENT_EMAILS || 'ami@hai.tech').split(',');
@@ -553,8 +553,18 @@ async function checkCyclesNearCompletion(): Promise<void> {
         `נותר שיעור אחד בלבד לסיום המחזור "${cycle.name}"${nextDateStr}.\n` +
         `אנא וודא שכל פרטי הכיתה מעודכנים לקראת השיעור האחרון 🙏`;
       try {
-        await sendWhatsApp({ phone: cycle.instructor.phone, message });
-        console.log(`[CycleCheck] WhatsApp sent to ${cycle.instructor.name}`);
+        const result = await sendWhatsAppCloudTemplate({
+          phone: cycle.instructor.phone,
+          contactName: cycle.instructor.name,
+          templateName: process.env.INSTRUCTOR_LAST_LESSON_WA_TEMPLATE_NAME || 'instructor_last_lesson_reminder',
+          bodyParameters: [
+            templateText(cycle.instructor.name, 'מדריך/ה'),
+            templateText(cycle.name, 'המחזור'),
+            templateText(nextDateStr.replace(/^ — /, ''), 'מחר'),
+          ],
+          preview: `[תבנית: instructor_last_lesson_reminder] ${message}`,
+        });
+        console.log(`[CycleCheck] WhatsApp to ${cycle.instructor.name}: ${result.success ? '✓' : result.error}`);
       } catch (err) {
         console.error(`[CycleCheck] WhatsApp failed for ${cycle.instructor.name}:`, err);
       }

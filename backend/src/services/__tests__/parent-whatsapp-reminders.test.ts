@@ -22,6 +22,7 @@ vi.mock('../../utils/prisma.js', () => ({
 import axios from 'axios';
 import { prisma } from '../../utils/prisma.js';
 import {
+  buildParentOnlineReminderTemplateVariables,
   buildParentReminderPreview,
   buildParentReminderTemplateVariables,
   sendParentWhatsAppReminder,
@@ -57,6 +58,16 @@ describe('parent WhatsApp reminders', () => {
       '15:00',
       'אונליין',
       'נועה',
+      'קישור לזום: https://zoom.example/j/123',
+    ]);
+  });
+
+  it('builds online Meta template variables in the documented order', () => {
+    expect(buildParentOnlineReminderTemplateVariables(reminderData)).toEqual([
+      'שרית',
+      'ירדן',
+      'רובלוקס',
+      '15:00',
       'https://zoom.example/j/123',
     ]);
   });
@@ -80,7 +91,7 @@ describe('parent WhatsApp reminders', () => {
       'השעה תעודכן בהמשך',
       'אונליין',
       'צוות HaiTech',
-      'אין קישור זום לשיעור זה',
+      'לשיעור פרונטלי, אין צורך בקישור זום',
     ]);
   });
 
@@ -95,7 +106,7 @@ describe('parent WhatsApp reminders', () => {
     expect(axios.post).not.toHaveBeenCalled();
   });
 
-  it('sends an official WhatsApp template and stores it in the inbox when enabled', async () => {
+  it('sends the approved parent reminder template and stores it in the inbox when enabled', async () => {
     process.env.PARENT_REMINDER_WA_ENABLED = 'true';
     process.env.PARENT_REMINDER_WA_TEMPLATE_NAME = 'parent_lesson_reminder';
     (axios.post as any).mockResolvedValue({ data: { messages: [{ id: 'wamid.1' }] } });

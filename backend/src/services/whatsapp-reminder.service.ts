@@ -9,7 +9,6 @@
 import { prisma } from '../utils/prisma.js';
 import { meetingRevenueForMeeting } from '../utils/revenue.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
-import { sendWhatsApp, sendWhatsAppPoll } from './messaging.js';
 import { handleCycleCompletion } from './cycle-completion.js';
 import { generateMeetingMagicLink } from './instructor-reminder.service.js';
 import { reminderEligibleMeetingWhereForDate } from './reminder-eligibility.js';
@@ -18,6 +17,11 @@ import {
   recalculateDailyInstructorPaymentsForMeeting,
 } from './instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from './negative-profit-alert.js';
+import {
+  sendWhatsAppCloudTemplate,
+  sendWhatsAppCloudText,
+  templateText,
+} from './whatsapp-cloud-templates.js';
 
 const APP_URL = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
 const TZ = 'Asia/Jerusalem';
@@ -137,6 +141,31 @@ function buildMorningMessage(instructorName: string, meetings: any[], meetingLin
   return lines.join('');
 }
 
+function buildMorningScheduleText(meetings: any[], meetingLinks?: Map<string, string>): string {
+  return meetings.map((m) => {
+    const time = formatTimeFromDate(m.startTime);
+    const zoom = m.zoomJoinUrl ? ` | זום: ${m.zoomJoinUrl}` : '';
+    const hostKey = m.zoomHostKey ? ` | קוד מנהל: ${m.zoomHostKey}` : '';
+    const link = meetingLinks?.get(m.id) ? ` | דיווח: ${meetingLinks.get(m.id)}` : '';
+    return `${time} - ${m.cycle?.name || 'שיעור'} | ${m.cycle?.branch?.name || 'אונליין'}${zoom}${hostKey}${link}`;
+  }).join('\n');
+}
+
+function buildMeetingTitle(meeting: any): string {
+  const cycleName = meeting.cycle?.name || meeting.cycle?.course?.name || 'שיעור';
+  const branchName = meeting.cycle?.branch?.name;
+  return branchName ? `${cycleName} | ${branchName}` : cycleName;
+}
+
+function parseInstructorStatusReplyText(text: string | null | undefined): boolean | null {
+  const lower = (text || '').toLowerCase().trim();
+  if (/^(כן|כ|נכון|yes|y|עברתי|העברתי|התקיים|✅)/.test(lower)) return true;
+  if (/^(לא|ל|no|n|לא עברתי|לא התקיים|בוטל|❌)/.test(lower)) return false;
+  return null;
+}
+
+export const parseInstructorStatusReply = parseInstructorStatusReplyText;
+
 /**
  * A) Morning reminders — 08:00 Israel time
  */
@@ -173,8 +202,19 @@ export async function sendMorningWhatsAppReminders(): Promise<void> {
       for (const m of instrMeetings) {
         meetingLinks.set(m.id, generateMeetingMagicLink(instructor.id, m.id, APP_URL));
       }
-      const message = buildMorningMessage(instructor.name, instrMeetings, meetingLinks);
-      const result = await sendWhatsApp({ phone: instructor.phone!, message });
+      const scheduleText = buildMorningScheduleText(instrMeetings, meetingLinks);
+      const preview = `[תבנית: instructor_daily_schedule] ${buildMorningMessage(instructor.name, instrMeetings, meetingLinks)}`;
+      const result = await sendWhatsAppCloudTemplate({
+        phone: instructor.phone!,
+        contactName: instructor.name,
+        templateName: process.env.INSTRUCTOR_DAILY_REMINDER_WA_TEMPLATE_NAME || 'instructor_daily_schedule',
+        bodyParameters: [
+          templateText(instructor.name, 'מדריך/ה'),
+          templateText(scheduleText, 'אין פירוט שיעורים'),
+          `${APP_URL}/instructor`,
+        ],
+        preview,
+      });
       console.log(`[WhatsApp] Morning to ${instructor.name}: ${result.success ? '✓' : result.error}`);
     }
   } catch (error: any) {
@@ -235,7 +275,18 @@ export async function sendMorningUnresolvedAlert(): Promise<void> {
     }
 
     for (const phone of phones) {
-      const result = await sendWhatsApp({ phone, message });
+      const result = await sendWhatsAppCloudTemplate({
+        phone,
+        contactName: 'הנהלה',
+        templateName: process.env.MANAGEMENT_UNRESOLVED_WA_TEMPLATE_NAME || 'management_unresolved_meetings',
+        bodyParameters: [
+          templateText(dateStr, 'אתמול'),
+          String(unresolved.length),
+          templateText(lines.slice(1, -1).join('\n'), 'פירוט ב-CRM'),
+          APP_URL,
+        ],
+        preview: `[תבנית: management_unresolved_meetings] ${message}`,
+      });
       console.log(`[WhatsApp] Unresolved alert → ${phone}: ${result.success ? '✓' : result.error}`);
     }
   } catch (error: any) {
@@ -303,7 +354,19 @@ export async function sendPreMeetingReminders(): Promise<void> {
       };
 
       const message = buildMeetingMessage(m.instructor.name, m, meetingLink, extras);
-      const result = await sendWhatsApp({ phone: m.instructor.phone!, message });
+      const result = await sendWhatsAppCloudTemplate({
+        phone: m.instructor.phone!,
+        contactName: m.instructor.name,
+        templateName: process.env.INSTRUCTOR_PRE_LESSON_WA_TEMPLATE_NAME || 'instructor_pre_lesson_60m',
+        bodyParameters: [
+          templateText(m.instructor.name, 'מדריך/ה'),
+          templateText(buildMeetingTitle(m), 'שיעור'),
+          templateText(m.cycle?.branch?.name || (m.zoomJoinUrl ? 'אונליין' : ''), 'אונליין'),
+          templateText(formatTimeFromDate(m.startTime), 'השעה תעודכן בהמשך'),
+          meetingLink,
+        ],
+        preview: `[תבנית: instructor_pre_lesson_60m] ${message}`,
+      });
       if (result.success) {
         preMeetingRemindersSent.add(m.id);
         console.log(`[WhatsApp] Pre-meeting reminder sent to ${m.instructor.name}`);
@@ -336,12 +399,20 @@ export async function sendEveningStatusCheck(): Promise<void> {
     for (const m of instructorMeetings) {
       const instr = m.instructor!;
       const time = formatTimeFromDate(m.startTime);
-      const question = `שלום ${instr.name}, האם העברת את השיעור היום?\n📚 ${m.cycle?.name || ''}\n🏫 ${m.cycle?.branch?.name || ''}\n🕐 שעה: ${time}`;
+      const meetingLink = generateMeetingMagicLink(instr.id, m.id, APP_URL);
+      const question = `שלום ${instr.name}, האם השיעור של היום התקיים?\n📚 ${m.cycle?.name || ''}\n🏫 ${m.cycle?.branch?.name || ''}\n🕐 שעה: ${time}\n\nאפשר להשיב כאן: כן / לא`;
 
-      const result = await sendWhatsAppPoll({
+      const result = await sendWhatsAppCloudTemplate({
         phone: instr.phone!,
-        question,
-        options: ['✅ כן, העברתי', '❌ לא, לא העברתי'],
+        contactName: instr.name,
+        templateName: process.env.INSTRUCTOR_STATUS_CHECK_WA_TEMPLATE_NAME || 'instructor_status_check',
+        bodyParameters: [
+          templateText(instr.name, 'מדריך/ה'),
+          templateText(m.cycle?.name, 'שיעור'),
+          templateText(time, 'השעה תעודכן בהמשך'),
+          meetingLink,
+        ],
+        preview: `[תבנית: instructor_status_check] ${question}`,
       });
 
       if (result.success) {
@@ -427,7 +498,7 @@ async function recalculateCompletedMeetingFinancials(meetingId: string): Promise
 /**
  * Handle incoming WhatsApp status reply from instructor
  */
-export async function handleStatusReply(phone: string, isYes: boolean): Promise<void> {
+export async function handleStatusReply(phone: string, isYes: boolean): Promise<boolean> {
   try {
     const phoneVariants = normalizePhone(phone);
     const reminders = await prisma.$queryRaw<any[]>`
@@ -448,7 +519,7 @@ export async function handleStatusReply(phone: string, isYes: boolean): Promise<
 
     if (!reminders.length) {
       console.log(`[WhatsApp] No pending reminder for phone ${phone}`);
-      return;
+      return false;
     }
 
     const r = reminders[0];
@@ -470,10 +541,19 @@ export async function handleStatusReply(phone: string, isYes: boolean): Promise<
 
       await recalculateCompletedMeetingFinancials(r.meeting_id);
 
-      await sendWhatsApp({ phone, message: `תודה ${r.instructor_name}! רשמנו שהשיעור "${r.cycle_name}" התקיים 👍` });
-      await sendWhatsApp({ phone: ADMIN_PHONE, message: `ℹ️ מדריך ${r.instructor_name} אישר שיעור "${r.cycle_name}" דרך וואטסאפ (לא מילא עצמאית)` });
+      await sendWhatsAppCloudText({
+        phone,
+        contactName: r.instructor_name,
+        message: `תודה ${r.instructor_name}! רשמנו שהשיעור "${r.cycle_name}" התקיים 👍`,
+      });
+      await sendWhatsAppCloudText({
+        phone: ADMIN_PHONE,
+        contactName: 'עמי',
+        message: `ℹ️ מדריך ${r.instructor_name} אישר שיעור "${r.cycle_name}" דרך וואטסאפ (לא מילא עצמאית)`,
+      });
 
       console.log(`[WhatsApp] Meeting ${r.meeting_id} auto-completed for ${r.instructor_name}`);
+      return true;
     } else {
       await prisma.$executeRaw`
         UPDATE whatsapp_status_reminders
@@ -491,12 +571,22 @@ export async function handleStatusReply(phone: string, isYes: boolean): Promise<
 
       await syncCycleProgress(r.cycle_id);
 
-      await sendWhatsApp({ phone: ADMIN_PHONE, message: `🚨 מדריך ${r.instructor_name} דיווח שלא העביר שיעור "${r.cycle_name}" היום — הפגישה עברה לסטטוס בוטל.` });
-      await sendWhatsApp({ phone, message: `תודה על העדכון ${r.instructor_name}. נצור איתך קשר בנוגע לשיעור.` });
+      await sendWhatsAppCloudText({
+        phone: ADMIN_PHONE,
+        contactName: 'עמי',
+        message: `🚨 מדריך ${r.instructor_name} דיווח שלא העביר שיעור "${r.cycle_name}" היום — הפגישה עברה לסטטוס בוטל.`,
+      });
+      await sendWhatsAppCloudText({
+        phone,
+        contactName: r.instructor_name,
+        message: `תודה על העדכון ${r.instructor_name}. נצור איתך קשר בנוגע לשיעור.`,
+      });
 
       console.log(`[WhatsApp] No-show reported for ${r.instructor_name} — meeting cancelled`);
+      return true;
     }
   } catch (error: any) {
     console.error('[WhatsApp] Error handling status reply:', error.message);
+    return false;
   }
 }

@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import { config } from '../config.js';
 import { sendGreenApiMessage } from './green-api-client.js';
+import { prisma } from '../utils/prisma.js';
 
 // Gmail SMTP transporter
 const emailTransporter = nodemailer.createTransport({
@@ -81,6 +82,131 @@ export async function sendEmail(
 // Recipients for new-lead notifications
 const ADMIN_PHONE = '0528746137'; // Ami's phone
 const SALES_GROUP_CHAT_ID = '120363308669020817@g.us'; // Sales team WhatsApp group
+const LEAD_ALERT_MAX_ATTEMPTS = Number(process.env.LEAD_ALERT_MAX_ATTEMPTS || 3);
+const LEAD_ALERT_RETRY_DELAY_MS = Number(process.env.LEAD_ALERT_RETRY_DELAY_MS || 750);
+
+type LeadAlertRecipientType = 'admin_private' | 'sales_group';
+
+interface LeadAlertRecipient {
+  type: LeadAlertRecipientType;
+  label: string;
+  chatId: string;
+}
+
+const INTERNAL_LEAD_ALERT_RECIPIENTS: LeadAlertRecipient[] = [
+  { type: 'admin_private', label: 'Ami private', chatId: formatPhoneForWhatsApp(ADMIN_PHONE) },
+  { type: 'sales_group', label: 'Sales group', chatId: SALES_GROUP_CHAT_ID },
+];
+
+function wait(ms: number): Promise<void> {
+  if (process.env.NODE_ENV === 'test') return Promise.resolve();
+  if (ms <= 0) return Promise.resolve();
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function sendGreenMessageWithRetry(
+  recipient: LeadAlertRecipient,
+  message: string,
+): Promise<{ success: boolean; attempts: number; messageId?: string; error?: string }> {
+  let lastError: string | undefined;
+
+  for (let attempt = 1; attempt <= LEAD_ALERT_MAX_ATTEMPTS; attempt += 1) {
+    const result = await sendGreenApiMessage(recipient.chatId, message);
+    if (result.success) {
+      return { success: true, attempts: attempt, messageId: result.messageId };
+    }
+
+    lastError = result.error || 'Green API send failed';
+    console.warn(`[LEAD-ALERT] ${recipient.label} attempt ${attempt}/${LEAD_ALERT_MAX_ATTEMPTS} failed: ${lastError}`);
+    if (attempt < LEAD_ALERT_MAX_ATTEMPTS) {
+      await wait(LEAD_ALERT_RETRY_DELAY_MS * attempt);
+    }
+  }
+
+  return { success: false, attempts: LEAD_ALERT_MAX_ATTEMPTS, error: lastError };
+}
+
+async function sendTrackedLeadAlert(
+  leadAppointmentId: string,
+  recipient: LeadAlertRecipient,
+  message: string,
+): Promise<void> {
+  const existing = await prisma.leadInternalAlertDelivery.findUnique({
+    where: {
+      leadAppointmentId_recipientType: {
+        leadAppointmentId,
+        recipientType: recipient.type,
+      },
+    },
+  });
+
+  if (existing?.status === 'sent') {
+    console.log(`[LEAD-ALERT] ${recipient.label} already sent for lead ${leadAppointmentId}, skipping`);
+    return;
+  }
+
+  await prisma.leadInternalAlertDelivery.upsert({
+    where: {
+      leadAppointmentId_recipientType: {
+        leadAppointmentId,
+        recipientType: recipient.type,
+      },
+    },
+    create: {
+      leadAppointmentId,
+      recipientType: recipient.type,
+      chatId: recipient.chatId,
+      status: 'pending',
+      attempts: existing?.attempts || 0,
+    },
+    update: {
+      chatId: recipient.chatId,
+      status: 'pending',
+      lastError: null,
+    },
+  });
+
+  const result = await sendGreenMessageWithRetry(recipient, message);
+  const totalAttempts = (existing?.attempts || 0) + result.attempts;
+
+  await prisma.leadInternalAlertDelivery.update({
+    where: {
+      leadAppointmentId_recipientType: {
+        leadAppointmentId,
+        recipientType: recipient.type,
+      },
+    },
+    data: {
+      status: result.success ? 'sent' : 'failed',
+      attempts: totalAttempts,
+      messageId: result.messageId || null,
+      lastError: result.success ? null : (result.error || 'Green API send failed'),
+      sentAt: result.success ? new Date() : null,
+    },
+  });
+
+  if (!result.success) {
+    console.error(`[LEAD-ALERT] ${recipient.label} failed for lead ${leadAppointmentId}: ${result.error}`);
+  }
+}
+
+export async function sendTrackedInternalLeadAlerts(
+  leadAppointmentId: string,
+  message: string,
+): Promise<void> {
+  for (const recipient of INTERNAL_LEAD_ALERT_RECIPIENTS) {
+    await sendTrackedLeadAlert(leadAppointmentId, recipient, message);
+  }
+}
+
+async function sendUntrackedInternalLeadAlerts(message: string): Promise<void> {
+  for (const recipient of INTERNAL_LEAD_ALERT_RECIPIENTS) {
+    const result = await sendGreenMessageWithRetry(recipient, message);
+    if (!result.success) {
+      console.error(`[LEAD-ALERT] ${recipient.label} failed without leadAppointmentId: ${result.error}`);
+    }
+  }
+}
 
 // Notify admin about new lead
 export async function notifyAdminNewLead(lead: {
@@ -109,10 +235,12 @@ ${lead.interest ? `🎓 *תחום עניין:* ${lead.interest}` : ''}
 
 🔗 פתח ביומן הלידים: ${leadLink}`;
 
-  await Promise.all([
-    sendWhatsAppMessage(ADMIN_PHONE, message),
-    sendWhatsAppMessage(SALES_GROUP_CHAT_ID, message),
-  ]);
+  if (lead.leadAppointmentId) {
+    await sendTrackedInternalLeadAlerts(lead.leadAppointmentId, message);
+    return;
+  }
+
+  await sendUntrackedInternalLeadAlerts(message);
 }
 
 // Welcome lead notification

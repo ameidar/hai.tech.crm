@@ -60,6 +60,14 @@ export function templateText(value: string | number | null | undefined, fallback
   return trimmed || fallback;
 }
 
+export function sanitizeWhatsAppTemplateText(value: string): string {
+  return value
+    .replace(/[\r\n\t]+/g, ' | ')
+    .replace(/[ ]{2,}/g, ' ')
+    .replace(/(?:\s*\|\s*){2,}/g, ' | ')
+    .trim();
+}
+
 function resolvePhoneNumberId(explicit?: string | null): string {
   return explicit || process.env.WA_REMINDER_PHONE_NUMBER_ID || process.env.WA_PHONE_NUMBER_ID || '';
 }
@@ -163,7 +171,10 @@ export async function sendWhatsAppCloudTemplate(params: WhatsAppTemplatePayload)
     if (params.bodyParameters?.length) {
       components.push({
         type: 'body',
-        parameters: params.bodyParameters.map(text => ({ type: 'text', text })),
+        parameters: params.bodyParameters.map(text => ({
+          type: 'text',
+          text: sanitizeWhatsAppTemplateText(text),
+        })),
       });
     }
     if (params.buttons?.length) {

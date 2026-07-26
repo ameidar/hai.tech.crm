@@ -14,6 +14,7 @@ import Instructors from './pages/Instructors';
 import Cycles from './pages/Cycles';
 import CycleDetail from './pages/CycleDetail';
 import Meetings from './pages/Meetings';
+import MeetingChangeLog from './pages/MeetingChangeLog';
 import Reports from './pages/Reports';
 import InstructorDashboard from './pages/InstructorDashboard';
 import OperationsHours from './pages/OperationsHours';
@@ -207,6 +208,7 @@ function AppRoutes() {
             <Route path="cycles/:id" element={<ManagementRoute><CycleDetail /></ManagementRoute>} />
             <Route path="meetings" element={<ManagementRoute><Meetings /></ManagementRoute>} />
             <Route path="meetings/:id" element={<ManagementRoute><MeetingRedirect /></ManagementRoute>} />
+            <Route path="meeting-change-log" element={<RoleRoute allowed={['admin', 'manager', 'operations_control', 'operations_manager']}><MeetingChangeLog /></RoleRoute>} />
             <Route path="quotes" element={<AdminManagerRoute><Quotes /></AdminManagerRoute>} />
             <Route path="quotes/new" element={<AdminManagerRoute><QuoteWizard /></AdminManagerRoute>} />
             <Route path="quotes/:id" element={<AdminManagerRoute><QuoteDetail /></AdminManagerRoute>} />

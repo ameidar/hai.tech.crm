@@ -4,6 +4,44 @@ These templates must exist and be approved in the Meta WhatsApp Manager before e
 
 ## Lead Templates
 
+### `lead_admin_new_lead`
+
+Internal admin alert for a new CRM lead. Send only to direct phone recipients such as Ami/Kim; regular WhatsApp groups still require Green API unless Meta Groups API becomes available for the number.
+
+Body:
+
+```text
+ליד חדש נכנס ל-CRM.
+שם: {{1}}
+טלפון: {{2}}
+מייל: {{3}}
+ילד/ה: {{4}}
+תחום עניין: {{5}}
+מקור: {{6}}
+פתחו את הליד כאן: {{7}}
+דרך ההייטק
+```
+
+Variables:
+
+1. Lead name
+2. Lead phone
+3. Lead email
+4. Child name
+5. Interest/course
+6. Source
+7. CRM lead link
+
+Env:
+
+```text
+LEAD_ADMIN_WA_TEMPLATE_ENABLED=true
+LEAD_ADMIN_WA_TEMPLATE_NAME=lead_admin_new_lead
+LEAD_ADMIN_WA_TEMPLATE_RECIPIENTS=0528746137,05XXXXXXXX
+LEAD_ADMIN_WA_PHONE_NUMBER_ID=<optional override>
+LEAD_ADMIN_GREEN_FALLBACK_ENABLED=true
+```
+
 ### `lead_welcome_course_interest`
 
 Body:

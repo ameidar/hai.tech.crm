@@ -1,6 +1,10 @@
 import nodemailer from 'nodemailer';
 import { config } from '../config.js';
 import { sendGreenApiMessage } from './green-api-client.js';
+import {
+  sendWhatsAppCloudTemplate,
+  templateText,
+} from './whatsapp-cloud-templates.js';
 
 // Gmail SMTP transporter
 const emailTransporter = nodemailer.createTransport({
@@ -80,10 +84,12 @@ export async function sendEmail(
 
 // Recipients for new-lead notifications
 const ADMIN_PHONE = '0528746137'; // Ami's phone
+const KIM_PHONE = '0543354550'; // Kim's phone
 const SALES_GROUP_CHAT_ID = '120363308669020817@g.us'; // Sales team WhatsApp group
+const DEFAULT_LEAD_ADMIN_TEMPLATE = 'lead_admin_new_lead';
+const DEFAULT_LEAD_ADMIN_TEMPLATE_RECIPIENTS = `${ADMIN_PHONE},${KIM_PHONE}`;
 
-// Notify admin about new lead
-export async function notifyAdminNewLead(lead: {
+type LeadAdminNotification = {
   name: string;
   phone?: string | null;
   email?: string | null;
@@ -92,7 +98,73 @@ export async function notifyAdminNewLead(lead: {
   source?: string;
   customerId?: string | null;
   leadAppointmentId?: string | null;
-}): Promise<void> {
+};
+
+function leadAdminTemplateRecipients(): string[] {
+  const raw = process.env.LEAD_ADMIN_WA_TEMPLATE_RECIPIENTS || DEFAULT_LEAD_ADMIN_TEMPLATE_RECIPIENTS;
+  return raw
+    .split(',')
+    .map(phone => phone.trim())
+    .filter(Boolean);
+}
+
+export function buildLeadAdminTemplateVariables(lead: LeadAdminNotification, leadLink: string): string[] {
+  return [
+    templateText(lead.name, 'לא צוין'),
+    templateText(lead.phone, 'לא צוין'),
+    templateText(lead.email, 'לא צוין'),
+    templateText(lead.childName, 'לא צוין'),
+    templateText(lead.interest, 'לא צוין'),
+    templateText(lead.source, 'website'),
+    templateText(leadLink, 'https://crm.orma-ai.com/lead-appointments'),
+  ];
+}
+
+export function buildLeadAdminTemplatePreview(lead: LeadAdminNotification, leadLink: string): string {
+  return [
+    `[תבנית: ${process.env.LEAD_ADMIN_WA_TEMPLATE_NAME || DEFAULT_LEAD_ADMIN_TEMPLATE}] ליד חדש נכנס ל-CRM`,
+    `שם: ${lead.name || 'לא צוין'}`,
+    `טלפון: ${lead.phone || 'לא צוין'}`,
+    `מייל: ${lead.email || 'לא צוין'}`,
+    `ילד/ה: ${lead.childName || 'לא צוין'}`,
+    `תחום עניין: ${lead.interest || 'לא צוין'}`,
+    `מקור: ${lead.source || 'website'}`,
+    `לינק: ${leadLink}`,
+  ].join('\n');
+}
+
+async function sendLeadAdminTemplateNotifications(lead: LeadAdminNotification, leadLink: string): Promise<void> {
+  if (process.env.LEAD_ADMIN_WA_TEMPLATE_ENABLED !== 'true') return;
+
+  const templateName = process.env.LEAD_ADMIN_WA_TEMPLATE_NAME || DEFAULT_LEAD_ADMIN_TEMPLATE;
+  const recipients = leadAdminTemplateRecipients();
+  if (recipients.length === 0) {
+    console.warn('[NOTIFICATION] Lead admin WhatsApp template enabled but no recipients configured');
+    return;
+  }
+
+  const bodyParameters = buildLeadAdminTemplateVariables(lead, leadLink);
+  const preview = buildLeadAdminTemplatePreview(lead, leadLink);
+
+  await Promise.all(recipients.map(async (phone) => {
+    const result = await sendWhatsAppCloudTemplate({
+      phone,
+      contactName: phone === ADMIN_PHONE ? 'עמי מידר' : undefined,
+      templateName,
+      bodyParameters,
+      preview,
+      phoneNumberId: process.env.LEAD_ADMIN_WA_PHONE_NUMBER_ID || process.env.WA_REMINDER_PHONE_NUMBER_ID || process.env.WA_PHONE_NUMBER_ID,
+      businessPhone: process.env.LEAD_ADMIN_WA_BUSINESS_PHONE || process.env.WA_REMINDER_BUSINESS_PHONE,
+    });
+
+    if (!result.success) {
+      console.error(`[NOTIFICATION] Lead admin WhatsApp template failed for ${phone}:`, result.error);
+    }
+  }));
+}
+
+// Notify admin about new lead
+export async function notifyAdminNewLead(lead: LeadAdminNotification): Promise<void> {
   const baseUrl = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
   const leadLink = lead.leadAppointmentId
     ? `${baseUrl}/lead-appointments?id=${lead.leadAppointmentId}`
@@ -109,10 +181,18 @@ ${lead.interest ? `🎓 *תחום עניין:* ${lead.interest}` : ''}
 
 🔗 פתח ביומן הלידים: ${leadLink}`;
 
-  await Promise.all([
-    sendWhatsAppMessage(ADMIN_PHONE, message),
-    sendWhatsAppMessage(SALES_GROUP_CHAT_ID, message),
-  ]);
+  const tasks: Promise<unknown>[] = [
+    sendLeadAdminTemplateNotifications(lead, leadLink),
+  ];
+
+  if (process.env.LEAD_ADMIN_GREEN_FALLBACK_ENABLED !== 'false') {
+    tasks.push(
+      sendWhatsAppMessage(ADMIN_PHONE, message),
+      sendWhatsAppMessage(SALES_GROUP_CHAT_ID, message),
+    );
+  }
+
+  await Promise.all(tasks);
 }
 
 // Welcome lead notification

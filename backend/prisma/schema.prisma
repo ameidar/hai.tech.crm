@@ -1298,12 +1298,16 @@ model MeetingChangeRequest {
   status       String    @default("pending") // "pending", "approved", "rejected"
   reviewedBy   String?   @map("reviewed_by")
   reviewedAt   DateTime? @map("reviewed_at")
+  reviewNotes  String?   @map("review_notes")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
   meeting    Meeting    @relation(fields: [meetingId], references: [id])
   instructor Instructor @relation(fields: [instructorId], references: [id])
 
+  @@index([instructorId, createdAt])
+  @@index([type, status, createdAt])
+  @@index([meetingId])
   @@map("meeting_change_requests")
 }
 

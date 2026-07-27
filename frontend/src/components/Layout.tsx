@@ -39,6 +39,7 @@ import {
   Clock,
   ListTodo,
   Activity,
+  ClipboardList,
 } from 'lucide-react';
 
 // Admin/Manager navigation — grouped
@@ -55,6 +56,7 @@ const adminNavGroups = [
       { path: '/instructors', icon: UserCheck, label: 'מדריכים', testId: 'nav-instructors' },
       { path: '/cycles', icon: RefreshCcw, label: 'מחזורים', testId: 'nav-cycles' },
       { path: '/meetings', icon: Calendar, label: 'פגישות', testId: 'nav-meetings' },
+      { path: '/meeting-change-log', icon: ClipboardList, label: 'לוג דחיות וביטולים', testId: 'nav-meeting-change-log' },
       { path: '/operations-control', icon: Activity, label: 'מגדל שליטה', testId: 'nav-operations-control' },
       { path: '/quotes', icon: Receipt, label: 'הצעות מחיר', testId: 'nav-quotes' },
       { path: '/institutional-orders', icon: FileText, label: 'הזמנות מוסדיות', testId: 'nav-institutional-orders' },
@@ -124,6 +126,7 @@ const operationsNavItems = [
 const operationsControlNavItems = [
   { path: '/operations-control', icon: Activity, label: 'מגדל שליטה', testId: 'nav-operations-control' },
   { path: '/tasks', icon: ListTodo, label: 'משימות תפעול', testId: 'nav-tasks' },
+  { path: '/meeting-change-log', icon: ClipboardList, label: 'לוג דחיות וביטולים', testId: 'nav-meeting-change-log' },
   { path: '/lead-appointments', icon: PhoneCall, label: 'יומן לידים', testId: 'nav-lead-appointments' },
   { path: '/whatsapp', icon: MessageCircle, label: 'WhatsApp', testId: 'nav-whatsapp' },
   { path: '/payment-link', icon: Link2, label: 'לינק לתשלום', testId: 'nav-payment-link' },
@@ -143,6 +146,7 @@ const operationsManagerNavGroups = [
       { path: '/instructors', icon: UserCheck, label: 'מדריכים', testId: 'nav-instructors' },
       { path: '/cycles', icon: RefreshCcw, label: 'מחזורים', testId: 'nav-cycles' },
       { path: '/meetings', icon: Calendar, label: 'פגישות', testId: 'nav-meetings' },
+      { path: '/meeting-change-log', icon: ClipboardList, label: 'לוג דחיות וביטולים', testId: 'nav-meeting-change-log' },
       { path: '/operations-control', icon: Activity, label: 'מגדל שליטה', testId: 'nav-operations-control' },
       { path: '/tasks', icon: ListTodo, label: 'משימות תפעול', testId: 'nav-tasks' },
     ],

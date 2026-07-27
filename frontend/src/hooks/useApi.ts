@@ -1390,6 +1390,7 @@ export interface MeetingChangeRequest {
   status: 'pending' | 'approved' | 'rejected';
   reviewedBy: string | null;
   reviewedAt: string | null;
+  reviewNotes: string | null;
   createdAt: string;
   updatedAt: string;
   meeting?: Meeting;

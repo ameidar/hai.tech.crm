@@ -3,6 +3,12 @@ import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { sendWhatsApp, sendEmail, replacePlaceholders, formatTimeForDisplay } from '../services/messaging.js';
+import {
+  buildInstructorPreLessonTemplatePayload,
+  buildInstructorStatusCheckTemplatePayload,
+} from '../services/whatsapp-reminder.service.js';
+import { generateMeetingMagicLink } from '../services/instructor-reminder.service.js';
+import { sendWhatsAppCloudTemplate } from '../services/whatsapp-cloud-templates.js';
 import { logAudit } from '../utils/audit.js';
 import { config } from '../config.js';
 import { z } from 'zod';
@@ -28,6 +34,23 @@ const bulkSendSchema = z.object({
   templateId: z.string(),
   customMessage: z.string().optional(),
 });
+
+function resolveInstructorWhatsAppTemplateKind(template: any): 'pre_lesson' | 'status_check' | null {
+  const name = String(template?.name || '');
+  const subject = String(template?.subject || '');
+  const body = String(template?.body || '');
+  const haystack = `${name}\n${subject}\n${body}`;
+
+  if (haystack.includes('{{status_link}}') || /סטטוס|דיווח/.test(haystack)) {
+    return 'status_check';
+  }
+
+  if (haystack.includes('{{meeting_link}}') || haystack.includes('{{zoom_link}}') || /תזכורת לשיעור/.test(haystack)) {
+    return 'pre_lesson';
+  }
+
+  return null;
+}
 
 // Get all message templates
 messagingRouter.get('/templates', async (_req, res, next) => {
@@ -119,11 +142,14 @@ messagingRouter.post('/send', async (req, res, next) => {
       custom_message: data.customMessage || '',
     };
     
+    let meeting: any = null;
+
     // If meeting specified, get meeting data
     if (data.meetingId) {
-      const meeting = await prisma.meeting.findUnique({
+      meeting = await prisma.meeting.findUnique({
         where: { id: data.meetingId },
         include: {
+          instructor: true,
           cycle: {
             include: {
               branch: true,
@@ -172,7 +198,25 @@ messagingRouter.post('/send', async (req, res, next) => {
         throw new AppError(400, 'Instructor has no phone number');
       }
       recipient = instructor.phone;
-      result = await sendWhatsApp({ phone: instructor.phone, message: messageBody });
+      const officialTemplateKind = data.meetingId && template
+        ? resolveInstructorWhatsAppTemplateKind(template)
+        : null;
+
+      if (officialTemplateKind && meeting) {
+        const meetingForTemplate = {
+          ...meeting,
+          instructor,
+        };
+        const meetingLink = generateMeetingMagicLink(instructor.id, meeting.id, baseUrl);
+        const payload = officialTemplateKind === 'status_check'
+          ? buildInstructorStatusCheckTemplatePayload(meetingForTemplate, meetingLink)
+          : buildInstructorPreLessonTemplatePayload(meetingForTemplate, meetingLink);
+        result = await sendWhatsAppCloudTemplate(payload);
+        messageBody = payload.preview;
+        subject = template?.subject ? replacePlaceholders(template.subject, placeholderData) : subject;
+      } else {
+        result = await sendWhatsApp({ phone: instructor.phone, message: messageBody });
+      }
     } else {
       if (!instructor.email) {
         throw new AppError(400, 'Instructor has no email');

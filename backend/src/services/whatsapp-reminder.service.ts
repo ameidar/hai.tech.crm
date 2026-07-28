@@ -18,6 +18,9 @@ import {
 } from './instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from './negative-profit-alert.js';
 import {
+  WhatsAppTemplatePayload,
+  WhatsAppCloudResult,
+  normalizeWhatsAppCloudPhone,
   sendWhatsAppCloudTemplate,
   sendWhatsAppCloudText,
   templateText,
@@ -28,6 +31,8 @@ const TZ = 'Asia/Jerusalem';
 
 // In-memory set to track pre-meeting reminders sent this server session
 const preMeetingRemindersSent = new Set<string>();
+const PRE_MEETING_EARLIEST_LEAD_MIN = 70;
+const PRE_MEETING_LATEST_LEAD_MIN = 30;
 
 // Admin phone for notifications
 const ADMIN_PHONE = process.env.ADMIN_PHONE || '972528746137';
@@ -155,6 +160,80 @@ function buildMeetingTitle(meeting: any): string {
   const cycleName = meeting.cycle?.name || meeting.cycle?.course?.name || 'שיעור';
   const branchName = meeting.cycle?.branch?.name;
   return branchName ? `${cycleName} | ${branchName}` : cycleName;
+}
+
+export function isPreMeetingReminderDue(nowMin: number, meetMin: number): boolean {
+  const leadMin = meetMin - nowMin;
+  return leadMin >= PRE_MEETING_LATEST_LEAD_MIN && leadMin <= PRE_MEETING_EARLIEST_LEAD_MIN;
+}
+
+async function hasPreMeetingReminderBeenLogged(meetingId: string, instructorPhone: string): Promise<boolean> {
+  const phone = normalizeWhatsAppCloudPhone(instructorPhone);
+  if (!phone) return false;
+
+  const existing = await prisma.waMessage.findFirst({
+    where: {
+      direction: 'outbound',
+      content: {
+        contains: `[תבנית: ${process.env.INSTRUCTOR_PRE_LESSON_WA_TEMPLATE_NAME || 'instructor_pre_lesson_60m'}]`,
+      },
+      conversation: {
+        phone,
+      },
+      AND: [
+        { content: { contains: meetingId } },
+      ],
+    },
+    select: { id: true },
+  });
+
+  return Boolean(existing);
+}
+
+export function buildInstructorPreLessonTemplatePayload(meeting: any, meetingLink: string): WhatsAppTemplatePayload {
+  const message = buildMeetingMessage(meeting.instructor.name, meeting, meetingLink);
+  return {
+    phone: meeting.instructor.phone,
+    contactName: meeting.instructor.name,
+    templateName: process.env.INSTRUCTOR_PRE_LESSON_WA_TEMPLATE_NAME || 'instructor_pre_lesson_60m',
+    bodyParameters: [
+      templateText(meeting.instructor.name, 'מדריך/ה'),
+      templateText(buildMeetingTitle(meeting), 'שיעור'),
+      templateText(meeting.cycle?.branch?.name || (meeting.zoomJoinUrl ? 'אונליין' : ''), 'אונליין'),
+      templateText(formatTimeFromDate(meeting.startTime), 'השעה תעודכן בהמשך'),
+      meetingLink,
+    ],
+    preview: `[תבנית: ${process.env.INSTRUCTOR_PRE_LESSON_WA_TEMPLATE_NAME || 'instructor_pre_lesson_60m'}] ${message}`,
+  };
+}
+
+export function buildInstructorStatusCheckTemplatePayload(meeting: any, meetingLink: string): WhatsAppTemplatePayload {
+  const time = formatTimeFromDate(meeting.startTime);
+  const question = `שלום ${meeting.instructor.name}, האם השיעור של היום התקיים?\n📚 ${meeting.cycle?.name || ''}\n🏫 ${meeting.cycle?.branch?.name || ''}\n🕐 שעה: ${time}\n\nאפשר להשיב כאן: כן / לא`;
+  return {
+    phone: meeting.instructor.phone,
+    contactName: meeting.instructor.name,
+    templateName: process.env.INSTRUCTOR_STATUS_CHECK_WA_TEMPLATE_NAME || 'instructor_status_check',
+    bodyParameters: [
+      templateText(meeting.instructor.name, 'מדריך/ה'),
+      templateText(meeting.cycle?.name, 'שיעור'),
+      templateText(time, 'השעה תעודכן בהמשך'),
+      meetingLink,
+    ],
+    preview: `[תבנית: ${process.env.INSTRUCTOR_STATUS_CHECK_WA_TEMPLATE_NAME || 'instructor_status_check'}] ${question}`,
+  };
+}
+
+export async function sendInstructorPreLessonReminder(meeting: any): Promise<WhatsAppCloudResult> {
+  if (!meeting.instructor?.phone) return { success: false, error: 'Instructor has no phone number' };
+  const meetingLink = generateMeetingMagicLink(meeting.instructor.id, meeting.id, APP_URL);
+  return sendWhatsAppCloudTemplate(buildInstructorPreLessonTemplatePayload(meeting, meetingLink));
+}
+
+export async function sendInstructorStatusCheckReminder(meeting: any): Promise<WhatsAppCloudResult> {
+  if (!meeting.instructor?.phone) return { success: false, error: 'Instructor has no phone number' };
+  const meetingLink = generateMeetingMagicLink(meeting.instructor.id, meeting.id, APP_URL);
+  return sendWhatsAppCloudTemplate(buildInstructorStatusCheckTemplatePayload(meeting, meetingLink));
 }
 
 function parseInstructorStatusReplyText(text: string | null | undefined): boolean | null {
@@ -300,8 +379,6 @@ export async function sendMorningUnresolvedAlert(): Promise<void> {
 export async function sendPreMeetingReminders(): Promise<void> {
   const todayDate = getIsraelDateOnly(); // @db.Date exact match
   const nowMin = getCurrentTimeIsraelMinutes();
-  const windowMin = nowMin + 55;
-  const windowMax = nowMin + 70;
 
   try {
     const meetings = await prisma.meeting.findMany({
@@ -317,7 +394,11 @@ export async function sendPreMeetingReminders(): Promise<void> {
       if (preMeetingRemindersSent.has(m.id)) continue;
 
       const meetMin = toMinutes(m.startTime);
-      if (meetMin < windowMin || meetMin > windowMax) continue;
+      if (!isPreMeetingReminderDue(nowMin, meetMin)) continue;
+      if (await hasPreMeetingReminderBeenLogged(m.id, m.instructor.phone!)) {
+        preMeetingRemindersSent.add(m.id);
+        continue;
+      }
 
       const meetingLink = generateMeetingMagicLink(m.instructor.id, m.id, APP_URL);
 
@@ -355,17 +436,8 @@ export async function sendPreMeetingReminders(): Promise<void> {
 
       const message = buildMeetingMessage(m.instructor.name, m, meetingLink, extras);
       const result = await sendWhatsAppCloudTemplate({
-        phone: m.instructor.phone!,
-        contactName: m.instructor.name,
-        templateName: process.env.INSTRUCTOR_PRE_LESSON_WA_TEMPLATE_NAME || 'instructor_pre_lesson_60m',
-        bodyParameters: [
-          templateText(m.instructor.name, 'מדריך/ה'),
-          templateText(buildMeetingTitle(m), 'שיעור'),
-          templateText(m.cycle?.branch?.name || (m.zoomJoinUrl ? 'אונליין' : ''), 'אונליין'),
-          templateText(formatTimeFromDate(m.startTime), 'השעה תעודכן בהמשך'),
-          meetingLink,
-        ],
-        preview: `[תבנית: instructor_pre_lesson_60m] ${message}`,
+        ...buildInstructorPreLessonTemplatePayload(m, meetingLink),
+        preview: `[תבנית: ${process.env.INSTRUCTOR_PRE_LESSON_WA_TEMPLATE_NAME || 'instructor_pre_lesson_60m'}] ${message}`,
       });
       if (result.success) {
         preMeetingRemindersSent.add(m.id);
@@ -398,22 +470,9 @@ export async function sendEveningStatusCheck(): Promise<void> {
 
     for (const m of instructorMeetings) {
       const instr = m.instructor!;
-      const time = formatTimeFromDate(m.startTime);
       const meetingLink = generateMeetingMagicLink(instr.id, m.id, APP_URL);
-      const question = `שלום ${instr.name}, האם השיעור של היום התקיים?\n📚 ${m.cycle?.name || ''}\n🏫 ${m.cycle?.branch?.name || ''}\n🕐 שעה: ${time}\n\nאפשר להשיב כאן: כן / לא`;
 
-      const result = await sendWhatsAppCloudTemplate({
-        phone: instr.phone!,
-        contactName: instr.name,
-        templateName: process.env.INSTRUCTOR_STATUS_CHECK_WA_TEMPLATE_NAME || 'instructor_status_check',
-        bodyParameters: [
-          templateText(instr.name, 'מדריך/ה'),
-          templateText(m.cycle?.name, 'שיעור'),
-          templateText(time, 'השעה תעודכן בהמשך'),
-          meetingLink,
-        ],
-        preview: `[תבנית: instructor_status_check] ${question}`,
-      });
+      const result = await sendWhatsAppCloudTemplate(buildInstructorStatusCheckTemplatePayload(m, meetingLink));
 
       if (result.success) {
         await prisma.$executeRaw`

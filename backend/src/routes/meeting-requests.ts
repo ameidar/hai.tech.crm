@@ -40,6 +40,10 @@ const typeHebrew: Record<string, string> = {
   replacement: 'החלפה',
 };
 
+const RISK_REQUEST_TYPES = ['cancel', 'postpone'];
+const RISK_MIN_REQUESTS = 2;
+const RISK_MIN_CYCLE_MEETINGS = 16;
+
 // POST /api/meeting-requests — instructor creates a request
 meetingRequestsRouter.post('/', async (req, res, next) => {
   try {
@@ -161,10 +165,141 @@ meetingRequestsRouter.post('/', async (req, res, next) => {
   }
 });
 
+// GET /api/meeting-requests/risk-summary — cancellation/postponement risk grouped by instructor + cycle
+meetingRequestsRouter.get('/risk-summary', async (req, res, next) => {
+  try {
+    const instructorId = req.query.instructorId as string | undefined;
+    const cycleId = req.query.cycleId as string | undefined;
+
+    const where: any = {
+      type: { in: RISK_REQUEST_TYPES },
+      meeting: {
+        deletedAt: null,
+        cycle: {
+          deletedAt: null,
+          totalMeetings: { gte: RISK_MIN_CYCLE_MEETINGS },
+        },
+      },
+    };
+
+    if (req.user!.role === 'instructor') {
+      const instructor = await prisma.instructor.findUnique({
+        where: { userId: req.user!.userId },
+        select: { id: true },
+      });
+      if (!instructor) {
+        throw new AppError(403, 'לא נמצא מדריך מקושר למשתמש');
+      }
+      where.instructorId = instructor.id;
+    } else if (instructorId) {
+      where.instructorId = instructorId;
+    }
+
+    if (cycleId) {
+      where.meeting.cycleId = cycleId;
+    }
+
+    const requests = await prisma.meetingChangeRequest.findMany({
+      where,
+      include: {
+        meeting: {
+          select: {
+            id: true,
+            scheduledDate: true,
+            cycleId: true,
+            cycle: {
+              select: {
+                id: true,
+                name: true,
+                totalMeetings: true,
+                branch: { select: { id: true, name: true } },
+              },
+            },
+          },
+        },
+        instructor: { select: { id: true, name: true, phone: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const grouped = new Map<string, {
+      instructorId: string;
+      instructorName: string;
+      instructorPhone: string | null;
+      cycleId: string;
+      cycleName: string;
+      branchName: string | null;
+      totalMeetings: number;
+      cancelCount: number;
+      postponeCount: number;
+      totalRiskRequests: number;
+      latestRequestAt: Date;
+      latestMeetingDate: Date | null;
+      requestIds: string[];
+    }>();
+
+    for (const request of requests) {
+      const cycle = request.meeting?.cycle;
+      if (!cycle) continue;
+
+      const key = `${request.instructorId}:${cycle.id}`;
+      const existing = grouped.get(key);
+      const latestMeetingDate = request.meeting?.scheduledDate ?? null;
+
+      if (!existing) {
+        grouped.set(key, {
+          instructorId: request.instructorId,
+          instructorName: request.instructor?.name ?? 'לא ידוע',
+          instructorPhone: request.instructor?.phone ?? null,
+          cycleId: cycle.id,
+          cycleName: cycle.name,
+          branchName: cycle.branch?.name ?? null,
+          totalMeetings: cycle.totalMeetings,
+          cancelCount: request.type === 'cancel' ? 1 : 0,
+          postponeCount: request.type === 'postpone' ? 1 : 0,
+          totalRiskRequests: 1,
+          latestRequestAt: request.createdAt,
+          latestMeetingDate,
+          requestIds: [request.id],
+        });
+        continue;
+      }
+
+      if (request.type === 'cancel') existing.cancelCount += 1;
+      if (request.type === 'postpone') existing.postponeCount += 1;
+      existing.totalRiskRequests += 1;
+      existing.requestIds.push(request.id);
+      if (request.createdAt > existing.latestRequestAt) existing.latestRequestAt = request.createdAt;
+      if (latestMeetingDate && (!existing.latestMeetingDate || latestMeetingDate > existing.latestMeetingDate)) {
+        existing.latestMeetingDate = latestMeetingDate;
+      }
+    }
+
+    const risks = Array.from(grouped.values())
+      .filter((item) => item.totalRiskRequests >= RISK_MIN_REQUESTS)
+      .sort((a, b) => {
+        if (b.totalRiskRequests !== a.totalRiskRequests) return b.totalRiskRequests - a.totalRiskRequests;
+        return b.latestRequestAt.getTime() - a.latestRequestAt.getTime();
+      });
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      threshold: {
+        minRequests: RISK_MIN_REQUESTS,
+        minCycleMeetings: RISK_MIN_CYCLE_MEETINGS,
+        requestTypes: RISK_REQUEST_TYPES,
+      },
+      risks,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // GET /api/meeting-requests — list requests
 meetingRequestsRouter.get('/', async (req, res, next) => {
   try {
-    const { meetingId, status: filterStatus } = req.query;
+    const { meetingId, status: filterStatus, instructorId, cycleId, type } = req.query;
 
     const where: any = {};
 
@@ -182,6 +317,18 @@ meetingRequestsRouter.get('/', async (req, res, next) => {
 
     if (meetingId) {
       where.meetingId = meetingId;
+    }
+
+    if (req.user!.role !== 'instructor' && instructorId) {
+      where.instructorId = instructorId;
+    }
+
+    if (cycleId) {
+      where.meeting = { cycleId };
+    }
+
+    if (type) {
+      where.type = type;
     }
 
     if (filterStatus) {

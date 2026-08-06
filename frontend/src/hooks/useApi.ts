@@ -19,6 +19,7 @@ import type {
   TaskStatus,
   TaskUser,
   User,
+  InternalZoomMeeting,
 } from '../types';
 
 // Pagination metadata
@@ -1175,6 +1176,59 @@ export const useDeleteZoomMeeting = () => {
       queryClient.invalidateQueries({ queryKey: ['zoom-meeting', cycleId] });
       queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
       queryClient.invalidateQueries({ queryKey: ['cycle-meetings', cycleId] });
+    },
+  });
+};
+
+export interface InternalZoomRequestPayload {
+  title: string;
+  requesterName: string;
+  date: string;
+  startTime: string;
+  durationMinutes: number;
+  notes?: string;
+}
+
+export interface InternalZoomCreateResponse {
+  success: boolean;
+  meeting: InternalZoomMeeting;
+  hostUser: {
+    id: string;
+    email: string;
+    name: string;
+  };
+}
+
+export const useInternalZoomMeetings = (params?: { from?: string; to?: string }) => {
+  const queryParams = new URLSearchParams();
+  if (params?.from) queryParams.set('from', params.from);
+  if (params?.to) queryParams.set('to', params.to);
+  const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+
+  return useQuery({
+    queryKey: ['internal-zoom-meetings', params?.from || '', params?.to || ''],
+    queryFn: () => fetchData<InternalZoomMeeting[]>(`/zoom/internal-meetings${queryString}`),
+    refetchInterval: 30000,
+  });
+};
+
+export const useCreateInternalZoomMeeting = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: InternalZoomRequestPayload) =>
+      mutateData<InternalZoomCreateResponse, InternalZoomRequestPayload>('/zoom/internal-meetings', 'post', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['internal-zoom-meetings'] });
+    },
+  });
+};
+
+export const useCancelInternalZoomMeeting = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/zoom/internal-meetings/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['internal-zoom-meetings'] });
     },
   });
 };

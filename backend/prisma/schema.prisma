@@ -49,6 +49,11 @@ enum ReminderStatus {
   failed
 }
 
+enum InternalZoomMeetingStatus {
+  scheduled
+  cancelled
+}
+
 enum CourseCategory {
   programming
   ai
@@ -202,6 +207,34 @@ model User {
   operationsIssueUpdates   OperationsControlIssueState[] @relation("OperationsIssueUpdatedBy")
 
   @@map("users")
+}
+
+model InternalZoomMeeting {
+  id              String                    @id @default(uuid())
+  title           String
+  requesterName   String                    @map("requester_name")
+  requestedById   String?                   @map("requested_by_id")
+  startAt         DateTime                  @map("start_at")
+  endAt           DateTime                  @map("end_at")
+  durationMinutes Int                       @map("duration_minutes")
+  zoomHostId      String?                   @map("zoom_host_id")
+  zoomHostEmail   String?                   @map("zoom_host_email")
+  zoomMeetingId   String?                   @map("zoom_meeting_id")
+  zoomJoinUrl     String?                   @map("zoom_join_url")
+  zoomStartUrl    String?                   @map("zoom_start_url")
+  zoomPassword    String?                   @map("zoom_password")
+  zoomHostKey     String?                   @map("zoom_host_key")
+  status          InternalZoomMeetingStatus @default(scheduled)
+  notes           String?
+  createdAt       DateTime                  @default(now()) @map("created_at")
+  updatedAt       DateTime                  @updatedAt @map("updated_at")
+  cancelledAt     DateTime?                 @map("cancelled_at")
+  cancelledById   String?                   @map("cancelled_by_id")
+
+  @@index([startAt])
+  @@index([status])
+  @@index([zoomHostEmail])
+  @@map("internal_zoom_meetings")
 }
 
 model Task {

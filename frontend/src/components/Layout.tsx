@@ -58,6 +58,7 @@ const adminNavGroups = [
       { path: '/meetings', icon: Calendar, label: 'פגישות', testId: 'nav-meetings' },
       { path: '/meeting-change-log', icon: ClipboardList, label: 'לוג דחיות וביטולים', testId: 'nav-meeting-change-log' },
       { path: '/operations-control', icon: Activity, label: 'מגדל שליטה', testId: 'nav-operations-control' },
+      { path: '/zoom-requests', icon: Video, label: 'זומים פנימיים', testId: 'nav-zoom-requests' },
       { path: '/quotes', icon: Receipt, label: 'הצעות מחיר', testId: 'nav-quotes' },
       { path: '/institutional-orders', icon: FileText, label: 'הזמנות מוסדיות', testId: 'nav-institutional-orders' },
       { path: '/paying-bodies', icon: Wallet, label: 'גופים משלמים', testId: 'nav-paying-bodies' },

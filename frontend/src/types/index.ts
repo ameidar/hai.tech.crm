@@ -62,6 +62,32 @@ export interface Task {
   completedBy?: TaskUser | null;
 }
 
+export interface InternalZoomMeeting {
+  id: string;
+  title: string;
+  requesterName: string;
+  requestedById?: string | null;
+  startAt: string;
+  endAt: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  durationMinutes: number;
+  zoomHostId?: string | null;
+  zoomHostEmail?: string | null;
+  zoomMeetingId?: string | null;
+  zoomJoinUrl?: string | null;
+  zoomStartUrl?: string | null;
+  zoomPassword?: string | null;
+  zoomHostKey?: string | null;
+  status: 'scheduled' | 'cancelled';
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  cancelledAt?: string | null;
+  cancelledById?: string | null;
+}
+
 export interface Customer {
   id: string;
   name: string;

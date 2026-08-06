@@ -90,6 +90,7 @@ interface ZoomMeeting {
   start_url: string;
   password: string;
   host_key?: string;
+  encrypted_password?: string;
 }
 
 interface CreateMeetingParams {
@@ -337,6 +338,26 @@ async function getLocallyBookedHostEmails(
   for (const m of overlapping) {
     if (m.zoomHostEmail) booked.add(m.zoomHostEmail.toLowerCase());
   }
+
+  try {
+    const internalOverlapping = await prisma.$queryRaw<Array<{ zoom_host_email: string | null }>>`
+      SELECT zoom_host_email
+      FROM internal_zoom_meetings
+      WHERE status = 'scheduled'
+        AND zoom_host_email IS NOT NULL
+        AND start_at < ${new Date(startTime.getTime() + durationMinutes * 60000)}
+        AND end_at > ${startTime}
+    `;
+
+    for (const m of internalOverlapping) {
+      if (m.zoom_host_email) booked.add(m.zoom_host_email.toLowerCase());
+    }
+  } catch (error: any) {
+    if (error?.code !== 'P2010' && error?.meta?.code !== '42P01') {
+      throw error;
+    }
+  }
+
   return booked;
 }
 
@@ -421,6 +442,7 @@ export async function createMeeting(
     start_time: localTimeStr,
     duration: params.duration,
     timezone: params.timezone || 'Asia/Jerusalem',
+    password: '1111',
     settings: {
       host_video: true,
       participant_video: true,
@@ -429,6 +451,7 @@ export async function createMeeting(
       mute_upon_entry: true,
       auto_recording: 'none',
       meeting_authentication: false,
+      embed_password_in_join_link: true,
       alternative_hosts: 'hai.tech.teacher@gmail.com',
       alternative_hosts_email_notification: false,
       use_pmi: false
@@ -451,6 +474,14 @@ export async function createMeeting(
   console.log('[Zoom] Fetched host key:', hostKey);
   
   return { ...meeting, host_key: hostKey || undefined };
+}
+
+export function getDirectJoinUrl(meeting: Pick<ZoomMeeting, 'id' | 'join_url' | 'encrypted_password'>): string {
+  if (meeting.join_url.includes('?pwd=')) return meeting.join_url;
+  if (meeting.encrypted_password) {
+    return `https://us02web.zoom.us/j/${meeting.id}?pwd=${meeting.encrypted_password}`;
+  }
+  return meeting.join_url;
 }
 
 /**
@@ -605,5 +636,6 @@ export const zoomService = {
   deleteMeeting,
   deleteRecordings,
   getMeeting,
-  createCycleMeeting
+  createCycleMeeting,
+  getDirectJoinUrl
 };

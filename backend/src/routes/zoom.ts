@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { zoomService } from '../services/zoom';
+import { getIsraelOffset, zoomService } from '../services/zoom';
 import { authenticate, managerOrAdmin } from '../middleware/auth';
 
 const router = Router();
@@ -19,6 +19,96 @@ const dayOfWeekToZoom: Record<string, number> = {
   'friday': 6,
   'saturday': 7
 };
+
+function parseIsraelDateTime(date: string, time: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return null;
+  const [hours, minutes] = time.split(':').map(Number);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+
+  const localDate = new Date(`${date}T${time}:00`);
+  if (Number.isNaN(localDate.getTime())) return null;
+
+  const offset = getIsraelOffset(localDate);
+  const parsed = new Date(`${date}T${time}:00${offset}`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function parseIsraelRangeDate(date: string, endOfDay = false): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const time = endOfDay ? '23:59:59' : '00:00:00';
+  const localDate = new Date(`${date}T12:00:00`);
+  if (Number.isNaN(localDate.getTime())) return null;
+  return new Date(`${date}T${time}${getIsraelOffset(localDate)}`);
+}
+
+function formatDateInput(date: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jerusalem',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
+function formatTimeInput(date: Date): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Jerusalem',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
+type InternalZoomRow = {
+  id: string;
+  title: string;
+  requester_name: string;
+  requested_by_id: string | null;
+  start_at: Date;
+  end_at: Date;
+  duration_minutes: number;
+  zoom_host_id: string | null;
+  zoom_host_email: string | null;
+  zoom_meeting_id: string | null;
+  zoom_join_url: string | null;
+  zoom_start_url: string | null;
+  zoom_password: string | null;
+  zoom_host_key: string | null;
+  status: 'scheduled' | 'cancelled';
+  notes: string | null;
+  created_at: Date;
+  updated_at: Date;
+  cancelled_at: Date | null;
+  cancelled_by_id: string | null;
+};
+
+function serializeInternalZoom(row: InternalZoomRow) {
+  return {
+    id: row.id,
+    title: row.title,
+    requesterName: row.requester_name,
+    requestedById: row.requested_by_id,
+    startAt: row.start_at.toISOString(),
+    endAt: row.end_at.toISOString(),
+    date: formatDateInput(row.start_at),
+    startTime: formatTimeInput(row.start_at),
+    endTime: formatTimeInput(row.end_at),
+    durationMinutes: row.duration_minutes,
+    zoomHostId: row.zoom_host_id,
+    zoomHostEmail: row.zoom_host_email,
+    zoomMeetingId: row.zoom_meeting_id,
+    zoomJoinUrl: row.zoom_join_url,
+    zoomStartUrl: row.zoom_start_url,
+    zoomPassword: row.zoom_password,
+    zoomHostKey: row.zoom_host_key,
+    status: row.status,
+    notes: row.notes,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+    cancelledAt: row.cancelled_at?.toISOString() ?? null,
+    cancelledById: row.cancelled_by_id,
+  };
+}
 
 /**
  * GET /api/zoom/users
@@ -62,6 +152,181 @@ router.get('/users/:userId/availability', async (req: Request, res: Response) =>
     res.status(500).json({ 
       error: 'Failed to check availability',
       details: error.message 
+    });
+  }
+});
+
+/**
+ * GET /api/zoom/internal-meetings
+ * List standalone Zoom meetings requested by staff.
+ */
+router.get('/internal-meetings', async (req: Request, res: Response) => {
+  try {
+    const from = typeof req.query.from === 'string'
+      ? parseIsraelRangeDate(req.query.from)
+      : new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const to = typeof req.query.to === 'string'
+      ? parseIsraelRangeDate(req.query.to, true)
+      : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+
+    if (!from || !to) {
+      return res.status(400).json({ error: 'טווח תאריכים לא תקין' });
+    }
+
+    const rows = await prisma.$queryRaw<InternalZoomRow[]>`
+      SELECT *
+      FROM internal_zoom_meetings
+      WHERE start_at >= ${from}
+        AND start_at <= ${to}
+      ORDER BY start_at ASC, created_at DESC
+    `;
+
+    res.json(rows.map(serializeInternalZoom));
+  } catch (error: any) {
+    console.error('Failed to list internal Zoom meetings:', error);
+    res.status(500).json({
+      error: 'Failed to list internal Zoom meetings',
+      details: error.message,
+    });
+  }
+});
+
+/**
+ * POST /api/zoom/internal-meetings
+ * Create a standalone Zoom meeting if one of the account hosts is free.
+ */
+router.post('/internal-meetings', async (req: Request, res: Response) => {
+  try {
+    const title = String(req.body.title || '').trim();
+    const requesterName = String(req.body.requesterName || req.user?.name || '').trim();
+    const date = String(req.body.date || '').trim();
+    const startTime = String(req.body.startTime || '').trim();
+    const durationMinutes = Number(req.body.durationMinutes || 60);
+    const notes = String(req.body.notes || '').trim() || null;
+
+    if (!title) return res.status(400).json({ error: 'חובה להזין כותרת לפגישה' });
+    if (!requesterName) return res.status(400).json({ error: 'חובה להזין מי ביקש את הזום' });
+    if (!Number.isInteger(durationMinutes) || durationMinutes < 15 || durationMinutes > 480) {
+      return res.status(400).json({ error: 'משך הפגישה חייב להיות בין 15 ל-480 דקות' });
+    }
+
+    const startAt = parseIsraelDateTime(date, startTime);
+    if (!startAt) return res.status(400).json({ error: 'תאריך או שעה לא תקינים' });
+    const endAt = new Date(startAt.getTime() + durationMinutes * 60_000);
+
+    const hostUser = await zoomService.findAvailableUser(startAt, durationMinutes);
+    if (!hostUser) {
+      return res.status(409).json({ error: 'אין חשבון Zoom פנוי בזמן המבוקש' });
+    }
+
+    const meeting = await zoomService.createMeeting(hostUser.id, {
+      topic: title,
+      startTime: startAt,
+      duration: durationMinutes,
+      timezone: 'Asia/Jerusalem',
+    });
+    const joinUrl = zoomService.getDirectJoinUrl(meeting);
+
+    const rows = await prisma.$queryRaw<InternalZoomRow[]>`
+      INSERT INTO internal_zoom_meetings (
+        title,
+        requester_name,
+        requested_by_id,
+        start_at,
+        end_at,
+        duration_minutes,
+        zoom_host_id,
+        zoom_host_email,
+        zoom_meeting_id,
+        zoom_join_url,
+        zoom_start_url,
+        zoom_password,
+        zoom_host_key,
+        notes,
+        updated_at
+      )
+      VALUES (
+        ${title},
+        ${requesterName},
+        ${req.user?.userId ?? null},
+        ${startAt},
+        ${endAt},
+        ${durationMinutes},
+        ${hostUser.id},
+        ${hostUser.email},
+        ${String(meeting.id)},
+        ${joinUrl},
+        ${meeting.start_url ?? null},
+        ${meeting.password || '1111'},
+        ${meeting.host_key ?? hostUser.host_key ?? null},
+        ${notes},
+        CURRENT_TIMESTAMP
+      )
+      RETURNING *
+    `;
+
+    res.status(201).json({
+      success: true,
+      meeting: serializeInternalZoom(rows[0]),
+      hostUser: {
+        id: hostUser.id,
+        email: hostUser.email,
+        name: `${hostUser.first_name} ${hostUser.last_name}`.trim(),
+      },
+    });
+  } catch (error: any) {
+    console.error('Failed to create internal Zoom meeting:', error);
+    const zoomErrorData = error.response?.data;
+    res.status(500).json({
+      error: 'Failed to create internal Zoom meeting',
+      details: error.message,
+      zoomError: zoomErrorData || null,
+    });
+  }
+});
+
+/**
+ * DELETE /api/zoom/internal-meetings/:id
+ * Cancel a standalone Zoom meeting and release the locally booked host.
+ */
+router.delete('/internal-meetings/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const rows = await prisma.$queryRaw<InternalZoomRow[]>`
+      SELECT *
+      FROM internal_zoom_meetings
+      WHERE id = ${id}
+      LIMIT 1
+    `;
+
+    const existing = rows[0];
+    if (!existing) return res.status(404).json({ error: 'פגישת Zoom לא נמצאה' });
+    if (existing.status === 'cancelled') return res.json({ success: true, meeting: serializeInternalZoom(existing) });
+
+    if (existing.zoom_meeting_id) {
+      try {
+        await zoomService.deleteMeeting(existing.zoom_meeting_id);
+      } catch (error: any) {
+        if (error.response?.status !== 404) throw error;
+      }
+    }
+
+    const updated = await prisma.$queryRaw<InternalZoomRow[]>`
+      UPDATE internal_zoom_meetings
+      SET status = 'cancelled'::"InternalZoomMeetingStatus",
+          cancelled_at = CURRENT_TIMESTAMP,
+          cancelled_by_id = ${req.user?.userId ?? null},
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ${id}
+      RETURNING *
+    `;
+
+    res.json({ success: true, meeting: serializeInternalZoom(updated[0]) });
+  } catch (error: any) {
+    console.error('Failed to cancel internal Zoom meeting:', error);
+    res.status(500).json({
+      error: 'Failed to cancel internal Zoom meeting',
+      details: error.message,
     });
   }
 });
@@ -162,6 +427,7 @@ router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
     }
 
     const { meeting, hostUser } = result;
+    const joinUrl = zoomService.getDirectJoinUrl(meeting);
 
     // Update cycle with Zoom details
     const updatedCycle = await prisma.cycle.update({
@@ -170,7 +436,7 @@ router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
         zoomHostId: hostUser.id,
         zoomHostEmail: hostUser.email,
         zoomMeetingId: String(meeting.id),
-        zoomJoinUrl: meeting.join_url,
+        zoomJoinUrl: joinUrl,
         zoomHostKey: meeting.host_key || null,
         zoomPassword: meeting.password
       }
@@ -181,7 +447,7 @@ router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
       where: { cycleId, deletedAt: null },
       data: {
         zoomMeetingId: String(meeting.id),
-        zoomJoinUrl: meeting.join_url,
+        zoomJoinUrl: joinUrl,
         zoomPassword: meeting.password,
         zoomHostKey: meeting.host_key || null,
         zoomHostEmail: hostUser.email

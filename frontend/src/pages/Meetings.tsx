@@ -29,7 +29,6 @@ import Modal from '../components/ui/Modal';
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal';
 import BulkMeetingEditModal, { type BulkMeetingUpdateData } from '../components/BulkMeetingEditModal';
 import ViewSelector from '../components/ViewSelector';
-import PendingMeetingRequests from '../components/PendingMeetingRequests';
 import { meetingStatusHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
@@ -614,9 +613,6 @@ export default function Meetings() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
-        {/* Pending requests banner - Admin only */}
-        {isAdmin && <PendingMeetingRequests />}
-
         {/* Bulk Actions Bar - Admin only */}
         {someSelected && isAdmin && (
           <div className="mb-4 p-4 bg-blue-600 text-white rounded-lg flex items-center gap-4 flex-wrap animate-in slide-in-from-top">

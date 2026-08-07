@@ -58,7 +58,15 @@ const typeConfig: Record<string, { label: string; icon: ReactNode; color: string
   },
 };
 
-export default function PendingMeetingRequests() {
+interface PendingMeetingRequestsProps {
+  showPendingRequests?: boolean;
+  showRiskSummary?: boolean;
+}
+
+export default function PendingMeetingRequests({
+  showPendingRequests = true,
+  showRiskSummary = false,
+}: PendingMeetingRequestsProps) {
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(true);
   const [adminNotes, setAdminNotes] = useState<Record<string, string>>({});
@@ -68,12 +76,14 @@ export default function PendingMeetingRequests() {
     queryKey: ['pending-meeting-requests'],
     queryFn: fetchPendingRequests,
     refetchInterval: 60_000,
+    enabled: showPendingRequests,
   });
 
   const { data: risks = [], isLoading: isLoadingRisks } = useQuery({
     queryKey: ['meeting-request-risks'],
     queryFn: fetchRiskSummary,
     refetchInterval: 60_000,
+    enabled: showRiskSummary,
   });
 
   const approveMutation = useMutation({
@@ -110,15 +120,18 @@ export default function PendingMeetingRequests() {
     }
   };
 
-  if (isLoading || isLoadingRisks) return null;
-  if (requests.length === 0 && risks.length === 0) return null;
+  if ((showPendingRequests && isLoading) || (showRiskSummary && isLoadingRisks)) return null;
+  if (
+    (!showPendingRequests || requests.length === 0) &&
+    (!showRiskSummary || risks.length === 0)
+  ) return null;
 
   const formatDate = (dateStr: string) =>
     new Date(dateStr).toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'short' });
 
   return (
     <div className="mb-4 space-y-3">
-      {risks.length > 0 && (
+      {showRiskSummary && risks.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-lg overflow-hidden">
           <div className="flex items-center gap-3 px-4 py-3 text-right">
             <AlertTriangle size={20} className="text-red-600 shrink-0" />
@@ -160,7 +173,7 @@ export default function PendingMeetingRequests() {
         </div>
       )}
 
-      {requests.length > 0 && (
+      {showPendingRequests && requests.length > 0 && (
       <div className="bg-orange-50 border border-orange-200 rounded-lg overflow-hidden">
       {/* Header */}
       <button

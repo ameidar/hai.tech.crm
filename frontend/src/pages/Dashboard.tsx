@@ -29,6 +29,7 @@ import MeetingDetailModal from '../components/MeetingDetailModal';
 import ForecastChart from '../components/ForecastChart';
 import MorningRevenueChart from '../components/MorningRevenueChart';
 import PayingBodyReconciliationTable from '../components/PayingBodyReconciliationTable';
+import PendingMeetingRequests from '../components/PendingMeetingRequests';
 import { meetingStatusHebrew, dayOfWeekHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
@@ -152,6 +153,8 @@ export default function Dashboard() {
           <Loading size="lg" text="טוען נתונים..." />
         ) : (
           <div className="space-y-6">
+            {isAdmin && <PendingMeetingRequests showPendingRequests={false} showRiskSummary />}
+
             {/* KPI Cards with Gradients */}
             <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
               <KPICard

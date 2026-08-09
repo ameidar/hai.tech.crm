@@ -10,6 +10,7 @@ import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
 import { meetingRevenueForMeeting } from '../utils/revenue.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
 import { broadcastWaSSE } from '../services/wa-events.js';
+import { autoRegisterLeadToCycle } from '../services/lead-cycle-registration.js';
 import rateLimit from 'express-rate-limit';
 
 // Rate limiter for public lead submission endpoint
@@ -610,9 +611,11 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       // New fields from website form
       childName,
       childAge,
+      grade,
       interest,
       message,
     } = req.body;
+    const cycleId = String(req.body.cycleId || req.body.cycle_id || req.body.selectedCycleId || '').trim();
 
     if (!name) {
       throw new AppError(400, 'name is required');
@@ -662,6 +665,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       if (notes) parts.push(notes);
       if (childName && childAge) parts.push(`ילד/ה: ${childName}, גיל ${childAge}`);
       else if (childName) parts.push(`ילד/ה: ${childName}`);
+      if (cycleId) parts.push(`מחזור: ${cycleId}`);
       return parts.length > 0 ? parts.join(' | ') : 'פנייה חדשה';
     };
 
@@ -710,6 +714,16 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
         appointmentNotes: noteText,
       });
 
+      const autoRegistration = await autoRegisterLeadToCycle({
+        source,
+        customerId: customer.id,
+        childName: childName || null,
+        childAge: childAge || null,
+        grade: grade || null,
+        cycleId,
+        interest: interest || null,
+      });
+
       // Send welcome template also for returning customers (every new lead submission)
       if (customer.phone) {
         sendLeadWelcomeTemplate(customer.phone, customer.name, interest)
@@ -744,6 +758,8 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
           phone: customer.phone,
           email: customer.email,
           childName,
+          cycleId,
+          autoRegistration,
           interest,
           isDuplicate,
           clientIp,
@@ -764,6 +780,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
           id: lead.id,
           appointmentStatus: lead.appointmentStatus,
         },
+        autoRegistration,
         message: 'Customer already exists, customer and lead updated',
       });
       return;
@@ -819,6 +836,16 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       appointmentNotes: noteText,
     });
 
+    const autoRegistration = await autoRegisterLeadToCycle({
+      source,
+      customerId: customer.id,
+      childName: childName || null,
+      childAge: childAge || null,
+      grade: grade || null,
+      cycleId,
+      interest: interest || null,
+    });
+
     // Send welcome notifications (async, don't block response)
     sendWelcomeNotifications({
       name: customer.name,
@@ -859,6 +886,8 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
         phone: customer.phone,
         email: customer.email,
         childName,
+        cycleId,
+        autoRegistration,
         interest,
         clientIp,
       },
@@ -877,6 +906,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
           name: s.name,
         })),
       },
+      autoRegistration,
     });
   } catch (error) {
     next(error);

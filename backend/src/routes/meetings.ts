@@ -394,7 +394,7 @@ meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
       try {
         // startTime is in Israel local time (HH:MM), build datetime with Israel timezone offset
         let [sHour, sMin] = startTime.split(':').map(Number);
-        
+
         // Start Zoom meeting 10 minutes early to allow participants to join before the lesson
         sMin -= 10;
         if (sMin < 0) {
@@ -892,24 +892,33 @@ meetingsRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) =
       }
     }
 
-    // If meeting was completed, decrement cycle counters
-    if (meeting.status === 'completed') {
-      const cycleData = await prisma.cycle.findUnique({
-        where: { id: meeting.cycleId },
-      });
-      
-      if (cycleData && cycleData.completedMeetings > 0) {
-        await prisma.cycle.update({
+    await prisma.$transaction(async (tx) => {
+      // If meeting was completed, decrement cycle counters
+      if (meeting.status === 'completed') {
+        const cycleData = await tx.cycle.findUnique({
           where: { id: meeting.cycleId },
-          data: {
-            completedMeetings: { decrement: 1 },
-            remainingMeetings: { increment: 1 },
-          },
         });
-      }
-    }
 
-    await prisma.meeting.delete({ where: { id } });
+        if (cycleData && cycleData.completedMeetings > 0) {
+          await tx.cycle.update({
+            where: { id: meeting.cycleId },
+            data: {
+              completedMeetings: { decrement: 1 },
+              remainingMeetings: { increment: 1 },
+            },
+          });
+        }
+      }
+
+      await tx.meetingChangeRequest.deleteMany({
+        where: { meetingId: id },
+      });
+      await tx.meeting.updateMany({
+        where: { rescheduledToId: id },
+        data: { rescheduledToId: null },
+      });
+      await tx.meeting.delete({ where: { id } });
+    });
 
     res.json({ success: true });
   } catch (error) {
@@ -1478,6 +1487,10 @@ meetingsRouter.post('/bulk-delete', operationsManagerOrAdmin, async (req, res, n
       select: { id: true, cycleId: true, instructorId: true, scheduledDate: true, status: true },
     });
 
+    for (const meeting of meetings) {
+      await assertMeetingNotInIssuedPeriod(meeting.id);
+    }
+
     // Group completed meetings by cycle to update counters
     const completedByCycle = meetings
       .filter(m => m.status === 'completed')
@@ -1486,20 +1499,29 @@ meetingsRouter.post('/bulk-delete', operationsManagerOrAdmin, async (req, res, n
         return acc;
       }, {} as Record<string, number>);
 
-    // Update cycle counters
-    for (const [cycleId, count] of Object.entries(completedByCycle)) {
-      await prisma.cycle.update({
-        where: { id: cycleId },
-        data: {
-          completedMeetings: { decrement: count },
-          remainingMeetings: { increment: count },
-        },
-      });
-    }
+    const result = await prisma.$transaction(async (tx) => {
+      // Update cycle counters
+      for (const [cycleId, count] of Object.entries(completedByCycle)) {
+        await tx.cycle.update({
+          where: { id: cycleId },
+          data: {
+            completedMeetings: { decrement: count },
+            remainingMeetings: { increment: count },
+          },
+        });
+      }
 
-    // Delete all meetings
-    const result = await prisma.meeting.deleteMany({
-      where: { id: { in: ids } },
+      await tx.meetingChangeRequest.deleteMany({
+        where: { meetingId: { in: ids } },
+      });
+      await tx.meeting.updateMany({
+        where: { rescheduledToId: { in: ids } },
+        data: { rescheduledToId: null },
+      });
+
+      return tx.meeting.deleteMany({
+        where: { id: { in: ids } },
+      });
     });
 
     for (const meeting of meetings) {

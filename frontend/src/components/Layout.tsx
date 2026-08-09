@@ -127,6 +127,7 @@ const operationsNavItems = [
 const operationsControlNavItems = [
   { path: '/operations-control', icon: Activity, label: 'מגדל שליטה', testId: 'nav-operations-control' },
   { path: '/tasks', icon: ListTodo, label: 'משימות תפעול', testId: 'nav-tasks' },
+  { path: '/cycles', icon: RefreshCcw, label: 'מחזורים', testId: 'nav-cycles' },
   { path: '/meeting-change-log', icon: ClipboardList, label: 'לוג דחיות וביטולים', testId: 'nav-meeting-change-log' },
   { path: '/lead-appointments', icon: PhoneCall, label: 'יומן לידים', testId: 'nav-lead-appointments' },
   { path: '/whatsapp', icon: MessageCircle, label: 'WhatsApp', testId: 'nav-whatsapp' },

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
-import { authenticate, operationsManagerOrAdmin } from '../middleware/auth.js';
+import { authenticate, cycleRosterOrAdmin, operationsManagerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createCycleSchema, updateCycleSchema, createRegistrationSchema, paginationSchema, uuidSchema, bulkUpdateCyclesSchema } from '../types/schemas.js';
 import { fetchHolidays, dayNameToNumber, calculateCycleEndDate } from '../utils/holidays.js';
@@ -1001,7 +1001,7 @@ cyclesRouter.get('/:id/students', async (req, res, next) => {
 });
 
 // Add registration to cycle
-cyclesRouter.post('/:id/registrations', operationsManagerOrAdmin, async (req, res, next) => {
+cyclesRouter.post('/:id/registrations', cycleRosterOrAdmin, async (req, res, next) => {
   try {
     const cycleId = uuidSchema.parse(req.params.id);
     const data = createRegistrationSchema.parse({ ...req.body, cycleId });

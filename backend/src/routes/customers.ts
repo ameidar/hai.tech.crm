@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma.js';
-import { authenticate, operationsManagerOrAdmin, salesOrAbove } from '../middleware/auth.js';
+import { authenticate, cycleRosterOrAdmin, operationsManagerOrAdmin, salesOrAbove } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createCustomerSchema, updateCustomerSchema, createStudentSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
 import { logAudit } from '../utils/audit.js';
@@ -221,7 +221,7 @@ customersRouter.get('/:id', operationsManagerOrAdmin, async (req, res, next) => 
 });
 
 // Create customer
-customersRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
+customersRouter.post('/', cycleRosterOrAdmin, async (req, res, next) => {
   try {
     const data = createCustomerSchema.parse(req.body);
 
@@ -512,7 +512,7 @@ customersRouter.get('/:id/students', operationsManagerOrAdmin, async (req, res, 
 });
 
 // Create student for customer
-customersRouter.post('/:id/students', operationsManagerOrAdmin, async (req, res, next) => {
+customersRouter.post('/:id/students', cycleRosterOrAdmin, async (req, res, next) => {
   try {
     const customerId = uuidSchema.parse(req.params.id);
     

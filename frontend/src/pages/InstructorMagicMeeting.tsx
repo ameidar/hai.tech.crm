@@ -16,7 +16,8 @@ import {
   AlertCircle,
   ExternalLink,
   CalendarX,
-  Ban
+  Ban,
+  BarChart3
 } from 'lucide-react';
 import Loading from '../components/ui/Loading';
 import type { MeetingStatus } from '../types';
@@ -53,6 +54,13 @@ interface MeetingData {
   instructor: {
     id: string;
     name: string;
+  };
+  progress?: {
+    currentLessonNumber: number | null;
+    totalMeetings: number;
+    completedMeetings: number;
+    remainingMeetings: number | null;
+    remainingAfterCurrent: number | null;
   };
   attendance: AttendanceRecord[];
   stats: {
@@ -204,6 +212,7 @@ export default function InstructorMagicMeeting() {
   if (!data) return null;
 
   const { meeting, instructor } = data;
+  const progress = data.progress;
   const isOnline = meeting.activityType === 'online';
 
   return (
@@ -253,6 +262,39 @@ export default function InstructorMagicMeeting() {
             )}
           </div>
         </div>
+
+        {progress && progress.currentLessonNumber && progress.totalMeetings > 0 && (
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
+                <BarChart3 size={20} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-gray-500">התקדמות במחזור</p>
+                <p className="text-lg font-bold text-gray-900">
+                  שיעור {progress.currentLessonNumber} מתוך {progress.totalMeetings}
+                </p>
+              </div>
+              {progress.remainingMeetings !== null && (
+                <div className="text-left flex-shrink-0">
+                  <p className="text-xs font-medium text-gray-500">נותרו</p>
+                  <p className="text-lg font-bold text-gray-900">{progress.remainingMeetings}</p>
+                </div>
+              )}
+            </div>
+            <div className="mt-3 h-2 rounded-full bg-gray-100 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-blue-600"
+                style={{ width: `${Math.min(100, (progress.currentLessonNumber / progress.totalMeetings) * 100)}%` }}
+              />
+            </div>
+            {progress.remainingAfterCurrent !== null && status !== 'completed' && (
+              <p className="text-xs text-gray-500 mt-2">
+                אחרי דיווח על השיעור יישארו {progress.remainingAfterCurrent} שיעורים.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Status Selection */}
         <div>

@@ -38,6 +38,7 @@ import { initBillingScheduler } from './services/billing-scheduler.js';
 import { initProformaAlertScheduler } from './services/proforma-alerts.js';
 import { initTaskReminderScheduler } from './services/task-reminders.js';
 import { initWooBackupSyncScheduler } from './services/woo-sync-scheduler.js';
+import { reconcileOmerRegistrationPayment } from './services/omer-payment-reconciliation.js';
 import { forecastRouter } from './routes/forecast.js';
 import { quotesRouter } from './routes/quotes.js';
 import { publicQuoteRouter } from './routes/public-quote.js';
@@ -335,6 +336,8 @@ async function recordPaidPaymentLink(code: string) {
       paidAt: new Date(),
     },
   });
+
+  await reconcileOmerRegistrationPayment(payment.id);
 
   return { link, payment, customer, created: createdCustomer, duplicate: false };
 }

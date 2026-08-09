@@ -1,5 +1,6 @@
 import { config } from '../config.js';
 import { prisma } from '../utils/prisma.js';
+import { reconcileOmerRegistrationPayment } from './omer-payment-reconciliation.js';
 import { handlePostPaymentPlacement } from './trial-placement.js';
 
 type WooMeta = { key?: string; value?: any };
@@ -140,6 +141,7 @@ export async function upsertWooOrderPayment(
 
   if (existing) {
     await prisma.payment.update({ where: { id: existing.id }, data: updateData });
+    if (paid) await reconcileOmerRegistrationPayment(existing.id);
     return { action: 'updated', orderId, paymentId: existing.id };
   }
 
@@ -174,6 +176,8 @@ export async function upsertWooOrderPayment(
   if (options.runPlacementAutomation) {
     await handlePostPaymentPlacement(createdPayment.id);
   }
+
+  await reconcileOmerRegistrationPayment(createdPayment.id);
 
   return { action: 'created', orderId, paymentId: createdPayment.id };
 }

@@ -35,6 +35,12 @@ function cleanText(value?: string | null): string {
   return String(value ?? '').trim();
 }
 
+function registrationAmountForCycle(cycle: { pricePerStudent: unknown }): number | null {
+  const configuredPrice = cycle.pricePerStudent == null ? null : Number(cycle.pricePerStudent);
+  if (configuredPrice !== null && Number.isFinite(configuredPrice) && configuredPrice > 0) return configuredPrice;
+  return null;
+}
+
 export async function autoRegisterLeadToCycle(input: AutoRegisterLeadInput): Promise<AutoRegisterLeadResult> {
   if (!AUTO_REGISTRATION_SOURCES.has(input.source)) {
     return { status: 'skipped', reason: 'source_not_enabled' };
@@ -120,7 +126,7 @@ export async function autoRegisterLeadToCycle(input: AutoRegisterLeadInput): Pro
       cycleId: cycle.id,
       status: 'registered',
       paymentStatus: 'unpaid',
-      amount: cycle.pricePerStudent ?? null,
+      amount: registrationAmountForCycle(cycle),
       notes: `נוצר אוטומטית מטופס ${input.source}`,
     },
     select: { id: true },

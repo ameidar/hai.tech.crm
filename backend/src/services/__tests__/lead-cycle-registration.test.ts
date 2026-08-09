@@ -67,10 +67,33 @@ describe('autoRegisterLeadToCycle', () => {
         cycleId: 'cycle-1',
         status: 'registered',
         paymentStatus: 'unpaid',
+        amount: 3200,
       }),
       select: { id: true },
     });
     expect(mockRecalc).toHaveBeenCalledWith('cycle-1');
+  });
+
+  it('keeps amount empty when the cycle has no configured price', async () => {
+    mockPrisma.cycle.findFirst.mockResolvedValue({
+      id: 'cycle-1',
+      name: 'עומר - מיינקראפט כיתה ג׳',
+      status: 'active',
+      pricePerStudent: null,
+    } as any);
+    mockPrisma.student.findFirst.mockResolvedValue({ id: 'student-1' } as any);
+    mockPrisma.registration.findFirst.mockResolvedValue(null);
+    mockPrisma.registration.create.mockResolvedValue({ id: 'registration-1' } as any);
+
+    await autoRegisterLeadToCycle(baseInput);
+
+    expect(mockPrisma.registration.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        amount: null,
+        paymentStatus: 'unpaid',
+      }),
+      select: { id: true },
+    });
   });
 
   it('does not duplicate an existing active registration', async () => {

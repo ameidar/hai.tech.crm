@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/auth.js';
 import { config } from '../config.js';
 import { prisma } from '../utils/prisma.js';
 import { handlePostPaymentPlacement } from '../services/trial-placement.js';
+import { reconcileOmerRegistrationPayment } from '../services/omer-payment-reconciliation.js';
 import { extractGreenInvoice, syncRecentWooPayments, upsertWooOrderPayment } from '../services/woo-sync.js';
 
 // Shared secret for WP auto-login tokens (must match WP snippet constant)
@@ -394,6 +395,7 @@ router.post('/manual', authenticate, async (req: any, res) => {
   });
 
   // Trial-lesson placement automation (non-digital payments → flag + notify).
+  await reconcileOmerRegistrationPayment(payment.id);
   await handlePostPaymentPlacement(payment.id);
 
   return res.status(201).json(payment);

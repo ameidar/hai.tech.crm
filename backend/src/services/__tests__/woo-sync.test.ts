@@ -18,12 +18,18 @@ vi.mock('../trial-placement.js', () => ({
   handlePostPaymentPlacement: vi.fn(),
 }));
 
+vi.mock('../omer-payment-reconciliation.js', () => ({
+  reconcileOmerRegistrationPayment: vi.fn(),
+}));
+
 import { prisma } from '../../utils/prisma.js';
 import { handlePostPaymentPlacement } from '../trial-placement.js';
+import { reconcileOmerRegistrationPayment } from '../omer-payment-reconciliation.js';
 import { syncRecentWooPayments, upsertWooOrderPayment } from '../woo-sync.js';
 
 const mockPrisma = vi.mocked(prisma);
 const mockPlacement = vi.mocked(handlePostPaymentPlacement);
+const mockReconcileOmerRegistrationPayment = vi.mocked(reconcileOmerRegistrationPayment);
 
 describe('Woo payment sync', () => {
   beforeEach(() => {
@@ -31,6 +37,7 @@ describe('Woo payment sync', () => {
     process.env.WOO_SITE_URL = 'https://woo.test';
     process.env.WOO_CONSUMER_KEY = 'ck_test';
     process.env.WOO_CONSUMER_SECRET = 'cs_test';
+    mockReconcileOmerRegistrationPayment.mockResolvedValue({ status: 'skipped', reason: 'no_matching_registration' } as any);
   });
 
   it('skips a new pending order instead of creating a premature payment', async () => {
@@ -81,6 +88,7 @@ describe('Woo payment sync', () => {
       }),
     });
     expect(mockPlacement).not.toHaveBeenCalled();
+    expect(mockReconcileOmerRegistrationPayment).toHaveBeenCalledWith('payment-id');
   });
 
   it('backup sync scans recent paid Woo orders and creates missing payments', async () => {

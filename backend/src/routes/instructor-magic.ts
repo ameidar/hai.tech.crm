@@ -134,6 +134,24 @@ router.get('/verify/:meetingId/:token', async (req: Request, res: Response) => {
         isTrial: reg.status === 'trial',
       };
     });
+
+    const totalMeetings = meeting.cycle?.totalMeetings ?? 0;
+    const completedMeetings = await prisma.meeting.count({
+      where: {
+        cycleId: meeting.cycleId,
+        status: 'completed',
+        deletedAt: null,
+      },
+    });
+    const currentLessonNumber = totalMeetings > 0
+      ? Math.min(totalMeetings, completedMeetings + (meeting.status === 'completed' ? 0 : 1))
+      : null;
+    const remainingMeetings = totalMeetings > 0
+      ? Math.max(0, totalMeetings - completedMeetings)
+      : null;
+    const remainingAfterCurrent = remainingMeetings !== null
+      ? Math.max(0, remainingMeetings - (meeting.status === 'completed' ? 0 : 1))
+      : null;
     
     res.json({
       meeting: {
@@ -153,6 +171,13 @@ router.get('/verify/:meetingId/:token', async (req: Request, res: Response) => {
       instructor: {
         id: meeting.instructor?.id,
         name: meeting.instructor?.name,
+      },
+      progress: {
+        currentLessonNumber,
+        totalMeetings,
+        completedMeetings,
+        remainingMeetings,
+        remainingAfterCurrent,
       },
       attendance: attendanceList,
       stats: {

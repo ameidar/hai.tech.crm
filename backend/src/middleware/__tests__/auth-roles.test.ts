@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { authorize, managerOrAdmin, operationsManagerOrAdmin, salesOrAbove } from '../auth.js';
+import { authorize, cycleRosterOrAdmin, managerOrAdmin, operationsManagerOrAdmin, salesOrAbove } from '../auth.js';
 
 function reqWithRole(role: Express.Request['user']['role']) {
   return {
@@ -38,6 +38,12 @@ describe('role authorization', () => {
 
     const error = next.mock.calls[0][0];
     expect(error).toMatchObject({ statusCode: 403, message: 'Insufficient permissions' });
+  });
+
+  it('allows operations_control into cycle roster workflows', () => {
+    const next = run(cycleRosterOrAdmin, 'operations_control');
+
+    expect(next).toHaveBeenCalledWith();
   });
 
   it('allows operations_manager into operational management workflows', () => {

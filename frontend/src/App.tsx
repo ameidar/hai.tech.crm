@@ -125,6 +125,10 @@ function ManagementRoute({ children }: { children: React.ReactNode }) {
   return <RoleRoute allowed={['admin', 'manager', 'operations_manager']}>{children}</RoleRoute>;
 }
 
+function CycleRosterRoute({ children }: { children: React.ReactNode }) {
+  return <RoleRoute allowed={['admin', 'manager', 'operations_manager', 'operations_control']}>{children}</RoleRoute>;
+}
+
 function AdminManagerRoute({ children }: { children: React.ReactNode }) {
   return <RoleRoute allowed={['admin', 'manager']}>{children}</RoleRoute>;
 }
@@ -205,8 +209,8 @@ function AppRoutes() {
             <Route path="courses" element={<ManagementRoute><Courses /></ManagementRoute>} />
             <Route path="branches" element={<ManagementRoute><Branches /></ManagementRoute>} />
             <Route path="instructors" element={<ManagementRoute><Instructors /></ManagementRoute>} />
-            <Route path="cycles" element={<ManagementRoute><Cycles /></ManagementRoute>} />
-            <Route path="cycles/:id" element={<ManagementRoute><CycleDetail /></ManagementRoute>} />
+            <Route path="cycles" element={<CycleRosterRoute><Cycles /></CycleRosterRoute>} />
+            <Route path="cycles/:id" element={<CycleRosterRoute><CycleDetail /></CycleRosterRoute>} />
             <Route path="meetings" element={<ManagementRoute><Meetings /></ManagementRoute>} />
             <Route path="meetings/:id" element={<ManagementRoute><MeetingRedirect /></ManagementRoute>} />
             <Route path="meeting-change-log" element={<RoleRoute allowed={['admin', 'manager', 'operations_control', 'operations_manager']}><MeetingChangeLog /></RoleRoute>} />

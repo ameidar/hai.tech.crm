@@ -9,12 +9,15 @@ import Modal from '../components/ui/Modal';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import MeetingsExportModal from '../components/MeetingsExportModal';
 import ViewSelector from '../components/ViewSelector';
+import { useAuth } from '../context/AuthContext';
 import { cycleStatusHebrew, cycleTypeHebrew, dayOfWeekHebrew } from '../types';
 import type { Cycle, CycleType, CycleStatus, DayOfWeek, ActivityType, InstructorPaymentMode } from '../types';
 import { activityTypeHebrew } from '../types';
 import { exportMeetingsToExcel } from '../utils/meetingsExcel';
 
 export default function Cycles() {
+  const { user } = useAuth();
+  const canManageCycles = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations_manager';
   const [searchParams, setSearchParams] = useSearchParams();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingCycle, setEditingCycle] = useState<Cycle | null>(null);
@@ -349,18 +352,22 @@ export default function Cycles() {
         subtitle={`${displayCycles?.length || 0} מחזורים`}
         actions={
           <div className="flex gap-2">
-            <button
-              onClick={() => syncAllCycles.mutateAsync(undefined).then(r => alert(`✅ סונכרנו ${(r as any).synced} מחזורים`))}
-              disabled={syncAllCycles.isPending}
-              className="btn btn-secondary flex items-center gap-1"
-              title="סנכרן התקדמות כל המחזורים"
-            >
-              {syncAllCycles.isPending ? '⏳' : '🔄'} סנכרן הכל
-            </button>
-            <button onClick={() => setShowAddModal(true)} className="btn btn-primary" data-testid="add-cycle-btn">
-              <Plus size={18} />
-              מחזור חדש
-            </button>
+            {canManageCycles && (
+              <>
+                <button
+                  onClick={() => syncAllCycles.mutateAsync(undefined).then(r => alert(`✅ סונכרנו ${(r as any).synced} מחזורים`))}
+                  disabled={syncAllCycles.isPending}
+                  className="btn btn-secondary flex items-center gap-1"
+                  title="סנכרן התקדמות כל המחזורים"
+                >
+                  {syncAllCycles.isPending ? '⏳' : '🔄'} סנכרן הכל
+                </button>
+                <button onClick={() => setShowAddModal(true)} className="btn btn-primary" data-testid="add-cycle-btn">
+                  <Plus size={18} />
+                  מחזור חדש
+                </button>
+              </>
+            )}
           </div>
         }
       />
@@ -531,31 +538,35 @@ export default function Cycles() {
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowBulkEditModal(true)}
-                className="btn btn-primary flex items-center gap-2"
-              >
-                <Edit size={16} />
-                עריכה גורפת
-              </button>
-              <button
-                onClick={async () => {
-                  if (confirm(`האם ליצור פגישות ל-${selectedCycles.size} מחזורים?`)) {
-                    try {
-                      const result = await bulkGenerateMeetings.mutateAsync(Array.from(selectedCycles));
-                      alert(result.message);
-                      setSelectedCycles(new Set());
-                    } catch (error: any) {
-                      alert(error.message || 'שגיאה ביצירת פגישות');
-                    }
-                  }
-                }}
-                disabled={bulkGenerateMeetings.isPending}
-                className="btn btn-success flex items-center gap-2"
-              >
-                <Calendar size={16} />
-                {bulkGenerateMeetings.isPending ? 'יוצר...' : 'צור פגישות'}
-              </button>
+              {canManageCycles && (
+                <>
+                  <button
+                    onClick={() => setShowBulkEditModal(true)}
+                    className="btn btn-primary flex items-center gap-2"
+                  >
+                    <Edit size={16} />
+                    עריכה גורפת
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (confirm(`האם ליצור פגישות ל-${selectedCycles.size} מחזורים?`)) {
+                        try {
+                          const result = await bulkGenerateMeetings.mutateAsync(Array.from(selectedCycles));
+                          alert(result.message);
+                          setSelectedCycles(new Set());
+                        } catch (error: any) {
+                          alert(error.message || 'שגיאה ביצירת פגישות');
+                        }
+                      }
+                    }}
+                    disabled={bulkGenerateMeetings.isPending}
+                    className="btn btn-success flex items-center gap-2"
+                  >
+                    <Calendar size={16} />
+                    {bulkGenerateMeetings.isPending ? 'יוצר...' : 'צור פגישות'}
+                  </button>
+                </>
+              )}
               <button
                 onClick={() => setShowMeetingsExportModal(true)}
                 disabled={isExportingMeetings}
@@ -645,7 +656,7 @@ export default function Cycles() {
                         </div>
                       </th>
                     ))}
-                    <th>פעולות</th>
+                    {canManageCycles && <th>פעולות</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -769,24 +780,26 @@ export default function Cycles() {
                           ) : <span className="text-gray-400">-</span>}
                         </td>
                       )}
-                      <td>
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => setEditingCycle(cycle)}
-                            className="icon-btn icon-btn-primary"
-                            title="עריכה"
-                          >
-                            <Edit size={16} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteCycle(cycle.id, cycle.name)}
-                            className="icon-btn icon-btn-danger"
-                            title="מחיקה"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </td>
+                      {canManageCycles && (
+                        <td>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => setEditingCycle(cycle)}
+                              className="icon-btn icon-btn-primary"
+                              title="עריכה"
+                            >
+                              <Edit size={16} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteCycle(cycle.id, cycle.name)}
+                              className="icon-btn icon-btn-danger"
+                              title="מחיקה"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

@@ -349,8 +349,6 @@ meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
     } else if (['private', 'trial_private'].includes(String(cycle.type))) {
       if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
         revenue = Number(cycle.meetingRevenue);
-      } else if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
-        revenue = Number(cycle.pricePerStudent) * cycle.registrations.length;
       } else {
         revenue = meetingRevenueFromRegistrations(cycle.registrations, cycle.totalMeetings, cycle.type);
       }

@@ -906,9 +906,17 @@ export default function CycleDetail() {
                     </div>
                     {!!cycle.pricePerStudent && (
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-500">מחיר לתלמיד:</span>
+                        <span className="text-gray-500">מחיר לתלמיד למפגש:</span>
                         <span className="font-semibold text-gray-500 text-xs">
                           ₪{Number(cycle.pricePerStudent).toLocaleString()}
+                        </span>
+                      </div>
+                    )}
+                    {!!cycle.defaultRegistrationAmount && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-500">סכום הרשמה:</span>
+                        <span className="font-semibold text-gray-500 text-xs">
+                          ₪{Number(cycle.defaultRegistrationAmount).toLocaleString()}
                         </span>
                       </div>
                     )}
@@ -2888,6 +2896,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     endTime: cycle.endTime ? formatTimeForInput(cycle.endTime) : '17:00',
     totalMeetings: cycle.totalMeetings,
     pricePerStudent: cycle.pricePerStudent || 0,
+    defaultRegistrationAmount: cycle.defaultRegistrationAmount || 0,
     meetingRevenue: cycle.meetingRevenue || 0,
     includesVat: false,
     instructorPaymentMode: (cycle.instructorPaymentMode || 'hourly') as InstructorPaymentMode,
@@ -2954,6 +2963,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     
     // Amounts entered here are always before VAT. VAT is not HaiTech revenue.
     let meetingRevenueValue = Number(formData.meetingRevenue);
+    const defaultRegistrationAmountValue = Number(formData.defaultRegistrationAmount);
 
     onSubmit({
       name: formData.name,
@@ -2968,7 +2978,8 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
       endTime: formData.endTime,
       durationMinutes: durationMinutes > 0 ? durationMinutes : 60,
       totalMeetings: Number(formData.totalMeetings),
-      pricePerStudent: (formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') ? Number(formData.pricePerStudent) : undefined,
+      pricePerStudent: formData.type === 'institutional_per_child' ? Number(formData.pricePerStudent) : null,
+      defaultRegistrationAmount: defaultRegistrationAmountValue > 0 ? defaultRegistrationAmountValue : null,
       meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'trial_private') ? meetingRevenueValue : undefined,
       revenueIncludesVat: formData.type === 'institutional_fixed' ? false : undefined,
       instructorPaymentMode: formData.instructorPaymentMode,
@@ -3195,9 +3206,9 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
           />
         </div>
 
-        {(formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && (
+        {formData.type === 'institutional_per_child' && (
           <div>
-            <label className="form-label">מחיר לתלמיד לפני מע״מ {formData.type === 'institutional_per_child' ? '(למפגש)' : ''} (₪)</label>
+            <label className="form-label">מחיר לתלמיד למפגש לפני מע״מ (₪)</label>
             <input
               type="number"
               value={formData.pricePerStudent}
@@ -3208,6 +3219,18 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
             />
           </div>
         )}
+
+        <div>
+          <label className="form-label">סכום הרשמה ברירת מחדל (₪)</label>
+          <input
+            type="number"
+            value={formData.defaultRegistrationAmount}
+            onChange={(e) => setFormData({ ...formData, defaultRegistrationAmount: Number(e.target.value) })}
+            className="form-input"
+            min="0"
+            step="0.01"
+          />
+        </div>
 
         {(formData.type === 'private' || formData.type === 'trial_private') && (
           <div>

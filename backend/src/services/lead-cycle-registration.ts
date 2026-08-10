@@ -1,5 +1,6 @@
 import { prisma } from '../utils/prisma.js';
 import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
+import { defaultRegistrationAmountForCycle } from '../utils/registration-amount.js';
 
 const AUTO_REGISTRATION_SOURCES = new Set([
   'omer-dafna-registration-form',
@@ -35,12 +36,6 @@ function cleanText(value?: string | null): string {
   return String(value ?? '').trim();
 }
 
-function registrationAmountForCycle(cycle: { pricePerStudent: unknown }): number | null {
-  const configuredPrice = cycle.pricePerStudent == null ? null : Number(cycle.pricePerStudent);
-  if (configuredPrice !== null && Number.isFinite(configuredPrice) && configuredPrice > 0) return configuredPrice;
-  return null;
-}
-
 export async function autoRegisterLeadToCycle(input: AutoRegisterLeadInput): Promise<AutoRegisterLeadResult> {
   if (!AUTO_REGISTRATION_SOURCES.has(input.source)) {
     return { status: 'skipped', reason: 'source_not_enabled' };
@@ -62,7 +57,7 @@ export async function autoRegisterLeadToCycle(input: AutoRegisterLeadInput): Pro
       id: true,
       name: true,
       status: true,
-      pricePerStudent: true,
+      defaultRegistrationAmount: true,
     },
   });
 
@@ -126,7 +121,7 @@ export async function autoRegisterLeadToCycle(input: AutoRegisterLeadInput): Pro
       cycleId: cycle.id,
       status: 'registered',
       paymentStatus: 'unpaid',
-      amount: registrationAmountForCycle(cycle),
+      amount: defaultRegistrationAmountForCycle(cycle),
       notes: `נוצר אוטומטית מטופס ${input.source}`,
     },
     select: { id: true },

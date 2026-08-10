@@ -11,6 +11,7 @@ import { meetingRevenueFromRegistrations, netAmount, revenueRegistrations, round
 import { recalculateInstructorPaymentsForCycle } from '../services/instructor-payment.js';
 import { checkAndSendInstitutionalOrderCompletionAlert } from '../services/institutional-order-completion-alert.js';
 import { assertMeetingNotInIssuedPeriod } from '../services/billing-lock.js';
+import { resolveRegistrationAmountForCycle } from '../utils/registration-amount.js';
 
 // Make.com webhook removed — Zoom recordings handled directly via /api/zoom-webhook
 
@@ -29,12 +30,9 @@ function computeRevenuePerMeeting(cycle: any): number {
     return roundMoney(Number(cycle.pricePerStudent || 0) * count);
   }
   if (cycle.type === 'private' || cycle.type === 'trial_private') {
-    // Priority: explicit meetingRevenue > pricePerStudent × students > registration amounts / meetings
+    // Priority: explicit meetingRevenue > registration amounts / meetings.
+    // pricePerStudent is reserved for institutional_per_child.
     if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) return Number(cycle.meetingRevenue);
-    if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
-      const count = cycle.registrations?.length ?? cycle._count?.registrations ?? 0;
-      return roundMoney(Number(cycle.pricePerStudent) * count);
-    }
     // Sum revenue-bearing registration amounts (available in detail endpoint)
     if (Array.isArray(cycle.registrations) && cycle.registrations.length > 0) {
       return meetingRevenueFromRegistrations(revenueRegistrations(cycle.registrations), totalMeetings, cycle.type);
@@ -440,6 +438,7 @@ cyclesRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
       durationMinutes: data.durationMinutes,
       totalMeetings: data.totalMeetings,
       pricePerStudent: data.pricePerStudent,
+      defaultRegistrationAmount: data.defaultRegistrationAmount,
       meetingRevenue: data.meetingRevenue,
       revenueIncludesVat: data.revenueIncludesVat,
       instructorPaymentMode: data.instructorPaymentMode ?? 'hourly',
@@ -589,6 +588,7 @@ cyclesRouter.put('/:id', operationsManagerOrAdmin, async (req, res, next) => {
       totalMeetings: existingCycle.totalMeetings,
       meetingRevenue: Number(existingCycle.meetingRevenue),
       pricePerStudent: Number(existingCycle.pricePerStudent),
+      defaultRegistrationAmount: Number(existingCycle.defaultRegistrationAmount),
       studentCount: existingCycle.studentCount,
       minimumStudentsThreshold: existingCycle.minimumStudentsThreshold,
       activityType: existingCycle.activityType,
@@ -606,6 +606,7 @@ cyclesRouter.put('/:id', operationsManagerOrAdmin, async (req, res, next) => {
       totalMeetings: cycle.totalMeetings,
       meetingRevenue: Number(cycle.meetingRevenue),
       pricePerStudent: Number(cycle.pricePerStudent),
+      defaultRegistrationAmount: Number(cycle.defaultRegistrationAmount),
       studentCount: cycle.studentCount,
       minimumStudentsThreshold: cycle.minimumStudentsThreshold,
       activityType: cycle.activityType,
@@ -872,6 +873,7 @@ cyclesRouter.post('/bulk-update', operationsManagerOrAdmin, async (req, res, nex
     if (data.meetingRevenue !== undefined) updateData.meetingRevenue = data.meetingRevenue;
     if (data.revenueIncludesVat !== undefined) updateData.revenueIncludesVat = data.revenueIncludesVat;
     if (data.pricePerStudent !== undefined) updateData.pricePerStudent = data.pricePerStudent;
+    if (data.defaultRegistrationAmount !== undefined) updateData.defaultRegistrationAmount = data.defaultRegistrationAmount;
     if (data.studentCount !== undefined) updateData.studentCount = data.studentCount;
     if (data.minimumStudentsThreshold !== undefined) updateData.minimumStudentsThreshold = data.minimumStudentsThreshold;
     if (data.sendParentReminders !== undefined) updateData.sendParentReminders = data.sendParentReminders;
@@ -1089,6 +1091,8 @@ cyclesRouter.post('/:id/registrations', cycleRosterOrAdmin, async (req, res, nex
     });
     if (!student) throw new AppError(404, 'Student not found');
 
+    const registrationAmount = await resolveRegistrationAmountForCycle(cycleId, data.amount);
+
     // Check if already registered
     const existing = await prisma.registration.findUnique({
       where: { studentId_cycleId: { studentId: data.studentId, cycleId } },
@@ -1104,7 +1108,7 @@ cyclesRouter.post('/:id/registrations', cycleRosterOrAdmin, async (req, res, nex
         data: {
           status: data.status ?? 'registered',
           registrationDate: data.registrationDate ? new Date(data.registrationDate) : new Date(),
-          amount: data.amount,
+          amount: registrationAmount,
           paymentStatus: data.paymentStatus,
           paymentMethod: data.paymentMethod,
           cancellationDate: null,
@@ -1126,7 +1130,7 @@ cyclesRouter.post('/:id/registrations', cycleRosterOrAdmin, async (req, res, nex
         cycleId,
         registrationDate: data.registrationDate ? new Date(data.registrationDate) : new Date(),
         status: data.status,
-        amount: data.amount,
+        amount: registrationAmount,
         paymentStatus: data.paymentStatus,
         paymentMethod: data.paymentMethod,
         invoiceLink: data.invoiceLink,

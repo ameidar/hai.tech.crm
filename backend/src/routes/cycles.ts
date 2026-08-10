@@ -10,6 +10,7 @@ import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
 import { meetingRevenueFromRegistrations, netAmount, revenueRegistrations, roundMoney } from '../utils/revenue.js';
 import { recalculateInstructorPaymentsForCycle } from '../services/instructor-payment.js';
 import { checkAndSendInstitutionalOrderCompletionAlert } from '../services/institutional-order-completion-alert.js';
+import { assertMeetingNotInIssuedPeriod } from '../services/billing-lock.js';
 
 // Make.com webhook removed — Zoom recordings handled directly via /api/zoom-webhook
 
@@ -48,20 +49,51 @@ function computeRevenuePerMeeting(cycle: any): number {
   return 0;
 }
 
+const AUTO_REGENERATED_MEETING_STATUSES = [
+  'scheduled',
+  'postponed',
+  'pending_cancellation',
+  'pending_postponement',
+] as const;
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
 // Helper to generate meetings for a cycle (skips Israeli holidays)
 async function generateMeetingsForCycle(cycleId: string, fromDate?: Date, targetCount?: number) {
   const cycle = await prisma.cycle.findUnique({
     where: { id: cycleId },
+    include: {
+      meetings: {
+        where: { deletedAt: null },
+        select: { id: true, scheduledDate: true, status: true },
+      },
+    },
   });
 
   if (!cycle) return;
 
   const meetings = [];
   const targetDay = dayNameToNumber(cycle.dayOfWeek);
-  let currentDate = fromDate ? new Date(fromDate) : new Date(cycle.startDate);
+  let currentDate: Date;
+  if (fromDate) {
+    currentDate = new Date(fromDate);
+  } else if (cycle.meetings.length > 0) {
+    const lastMeeting = cycle.meetings.reduce((latest, meeting) =>
+      meeting.scheduledDate.getTime() > latest.scheduledDate.getTime() ? meeting : latest
+    );
+    currentDate = addDays(lastMeeting.scheduledDate, 7);
+  } else {
+    currentDate = new Date(cycle.startDate);
+  }
   
-  // How many meetings to generate
-  const meetingsToGenerate = targetCount ?? cycle.totalMeetings;
+  // How many meetings to generate. Existing callers that do not pass targetCount
+  // should fill only the missing meetings, not create another full cycle.
+  const meetingsToGenerate = targetCount ?? Math.max(0, cycle.totalMeetings - cycle.meetings.length);
+  if (meetingsToGenerate <= 0) return;
 
   // Fetch holidays for relevant years
   const startYear = currentDate.getFullYear();
@@ -91,6 +123,7 @@ async function generateMeetingsForCycle(cycleId: string, fromDate?: Date, target
         startTime: cycle.startTime,
         endTime: cycle.endTime,
         status: 'scheduled' as const,
+        activityType: cycle.activityType,
       });
     }
     
@@ -101,16 +134,98 @@ async function generateMeetingsForCycle(cycleId: string, fromDate?: Date, target
   if (meetings.length > 0) {
     await prisma.meeting.createMany({ data: meetings });
     
-    // Update cycle end date based on last meeting
+    // Update cycle progress and end date based on the generated schedule.
     const lastMeetingDate = meetings[meetings.length - 1].scheduledDate;
+    const completedCount = cycle.meetings.filter(m => m.status === 'completed').length;
     await prisma.cycle.update({
       where: { id: cycleId },
       data: { 
-        remainingMeetings: meetings.length,
+        remainingMeetings: Math.max(0, cycle.totalMeetings - completedCount),
         endDate: lastMeetingDate,
       },
     });
   }
+}
+
+async function regenerateMeetingsForCycle(cycleId: string) {
+  const cycle = await prisma.cycle.findUnique({
+    where: { id: cycleId },
+    include: {
+      meetings: {
+        where: { deletedAt: null },
+        select: { id: true, scheduledDate: true, status: true },
+      },
+    },
+  });
+
+  if (!cycle) throw new AppError(404, 'Cycle not found');
+
+  if (cycle.type === 'trial_private') {
+    const completedCount = cycle.meetings.filter(m => m.status === 'completed').length;
+    await prisma.cycle.update({
+      where: { id: cycleId },
+      data: {
+        completedMeetings: completedCount,
+        remainingMeetings: cycle.status === 'completed' ? 0 : Math.max(0, cycle.totalMeetings - completedCount),
+      },
+    });
+    return { deleted: 0, generated: 0, completedCount };
+  }
+
+  const meetingsToDelete = cycle.meetings.filter(m =>
+    AUTO_REGENERATED_MEETING_STATUSES.includes(m.status as any)
+  );
+
+  for (const meeting of meetingsToDelete) {
+    await assertMeetingNotInIssuedPeriod(meeting.id);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const ids = meetingsToDelete.map(m => m.id);
+    if (ids.length > 0) {
+      await tx.meetingChangeRequest.deleteMany({
+        where: { meetingId: { in: ids } },
+      });
+      await tx.meeting.updateMany({
+        where: { rescheduledToId: { in: ids } },
+        data: { rescheduledToId: null },
+      });
+      await tx.meeting.deleteMany({
+        where: { id: { in: ids } },
+      });
+    }
+  });
+
+  const completedMeetings = await prisma.meeting.findMany({
+    where: { cycleId, status: 'completed', deletedAt: null },
+    select: { scheduledDate: true },
+    orderBy: { scheduledDate: 'desc' },
+  });
+
+  const completedCount = completedMeetings.length;
+  const remainingCount = cycle.status === 'completed'
+    ? 0
+    : Math.max(0, cycle.totalMeetings - completedCount);
+
+  await prisma.cycle.update({
+    where: { id: cycleId },
+    data: {
+      completedMeetings: completedCount,
+      remainingMeetings: remainingCount,
+    },
+  });
+
+  if (remainingCount <= 0) {
+    return { deleted: meetingsToDelete.length, generated: 0, completedCount };
+  }
+
+  const generateFrom = completedMeetings[0]
+    ? addDays(completedMeetings[0].scheduledDate, 7)
+    : cycle.startDate;
+
+  await generateMeetingsForCycle(cycleId, generateFrom, remainingCount);
+
+  return { deleted: meetingsToDelete.length, generated: remainingCount, completedCount };
 }
 
 // List cycles
@@ -510,48 +625,10 @@ cyclesRouter.put('/:id', operationsManagerOrAdmin, async (req, res, next) => {
       await checkAndSendInstitutionalOrderCompletionAlert(cycle.institutionalOrderId, 'cycle-update');
     }
 
-    // If regenerateMeetings flag is set, delete all non-completed meetings and regenerate
+    // If regenerateMeetings flag is set, delete generated future/pending meetings
+    // and recreate the remaining schedule from the updated cycle definition.
     if (regenerateMeetings) {
-      // Delete only scheduled/postponed meetings (not completed or cancelled)
-      await prisma.meeting.deleteMany({
-        where: {
-          cycleId: id,
-          status: { in: ['scheduled', 'postponed'] },
-        },
-      });
-
-      // Count already-completed meetings
-      const completedCount = await prisma.meeting.count({
-        where: { cycleId: id, status: 'completed' },
-      });
-
-      // Find the last completed meeting date to start generating after it
-      const lastCompleted = await prisma.meeting.findFirst({
-        where: { cycleId: id, status: 'completed' },
-        orderBy: { scheduledDate: 'desc' },
-      });
-
-      // Start from the week after the last completed meeting, or from today if none
-      const generateFrom = lastCompleted
-        ? new Date(new Date(lastCompleted.scheduledDate).getTime() + 7 * 24 * 60 * 60 * 1000)
-        : new Date();
-
-      const remainingCount = cycle.status === 'completed'
-        ? 0
-        : Math.max(0, cycle.totalMeetings - completedCount);
-      
-      await prisma.cycle.update({
-        where: { id },
-        data: {
-          completedMeetings: completedCount,
-          remainingMeetings: remainingCount,
-        },
-      });
-
-      // Regenerate only the remaining meetings, starting from the future
-      if (remainingCount > 0) {
-        await generateMeetingsForCycle(id, generateFrom, remainingCount);
-      }
+      await regenerateMeetingsForCycle(id);
     }
 
     res.json(cycle);
@@ -702,8 +779,8 @@ cyclesRouter.post('/:id/generate-meetings', operationsManagerOrAdmin, async (req
       });
     }
 
-    // Generate the new meetings
-    await generateMeetingsForCycle(cycleId);
+    // Generate only the missing meetings
+    await generateMeetingsForCycle(cycleId, undefined, meetingsToGenerate);
 
     // Get updated cycle
     const updatedCycle = await prisma.cycle.findUnique({
@@ -760,7 +837,7 @@ cyclesRouter.post('/bulk-generate-meetings', operationsManagerOrAdmin, async (re
           continue;
         }
 
-        await generateMeetingsForCycle(cycleId);
+        await generateMeetingsForCycle(cycleId, undefined, meetingsToGenerate);
         results.push({ cycleId, name: cycle.name, success: true, generated: meetingsToGenerate });
       } catch (err: any) {
         results.push({ cycleId, success: false, error: err.message });

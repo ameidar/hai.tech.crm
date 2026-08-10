@@ -1,5 +1,6 @@
 import { prisma } from '../utils/prisma.js';
 import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
+import { defaultRegistrationAmountForCycle, positiveMoneyOrNull } from '../utils/registration-amount.js';
 
 const OMER_REGISTRATION_SOURCE = 'omer-dafna-registration-form';
 
@@ -12,11 +13,6 @@ export interface OmerPaymentReconciliationResult {
   reason?: string;
   registrationId?: string;
   paymentStatus?: 'paid' | 'partial';
-}
-
-function positiveAmount(value: unknown): number | null {
-  const amount = Number(value);
-  return Number.isFinite(amount) && amount > 0 ? amount : null;
 }
 
 /**
@@ -40,7 +36,7 @@ export async function reconcileOmerRegistrationPayment(paymentId: string): Promi
     if (payment.status !== 'paid') return { status: 'skipped', reason: 'payment_not_paid' };
     if (!payment.customerId) return { status: 'skipped', reason: 'missing_customer' };
 
-    const paidAmount = positiveAmount(payment.amount);
+    const paidAmount = positiveMoneyOrNull(payment.amount);
     if (!paidAmount) return { status: 'skipped', reason: 'invalid_amount' };
 
     const registrations = await prisma.registration.findMany({
@@ -66,7 +62,7 @@ export async function reconcileOmerRegistrationPayment(paymentId: string): Promi
         cycleId: true,
         amount: true,
         cycle: {
-          select: { pricePerStudent: true },
+          select: { defaultRegistrationAmount: true },
         },
       },
     });
@@ -75,7 +71,7 @@ export async function reconcileOmerRegistrationPayment(paymentId: string): Promi
     if (registrations.length > 1) return { status: 'skipped', reason: 'ambiguous_registrations' };
 
     const registration = registrations[0];
-    const expectedAmount = positiveAmount(registration.amount) ?? positiveAmount(registration.cycle.pricePerStudent);
+    const expectedAmount = positiveMoneyOrNull(registration.amount) ?? defaultRegistrationAmountForCycle(registration.cycle);
     if (!expectedAmount) return { status: 'skipped', reason: 'missing_expected_amount' };
 
     const nextPaymentStatus = paidAmount >= expectedAmount ? 'paid' : 'partial';

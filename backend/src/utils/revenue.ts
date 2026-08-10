@@ -110,10 +110,6 @@ export function meetingRevenueForCycle(cycle: CycleRevenueLike): number {
       return Number(cycle.meetingRevenue);
     }
 
-    if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
-      return roundMoney(Number(cycle.pricePerStudent) * registrations.length);
-    }
-
     return meetingRevenueFromRegistrations(
       registrations,
       Number(cycle.totalMeetings) || 0,

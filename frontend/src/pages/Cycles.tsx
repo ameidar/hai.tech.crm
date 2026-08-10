@@ -906,6 +906,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     durationMinutes: 90,
     totalMeetings: 12,
     pricePerStudent: 0,
+    defaultRegistrationAmount: 0,
     meetingRevenue: 0,
     includesVat: false,
     instructorPaymentMode: 'hourly' as InstructorPaymentMode,
@@ -948,6 +949,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     }
     
     const priceValue = Number(formData.pricePerStudent);
+    const defaultRegistrationAmountValue = Number(formData.defaultRegistrationAmount);
     let meetingRevenueValue = Number(formData.meetingRevenue);
     const studentCountValue = Number(formData.studentCount);
     const maxStudentsValue = Number(formData.maxStudents);
@@ -966,7 +968,8 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
       durationMinutes,
       totalMeetings: Number(formData.totalMeetings),
       institutionalOrderId: isInstitutionalType ? formData.institutionalOrderId : undefined,
-      pricePerStudent: (formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && priceValue > 0 ? priceValue : undefined,
+      pricePerStudent: formData.type === 'institutional_per_child' && priceValue > 0 ? priceValue : undefined,
+      defaultRegistrationAmount: defaultRegistrationAmountValue > 0 ? defaultRegistrationAmountValue : null,
       meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'trial_private') && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
       instructorPaymentMode: formData.instructorPaymentMode,
       instructorDailyRate: formData.instructorPaymentMode === 'daily' ? Number(formData.instructorDailyRate) : null,
@@ -1207,9 +1210,9 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
             כל המחירים וההכנסות במחזור הם ללא מע״מ. המע״מ מתווסף בנפרד ואינו חלק מההכנסה.
           </div>
 
-          {(formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && (
+          {formData.type === 'institutional_per_child' && (
             <div>
-              <label className="form-label">מחיר לתלמיד לפני מע״מ {formData.type === 'institutional_per_child' ? '(למפגש)' : ''}</label>
+              <label className="form-label">מחיר לתלמיד למפגש לפני מע״מ</label>
               <div className="relative">
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
                 <input
@@ -1223,6 +1226,21 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
               </div>
             </div>
           )}
+
+          <div>
+            <label className="form-label">סכום הרשמה ברירת מחדל</label>
+            <div className="relative">
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+              <input
+                type="number"
+                value={formData.defaultRegistrationAmount}
+                onChange={(e) => setFormData({ ...formData, defaultRegistrationAmount: Number(e.target.value) })}
+                className="form-input pr-8"
+                min="0"
+                step="0.01"
+              />
+            </div>
+          </div>
 
           {formData.type === 'institutional_per_child' && (
             <div>
@@ -1348,6 +1366,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     endTime: formatTimeForInput(cycle.endTime),
     totalMeetings: cycle.totalMeetings,
     pricePerStudent: cycle.pricePerStudent || 0,
+    defaultRegistrationAmount: cycle.defaultRegistrationAmount || 0,
     meetingRevenue: cycle.meetingRevenue || 0,
     includesVat: false,
     instructorPaymentMode: (cycle.instructorPaymentMode || 'hourly') as InstructorPaymentMode,
@@ -1390,6 +1409,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     }
     
     const priceValue = Number(formData.pricePerStudent);
+    const defaultRegistrationAmountValue = Number(formData.defaultRegistrationAmount);
     let meetingRevenueValue = Number(formData.meetingRevenue);
     const studentCountValue = Number(formData.studentCount);
     const maxStudentsValue = Number(formData.maxStudents);
@@ -1416,7 +1436,8 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
       endTime: formData.endTime,
       durationMinutes,
       totalMeetings: Number(formData.totalMeetings),
-      pricePerStudent: (formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && priceValue > 0 ? priceValue : undefined,
+      pricePerStudent: formData.type === 'institutional_per_child' && priceValue > 0 ? priceValue : null,
+      defaultRegistrationAmount: defaultRegistrationAmountValue > 0 ? defaultRegistrationAmountValue : null,
       meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'trial_private') && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
       revenueIncludesVat: formData.type === 'institutional_fixed' ? false : undefined,
       instructorPaymentMode: formData.instructorPaymentMode,
@@ -1637,9 +1658,9 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
             כל המחירים וההכנסות במחזור הם ללא מע״מ. המע״מ מתווסף בנפרד ואינו חלק מההכנסה.
           </div>
 
-          {(formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && (
+          {formData.type === 'institutional_per_child' && (
             <div>
-              <label className="form-label">מחיר לתלמיד לפני מע״מ {formData.type === 'institutional_per_child' ? '(למפגש)' : ''}</label>
+              <label className="form-label">מחיר לתלמיד למפגש לפני מע״מ</label>
               <div className="relative">
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
                 <input
@@ -1653,6 +1674,21 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
               </div>
             </div>
           )}
+
+          <div>
+            <label className="form-label">סכום הרשמה ברירת מחדל</label>
+            <div className="relative">
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+              <input
+                type="number"
+                value={formData.defaultRegistrationAmount}
+                onChange={(e) => setFormData({ ...formData, defaultRegistrationAmount: Number(e.target.value) })}
+                className="form-input pr-8"
+                min="0"
+                step="0.01"
+              />
+            </div>
+          </div>
 
           {formData.type === 'institutional_per_child' && (
             <div>
@@ -1764,6 +1800,7 @@ function BulkEditForm({ selectedCount, instructors, courses, branches, onSubmit,
     branchId?: string;
     meetingRevenue?: number;
     pricePerStudent?: number;
+    defaultRegistrationAmount?: number;
     studentCount?: number;
     sendParentReminders?: boolean;
     activityType?: ActivityType;
@@ -1811,6 +1848,9 @@ function BulkEditForm({ selectedCount, instructors, courses, branches, onSubmit,
     }
     if (enabledFields.has('pricePerStudent') && formData.pricePerStudent !== undefined) {
       dataToSubmit.pricePerStudent = formData.pricePerStudent;
+    }
+    if (enabledFields.has('defaultRegistrationAmount') && formData.defaultRegistrationAmount !== undefined) {
+      dataToSubmit.defaultRegistrationAmount = formData.defaultRegistrationAmount;
     }
     if (enabledFields.has('studentCount') && formData.studentCount !== undefined) {
       dataToSubmit.studentCount = formData.studentCount;
@@ -1958,7 +1998,7 @@ function BulkEditForm({ selectedCount, instructors, courses, branches, onSubmit,
             className="mt-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
           />
           <div className="flex-1">
-            <label className="form-label">מחיר לתלמיד (פרטי / מוסדי פר ילד)</label>
+            <label className="form-label">מחיר לתלמיד למפגש (מוסדי פר ילד)</label>
             <div className="relative">
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
               <input
@@ -1969,6 +2009,31 @@ function BulkEditForm({ selectedCount, instructors, courses, branches, onSubmit,
                 min="0"
                 step="0.01"
                 disabled={!enabledFields.has('pricePerStudent')}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Default Registration Amount */}
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={enabledFields.has('defaultRegistrationAmount')}
+            onChange={() => toggleField('defaultRegistrationAmount')}
+            className="mt-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1">
+            <label className="form-label">סכום הרשמה ברירת מחדל</label>
+            <div className="relative">
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+              <input
+                type="number"
+                value={formData.defaultRegistrationAmount || ''}
+                onChange={(e) => setFormData({ ...formData, defaultRegistrationAmount: Number(e.target.value) })}
+                className="form-input pr-8"
+                min="0"
+                step="0.01"
+                disabled={!enabledFields.has('defaultRegistrationAmount')}
               />
             </div>
           </div>

@@ -36,7 +36,7 @@ describe('reconcileOmerRegistrationPayment', () => {
       status: 'paid',
     } as any);
     mockPrisma.registration.findMany.mockResolvedValue([
-      { id: 'registration-1', cycleId: 'cycle-1', amount: 2980, cycle: { pricePerStudent: 2980 } },
+      { id: 'registration-1', cycleId: 'cycle-1', amount: 2980, cycle: { defaultRegistrationAmount: 2980 } },
     ] as any);
 
     const result = await reconcileOmerRegistrationPayment('payment-1');
@@ -64,7 +64,7 @@ describe('reconcileOmerRegistrationPayment', () => {
       status: 'paid',
     } as any);
     mockPrisma.registration.findMany.mockResolvedValue([
-      { id: 'registration-1', cycleId: 'cycle-1', amount: 2980, cycle: { pricePerStudent: 2980 } },
+      { id: 'registration-1', cycleId: 'cycle-1', amount: 2980, cycle: { defaultRegistrationAmount: 2980 } },
     ] as any);
 
     const result = await reconcileOmerRegistrationPayment('payment-1');
@@ -75,7 +75,7 @@ describe('reconcileOmerRegistrationPayment', () => {
     }));
   });
 
-  it('uses the cycle price for older registrations without amount', async () => {
+  it('uses the cycle default registration amount for older registrations without amount', async () => {
     mockPrisma.payment.findUnique.mockResolvedValue({
       id: 'payment-1',
       customerId: 'customer-1',
@@ -83,7 +83,7 @@ describe('reconcileOmerRegistrationPayment', () => {
       status: 'paid',
     } as any);
     mockPrisma.registration.findMany.mockResolvedValue([
-      { id: 'registration-1', cycleId: 'cycle-1', amount: null, cycle: { pricePerStudent: 2980 } },
+      { id: 'registration-1', cycleId: 'cycle-1', amount: null, cycle: { defaultRegistrationAmount: 2980 } },
     ] as any);
 
     await reconcileOmerRegistrationPayment('payment-1');
@@ -104,8 +104,8 @@ describe('reconcileOmerRegistrationPayment', () => {
       status: 'paid',
     } as any);
     mockPrisma.registration.findMany.mockResolvedValue([
-      { id: 'registration-1', cycleId: 'cycle-1', amount: 2980, cycle: { pricePerStudent: 2980 } },
-      { id: 'registration-2', cycleId: 'cycle-2', amount: 2980, cycle: { pricePerStudent: 2980 } },
+      { id: 'registration-1', cycleId: 'cycle-1', amount: 2980, cycle: { defaultRegistrationAmount: 2980 } },
+      { id: 'registration-2', cycleId: 'cycle-2', amount: 2980, cycle: { defaultRegistrationAmount: 2980 } },
     ] as any);
 
     const result = await reconcileOmerRegistrationPayment('payment-1');

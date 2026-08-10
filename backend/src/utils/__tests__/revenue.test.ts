@@ -66,6 +66,17 @@ describe('revenue helpers', () => {
     })).toBe(100);
   });
 
+  it('does not use pricePerStudent for private cycle revenue', () => {
+    expect(meetingRevenueForCycle({
+      type: 'private',
+      pricePerStudent: 9999,
+      totalMeetings: 10,
+      registrations: [
+        { status: 'active', amount: 1180 },
+      ],
+    })).toBe(100);
+  });
+
   it('returns zero revenue for no-revenue meetings even when the cycle has fixed revenue', () => {
     expect(meetingRevenueForMeeting({
       type: 'institutional_fixed',

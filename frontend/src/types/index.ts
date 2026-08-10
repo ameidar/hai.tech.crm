@@ -273,8 +273,9 @@ export interface Cycle {
   endTime: string;
   durationMinutes: number;
   totalMeetings: number;
-  pricePerStudent?: number;
-  meetingRevenue?: number;
+  pricePerStudent?: number | null;
+  defaultRegistrationAmount?: number | null;
+  meetingRevenue?: number | null;
   revenuePerMeeting?: number;
   revenueIncludesVat?: boolean | null;
   instructorPaymentMode?: InstructorPaymentMode;

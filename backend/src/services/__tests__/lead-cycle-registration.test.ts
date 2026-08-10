@@ -46,7 +46,7 @@ describe('autoRegisterLeadToCycle', () => {
       id: 'cycle-1',
       name: 'עומר - מיינקראפט כיתה ג׳',
       status: 'active',
-      pricePerStudent: 3200,
+      defaultRegistrationAmount: 3200,
     } as any);
     mockPrisma.student.findFirst.mockResolvedValue(null);
     mockPrisma.student.create.mockResolvedValue({ id: 'student-1' } as any);
@@ -79,7 +79,7 @@ describe('autoRegisterLeadToCycle', () => {
       id: 'cycle-1',
       name: 'עומר - מיינקראפט כיתה ג׳',
       status: 'active',
-      pricePerStudent: null,
+      defaultRegistrationAmount: null,
     } as any);
     mockPrisma.student.findFirst.mockResolvedValue({ id: 'student-1' } as any);
     mockPrisma.registration.findFirst.mockResolvedValue(null);
@@ -100,7 +100,7 @@ describe('autoRegisterLeadToCycle', () => {
     mockPrisma.cycle.findFirst.mockResolvedValue({
       id: 'cycle-1',
       status: 'active',
-      pricePerStudent: 3200,
+      defaultRegistrationAmount: 3200,
     } as any);
     mockPrisma.student.findFirst.mockResolvedValue({ id: 'student-1' } as any);
     mockPrisma.registration.findFirst.mockResolvedValue({ id: 'registration-1' } as any);
@@ -117,7 +117,7 @@ describe('autoRegisterLeadToCycle', () => {
     mockPrisma.cycle.findFirst.mockResolvedValue({
       id: 'cycle-1',
       status: 'completed',
-      pricePerStudent: 3200,
+      defaultRegistrationAmount: 3200,
     } as any);
 
     const result = await autoRegisterLeadToCycle(baseInput);

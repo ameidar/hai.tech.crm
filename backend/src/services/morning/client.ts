@@ -1,9 +1,31 @@
 import { config } from '../../config.js';
 
-const BASE = config.morning.baseUrl;
+export function normalizeMorningBaseUrl(baseUrl: string): string {
+  const trimmed = baseUrl.trim().replace(/\/+$/, '');
+
+  if (/^https?:\/\/www\.greeninvoice\.co\.il\/api$/i.test(trimmed)) {
+    return 'https://api.greeninvoice.co.il';
+  }
+
+  if (/^https?:\/\/api\.greeninvoice\.co\.il\/api$/i.test(trimmed)) {
+    return trimmed.replace(/\/api$/i, '');
+  }
+
+  return trimmed;
+}
+
+const BASE = normalizeMorningBaseUrl(config.morning.baseUrl);
 
 let cachedToken: { token: string; expiresAt: number } | null = null;
 const TOKEN_BUFFER_SECONDS = 60; // refresh 60s before expiry
+
+export function buildMorningTokenRequestBody(apiKeyId: string, apiSecret: string) {
+  return {
+    id: apiKeyId,
+    secret: apiSecret,
+    grant_type: 'client_credentials',
+  };
+}
 
 async function fetchToken(): Promise<string> {
   if (!config.morning.apiKeyId || !config.morning.apiSecret) {
@@ -13,10 +35,7 @@ async function fetchToken(): Promise<string> {
   const res = await fetch(`${BASE}/api/v1/account/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      id: config.morning.apiKeyId,
-      secret: config.morning.apiSecret,
-    }),
+    body: JSON.stringify(buildMorningTokenRequestBody(config.morning.apiKeyId, config.morning.apiSecret)),
   });
 
   if (!res.ok) {

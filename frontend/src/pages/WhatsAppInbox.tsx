@@ -135,7 +135,7 @@ function isGreenMessage(messageId?: string | null): boolean {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function WhatsAppInbox() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations' || user?.role === 'operations_manager';
   const [conversations, setConversations] = useState<WaConversation[]>([]);
@@ -514,10 +514,26 @@ export default function WhatsAppInbox() {
     if (container && shouldAutoScrollRef.current) container.scrollTop = container.scrollHeight;
   }, [messages]);
 
+  const updateConversationParam = useCallback((convId: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (convId) {
+      next.set('conv', convId);
+    } else {
+      next.delete('conv');
+    }
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   const selectConversation = (conv: WaConversation) => {
     setSelected(conv);
+    updateConversationParam(conv.id);
     setMessages([]);
     setChannelFilter('all');
+  };
+
+  const clearSelectedConversation = () => {
+    setSelected(null);
+    updateConversationParam(null);
   };
 
   const sendMessage = async () => {
@@ -980,7 +996,7 @@ export default function WhatsAppInbox() {
                       <div className="flex items-center gap-3 mt-2 flex-wrap">
                         <span className="text-xs text-gray-400">{new Date(r.createdAt).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' })}</span>
                         <button
-                          onClick={() => { setViewMode('inbox'); const conv = conversations.find(c => c.id === r.conversationId); if (conv) setSelected(conv); }}
+                          onClick={() => { setViewMode('inbox'); const conv = conversations.find(c => c.id === r.conversationId); if (conv) selectConversation(conv); }}
                           className="text-xs text-blue-600 hover:underline"
                         >פתח שיחה →</button>
                       </div>
@@ -1384,7 +1400,7 @@ export default function WhatsAppInbox() {
           <div className="bg-white border-b border-gray-200 px-3 md:px-4 py-3 flex items-center justify-between gap-2 flex-shrink-0">
             <div className="flex items-center gap-2 md:gap-3 min-w-0">
               <button
-                onClick={() => setSelected(null)}
+                onClick={clearSelectedConversation}
                 className="md:hidden p-2 -mr-2 hover:bg-gray-100 rounded-full text-gray-500 flex-shrink-0"
                 aria-label="חזרה לרשימת השיחות"
               >

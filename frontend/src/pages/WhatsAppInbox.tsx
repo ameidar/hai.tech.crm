@@ -485,11 +485,11 @@ export default function WhatsAppInbox() {
   // Auto-select conversation from URL param (?conv=<id>)
   useEffect(() => {
     const convId = searchParams.get('conv');
-    if (convId && conversations.length > 0) {
+    if (convId && selected?.id !== convId && conversations.length > 0) {
       const target = conversations.find(c => c.id === convId);
       if (target) setSelected(target);
     }
-  }, [searchParams, conversations]);
+  }, [searchParams, conversations, selected?.id]);
 
   // Load active phones for multi-number support
   useEffect(() => {
@@ -499,13 +499,15 @@ export default function WhatsAppInbox() {
     }).catch(() => {});
   }, []);
 
+  const selectedConversationId = selected?.id;
+
   useEffect(() => {
-    if (selected) {
+    if (selectedConversationId) {
       // New conversation opened — always jump to the newest message.
       shouldAutoScrollRef.current = true;
-      loadMessages(selected.id);
+      loadMessages(selectedConversationId);
     }
-  }, [selected, loadMessages]);
+  }, [selectedConversationId, loadMessages]);
 
   useEffect(() => {
     const container = messagesContainerRef.current;

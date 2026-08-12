@@ -29,6 +29,7 @@ import Modal from '../components/ui/Modal';
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal';
 import BulkMeetingEditModal, { type BulkMeetingUpdateData } from '../components/BulkMeetingEditModal';
 import ViewSelector from '../components/ViewSelector';
+import PendingMeetingRequests from '../components/PendingMeetingRequests';
 import { meetingStatusHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
@@ -590,7 +591,7 @@ export default function Meetings() {
     ? {
         total: displayMeetings.length,
         completed: displayMeetings.filter((m) => m.status === 'completed').length,
-        pending: displayMeetings.filter((m) => m.status === 'scheduled').length,
+        pending: displayMeetings.filter((m) => m.status === 'scheduled' || m.status === 'pending_cancellation' || m.status === 'pending_postponement').length,
         cancelled: displayMeetings.filter((m) => m.status === 'cancelled').length,
       }
     : null;
@@ -613,6 +614,8 @@ export default function Meetings() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
+        {isAdmin && <PendingMeetingRequests showRiskSummary />}
+
         {/* Bulk Actions Bar - Admin only */}
         {someSelected && isAdmin && (
           <div className="mb-4 p-4 bg-blue-600 text-white rounded-lg flex items-center gap-4 flex-wrap animate-in slide-in-from-top">
@@ -749,6 +752,8 @@ export default function Meetings() {
                         <option value="completed">התקיימה</option>
                         <option value="cancelled">בוטלה</option>
                         <option value="postponed">נדחתה</option>
+                        <option value="pending_cancellation">בקשת ביטול</option>
+                        <option value="pending_postponement">בקשת דחייה</option>
                       </select>
                     </div>
                     <div>

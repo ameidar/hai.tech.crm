@@ -8,6 +8,7 @@ import {
   recalculateDailyInstructorPaymentsForMeeting,
 } from '../services/instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
+import { checkAndSendMeetingReportQualityAlert } from '../services/meeting-report-quality-alert.js';
 import crypto from 'crypto';
 
 const MEETING_TOKEN_SECRET = process.env.MEETING_TOKEN_SECRET || 'haitech-meeting-status-2026';
@@ -184,6 +185,10 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
           });
         }
       }
+    }
+
+    if (status === 'completed') {
+      await checkAndSendMeetingReportQualityAlert(meetingId, 'public-meeting-status');
     }
 
     res.json({ success: true, meeting });

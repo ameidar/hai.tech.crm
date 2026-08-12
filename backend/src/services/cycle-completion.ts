@@ -1,6 +1,7 @@
 import { prisma } from '../utils/prisma.js';
 import { sendEmail } from './email/sender.js';
 import { checkAndSendInstitutionalOrderCompletionAlert } from './institutional-order-completion-alert.js';
+import { getOperationsEmailRecipients } from './operations-notifications.js';
 
 /**
  * Cycle Completion Service
@@ -171,11 +172,11 @@ async function sendCompletionSummaryEmail(cycle: any, activeRegistrations: any[]
     `;
 
     await sendEmail({
-      to: 'info@hai.tech',
+      to: getOperationsEmailRecipients(),
       subject: `🎓 מחזור הושלם: ${cycle.name}`,
       html,
     });
-    console.log(`  📧 Summary email sent to info@hai.tech`);
+    console.log('  📧 Summary email sent to operations recipients');
   } catch (err) {
     console.error('  ⚠️ Failed to send summary email:', err);
   }

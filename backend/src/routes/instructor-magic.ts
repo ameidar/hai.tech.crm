@@ -21,6 +21,7 @@ import { meetingRevenueForMeeting } from '../utils/revenue.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
+import { checkAndSendMeetingReportQualityAlert } from '../services/meeting-report-quality-alert.js';
 
 // WhatsApp group for pending meeting requests (postponements, cancellations)
 const ADMIN_PHONE = '120363353459332838@g.us';
@@ -317,6 +318,10 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
         console.error('Failed to calculate financials after instructor update:', finErr);
         // Don't fail the request — financials can be recalculated manually
       }
+    }
+
+    if (status === 'completed') {
+      await checkAndSendMeetingReportQualityAlert(meetingId, 'instructor-magic');
     }
 
     // Create MeetingChangeRequest record so the dashboard shows it

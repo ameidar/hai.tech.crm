@@ -1,11 +1,11 @@
 import { prisma } from '../utils/prisma.js';
 import { sendWhatsApp } from './messaging.js';
+import { getOperationsWhatsAppRecipients } from './operations-notifications.js';
 
 const TZ = 'Asia/Jerusalem';
 const MONDAY_PREFIX = 'מנדיי';
 const ACTIVE_REGISTRATION_STATUS = 'active';
 const PAID_STATUS = 'paid';
-const DEFAULT_REPORT_PHONE = '972528746137';
 
 type DateLike = Date | string | null | undefined;
 
@@ -246,13 +246,18 @@ export async function buildTomorrowMeetingCheckReport(): Promise<MeetingCheckRep
 
 export async function sendTomorrowMeetingCheckReport(): Promise<MeetingCheckReport> {
   const report = await buildTomorrowMeetingCheckReport();
-  const phone = process.env.MEETINGS_CHECK_REPORT_PHONE || DEFAULT_REPORT_PHONE;
-  const result = await sendWhatsApp({ phone, message: report.message });
+  const configuredPhone = process.env.MEETINGS_CHECK_REPORT_PHONE;
+  const recipients = configuredPhone
+    ? getOperationsWhatsAppRecipients([{ name: configuredPhone, phone: configuredPhone }])
+    : getOperationsWhatsAppRecipients();
+  const results = await Promise.all(
+    recipients.map((recipient) => sendWhatsApp({ phone: recipient.phone, message: report.message })),
+  );
 
-  if (!result.success) {
-    throw new Error(`Meeting check report WhatsApp failed: ${result.error || 'unknown error'}`);
+  if (results.every((result) => !result.success)) {
+    throw new Error(`Meeting check report WhatsApp failed: ${results.map((result) => result.error || 'unknown error').join('; ')}`);
   }
 
-  console.log(`[MeetingCheck] Report sent to ${phone}: issues=${report.issueCount} messageId=${result.messageId || 'n/a'}`);
+  console.log(`[MeetingCheck] Report sent to ${recipients.map((recipient) => recipient.phone).join(', ')}: issues=${report.issueCount}`);
   return report;
 }

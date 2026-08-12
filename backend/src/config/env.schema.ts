@@ -41,6 +41,7 @@ export const envSchema = z.object({
   GREEN_API_FALLBACK_INSTANCE_ID: z.string().optional(),
   GREEN_API_FALLBACK_TOKEN: z.string().optional(),
   GREEN_API_HEALTH_CACHE_MS: z.string().optional(),
+  OPERATIONS_RECIPIENTS: z.string().optional(),
   MEETINGS_CHECK_REPORT_ENABLED: z.string().optional(),
   MEETINGS_CHECK_REPORT_CRON: z.string().optional(),
   MEETINGS_CHECK_REPORT_PHONE: z.string().optional(),

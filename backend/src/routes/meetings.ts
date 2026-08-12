@@ -15,6 +15,7 @@ import {
   recalculateDailyInstructorPaymentsForMeeting,
 } from '../services/instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
+import { checkAndSendMeetingReportQualityAlert } from '../services/meeting-report-quality-alert.js';
 
 export const meetingsRouter = Router();
 
@@ -688,6 +689,10 @@ meetingsRouter.put('/:id', async (req, res, next) => {
           console.error('Cycle completion error:', err)
         );
       }
+    }
+
+    if (req.user!.role === 'instructor' && statusChangedToCompleted) {
+      await checkAndSendMeetingReportQualityAlert(id, 'instructor-meeting-update');
     }
 
     // Audit log for meeting updates - capture all changed fields

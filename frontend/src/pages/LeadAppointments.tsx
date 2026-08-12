@@ -14,7 +14,7 @@ interface LeadAppointment {
   customerName: string;
   customerPhone: string;
   customerEmail: string;
-  customer?: { id: string; name: string; phone?: string | null; email?: string | null } | null;
+  customer?: { id: string; name: string; phone?: string | null; email?: string | null; payments?: LeadPayment[] } | null;
   childName?: string;
   interest: string;
   source: string;
@@ -39,6 +39,7 @@ interface LeadAppointment {
   emailSent?: boolean;
   createdAt: string;
   updatedAt: string;
+  duplicateLeadCount?: number;
   // Campaign fields (Facebook)
   campaignId?: string;
   campaignName?: string;
@@ -46,6 +47,14 @@ interface LeadAppointment {
   adName?: string;
   adsetName?: string;
   formId?: string;
+}
+
+interface LeadPayment {
+  id: string;
+  description: string;
+  amount: number;
+  paidAt?: string;
+  status: string;
 }
 
 interface LeadActivity {
@@ -145,6 +154,34 @@ function SalesStatusBadge({ status }: { status: string }) {
   );
 }
 
+function latestPaidPayment(lead: LeadAppointment): LeadPayment | undefined {
+  return lead.customer?.payments?.find((payment) => payment.status === 'paid');
+}
+
+function LeadSalesStatus({ lead }: { lead: LeadAppointment }) {
+  const payment = latestPaidPayment(lead);
+  if (!payment) return <SalesStatusBadge status={lead.salesStatus || 'new'} />;
+
+  const paidAt = payment.paidAt ? new Date(payment.paidAt).toLocaleDateString('he-IL') : null;
+  const title = [
+    payment.description,
+    `₪${Number(payment.amount).toLocaleString('he-IL')}`,
+    paidAt,
+  ].filter(Boolean).join(' · ');
+
+  return (
+    <div className="space-y-1" title={title}>
+      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
+        נרכש קורס
+      </span>
+      <div className="text-xs text-gray-500 max-w-[180px] truncate">
+        ₪{Number(payment.amount).toLocaleString('he-IL')}
+        {payment.description ? ` · ${payment.description}` : ''}
+      </div>
+    </div>
+  );
+}
+
 export default function LeadAppointments() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -192,6 +229,7 @@ export default function LeadAppointments() {
   const params = new URLSearchParams();
   params.set('page', String(page));
   params.set('limit', '25');
+  params.set('collapseDuplicates', 'true');
   if (searchQuery.trim()) params.set('search', searchQuery.trim());
   if (statusFilter) params.set('status', statusFilter);
   if (sourceFilter) params.set('source', sourceFilter);
@@ -503,7 +541,16 @@ export default function LeadAppointments() {
                       new Date(lead.createdAt).toLocaleDateString('he-IL')
                     )}
                   </td>
-                  <td className="px-4 py-3 text-sm font-medium">{lead.customerName}</td>
+                  <td className="px-4 py-3 text-sm font-medium">
+                    <div className="space-y-1">
+                      <div>{lead.customerName}</div>
+                      {(lead.duplicateLeadCount || 1) > 1 && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                          {lead.duplicateLeadCount} פניות
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-4 py-3 text-sm" dir="ltr">
                     {lead.customerPhone ? (
                       <a
@@ -519,7 +566,7 @@ export default function LeadAppointments() {
                   <td className="px-4 py-3 text-sm">{lead.childName || '-'}</td>
                   <td className="px-4 py-3 text-sm">{lead.interest || '-'}</td>
                   <td className="px-4 py-3 text-sm">
-                    <SalesStatusBadge status={lead.salesStatus || 'new'} />
+                    <LeadSalesStatus lead={lead} />
                   </td>
                   <td className="px-4 py-3 text-sm whitespace-nowrap">
                     <span className={due ? 'font-semibold text-amber-800' : ''}>
@@ -1144,7 +1191,7 @@ function LeadDetailModal({
             </div>
             <div>
               <span className="text-gray-500">סטטוס מכירה:</span>
-              <span className="mr-2"><SalesStatusBadge status={lead.salesStatus || 'new'} /></span>
+              <span className="mr-2 inline-flex align-middle"><LeadSalesStatus lead={lead} /></span>
             </div>
             <div>
               <span className="text-gray-500">אחראי:</span>

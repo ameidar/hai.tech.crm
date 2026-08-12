@@ -3,6 +3,7 @@ import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { authenticate, managerOrAdmin, salesOrAbove } from '../middleware/auth.js';
 import { findOrCreateCustomer } from '../utils/lead-customer.js';
+import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
 import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
 
 export const leadAppointmentsRouter = Router();
@@ -10,7 +11,25 @@ leadAppointmentsRouter.use(authenticate);
 leadAppointmentsRouter.use(salesOrAbove);
 
 const LEAD_INCLUDE = {
-  customer: { select: { id: true, name: true, phone: true, email: true } },
+  customer: {
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      email: true,
+      payments: {
+        where: { status: 'paid' },
+        orderBy: { paidAt: 'desc' as const },
+        select: {
+          id: true,
+          description: true,
+          amount: true,
+          paidAt: true,
+          status: true,
+        },
+      },
+    },
+  },
   assignedTo: { select: { id: true, name: true, email: true, role: true } },
 } as const;
 
@@ -60,6 +79,36 @@ function buildLeadSearchClauses(search: string) {
   ]);
 }
 
+function leadIdentityKey(lead: {
+  id: string;
+  customerId?: string | null;
+  customerPhone?: string | null;
+  customerEmail?: string | null;
+}) {
+  if (lead.customerId) return `customer:${lead.customerId}`;
+  const digits = (lead.customerPhone || '').replace(/\D/g, '');
+  if (digits.length >= 7) return `phone:${digits.slice(-9)}`;
+  if (lead.customerEmail) return `email:${lead.customerEmail.toLowerCase()}`;
+  return `lead:${lead.id}`;
+}
+
+function collapseLeadDuplicates<T extends { id: string; customerId?: string | null; customerPhone?: string | null; customerEmail?: string | null }>(leads: T[]) {
+  const grouped = new Map<string, { lead: T; count: number }>();
+  for (const lead of leads) {
+    const key = leadIdentityKey(lead);
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      grouped.set(key, { lead, count: 1 });
+    }
+  }
+  return Array.from(grouped.values()).map(({ lead, count }) => ({
+    ...lead,
+    duplicateLeadCount: count,
+  }));
+}
+
 // GET /api/lead-appointments
 leadAppointmentsRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -80,6 +129,7 @@ leadAppointmentsRouter.get('/', async (req: Request, res: Response, next: NextFu
       : sortBy === 'nextFollowUpAt'
         ? 'nextFollowUpAt'
         : 'createdAt';
+    const collapseDuplicates = req.query.collapseDuplicates === 'true';
 
     const where: any = {};
     if (search.length >= 2) where.OR = buildLeadSearchClauses(search);
@@ -97,12 +147,41 @@ leadAppointmentsRouter.get('/', async (req: Request, res: Response, next: NextFu
       if (dateTo) where.createdAt.lte = new Date(dateTo + 'T23:59:59Z');
     }
 
+    const orderBy = orderField === 'nextFollowUpAt'
+      ? [{ nextFollowUpAt: 'asc' as const }, { updatedAt: 'desc' as const }]
+      : { [orderField]: 'desc' as const };
+
+    if (collapseDuplicates) {
+      const allItems = await prisma.leadAppointment.findMany({
+        where,
+        orderBy,
+        include: LEAD_INCLUDE,
+      });
+
+      const collapsedItems = collapseLeadDuplicates(allItems);
+      const total = collapsedItems.length;
+      const items = collapsedItems.slice((page - 1) * limit, page * limit);
+
+      res.json({
+        success: true,
+        data: items,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+          pages: Math.ceil(total / limit),
+          hasPrev: page > 1,
+          hasNext: page < Math.ceil(total / limit),
+        },
+      });
+      return;
+    }
+
     const [items, total] = await Promise.all([
       prisma.leadAppointment.findMany({
         where,
-        orderBy: orderField === 'nextFollowUpAt'
-          ? [{ nextFollowUpAt: 'asc' }, { updatedAt: 'desc' }]
-          : { [orderField]: 'desc' },
+        orderBy,
         skip: (page - 1) * limit,
         take: limit,
         include: LEAD_INCLUDE,
@@ -113,7 +192,15 @@ leadAppointmentsRouter.get('/', async (req: Request, res: Response, next: NextFu
     res.json({
       success: true,
       data: items,
-      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        pages: Math.ceil(total / limit),
+        hasPrev: page > 1,
+        hasNext: page < Math.ceil(total / limit),
+      },
     });
   } catch (error) {
     next(error);
@@ -155,23 +242,25 @@ leadAppointmentsRouter.post('/', async (req: Request, res: Response, next: NextF
       childName,
     });
 
-    const item = await prisma.leadAppointment.create({
-      data: {
-        customerId: customerId || null,
-        customerName: customerName || customerPhone || 'לא ידוע',
-        customerPhone: customerPhone || '',
-        customerEmail: customerEmail || null,
-        childName: childName || null,
-        interest: interest || null,
-        source,
-        appointmentStatus,
-        appointmentDate: appointmentDate ? new Date(appointmentDate) : null,
-        appointmentTime: appointmentTime || null,
-        appointmentNotes: appointmentNotes || null,
-        salesStatus,
-        assignedToId: assignedToId || null,
-        nextFollowUpAt: nextFollowUpAt ? new Date(nextFollowUpAt) : null,
-      },
+    const { lead } = await findOrCreateLeadAppointment({
+      customerId: customerId || null,
+      customerName: customerName || customerPhone || 'לא ידוע',
+      customerPhone: customerPhone || '',
+      customerEmail: customerEmail || null,
+      childName: childName || null,
+      interest: interest || null,
+      source,
+      appointmentStatus,
+      appointmentDate: appointmentDate ? new Date(appointmentDate) : null,
+      appointmentTime: appointmentTime || null,
+      appointmentNotes: appointmentNotes || null,
+      salesStatus,
+      assignedToId: assignedToId || null,
+      nextFollowUpAt: nextFollowUpAt ? new Date(nextFollowUpAt) : null,
+    });
+
+    const item = await prisma.leadAppointment.findUnique({
+      where: { id: lead.id },
       include: LEAD_INCLUDE,
     });
 

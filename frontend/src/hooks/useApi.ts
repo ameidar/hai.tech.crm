@@ -679,13 +679,14 @@ export const useDeleteRegistration = () => {
 };
 
 // ==================== Meetings ====================
-export const useMeetings = (params?: { date?: string; from?: string; to?: string; instructorId?: string; branchId?: string; status?: string; limit?: number }) => {
+export const useMeetings = (params?: { date?: string; from?: string; to?: string; instructorId?: string; branchId?: string; cycleId?: string; status?: string; limit?: number }) => {
   const searchParams = new URLSearchParams();
   if (params?.date) searchParams.append('date', params.date);
   if (params?.from) searchParams.append('from', params.from);
   if (params?.to) searchParams.append('to', params.to);
   if (params?.instructorId) searchParams.append('instructorId', params.instructorId);
   if (params?.branchId) searchParams.append('branchId', params.branchId);
+  if (params?.cycleId) searchParams.append('cycleId', params.cycleId);
   if (params?.status) searchParams.append('status', params.status);
   if (params?.limit) searchParams.append('limit', String(params.limit));
   const queryString = searchParams.toString() ? `?${searchParams.toString()}` : '';

@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Calendar, 
   Clock, 
-  MapPin, 
   CheckCircle2, 
   XCircle, 
   AlertCircle,
@@ -16,7 +15,7 @@ import {
 import { useMeetings, useCycles } from '../../hooks/useApi';
 import Loading from '../../components/ui/Loading';
 import { meetingStatusHebrew } from '../../types';
-import type { Meeting, MeetingStatus } from '../../types';
+import type { Cycle, Meeting, MeetingStatus } from '../../types';
 
 /**
  * Mobile-optimized meetings list for instructors
@@ -28,7 +27,7 @@ export default function MobileMeetings() {
   const [selectedCycleId, setSelectedCycleId] = useState<string>('');
 
   // Fetch instructor's cycles for the filter
-  const { data: cycles } = useCycles({ status: 'active', limit: 100 });
+  const { data: cycles } = useCycles({ status: 'active', limit: 500 });
 
   // Get date range based on view mode
   const dateRange = useMemo(() => {
@@ -36,8 +35,7 @@ export default function MobileMeetings() {
     const todayStr = today.toISOString().split('T')[0];
     
     if (viewMode === 'cycle' && selectedCycleId) {
-      // Show all meetings for cycle (wide date range)
-      return { from: '2020-01-01', to: '2030-12-31' };
+      return { cycleId: selectedCycleId, limit: 500 };
     } else if (viewMode === 'today') {
       return { date: todayStr };
     } else if (viewMode === 'past') {
@@ -56,12 +54,9 @@ export default function MobileMeetings() {
 
   const { data: allMeetings, isLoading } = useMeetings(dateRange);
 
-  // Filter meetings by cycle if in cycle mode
   const meetings = useMemo(() => {
+    if (viewMode === 'cycle' && !selectedCycleId) return [];
     if (!allMeetings || !Array.isArray(allMeetings)) return [];
-    if (viewMode === 'cycle' && selectedCycleId) {
-      return allMeetings.filter(m => m.cycleId === selectedCycleId);
-    }
     return allMeetings;
   }, [allMeetings, viewMode, selectedCycleId]);
 
@@ -187,7 +182,7 @@ export default function MobileMeetings() {
             dir="rtl"
           >
             <option value="">בחר מחזור...</option>
-            {cycles && Array.isArray(cycles) && cycles.map((cycle: any) => (
+            {cycles && Array.isArray(cycles) && cycles.map((cycle: Cycle) => (
               <option key={cycle.id} value={cycle.id}>
                 {cycle.name}
               </option>

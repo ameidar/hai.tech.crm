@@ -1,8 +1,8 @@
 import { prisma } from '../utils/prisma.js';
 import { sendWhatsApp } from './messaging.js';
+import { getOperationsWhatsAppRecipients } from './operations-notifications.js';
 
-const RECIPIENTS = [
-  { name: 'עמי', phone: '0528746137' },
+const EXTRA_RECIPIENTS = [
   { name: 'אינה', phone: '0524486208' },
 ];
 
@@ -94,7 +94,7 @@ ${cycleLines}
 מקור בדיקה: ${source}`;
 
   const results = await Promise.all(
-    RECIPIENTS.map(async (recipient) => {
+    getOperationsWhatsAppRecipients(EXTRA_RECIPIENTS).map(async (recipient) => {
       const result = await sendWhatsApp({ phone: recipient.phone, message });
       if (!result.success) {
         console.error(`[institutional-order-completion] WhatsApp to ${recipient.name} failed: ${result.error}`);

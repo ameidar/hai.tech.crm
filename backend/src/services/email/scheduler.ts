@@ -24,9 +24,10 @@ import {
 import { sendTomorrowMeetingCheckReport } from '../meeting-check-report.js';
 import { sendParentWhatsAppReminder } from '../parent-whatsapp-reminders.js';
 import { sendWhatsAppCloudTemplate, templateText } from '../whatsapp-cloud-templates.js';
+import { getOperationsEmailRecipients } from '../operations-notifications.js';
 
 // Management email list (configure via env or database)
-const MANAGEMENT_EMAILS = (process.env.MANAGEMENT_EMAILS || 'ami@hai.tech').split(',');
+const MANAGEMENT_EMAILS = getOperationsEmailRecipients(process.env.MANAGEMENT_EMAILS);
 
 const TZ = 'Asia/Jerusalem';
 
@@ -512,7 +513,7 @@ async function checkCyclesNearCompletion(): Promise<void> {
 
     // Send email to management
     await queueEmail({
-      to: 'info@hai.tech',
+      to: getOperationsEmailRecipients(),
       subject: `🔔 ${dueCycles.length} מחזורים עם שיעור אחרון לסיום`,
       html: `
         <div dir="rtl" style="font-family:Arial,sans-serif;padding:20px;max-width:700px;">
@@ -537,7 +538,7 @@ async function checkCyclesNearCompletion(): Promise<void> {
         </div>`,
       priority: EmailPriority.NORMAL,
     });
-    console.log('[CycleCheck] Summary email sent to info@hai.tech');
+    console.log('[CycleCheck] Summary email sent to operations recipients');
 
     // Send WhatsApp to each instructor
     for (const cycle of dueCycles) {
@@ -650,7 +651,7 @@ export const initEmailScheduler = () => {
   scheduledTasks.push(cyclesNearCompletionTask);
   console.log('   ✓ Cycles near completion check: 09:00 daily → WhatsApp instructor + email info@hai.tech');
 
-  if (process.env.MEETINGS_CHECK_REPORT_ENABLED === 'true') {
+  if (process.env.MEETINGS_CHECK_REPORT_ENABLED !== 'false') {
     const meetingCheckTask = cron.schedule(schedules.meetingCheckReport, () => {
       sendTomorrowMeetingCheckReport().catch((err: any) =>
         console.error('[MeetingCheck] Cron failed:', err)
@@ -659,7 +660,7 @@ export const initEmailScheduler = () => {
     scheduledTasks.push(meetingCheckTask);
     console.log(`   ✓ Meeting validation report: ${schedules.meetingCheckReport} Asia/Jerusalem → WhatsApp`);
   } else {
-    console.log('   - Meeting validation report disabled; set MEETINGS_CHECK_REPORT_ENABLED=true to enable');
+    console.log('   - Meeting validation report disabled; set MEETINGS_CHECK_REPORT_ENABLED=false to keep it disabled');
   }
 
   console.log('📅 Email scheduler initialized');

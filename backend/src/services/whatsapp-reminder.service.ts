@@ -25,6 +25,10 @@ import {
   sendWhatsAppCloudText,
   templateText,
 } from './whatsapp-cloud-templates.js';
+import {
+  getOperationsWhatsAppRecipients,
+  sendOperationsWhatsApp,
+} from './operations-notifications.js';
 
 const APP_URL = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
 const TZ = 'Asia/Jerusalem';
@@ -33,9 +37,6 @@ const TZ = 'Asia/Jerusalem';
 const preMeetingRemindersSent = new Set<string>();
 const PRE_MEETING_EARLIEST_LEAD_MIN = 70;
 const PRE_MEETING_LATEST_LEAD_MIN = 30;
-
-// Admin phone for notifications
-const ADMIN_PHONE = process.env.ADMIN_PHONE || '972528746137';
 
 /**
  * Get the target Israel calendar date as a UTC midnight Date, for use with @db.Date fields.
@@ -347,8 +348,10 @@ export async function sendMorningUnresolvedAlert(): Promise<void> {
       select: { phone: true, name: true },
     });
 
-    // Unique phone set — always include ADMIN_PHONE as fallback
-    const phones = new Set<string>([ADMIN_PHONE]);
+    // Unique phone set — always include the operations recipients as fallback.
+    const phones = new Set<string>(
+      getOperationsWhatsAppRecipients().map((recipient) => recipient.phone)
+    );
     for (const u of mgmtUsers) {
       if (u.phone) phones.add(u.phone.replace(/\D/g, ''));
     }
@@ -605,11 +608,7 @@ export async function handleStatusReply(phone: string, isYes: boolean): Promise<
         contactName: r.instructor_name,
         message: `תודה ${r.instructor_name}! רשמנו שהשיעור "${r.cycle_name}" התקיים 👍`,
       });
-      await sendWhatsAppCloudText({
-        phone: ADMIN_PHONE,
-        contactName: 'עמי',
-        message: `ℹ️ מדריך ${r.instructor_name} אישר שיעור "${r.cycle_name}" דרך וואטסאפ (לא מילא עצמאית)`,
-      });
+      await sendOperationsWhatsApp(`ℹ️ מדריך ${r.instructor_name} אישר שיעור "${r.cycle_name}" דרך וואטסאפ (לא מילא עצמאית)`);
 
       console.log(`[WhatsApp] Meeting ${r.meeting_id} auto-completed for ${r.instructor_name}`);
       return true;
@@ -630,11 +629,7 @@ export async function handleStatusReply(phone: string, isYes: boolean): Promise<
 
       await syncCycleProgress(r.cycle_id);
 
-      await sendWhatsAppCloudText({
-        phone: ADMIN_PHONE,
-        contactName: 'עמי',
-        message: `🚨 מדריך ${r.instructor_name} דיווח שלא העביר שיעור "${r.cycle_name}" היום — הפגישה עברה לסטטוס בוטל.`,
-      });
+      await sendOperationsWhatsApp(`🚨 מדריך ${r.instructor_name} דיווח שלא העביר שיעור "${r.cycle_name}" היום — הפגישה עברה לסטטוס בוטל.`);
       await sendWhatsAppCloudText({
         phone,
         contactName: r.instructor_name,

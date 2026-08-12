@@ -95,17 +95,39 @@ function toMinutes(dt: Date | string | null): number {
  */
 type MeetingExtras = {
   remaining?: number;
+  remainingAfter?: number;
+  lessonNumber?: number;
   totalMeetings?: number;
   lastSummary?: string | null;
 };
 
+export function formatLessonProgress(extras?: MeetingExtras, compact = false): string {
+  if (!extras) return '';
+
+  if (typeof extras.lessonNumber === 'number' && typeof extras.totalMeetings === 'number') {
+    const remainingAfter = typeof extras.remainingAfter === 'number'
+      ? extras.remainingAfter
+      : Math.max(0, extras.totalMeetings - extras.lessonNumber);
+    return compact
+      ? `שיעור ${extras.lessonNumber}/${extras.totalMeetings}, נותרו ${remainingAfter}`
+      : `📊 שיעור ${extras.lessonNumber} מתוך ${extras.totalMeetings} | נותרו ${remainingAfter} לסיום אחרי השיעור.`;
+  }
+
+  if (typeof extras.remaining === 'number') {
+    const total = extras.totalMeetings;
+    return compact
+      ? `נותרו ${extras.remaining}${total ? `/${total}` : ''}`
+      : `📊 נותרו ${extras.remaining}${total ? ` מתוך ${total}` : ''} שיעורים במחזור.`;
+  }
+
+  return '';
+}
+
 function buildExtrasBlock(extras?: MeetingExtras): string {
   if (!extras) return '';
   const parts: string[] = [];
-  if (typeof extras.remaining === 'number') {
-    const total = extras.totalMeetings;
-    parts.push(`📊 נותרו ${extras.remaining}${total ? ` מתוך ${total}` : ''} שיעורים במחזור.`);
-  }
+  const progress = formatLessonProgress(extras);
+  if (progress) parts.push(progress);
   if (extras.lastSummary !== undefined) {
     const trimmed = (extras.lastSummary || '').trim();
     parts.push(trimmed
@@ -113,6 +135,58 @@ function buildExtrasBlock(extras?: MeetingExtras): string {
       : `📝 אין סיכום לשיעור הקודם.`);
   }
   return parts.length ? `\n\n${parts.join('\n\n')}` : '';
+}
+
+export async function getMeetingProgressExtras(meeting: any, options: { includeLastSummary?: boolean } = {}): Promise<MeetingExtras | undefined> {
+  const totalMeetings = typeof meeting.cycle?.totalMeetings === 'number'
+    ? meeting.cycle.totalMeetings
+    : undefined;
+
+  if (typeof totalMeetings !== 'number') {
+    return undefined;
+  }
+
+  const completedBefore = await prisma.meeting.count({
+    where: {
+      cycleId: meeting.cycleId,
+      status: 'completed',
+      deletedAt: null,
+      OR: [
+        { scheduledDate: { lt: meeting.scheduledDate } },
+        { scheduledDate: meeting.scheduledDate, startTime: { lt: meeting.startTime } },
+      ],
+    },
+  });
+
+  const lessonNumber = Math.min(totalMeetings, completedBefore + 1);
+  const remainingAfter = Math.max(0, totalMeetings - lessonNumber);
+  const extras: MeetingExtras = {
+    lessonNumber,
+    totalMeetings,
+    remainingAfter,
+    remaining: Math.max(0, totalMeetings - completedBefore),
+  };
+
+  if (options.includeLastSummary) {
+    const previous = await prisma.meeting.findFirst({
+      where: {
+        cycleId: meeting.cycleId,
+        status: 'completed',
+        OR: [
+          { scheduledDate: { lt: meeting.scheduledDate } },
+          { scheduledDate: meeting.scheduledDate, startTime: { lt: meeting.startTime } },
+        ],
+      },
+      orderBy: [
+        { scheduledDate: 'desc' },
+        { startTime: 'desc' },
+      ],
+      select: { topic: true },
+    });
+    extras.lastSummary = previous ? previous.topic ?? null : null;
+  }
+
+  return extras;
 }
 
 /**
@@ -132,28 +206,32 @@ function buildMeetingMessage(instructorName: string, meeting: any, meetingLink?:
 /**
  * Build combined WhatsApp message for multiple meetings
  */
-function buildMorningMessage(instructorName: string, meetings: any[], meetingLinks?: Map<string, string>): string {
-  if (meetings.length === 1) return buildMeetingMessage(instructorName, meetings[0], meetingLinks?.get(meetings[0].id));
+function buildMorningMessage(instructorName: string, meetings: any[], meetingLinks?: Map<string, string>, meetingExtras?: Map<string, MeetingExtras>): string {
+  if (meetings.length === 1) return buildMeetingMessage(instructorName, meetings[0], meetingLinks?.get(meetings[0].id), meetingExtras?.get(meetings[0].id));
 
   const lines = [`שלום ${instructorName} 👋\nתזכורת לשיעורים שלך היום:`];
   for (const m of meetings) {
     const time = formatTimeFromDate(m.startTime);
     const zoom = m.zoomJoinUrl ? ` | זום: ${m.zoomJoinUrl}` : '';
     const hostKey = m.zoomHostKey ? ` | קוד מנהל: ${m.zoomHostKey}` : '';
+    const progress = formatLessonProgress(meetingExtras?.get(m.id), true);
+    const progressText = progress ? ` | 📊 ${progress}` : '';
     const link = meetingLinks?.get(m.id) ? `\n📋 ${meetingLinks.get(m.id)}` : '';
-    lines.push(`\n📚 ${m.cycle?.name || ''} | 🏫 ${m.cycle?.branch?.name || ''} | 🕐 ${time}${zoom}${hostKey}${link}`);
+    lines.push(`\n📚 ${m.cycle?.name || ''} | 🏫 ${m.cycle?.branch?.name || ''} | 🕐 ${time}${progressText}${zoom}${hostKey}${link}`);
   }
   lines.push('\nבהצלחה! 🙂');
   return lines.join('');
 }
 
-function buildMorningScheduleText(meetings: any[], meetingLinks?: Map<string, string>): string {
+function buildMorningScheduleText(meetings: any[], meetingLinks?: Map<string, string>, meetingExtras?: Map<string, MeetingExtras>): string {
   return meetings.map((m) => {
     const time = formatTimeFromDate(m.startTime);
     const zoom = m.zoomJoinUrl ? ` | זום: ${m.zoomJoinUrl}` : '';
     const hostKey = m.zoomHostKey ? ` | קוד מנהל: ${m.zoomHostKey}` : '';
+    const progress = formatLessonProgress(meetingExtras?.get(m.id), true);
+    const progressText = progress ? ` | ${progress}` : '';
     const link = meetingLinks?.get(m.id) ? ` | דיווח: ${meetingLinks.get(m.id)}` : '';
-    return `${time} - ${m.cycle?.name || 'שיעור'} | ${m.cycle?.branch?.name || 'אונליין'}${zoom}${hostKey}${link}`;
+    return `${time} - ${m.cycle?.name || 'שיעור'} | ${m.cycle?.branch?.name || 'אונליין'}${progressText}${zoom}${hostKey}${link}`;
   }).join('\n');
 }
 
@@ -161,6 +239,11 @@ function buildMeetingTitle(meeting: any): string {
   const cycleName = meeting.cycle?.name || meeting.cycle?.course?.name || 'שיעור';
   const branchName = meeting.cycle?.branch?.name;
   return branchName ? `${cycleName} | ${branchName}` : cycleName;
+}
+
+function buildMeetingTitleWithProgress(meeting: any, extras?: MeetingExtras): string {
+  const progress = formatLessonProgress(extras, true);
+  return progress ? `${buildMeetingTitle(meeting)} | ${progress}` : buildMeetingTitle(meeting);
 }
 
 export function isPreMeetingReminderDue(nowMin: number, meetMin: number): boolean {
@@ -191,15 +274,15 @@ async function hasPreMeetingReminderBeenLogged(meetingId: string, instructorPhon
   return Boolean(existing);
 }
 
-export function buildInstructorPreLessonTemplatePayload(meeting: any, meetingLink: string): WhatsAppTemplatePayload {
-  const message = buildMeetingMessage(meeting.instructor.name, meeting, meetingLink);
+export function buildInstructorPreLessonTemplatePayload(meeting: any, meetingLink: string, extras?: MeetingExtras): WhatsAppTemplatePayload {
+  const message = buildMeetingMessage(meeting.instructor.name, meeting, meetingLink, extras);
   return {
     phone: meeting.instructor.phone,
     contactName: meeting.instructor.name,
     templateName: process.env.INSTRUCTOR_PRE_LESSON_WA_TEMPLATE_NAME || 'instructor_pre_lesson_60m',
     bodyParameters: [
       templateText(meeting.instructor.name, 'מדריך/ה'),
-      templateText(buildMeetingTitle(meeting), 'שיעור'),
+      templateText(buildMeetingTitleWithProgress(meeting, extras), 'שיעור'),
       templateText(meeting.cycle?.branch?.name || (meeting.zoomJoinUrl ? 'אונליין' : ''), 'אונליין'),
       templateText(formatTimeFromDate(meeting.startTime), 'השעה תעודכן בהמשך'),
       meetingLink,
@@ -208,16 +291,18 @@ export function buildInstructorPreLessonTemplatePayload(meeting: any, meetingLin
   };
 }
 
-export function buildInstructorStatusCheckTemplatePayload(meeting: any, meetingLink: string): WhatsAppTemplatePayload {
+export function buildInstructorStatusCheckTemplatePayload(meeting: any, meetingLink: string, extras?: MeetingExtras): WhatsAppTemplatePayload {
   const time = formatTimeFromDate(meeting.startTime);
-  const question = `שלום ${meeting.instructor.name}, האם השיעור של היום התקיים?\n📚 ${meeting.cycle?.name || ''}\n🏫 ${meeting.cycle?.branch?.name || ''}\n🕐 שעה: ${time}\n\nאפשר להשיב כאן: כן / לא`;
+  const progressLine = formatLessonProgress(extras);
+  const progress = progressLine ? `\n${progressLine}` : '';
+  const question = `שלום ${meeting.instructor.name}, האם השיעור של היום התקיים?\n📚 ${meeting.cycle?.name || ''}\n🏫 ${meeting.cycle?.branch?.name || ''}\n🕐 שעה: ${time}${progress}\n\nאפשר להשיב כאן: כן / לא`;
   return {
     phone: meeting.instructor.phone,
     contactName: meeting.instructor.name,
     templateName: process.env.INSTRUCTOR_STATUS_CHECK_WA_TEMPLATE_NAME || 'instructor_status_check',
     bodyParameters: [
       templateText(meeting.instructor.name, 'מדריך/ה'),
-      templateText(meeting.cycle?.name, 'שיעור'),
+      templateText(buildMeetingTitleWithProgress(meeting, extras), 'שיעור'),
       templateText(time, 'השעה תעודכן בהמשך'),
       meetingLink,
     ],
@@ -228,13 +313,15 @@ export function buildInstructorStatusCheckTemplatePayload(meeting: any, meetingL
 export async function sendInstructorPreLessonReminder(meeting: any): Promise<WhatsAppCloudResult> {
   if (!meeting.instructor?.phone) return { success: false, error: 'Instructor has no phone number' };
   const meetingLink = generateMeetingMagicLink(meeting.instructor.id, meeting.id, APP_URL);
-  return sendWhatsAppCloudTemplate(buildInstructorPreLessonTemplatePayload(meeting, meetingLink));
+  const extras = await getMeetingProgressExtras(meeting, { includeLastSummary: true });
+  return sendWhatsAppCloudTemplate(buildInstructorPreLessonTemplatePayload(meeting, meetingLink, extras));
 }
 
 export async function sendInstructorStatusCheckReminder(meeting: any): Promise<WhatsAppCloudResult> {
   if (!meeting.instructor?.phone) return { success: false, error: 'Instructor has no phone number' };
   const meetingLink = generateMeetingMagicLink(meeting.instructor.id, meeting.id, APP_URL);
-  return sendWhatsAppCloudTemplate(buildInstructorStatusCheckTemplatePayload(meeting, meetingLink));
+  const extras = await getMeetingProgressExtras(meeting);
+  return sendWhatsAppCloudTemplate(buildInstructorStatusCheckTemplatePayload(meeting, meetingLink, extras));
 }
 
 function parseInstructorStatusReplyText(text: string | null | undefined): boolean | null {
@@ -279,11 +366,14 @@ export async function sendMorningWhatsAppReminders(): Promise<void> {
     for (const { instructor, meetings: instrMeetings } of byInstructor.values()) {
       // Generate magic links for each meeting (valid 24h, no login required)
       const meetingLinks = new Map<string, string>();
+      const meetingExtras = new Map<string, MeetingExtras>();
       for (const m of instrMeetings) {
         meetingLinks.set(m.id, generateMeetingMagicLink(instructor.id, m.id, APP_URL));
+        const extras = await getMeetingProgressExtras(m);
+        if (extras) meetingExtras.set(m.id, extras);
       }
-      const scheduleText = buildMorningScheduleText(instrMeetings, meetingLinks);
-      const preview = `[תבנית: instructor_daily_schedule] ${buildMorningMessage(instructor.name, instrMeetings, meetingLinks)}`;
+      const scheduleText = buildMorningScheduleText(instrMeetings, meetingLinks, meetingExtras);
+      const preview = `[תבנית: instructor_daily_schedule] ${buildMorningMessage(instructor.name, instrMeetings, meetingLinks, meetingExtras)}`;
       const result = await sendWhatsAppCloudTemplate({
         phone: instructor.phone!,
         contactName: instructor.name,
@@ -405,41 +495,11 @@ export async function sendPreMeetingReminders(): Promise<void> {
 
       const meetingLink = generateMeetingMagicLink(m.instructor.id, m.id, APP_URL);
 
-      // Pre-meeting context: lessons left in the cycle + previous lesson's summary.
-      // Compute remaining live as totalMeetings - completedCount.
-      // cycle.remainingMeetings is unreliable (drifts when one-off meetings are added).
-      const totalMeetings = m.cycle?.totalMeetings;
-      const completedCount = await prisma.meeting.count({
-        where: { cycleId: m.cycleId, status: 'completed', deletedAt: null },
-      });
-      const remaining = typeof totalMeetings === 'number'
-        ? Math.max(0, totalMeetings - completedCount)
-        : undefined;
-      const previous = await prisma.meeting.findFirst({
-        where: {
-          cycleId: m.cycleId,
-          status: 'completed',
-          OR: [
-            { scheduledDate: { lt: m.scheduledDate } },
-            { scheduledDate: m.scheduledDate, startTime: { lt: m.startTime } },
-          ],
-        },
-        orderBy: [
-          { scheduledDate: 'desc' },
-          { startTime: 'desc' },
-        ],
-        select: { topic: true },
-      });
-
-      const extras: MeetingExtras = {
-        remaining,
-        totalMeetings: typeof totalMeetings === 'number' ? totalMeetings : undefined,
-        lastSummary: previous ? previous.topic ?? null : null,
-      };
+      const extras = await getMeetingProgressExtras(m, { includeLastSummary: true });
 
       const message = buildMeetingMessage(m.instructor.name, m, meetingLink, extras);
       const result = await sendWhatsAppCloudTemplate({
-        ...buildInstructorPreLessonTemplatePayload(m, meetingLink),
+        ...buildInstructorPreLessonTemplatePayload(m, meetingLink, extras),
         preview: `[תבנית: ${process.env.INSTRUCTOR_PRE_LESSON_WA_TEMPLATE_NAME || 'instructor_pre_lesson_60m'}] ${message}`,
       });
       if (result.success) {
@@ -474,8 +534,9 @@ export async function sendEveningStatusCheck(): Promise<void> {
     for (const m of instructorMeetings) {
       const instr = m.instructor!;
       const meetingLink = generateMeetingMagicLink(instr.id, m.id, APP_URL);
+      const extras = await getMeetingProgressExtras(m);
 
-      const result = await sendWhatsAppCloudTemplate(buildInstructorStatusCheckTemplatePayload(m, meetingLink));
+      const result = await sendWhatsAppCloudTemplate(buildInstructorStatusCheckTemplatePayload(m, meetingLink, extras));
 
       if (result.success) {
         await prisma.$executeRaw`

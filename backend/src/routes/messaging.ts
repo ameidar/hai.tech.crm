@@ -6,6 +6,7 @@ import { sendWhatsApp, sendEmail, replacePlaceholders, formatTimeForDisplay } fr
 import {
   buildInstructorPreLessonTemplatePayload,
   buildInstructorStatusCheckTemplatePayload,
+  getMeetingProgressExtras,
 } from '../services/whatsapp-reminder.service.js';
 import { generateMeetingMagicLink } from '../services/instructor-reminder.service.js';
 import { sendWhatsAppCloudTemplate } from '../services/whatsapp-cloud-templates.js';
@@ -208,9 +209,12 @@ messagingRouter.post('/send', async (req, res, next) => {
           instructor,
         };
         const meetingLink = generateMeetingMagicLink(instructor.id, meeting.id, baseUrl);
+        const extras = await getMeetingProgressExtras(meetingForTemplate, {
+          includeLastSummary: officialTemplateKind === 'pre_lesson',
+        });
         const payload = officialTemplateKind === 'status_check'
-          ? buildInstructorStatusCheckTemplatePayload(meetingForTemplate, meetingLink)
-          : buildInstructorPreLessonTemplatePayload(meetingForTemplate, meetingLink);
+          ? buildInstructorStatusCheckTemplatePayload(meetingForTemplate, meetingLink, extras)
+          : buildInstructorPreLessonTemplatePayload(meetingForTemplate, meetingLink, extras);
         result = await sendWhatsAppCloudTemplate(payload);
         messageBody = payload.preview;
         subject = template?.subject ? replacePlaceholders(template.subject, placeholderData) : subject;

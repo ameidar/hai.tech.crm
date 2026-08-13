@@ -149,7 +149,7 @@ async function sendLeadAdminTemplateNotifications(lead: LeadAdminNotification, l
   await Promise.all(recipients.map(async (phone) => {
     const result = await sendWhatsAppCloudTemplate({
       phone,
-      contactName: phone === ADMIN_PHONE ? 'עמי מידר' : undefined,
+      contactName: phone === ADMIN_PHONE ? 'עמי מידר' : phone === KIM_PHONE ? 'קים נווה' : undefined,
       templateName,
       bodyParameters,
       preview,
@@ -188,6 +188,7 @@ ${lead.interest ? `🎓 *תחום עניין:* ${lead.interest}` : ''}
   if (process.env.LEAD_ADMIN_GREEN_FALLBACK_ENABLED !== 'false') {
     tasks.push(
       sendWhatsAppMessage(ADMIN_PHONE, message),
+      sendWhatsAppMessage(KIM_PHONE, message),
       sendWhatsAppMessage(SALES_GROUP_CHAT_ID, message),
     );
   }

@@ -70,7 +70,8 @@ describe('lead admin notifications', () => {
     await notifyAdminNewLead(lead);
 
     expect(sendWhatsAppCloudTemplate).not.toHaveBeenCalled();
-    expect(sendGreenApiMessage).toHaveBeenCalledTimes(2);
+    expect(sendGreenApiMessage).toHaveBeenCalledTimes(3);
+    expect(sendGreenApiMessage).toHaveBeenCalledWith('972543354550@c.us', expect.stringContaining('ישראל ישראלי'));
   });
 
   it('sends the admin template to configured direct recipients when enabled', async () => {
@@ -94,6 +95,17 @@ describe('lead admin notifications', () => {
     expect(sendWhatsAppCloudTemplate).toHaveBeenCalledWith(expect.objectContaining({
       phone: '0541234567',
       templateName: 'lead_admin_new_lead',
+    }));
+  });
+
+  it('labels Kim when sending the default admin template recipients', async () => {
+    process.env.LEAD_ADMIN_WA_TEMPLATE_ENABLED = 'true';
+
+    await notifyAdminNewLead(lead);
+
+    expect(sendWhatsAppCloudTemplate).toHaveBeenCalledWith(expect.objectContaining({
+      phone: '0543354550',
+      contactName: 'קים נווה',
     }));
   });
 

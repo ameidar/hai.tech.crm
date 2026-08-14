@@ -614,7 +614,7 @@ export default function Meetings() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
-        {isAdmin && <PendingMeetingRequests showRiskSummary />}
+        {isAdmin && <PendingMeetingRequests showRiskSummary={false} />}
 
         {/* Bulk Actions Bar - Admin only */}
         {someSelected && isAdmin && (

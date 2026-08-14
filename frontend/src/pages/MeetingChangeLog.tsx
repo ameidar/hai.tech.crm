@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, Ban, CalendarClock, ClipboardList, Filter, RefreshCw } from 'lucide-react';
@@ -35,6 +35,11 @@ interface MeetingChangeLogResponse {
     byInstructor: InstructorSummary[];
   };
   requests: MeetingChangeRequest[];
+}
+
+interface StudentOption {
+  id: string;
+  name: string;
 }
 
 const typeLabels: Record<string, string> = {
@@ -92,8 +97,20 @@ function formatTime(value?: string | null) {
   return new Date(value).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
 }
 
+function studentNamesForRequest(request: MeetingChangeRequest) {
+  const directStudent = request.meeting?.registration?.student;
+  if (directStudent) return [directStudent.name];
+
+  const names = new Set<string>();
+  for (const registration of request.meeting?.cycle?.registrations ?? []) {
+    if (registration.student?.name) names.add(registration.student.name);
+  }
+  return Array.from(names);
+}
+
 export default function MeetingChangeLog() {
   const [instructorId, setInstructorId] = useState('');
+  const [studentId, setStudentId] = useState('');
   const [type, setType] = useState<'all' | 'cancel' | 'postpone' | 'replacement'>('all');
   const [status, setStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [from, setFrom] = useState(dateInput(-30));
@@ -101,16 +118,46 @@ export default function MeetingChangeLog() {
 
   const { data: instructors = [] } = useInstructors({ isActive: true });
 
-  const queryString = useMemo(() => {
+  useEffect(() => {
+    setStudentId('');
+  }, [instructorId]);
+
+  const studentOptionsQueryString = useMemo(() => {
     const params = new URLSearchParams();
     if (instructorId) params.set('instructorId', instructorId);
     if (type !== 'all') params.set('type', type);
     if (status !== 'all') params.set('status', status);
     if (from) params.set('from', from);
     if (to) params.set('to', to);
-    params.set('limit', '500');
     return params.toString();
   }, [from, instructorId, status, to, type]);
+
+  const { data: studentOptions = [], isFetching: isFetchingStudents } = useQuery({
+    queryKey: ['meeting-change-log-students', studentOptionsQueryString],
+    queryFn: async () => {
+      const response = await api.get<{ students: StudentOption[] }>(`/meeting-requests/log/students?${studentOptionsQueryString}`);
+      return response.data.students;
+    },
+    enabled: !!instructorId,
+  });
+
+  useEffect(() => {
+    if (studentId && !isFetchingStudents && !studentOptions.some((student) => student.id === studentId)) {
+      setStudentId('');
+    }
+  }, [isFetchingStudents, studentId, studentOptions]);
+
+  const queryString = useMemo(() => {
+    const params = new URLSearchParams();
+    if (instructorId) params.set('instructorId', instructorId);
+    if (studentId) params.set('studentId', studentId);
+    if (type !== 'all') params.set('type', type);
+    if (status !== 'all') params.set('status', status);
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    params.set('limit', '500');
+    return params.toString();
+  }, [from, instructorId, status, studentId, to, type]);
 
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['meeting-change-log', queryString],
@@ -147,11 +194,24 @@ export default function MeetingChangeLog() {
           <Filter size={18} />
           סינון
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
           <select value={instructorId} onChange={(e) => setInstructorId(e.target.value)} className="form-select">
             <option value="">כל המדריכים</option>
             {instructors.map((instructor) => (
               <option key={instructor.id} value={instructor.id}>{instructor.name}</option>
+            ))}
+          </select>
+          <select
+            value={studentId}
+            onChange={(e) => setStudentId(e.target.value)}
+            className="form-select"
+            disabled={!instructorId || isFetchingStudents}
+          >
+            <option value="">
+              {!instructorId ? 'בחרו מדריך קודם' : isFetchingStudents ? 'טוען תלמידים...' : 'כל התלמידים'}
+            </option>
+            {studentOptions.map((student) => (
+              <option key={student.id} value={student.id}>{student.name}</option>
             ))}
           </select>
           <select value={type} onChange={(e) => setType(e.target.value as typeof type)} className="form-select">
@@ -242,6 +302,7 @@ export default function MeetingChangeLog() {
                       <th className="px-4 py-3">סוג</th>
                       <th className="px-4 py-3">סטטוס</th>
                       <th className="px-4 py-3">מפגש</th>
+                      <th className="px-4 py-3">תלמידים</th>
                       <th className="px-4 py-3">סיבה</th>
                       <th className="px-4 py-3">הערת טיפול</th>
                     </tr>
@@ -274,6 +335,14 @@ export default function MeetingChangeLog() {
                               </div>
                             </div>
                           ) : '-'}
+                        </td>
+                        <td className="px-4 py-3 max-w-[220px] text-gray-700">
+                          {(() => {
+                            const names = studentNamesForRequest(request);
+                            if (names.length === 0) return '-';
+                            const visibleNames = names.slice(0, 3).join(', ');
+                            return names.length > 3 ? `${visibleNames} ועוד ${names.length - 3}` : visibleNames;
+                          })()}
                         </td>
                         <td className="px-4 py-3 max-w-[320px] text-gray-700 whitespace-pre-wrap">{request.reason || '-'}</td>
                         <td className="px-4 py-3 max-w-[260px] text-gray-600 whitespace-pre-wrap">{request.reviewNotes || '-'}</td>

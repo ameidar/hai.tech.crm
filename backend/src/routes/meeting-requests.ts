@@ -24,7 +24,8 @@ const reviewRequestSchema = z.object({
 });
 
 const logQuerySchema = z.object({
-  instructorId: z.string().uuid().optional(),
+  instructorId: z.string().min(1).optional(),
+  studentId: z.string().min(1).optional(),
   type: z.enum(['cancel', 'postpone', 'replacement', 'all']).optional(),
   status: z.enum(['pending', 'approved', 'rejected', 'all']).optional(),
   from: z.string().optional(),
@@ -43,6 +44,37 @@ const typeHebrew: Record<string, string> = {
 const RISK_REQUEST_TYPES = ['cancel', 'postpone'];
 const RISK_MIN_REQUESTS = 2;
 const RISK_MIN_CYCLE_MEETINGS = 16;
+
+function buildLogWhere(query: z.infer<typeof logQuerySchema>, includeStudent = true) {
+  const createdAt: Record<string, Date> = {};
+  const scheduledDate: Record<string, Date> = {};
+
+  if (query.from) createdAt.gte = new Date(query.from);
+  if (query.to) {
+    const to = new Date(query.to);
+    to.setHours(23, 59, 59, 999);
+    createdAt.lte = to;
+  }
+  if (query.meetingFrom) scheduledDate.gte = new Date(query.meetingFrom);
+  if (query.meetingTo) scheduledDate.lte = new Date(query.meetingTo);
+
+  const meetingWhere: any = {};
+  if (Object.keys(scheduledDate).length) meetingWhere.scheduledDate = scheduledDate;
+  if (includeStudent && query.studentId) {
+    meetingWhere.OR = [
+      { registration: { is: { studentId: query.studentId } } },
+      { cycle: { registrations: { some: { studentId: query.studentId, deletedAt: null } } } },
+    ];
+  }
+
+  return {
+    type: query.type && query.type !== 'all' ? query.type : { in: ['cancel', 'postpone'] },
+    ...(query.instructorId && { instructorId: query.instructorId }),
+    ...(query.status && query.status !== 'all' && { status: query.status }),
+    ...(Object.keys(createdAt).length && { createdAt }),
+    ...(Object.keys(meetingWhere).length && { meeting: meetingWhere }),
+  };
+}
 
 // POST /api/meeting-requests — instructor creates a request
 meetingRequestsRouter.post('/', async (req, res, next) => {
@@ -354,6 +386,60 @@ meetingRequestsRouter.get('/', async (req, res, next) => {
   }
 });
 
+// GET /api/meeting-requests/log/students — student options for the selected instructor/log filters
+meetingRequestsRouter.get('/log/students', async (req, res, next) => {
+  try {
+    if (!['admin', 'manager', 'operations_control', 'operations_manager'].includes(req.user!.role)) {
+      throw new AppError(403, 'אין הרשאה לצפות בלוג בקשות מדריכים');
+    }
+
+    const query = logQuerySchema.parse(req.query);
+    if (!query.instructorId) {
+      return res.json({ students: [] });
+    }
+
+    const requests = await prisma.meetingChangeRequest.findMany({
+      where: buildLogWhere(query, false),
+      select: {
+        meeting: {
+          select: {
+            registration: {
+              select: {
+                student: { select: { id: true, name: true } },
+              },
+            },
+            cycle: {
+              select: {
+                registrations: {
+                  where: { deletedAt: null },
+                  select: {
+                    student: { select: { id: true, name: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+
+    const byStudent = new Map<string, { id: string; name: string }>();
+    for (const request of requests) {
+      const directStudent = request.meeting?.registration?.student;
+      if (directStudent) byStudent.set(directStudent.id, directStudent);
+      for (const registration of request.meeting?.cycle?.registrations ?? []) {
+        byStudent.set(registration.student.id, registration.student);
+      }
+    }
+
+    res.json({ students: Array.from(byStudent.values()).sort((a, b) => a.name.localeCompare(b.name, 'he')) });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // GET /api/meeting-requests/log — cancellation/postponement history for monitoring instructor load
 meetingRequestsRouter.get('/log', async (req, res, next) => {
   try {
@@ -362,35 +448,22 @@ meetingRequestsRouter.get('/log', async (req, res, next) => {
     }
 
     const query = logQuerySchema.parse(req.query);
-    const createdAt: Record<string, Date> = {};
-    const scheduledDate: Record<string, Date> = {};
-
-    if (query.from) createdAt.gte = new Date(query.from);
-    if (query.to) {
-      const to = new Date(query.to);
-      to.setHours(23, 59, 59, 999);
-      createdAt.lte = to;
-    }
-    if (query.meetingFrom) scheduledDate.gte = new Date(query.meetingFrom);
-    if (query.meetingTo) scheduledDate.lte = new Date(query.meetingTo);
-
-    const where: any = {
-      type: query.type && query.type !== 'all' ? query.type : { in: ['cancel', 'postpone'] },
-      ...(query.instructorId && { instructorId: query.instructorId }),
-      ...(query.status && query.status !== 'all' && { status: query.status }),
-      ...(Object.keys(createdAt).length && { createdAt }),
-      ...(Object.keys(scheduledDate).length && { meeting: { scheduledDate } }),
-    };
+    const where = buildLogWhere(query);
 
     const requests = await prisma.meetingChangeRequest.findMany({
       where,
       include: {
         meeting: {
           include: {
+            registration: { include: { student: true } },
             cycle: {
               include: {
                 branch: true,
                 course: true,
+                registrations: {
+                  where: { deletedAt: null },
+                  include: { student: true },
+                },
               },
             },
           },

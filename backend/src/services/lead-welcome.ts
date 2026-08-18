@@ -5,6 +5,8 @@
  *   - "roblox-group-may26" → roblox_may26_match (campaign-specific, includes payment link)
  *   - everything else      → lead_welcome_hai (generic chatbot intro)
  * GATED by LEAD_WELCOME_WA_ENABLED=true env var (default: off).
+ * Sends from the CRM-owned WhatsApp number by default, not the routed primary
+ * bot number, so customer replies stay inside the CRM inbox.
  */
 import axios from 'axios';
 import { prisma } from '../utils/prisma.js';
@@ -24,6 +26,22 @@ const CAMPAIGN_TEMPLATES: Record<string, LeadWelcomeTemplate> = {
     preview: (firstName) => `[תבנית: roblox_may26_match] התאמה מצוינת! 🎯 ${firstName}, פרטי הקורס + לינק לתשלום`,
   },
 };
+
+const DEFAULT_CRM_BUSINESS_PHONE = '+972533009742';
+
+function resolveLeadWelcomePhone() {
+  const phoneNumberId =
+    process.env.LEAD_WELCOME_WA_PHONE_NUMBER_ID ||
+    process.env.WA_PHONE_NUMBER_ID_2 ||
+    process.env.WA_PHONE_NUMBER_ID ||
+    '';
+
+  const businessPhone =
+    process.env.LEAD_WELCOME_WA_BUSINESS_PHONE ||
+    (phoneNumberId === process.env.WA_PHONE_NUMBER_ID_2 ? DEFAULT_CRM_BUSINESS_PHONE : '+972533027763');
+
+  return { phoneNumberId, businessPhone };
+}
 
 function selectLeadWelcomeTemplate(interest?: string | null): LeadWelcomeTemplate {
   const exact = interest ? CAMPAIGN_TEMPLATES[interest] : null;
@@ -59,22 +77,30 @@ export async function sendLeadWelcomeTemplate(phone: string, name: string, inter
 
   try {
     const normalizedPhone = phone.replace(/\D/g, '').replace(/^0/, '972');
-    const waPhoneId = process.env.WA_PHONE_NUMBER_ID || '';
+    const { phoneNumberId: waPhoneId, businessPhone } = resolveLeadWelcomePhone();
     const waToken = process.env.WA_ACCESS_TOKEN || '';
     const firstName = name?.split(' ')[0] || name || 'שלום';
 
     const template = selectLeadWelcomeTemplate(interest);
 
-    // Ensure conversation record exists
-    let conv = await prisma.waConversation.findFirst({ where: { phone: normalizedPhone } });
+    // Ensure the message is tracked under the same CRM-owned business number
+    // customers will reply to.
+    let conv = waPhoneId
+      ? await prisma.waConversation.findFirst({ where: { phone: normalizedPhone, phoneNumberId: waPhoneId } })
+      : await prisma.waConversation.findFirst({ where: { phone: normalizedPhone } });
     if (!conv) {
       conv = await prisma.waConversation.create({
         data: {
           phone: normalizedPhone,
           contactName: name || normalizedPhone,
           phoneNumberId: waPhoneId,
-          businessPhone: '+972533027763',
+          businessPhone,
         },
+      });
+    } else if (waPhoneId && (conv.businessPhone !== businessPhone || conv.phoneNumberId !== waPhoneId)) {
+      conv = await prisma.waConversation.update({
+        where: { id: conv.id },
+        data: { phoneNumberId: waPhoneId, businessPhone },
       });
     }
 
@@ -121,7 +147,7 @@ export async function sendLeadWelcomeTemplate(phone: string, name: string, inter
       },
     });
 
-    console.log(`[LeadWelcome] Template '${template.name}' sent to ${normalizedPhone}`);
+    console.log(`[LeadWelcome] Template '${template.name}' sent to ${normalizedPhone} via ${waPhoneId}`);
   } catch (err: any) {
     console.error('[LeadWelcome] Failed to send template:', err.response?.data || err.message);
   }

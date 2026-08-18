@@ -54,6 +54,11 @@ enum InternalZoomMeetingStatus {
   cancelled
 }
 
+enum VideoMeetingProvider {
+  zoom
+  google_meet
+}
+
 enum CourseCategory {
   programming
   ai
@@ -224,6 +229,9 @@ model InternalZoomMeeting {
   zoomStartUrl    String?                   @map("zoom_start_url")
   zoomPassword    String?                   @map("zoom_password")
   zoomHostKey     String?                   @map("zoom_host_key")
+  videoProvider   VideoMeetingProvider      @default(zoom) @map("video_provider")
+  googleMeetSpaceName String?               @map("google_meet_space_name")
+  googleCalendarEventId String?             @map("google_calendar_event_id")
   status          InternalZoomMeetingStatus @default(scheduled)
   notes           String?
   createdAt       DateTime                  @default(now()) @map("created_at")
@@ -763,6 +771,9 @@ model Cycle {
   zoomJoinUrl              String?      @map("zoom_join_url")
   zoomHostKey              String?      @map("zoom_host_key")
   zoomPassword             String?      @map("zoom_password")
+  videoProvider            VideoMeetingProvider @default(zoom) @map("video_provider")
+  googleMeetSpaceName      String?      @map("google_meet_space_name")
+  googleCalendarEventId    String?      @map("google_calendar_event_id")
   completedMeetings        Int          @default(0) @map("completed_meetings")
   remainingMeetings        Int          @default(0) @map("remaining_meetings")
   status                   CycleStatus  @default(active)
@@ -867,6 +878,9 @@ model Meeting {
   zoomPassword              String?       @map("zoom_password")
   zoomHostKey               String?       @map("zoom_host_key")
   zoomHostEmail             String?       @map("zoom_host_email")
+  videoProvider             VideoMeetingProvider @default(zoom) @map("video_provider")
+  googleMeetSpaceName       String?       @map("google_meet_space_name")
+  googleCalendarEventId     String?       @map("google_calendar_event_id")
   zoomRecordingUrl          String?       @map("zoom_recording_url")
   zoomRecordingPassword     String?       @map("zoom_recording_password")
   lessonTranscript          String?       @map("lesson_transcript")

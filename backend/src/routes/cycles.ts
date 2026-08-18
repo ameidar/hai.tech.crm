@@ -653,6 +653,7 @@ cyclesRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) => 
           select: {
             id: true,
             zoomMeetingId: true,
+            videoProvider: true,
             scheduledDate: true,
             status: true,
           }
@@ -670,7 +671,7 @@ cyclesRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) => 
     // Get unique Zoom meeting IDs to delete
     const zoomMeetingIds = [...new Set(
       cycle.meetings
-        .filter(m => m.zoomMeetingId)
+        .filter(m => m.zoomMeetingId && (m.videoProvider ?? 'zoom') === 'zoom')
         .map(m => m.zoomMeetingId!)
     )];
 

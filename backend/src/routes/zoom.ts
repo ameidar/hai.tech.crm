@@ -1,10 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { getIsraelOffset, zoomService } from '../services/zoom';
+import { googleMeetService } from '../services/google-meet';
 import { authenticate, managerOrAdmin } from '../middleware/auth';
 
 const router = Router();
 const prisma = new PrismaClient();
+type VideoProvider = 'zoom' | 'google_meet';
 
 // All zoom routes require authentication
 router.use(authenticate);
@@ -33,14 +35,6 @@ function parseIsraelDateTime(date: string, time: string): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function parseIsraelRangeDate(date: string, endOfDay = false): Date | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
-  const time = endOfDay ? '23:59:59' : '00:00:00';
-  const localDate = new Date(`${date}T12:00:00`);
-  if (Number.isNaN(localDate.getTime())) return null;
-  return new Date(`${date}T${time}${getIsraelOffset(localDate)}`);
-}
-
 function formatDateInput(date: Date): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Jerusalem',
@@ -59,6 +53,16 @@ function formatTimeInput(date: Date): string {
   }).format(date);
 }
 
+function resolveVideoProvider(raw: unknown): VideoProvider {
+  return raw === 'google_meet' ? 'google_meet' : 'zoom';
+}
+
+function meetingDateTimeFromDateAndTime(date: Date, time: Date): Date {
+  const dateStr = date.toISOString().split('T')[0];
+  const timeStr = `${time.getUTCHours().toString().padStart(2, '0')}:${time.getUTCMinutes().toString().padStart(2, '0')}:00`;
+  return new Date(`${dateStr}T${timeStr}${getIsraelOffset(new Date(`${dateStr}T${timeStr}`))}`);
+}
+
 type InternalZoomRow = {
   id: string;
   title: string;
@@ -74,6 +78,9 @@ type InternalZoomRow = {
   zoom_start_url: string | null;
   zoom_password: string | null;
   zoom_host_key: string | null;
+  video_provider: VideoProvider;
+  google_meet_space_name: string | null;
+  google_calendar_event_id: string | null;
   status: 'scheduled' | 'cancelled';
   notes: string | null;
   created_at: Date;
@@ -101,6 +108,9 @@ function serializeInternalZoom(row: InternalZoomRow) {
     zoomStartUrl: row.zoom_start_url,
     zoomPassword: row.zoom_password,
     zoomHostKey: row.zoom_host_key,
+    videoProvider: row.video_provider,
+    googleMeetSpaceName: row.google_meet_space_name,
+    googleCalendarEventId: row.google_calendar_event_id,
     status: row.status,
     notes: row.notes,
     createdAt: row.created_at.toISOString(),
@@ -163,15 +173,11 @@ router.get('/users/:userId/availability', async (req: Request, res: Response) =>
 router.get('/internal-meetings', async (req: Request, res: Response) => {
   try {
     const from = typeof req.query.from === 'string'
-      ? parseIsraelRangeDate(req.query.from)
+      ? new Date(`${req.query.from}T00:00:00${getIsraelOffset(new Date(`${req.query.from}T00:00:00`))}`)
       : new Date(Date.now() - 24 * 60 * 60 * 1000);
     const to = typeof req.query.to === 'string'
-      ? parseIsraelRangeDate(req.query.to, true)
+      ? new Date(`${req.query.to}T23:59:59${getIsraelOffset(new Date(`${req.query.to}T12:00:00`))}`)
       : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
-
-    if (!from || !to) {
-      return res.status(400).json({ error: 'טווח תאריכים לא תקין' });
-    }
 
     const rows = await prisma.$queryRaw<InternalZoomRow[]>`
       SELECT *
@@ -197,6 +203,7 @@ router.get('/internal-meetings', async (req: Request, res: Response) => {
  */
 router.post('/internal-meetings', async (req: Request, res: Response) => {
   try {
+    const provider = resolveVideoProvider(req.body.provider || req.body.videoProvider);
     const title = String(req.body.title || '').trim();
     const requesterName = String(req.body.requesterName || req.user?.name || '').trim();
     const date = String(req.body.date || '').trim();
@@ -214,9 +221,46 @@ router.post('/internal-meetings', async (req: Request, res: Response) => {
     if (!startAt) return res.status(400).json({ error: 'תאריך או שעה לא תקינים' });
     const endAt = new Date(startAt.getTime() + durationMinutes * 60_000);
 
+    if (provider === 'google_meet') {
+      const meeting = await googleMeetService.createMeeting({
+        topic: title,
+        lessonStart: startAt,
+        durationMinutes,
+        record: true,
+        transcript: true,
+      });
+      if (!meeting) {
+        return res.status(409).json({ error: 'אין חשבון Google Meet פנוי בזמן המבוקש' });
+      }
+      const rows = await prisma.$queryRaw<InternalZoomRow[]>`
+        INSERT INTO internal_zoom_meetings (
+          id, title, requester_name, requested_by_id, start_at, end_at,
+          duration_minutes, zoom_host_id, zoom_host_email, zoom_meeting_id,
+          zoom_join_url, zoom_start_url, zoom_password, zoom_host_key,
+          video_provider, google_meet_space_name, google_calendar_event_id,
+          notes, updated_at
+        )
+        VALUES (
+          gen_random_uuid()::text, ${title}, ${requesterName}, ${req.user?.userId ?? null},
+          ${startAt}, ${endAt}, ${durationMinutes}, ${meeting.hostEmail},
+          ${meeting.hostEmail}, ${meeting.id}, ${meeting.joinUrl}, ${meeting.startUrl ?? null},
+          null, null, 'google_meet'::"VideoMeetingProvider", ${meeting.spaceName ?? null},
+          ${meeting.calendarEventId ?? null}, ${notes}, CURRENT_TIMESTAMP
+        )
+        RETURNING *
+      `;
+      return res.status(201).json({
+        success: true,
+        meeting: serializeInternalZoom(rows[0]),
+        hostUser: { id: meeting.hostEmail, email: meeting.hostEmail, name: meeting.hostEmail },
+      });
+    }
+
     const hostUser = await zoomService.findAvailableUser(startAt, durationMinutes);
     if (!hostUser) {
-      return res.status(409).json({ error: 'אין חשבון Zoom פנוי בזמן המבוקש' });
+      return res.status(409).json({
+        error: 'אין חשבון Zoom פנוי בזמן המבוקש',
+      });
     }
 
     const meeting = await zoomService.createMeeting(hostUser.id, {
@@ -229,6 +273,7 @@ router.post('/internal-meetings', async (req: Request, res: Response) => {
 
     const rows = await prisma.$queryRaw<InternalZoomRow[]>`
       INSERT INTO internal_zoom_meetings (
+        id,
         title,
         requester_name,
         requested_by_id,
@@ -242,10 +287,14 @@ router.post('/internal-meetings', async (req: Request, res: Response) => {
         zoom_start_url,
         zoom_password,
         zoom_host_key,
+        video_provider,
+        google_meet_space_name,
+        google_calendar_event_id,
         notes,
         updated_at
       )
       VALUES (
+        gen_random_uuid()::text,
         ${title},
         ${requesterName},
         ${req.user?.userId ?? null},
@@ -259,6 +308,9 @@ router.post('/internal-meetings', async (req: Request, res: Response) => {
         ${meeting.start_url ?? null},
         ${meeting.password || '1111'},
         ${meeting.host_key ?? hostUser.host_key ?? null},
+        'zoom'::"VideoMeetingProvider",
+        null,
+        null,
         ${notes},
         CURRENT_TIMESTAMP
       )
@@ -303,7 +355,7 @@ router.delete('/internal-meetings/:id', async (req: Request, res: Response) => {
     if (!existing) return res.status(404).json({ error: 'פגישת Zoom לא נמצאה' });
     if (existing.status === 'cancelled') return res.json({ success: true, meeting: serializeInternalZoom(existing) });
 
-    if (existing.zoom_meeting_id) {
+    if (existing.zoom_meeting_id && existing.video_provider === 'zoom') {
       try {
         await zoomService.deleteMeeting(existing.zoom_meeting_id);
       } catch (error: any) {
@@ -338,11 +390,12 @@ router.delete('/internal-meetings/:id', async (req: Request, res: Response) => {
 router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
   try {
     const { cycleId } = req.params;
+    const provider = resolveVideoProvider(req.body.provider || req.body.videoProvider);
 
     // Get cycle details
     const cycle = await prisma.cycle.findUnique({
       where: { id: cycleId },
-      include: { course: true }
+      include: { course: true, instructor: true }
     });
 
     if (!cycle) {
@@ -409,6 +462,70 @@ router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
       });
     }
 
+    if (provider === 'google_meet') {
+      const result = await googleMeetService.createCycleMeeting({
+        topic: `${cycle.course.name} - ${cycle.name}`,
+        instructorEmail: cycle.instructor.email,
+        record: true,
+        transcript: true,
+        occurrences: meetings.map((meeting) => ({
+          meetingId: meeting.id,
+          lessonStart: meetingDateTimeFromDateAndTime(meeting.scheduledDate, cycle.startTime),
+          durationMinutes: cycle.durationMinutes,
+        })),
+      });
+
+      if (!result) {
+        return res.status(503).json({ error: 'No available Google Meet hosts for this cycle schedule' });
+      }
+
+      const updatedCycle = await prisma.cycle.update({
+        where: { id: cycleId },
+        data: {
+          videoProvider: 'google_meet',
+          zoomHostId: result.hostEmail,
+          zoomHostEmail: result.hostEmail,
+          zoomMeetingId: result.id,
+          zoomJoinUrl: result.joinUrl,
+          zoomHostKey: null,
+          zoomPassword: null,
+          googleMeetSpaceName: result.spaceName ?? null,
+          googleCalendarEventId: result.calendarEventId ?? null,
+        },
+      });
+
+      for (const event of result.events || []) {
+        if (!event.meetingId) continue;
+        await prisma.meeting.update({
+          where: { id: event.meetingId },
+          data: {
+            videoProvider: 'google_meet',
+            zoomMeetingId: result.id,
+            zoomJoinUrl: result.joinUrl,
+            zoomPassword: null,
+            zoomHostKey: null,
+            zoomHostEmail: result.hostEmail,
+            googleMeetSpaceName: result.spaceName ?? null,
+            googleCalendarEventId: event.calendarEventId,
+          },
+        });
+      }
+
+      return res.json({
+        success: true,
+        cycle: {
+          id: updatedCycle.id,
+          name: updatedCycle.name,
+          videoProvider: updatedCycle.videoProvider,
+          zoomMeetingId: updatedCycle.zoomMeetingId,
+          zoomJoinUrl: updatedCycle.zoomJoinUrl,
+          zoomHostKey: updatedCycle.zoomHostKey,
+          zoomPassword: updatedCycle.zoomPassword,
+        },
+        hostUser: { id: result.hostEmail, email: result.hostEmail, name: result.hostEmail },
+      });
+    }
+
     // Create the meeting using actual meeting dates
     const result = await zoomService.createCycleMeeting({
       cycleName: `${cycle.course.name} - ${cycle.name}`,
@@ -438,7 +555,10 @@ router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
         zoomMeetingId: String(meeting.id),
         zoomJoinUrl: joinUrl,
         zoomHostKey: meeting.host_key || null,
-        zoomPassword: meeting.password
+        zoomPassword: meeting.password,
+        videoProvider: 'zoom',
+        googleMeetSpaceName: null,
+        googleCalendarEventId: null,
       }
     });
 
@@ -450,7 +570,10 @@ router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
         zoomJoinUrl: joinUrl,
         zoomPassword: meeting.password,
         zoomHostKey: meeting.host_key || null,
-        zoomHostEmail: hostUser.email
+        zoomHostEmail: hostUser.email,
+        videoProvider: 'zoom',
+        googleMeetSpaceName: null,
+        googleCalendarEventId: null,
       }
     });
 
@@ -459,6 +582,7 @@ router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
       cycle: {
         id: updatedCycle.id,
         name: updatedCycle.name,
+        videoProvider: updatedCycle.videoProvider,
         zoomMeetingId: updatedCycle.zoomMeetingId,
         zoomJoinUrl: updatedCycle.zoomJoinUrl,
         zoomHostKey: updatedCycle.zoomHostKey,
@@ -502,20 +626,22 @@ router.delete('/cycles/:cycleId/meeting', managerOrAdmin, async (req: Request, r
       return res.status(400).json({ error: 'Cycle has no Zoom meeting' });
     }
 
-    // Delete cloud recordings first (must be done before deleting the meeting)
-    try {
-      await zoomService.deleteRecordings(cycle.zoomMeetingId);
-    } catch (error: any) {
-      console.log(`[Zoom] Could not delete recordings: ${error.message}`);
-    }
+    if ((cycle.videoProvider ?? 'zoom') === 'zoom') {
+      // Delete cloud recordings first (must be done before deleting the meeting)
+      try {
+        await zoomService.deleteRecordings(cycle.zoomMeetingId);
+      } catch (error: any) {
+        console.log(`[Zoom] Could not delete recordings: ${error.message}`);
+      }
 
-    // Delete meeting from Zoom
-    try {
-      await zoomService.deleteMeeting(cycle.zoomMeetingId);
-    } catch (error: any) {
-      // Ignore 404 errors (meeting already deleted)
-      if (error.response?.status !== 404) {
-        throw error;
+      // Delete meeting from Zoom
+      try {
+        await zoomService.deleteMeeting(cycle.zoomMeetingId);
+      } catch (error: any) {
+        // Ignore 404 errors (meeting already deleted)
+        if (error.response?.status !== 404) {
+          throw error;
+        }
       }
     }
 
@@ -528,7 +654,10 @@ router.delete('/cycles/:cycleId/meeting', managerOrAdmin, async (req: Request, r
         zoomMeetingId: null,
         zoomJoinUrl: null,
         zoomHostKey: null,
-        zoomPassword: null
+        zoomPassword: null,
+        videoProvider: 'zoom',
+        googleMeetSpaceName: null,
+        googleCalendarEventId: null,
       }
     });
 
@@ -541,6 +670,9 @@ router.delete('/cycles/:cycleId/meeting', managerOrAdmin, async (req: Request, r
         zoomPassword: null,
         zoomHostKey: null,
         zoomHostEmail: null,
+        videoProvider: 'zoom',
+        googleMeetSpaceName: null,
+        googleCalendarEventId: null,
         zoomRecordingUrl: null,
         zoomRecordingPassword: null,
         lessonTranscript: null
@@ -576,7 +708,10 @@ router.get('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
         zoomMeetingId: true,
         zoomJoinUrl: true,
         zoomHostKey: true,
-        zoomPassword: true
+        zoomPassword: true,
+        videoProvider: true,
+        googleMeetSpaceName: true,
+        googleCalendarEventId: true,
       }
     });
 
@@ -591,17 +726,22 @@ router.get('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
       });
     }
 
-    // Optionally verify meeting still exists in Zoom
-    const meeting = await zoomService.getMeeting(cycle.zoomMeetingId);
+    const provider = cycle.videoProvider ?? 'zoom';
+    const meeting = provider === 'zoom'
+      ? await zoomService.getMeeting(cycle.zoomMeetingId)
+      : null;
 
     res.json({
       hasMeeting: true,
-      meetingExists: !!meeting,
+      meetingExists: provider === 'zoom' ? !!meeting : true,
+      videoProvider: provider,
       zoomMeetingId: cycle.zoomMeetingId,
       zoomJoinUrl: cycle.zoomJoinUrl,
       zoomHostKey: cycle.zoomHostKey,
       zoomPassword: cycle.zoomPassword,
-      zoomHostEmail: cycle.zoomHostEmail
+      zoomHostEmail: cycle.zoomHostEmail,
+      googleMeetSpaceName: cycle.googleMeetSpaceName,
+      googleCalendarEventId: cycle.googleCalendarEventId,
     });
   } catch (error: any) {
     console.error('Failed to get Zoom meeting:', error);

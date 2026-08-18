@@ -6,6 +6,7 @@ import { updateMeetingSchema, postponeMeetingSchema, paginationSchema, uuidSchem
 import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { zoomService, getIsraelOffset } from '../services/zoom.js';
+import { googleMeetService } from '../services/google-meet.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
 import { syncCycleProgress, syncCycleEndDate } from '../utils/cycle-sync.js';
 import { meetingRevenueFromRegistrations, revenueRegistrationCount, roundMoney } from '../utils/revenue.js';
@@ -294,6 +295,7 @@ meetingsRouter.get('/:id', async (req, res, next) => {
 meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const { cycleId, instructorId, registrationId, scheduledDate, startTime, endTime, withZoom, activityType, topic, notes } = req.body;
+    const videoProvider = req.body.videoProvider === 'google_meet' ? 'google_meet' : 'zoom';
 
     if (!cycleId || !instructorId || !scheduledDate || !startTime || !endTime) {
       throw new AppError(400, 'Missing required fields: cycleId, instructorId, scheduledDate, startTime, endTime');
@@ -388,62 +390,103 @@ meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
       },
     });
 
-    // Create Zoom meeting if requested
+    // Create video meeting if requested
     if (withZoom) {
       try {
-        // startTime is in Israel local time (HH:MM), build datetime with Israel timezone offset
-        let [sHour, sMin] = startTime.split(':').map(Number);
-
-        // Start Zoom meeting 10 minutes early to allow participants to join before the lesson
-        sMin -= 10;
-        if (sMin < 0) {
-          sMin += 60;
-          sHour -= 1;
-          if (sHour < 0) sHour = 23;
-        }
-        
         const dateStr = new Date(scheduledDate).toISOString().split('T')[0];
-        const timeStr = `${sHour.toString().padStart(2, '0')}:${sMin.toString().padStart(2, '0')}:00`;
-        // Use the correct Israel UTC offset for the meeting date (handles DST: +02:00 winter / +03:00 summer)
-        const israelDateStr = `${dateStr}T${timeStr}${getIsraelOffset(new Date(scheduledDate))}`;
-        const meetingDate = new Date(israelDateStr);
-
-        // Add 10 minutes to duration to cover the early start
-        const zoomDuration = durationMinutes + 10;
-
-        // Find an available Zoom user
-        const availableUser = await zoomService.findAvailableUser(meetingDate, zoomDuration);
-        if (availableUser) {
-          const zoomMeeting = await zoomService.createMeeting(availableUser.id, {
+        if (videoProvider === 'google_meet') {
+          const lessonDate = new Date(`${dateStr}T${startTime}:00${getIsraelOffset(new Date(scheduledDate))}`);
+          const googleMeeting = await googleMeetService.createMeeting({
             topic: cycle.name,
-            startTime: meetingDate,
-            duration: zoomDuration,
+            lessonStart: lessonDate,
+            durationMinutes,
+            instructorEmail: instructor.email,
+            record: true,
+            transcript: true,
           });
+          if (googleMeeting) {
+            await prisma.meeting.update({
+              where: { id: meeting.id },
+              data: {
+                videoProvider: 'google_meet',
+                zoomMeetingId: googleMeeting.id,
+                zoomJoinUrl: googleMeeting.joinUrl,
+                zoomStartUrl: googleMeeting.startUrl,
+                zoomPassword: null,
+                zoomHostKey: null,
+                zoomHostEmail: googleMeeting.hostEmail,
+                googleMeetSpaceName: googleMeeting.spaceName ?? null,
+                googleCalendarEventId: googleMeeting.calendarEventId ?? null,
+              },
+            });
 
-          // Update meeting with Zoom details
-          await prisma.meeting.update({
-            where: { id: meeting.id },
-            data: {
+            Object.assign(meeting, {
+              videoProvider: 'google_meet',
+              zoomMeetingId: googleMeeting.id,
+              zoomJoinUrl: googleMeeting.joinUrl,
+              zoomStartUrl: googleMeeting.startUrl,
+              zoomPassword: null,
+              zoomHostKey: null,
+              zoomHostEmail: googleMeeting.hostEmail,
+              googleMeetSpaceName: googleMeeting.spaceName ?? null,
+              googleCalendarEventId: googleMeeting.calendarEventId ?? null,
+            });
+          } else {
+            console.warn('No available Google Meet host found for meeting');
+          }
+        }
+
+        if (videoProvider === 'zoom') {
+          // startTime is in Israel local time (HH:MM), build Zoom datetime 10 minutes early.
+          let [sHour, sMin] = startTime.split(':').map(Number);
+          sMin -= 10;
+          if (sMin < 0) {
+            sMin += 60;
+            sHour -= 1;
+            if (sHour < 0) sHour = 23;
+          }
+          const timeStr = `${sHour.toString().padStart(2, '0')}:${sMin.toString().padStart(2, '0')}:00`;
+          const meetingDate = new Date(`${dateStr}T${timeStr}${getIsraelOffset(new Date(scheduledDate))}`);
+
+          // Add 10 minutes to duration to cover the early start
+          const zoomDuration = durationMinutes + 10;
+
+          // Find an available Zoom user
+          const availableUser = await zoomService.findAvailableUser(meetingDate, zoomDuration);
+          if (availableUser) {
+            const zoomMeeting = await zoomService.createMeeting(availableUser.id, {
+              topic: cycle.name,
+              startTime: meetingDate,
+              duration: zoomDuration,
+            });
+
+            // Update meeting with Zoom details
+            await prisma.meeting.update({
+              where: { id: meeting.id },
+              data: {
+                videoProvider: 'zoom',
+                zoomMeetingId: zoomMeeting.id?.toString(),
+                zoomJoinUrl: zoomMeeting.join_url,
+                zoomStartUrl: zoomMeeting.start_url,
+                zoomPassword: zoomMeeting.password,
+                zoomHostKey: zoomMeeting.host_key,
+                zoomHostEmail: availableUser.email,
+              },
+            });
+
+            // Merge Zoom details into response
+            Object.assign(meeting, {
+              videoProvider: 'zoom',
               zoomMeetingId: zoomMeeting.id?.toString(),
               zoomJoinUrl: zoomMeeting.join_url,
               zoomStartUrl: zoomMeeting.start_url,
               zoomPassword: zoomMeeting.password,
               zoomHostKey: zoomMeeting.host_key,
               zoomHostEmail: availableUser.email,
-            },
-          });
-
-          // Merge Zoom details into response
-          Object.assign(meeting, {
-            zoomMeetingId: zoomMeeting.id?.toString(),
-            zoomJoinUrl: zoomMeeting.join_url,
-            zoomStartUrl: zoomMeeting.start_url,
-            zoomPassword: zoomMeeting.password,
-            zoomHostKey: zoomMeeting.host_key,
-            zoomHostEmail: availableUser.email,
-          });
-        } else {
-          console.warn('No available Zoom user found for meeting');
+            });
+          } else {
+            console.warn('No available Zoom user found for meeting');
+          }
         }
       } catch (zoomError) {
         console.error('Failed to create Zoom meeting:', zoomError);
@@ -876,7 +919,7 @@ meetingsRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) =
 
     const meeting = await prisma.meeting.findUnique({
       where: { id },
-      select: { cycleId: true, status: true, zoomMeetingId: true },
+      select: { cycleId: true, status: true, zoomMeetingId: true, videoProvider: true },
     });
 
     if (!meeting) {
@@ -887,7 +930,7 @@ meetingsRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) =
     await assertMeetingNotInIssuedPeriod(id);
 
     // Delete Zoom meeting if exists
-    if (meeting.zoomMeetingId) {
+    if (meeting.zoomMeetingId && (meeting.videoProvider ?? 'zoom') === 'zoom') {
       try {
         await zoomService.deleteMeeting(meeting.zoomMeetingId);
       } catch (e) {
@@ -934,9 +977,10 @@ meetingsRouter.post('/:id/add-zoom', operationsManagerOrAdmin, async (req, res, 
   try {
     const id = uuidSchema.parse(req.params.id);
 
+    const provider = req.body.videoProvider === 'google_meet' || req.body.provider === 'google_meet' ? 'google_meet' : 'zoom';
     const meeting = await prisma.meeting.findUnique({
       where: { id },
-      include: { cycle: true },
+      include: { cycle: true, instructor: true },
     });
     if (!meeting) throw new AppError(404, 'Meeting not found');
 
@@ -956,6 +1000,34 @@ meetingsRouter.post('/:id/add-zoom', operationsManagerOrAdmin, async (req, res, 
     const israelDateStr = `${dateStr}T${String(sHour).padStart(2,'0')}:${String(sMin).padStart(2,'0')}:00${israelOffset}`;
     const meetingDate = new Date(israelDateStr);
 
+    if (provider === 'google_meet') {
+      const googleMeeting = await googleMeetService.createMeeting({
+        topic: meeting.cycle?.name || 'שיעור',
+        lessonStart: meetingDate,
+        durationMinutes: duration,
+        instructorEmail: meeting.instructor?.email,
+        record: true,
+        transcript: true,
+      });
+      if (!googleMeeting) throw new AppError(503, 'No available Google Meet host found');
+      const updated = await prisma.meeting.update({
+        where: { id },
+        data: {
+          videoProvider: 'google_meet',
+          zoomMeetingId: googleMeeting.id,
+          zoomJoinUrl: googleMeeting.joinUrl,
+          zoomStartUrl: googleMeeting.startUrl,
+          zoomPassword: null,
+          zoomHostKey: null,
+          zoomHostEmail: googleMeeting.hostEmail,
+          googleMeetSpaceName: googleMeeting.spaceName ?? null,
+          googleCalendarEventId: googleMeeting.calendarEventId ?? null,
+        },
+        include: { cycle: true, instructor: true },
+      });
+      return res.json({ success: true, zoomJoinUrl: googleMeeting.joinUrl, zoomPassword: null, meeting: updated });
+    }
+
     const availableUser = await zoomService.findAvailableUser(meetingDate, duration + 10);
     if (!availableUser) throw new AppError(503, 'No available Zoom host found');
 
@@ -968,6 +1040,7 @@ meetingsRouter.post('/:id/add-zoom', operationsManagerOrAdmin, async (req, res, 
     const updated = await prisma.meeting.update({
       where: { id },
       data: {
+        videoProvider: 'zoom',
         zoomMeetingId: zoomMeeting.id?.toString(),
         zoomJoinUrl: zoomMeeting.join_url,
         zoomStartUrl: zoomMeeting.start_url,

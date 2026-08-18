@@ -713,6 +713,7 @@ export interface CreateMeetingData {
   startTime: string;
   endTime: string;
   withZoom?: boolean;
+  videoProvider?: 'zoom' | 'google_meet';
   activityType?: string;
   topic?: string;
   notes?: string;
@@ -1122,11 +1123,14 @@ interface ZoomMeeting {
   hasMeeting: boolean;
   canCreate?: boolean;
   meetingExists?: boolean;
+  videoProvider?: 'zoom' | 'google_meet';
   zoomMeetingId?: string;
   zoomJoinUrl?: string;
   zoomHostKey?: string;
   zoomPassword?: string;
   zoomHostEmail?: string;
+  googleMeetSpaceName?: string | null;
+  googleCalendarEventId?: string | null;
 }
 
 interface ZoomCreateResponse {
@@ -1134,6 +1138,7 @@ interface ZoomCreateResponse {
   cycle: {
     id: string;
     name: string;
+    videoProvider?: 'zoom' | 'google_meet';
     zoomMeetingId: string;
     zoomJoinUrl: string;
     zoomHostKey: string | null;
@@ -1158,9 +1163,17 @@ export const useZoomMeeting = (cycleId: string) => {
 export const useCreateZoomMeeting = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (cycleId: string) =>
-      mutateData<ZoomCreateResponse, undefined>(`/zoom/cycles/${cycleId}/meeting`, 'post'),
-    onSuccess: (_, cycleId) => {
+    mutationFn: (input: string | { cycleId: string; videoProvider?: 'zoom' | 'google_meet' }) => {
+      const cycleId = typeof input === 'string' ? input : input.cycleId;
+      const videoProvider = typeof input === 'string' ? 'zoom' : input.videoProvider || 'zoom';
+      return mutateData<ZoomCreateResponse, { videoProvider: 'zoom' | 'google_meet' }>(
+        `/zoom/cycles/${cycleId}/meeting`,
+        'post',
+        { videoProvider }
+      );
+    },
+    onSuccess: (_, input) => {
+      const cycleId = typeof input === 'string' ? input : input.cycleId;
       queryClient.invalidateQueries({ queryKey: ['zoom-meeting', cycleId] });
       queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
       queryClient.invalidateQueries({ queryKey: ['cycle-meetings', cycleId] });
@@ -1187,6 +1200,7 @@ export interface InternalZoomRequestPayload {
   date: string;
   startTime: string;
   durationMinutes: number;
+  videoProvider?: 'zoom' | 'google_meet';
   notes?: string;
 }
 

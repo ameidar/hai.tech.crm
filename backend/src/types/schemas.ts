@@ -229,6 +229,7 @@ export const updateRegistrationSchema = createRegistrationSchema.partial().omit(
 
 // Meeting schemas
 export const meetingNatureEnum = z.enum(['regular', 'no_revenue']);
+export const videoMeetingProviderEnum = z.enum(['zoom', 'google_meet']);
 
 export const createMeetingSchema = z.object({
   cycleId: z.string().min(1, 'Invalid cycle ID'),
@@ -242,6 +243,7 @@ export const createMeetingSchema = z.object({
   topic: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   registrationId: z.string().min(1).optional().nullable(),
+  videoProvider: videoMeetingProviderEnum.optional().default('zoom'),
   zoomMeetingId: z.string().optional().nullable(),
   zoomJoinUrl: z.string().optional().nullable(),
   zoomStartUrl: z.string().optional().nullable(),
@@ -261,13 +263,16 @@ export const updateMeetingSchema = z.object({
   scheduledDate: z.string().optional(),
   startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format').optional(),
   endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format').optional(),
-  // Zoom fields
+  // Video meeting fields
+  videoProvider: videoMeetingProviderEnum.optional(),
   zoomMeetingId: z.string().optional().nullable(),
   zoomJoinUrl: z.string().url().optional().nullable(),
   zoomStartUrl: z.string().url().optional().nullable(),
   zoomPassword: z.string().optional().nullable(),
   zoomHostKey: z.string().optional().nullable(),
   zoomHostEmail: z.string().email().optional().nullable().transform(lowercase),
+  googleMeetSpaceName: z.string().optional().nullable(),
+  googleCalendarEventId: z.string().optional().nullable(),
 });
 
 export const postponeMeetingSchema = z.object({

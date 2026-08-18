@@ -5,7 +5,7 @@ import MeetingExpenses from './MeetingExpenses';
 import { meetingStatusHebrew, activityTypeHebrew, meetingNatureHebrew } from '../types';
 import { useInstructors } from '../hooks/useApi';
 import api from '../api/client';
-import type { Meeting, MeetingStatus, ActivityType, MeetingNature } from '../types';
+import type { Meeting, MeetingStatus, ActivityType, MeetingNature, VideoMeetingProvider } from '../types';
 
 interface MeetingEditModalProps {
   meeting: Meeting | null;
@@ -35,6 +35,7 @@ export default function MeetingEditModal({
     endTime: '',
   });
   const [zoomJoinUrl, setZoomJoinUrl] = useState<string | null>(null);
+  const [videoProvider, setVideoProvider] = useState<VideoMeetingProvider>('google_meet');
   const [isCreatingZoom, setIsCreatingZoom] = useState(false);
   const [zoomError, setZoomError] = useState<string | null>(null);
 
@@ -52,6 +53,7 @@ export default function MeetingEditModal({
         endTime: formatTime(meeting.endTime),
       });
       setZoomJoinUrl(meeting.zoomJoinUrl || null);
+      setVideoProvider(meeting.videoProvider || 'google_meet');
       setZoomError(null);
     }
   }, [meeting]);
@@ -61,10 +63,10 @@ export default function MeetingEditModal({
     setIsCreatingZoom(true);
     setZoomError(null);
     try {
-      const res = await api.post(`/meetings/${meeting.id}/add-zoom`);
+      const res = await api.post(`/meetings/${meeting.id}/add-zoom`, { videoProvider });
       setZoomJoinUrl(res.data.zoomJoinUrl);
     } catch (err: any) {
-      setZoomError(err?.response?.data?.message || 'שגיאה ביצירת לינק זום');
+      setZoomError(err?.response?.data?.message || err?.response?.data?.error || 'שגיאה ביצירת לינק וידאו');
     } finally {
       setIsCreatingZoom(false);
     }
@@ -165,12 +167,12 @@ export default function MeetingEditModal({
           )}
         </div>
 
-        {/* Zoom — show when online */}
+        {/* Video meeting — show when online */}
         {formData.activityType === 'online' && (
           <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 space-y-2">
             <div className="flex items-center gap-2">
               <Video size={16} className="text-blue-600" />
-              <span className="text-sm font-medium text-blue-800">זום</span>
+              <span className="text-sm font-medium text-blue-800">פגישת וידאו</span>
             </div>
             {zoomJoinUrl ? (
               <a
@@ -184,6 +186,15 @@ export default function MeetingEditModal({
               </a>
             ) : (
               <>
+                <select
+                  value={videoProvider}
+                  onChange={(event) => setVideoProvider(event.target.value as VideoMeetingProvider)}
+                  className="input w-full text-sm"
+                  aria-label="ספק וידאו"
+                >
+                  <option value="google_meet">Google Meet</option>
+                  <option value="zoom">Zoom</option>
+                </select>
                 <button
                   type="button"
                   onClick={handleCreateZoom}
@@ -191,9 +202,9 @@ export default function MeetingEditModal({
                   className="flex items-center gap-2 btn btn-primary btn-sm text-sm"
                 >
                   {isCreatingZoom ? (
-                    <><Loader2 size={14} className="animate-spin" /> יוצר לינק זום...</>
+                    <><Loader2 size={14} className="animate-spin" /> יוצר לינק...</>
                   ) : (
-                    <><Video size={14} /> צור לינק זום</>
+                    <><Video size={14} /> צור לינק וידאו</>
                   )}
                 </button>
                 {zoomError && <p className="text-xs text-red-600">{zoomError}</p>}

@@ -359,6 +359,7 @@ export default function CycleDetail() {
   const { data: zoomMeeting, isLoading: zoomLoading } = useZoomMeeting(id!);
   const createZoomMeeting = useCreateZoomMeeting();
   const deleteZoomMeeting = useDeleteZoomMeeting();
+  const [selectedVideoProvider, setSelectedVideoProvider] = useState<'zoom' | 'google_meet'>('google_meet');
   const generateMeetings = useGenerateMeetings();
   const syncCycleProgress = useSyncCycleProgress();
   const createMeeting = useCreateMeeting();
@@ -404,20 +405,20 @@ export default function CycleDetail() {
 
   const handleCreateZoomMeeting = async () => {
     try {
-      await createZoomMeeting.mutateAsync(id!);
+      await createZoomMeeting.mutateAsync({ cycleId: id!, videoProvider: selectedVideoProvider });
     } catch (error: any) {
-      console.error('Failed to create Zoom meeting:', error);
-      alert(error.response?.data?.error || 'שגיאה ביצירת פגישת Zoom');
+      console.error('Failed to create video meeting:', error);
+      alert(error.response?.data?.error || 'שגיאה ביצירת פגישת וידאו');
     }
   };
 
   const handleDeleteZoomMeeting = async () => {
-    if (confirm('האם למחוק את פגישת הזום? פעולה זו לא ניתנת לביטול.')) {
+    if (confirm('האם למחוק את פגישת הווידאו? פעולה זו לא ניתנת לביטול.')) {
       try {
         await deleteZoomMeeting.mutateAsync(id!);
       } catch (error) {
-        console.error('Failed to delete Zoom meeting:', error);
-        alert('שגיאה במחיקת פגישת Zoom');
+        console.error('Failed to delete video meeting:', error);
+        alert('שגיאה במחיקת פגישת וידאו');
       }
     }
   };
@@ -448,6 +449,7 @@ export default function CycleDetail() {
     startTime: string;
     endTime: string;
     withZoom: boolean;
+    videoProvider?: 'zoom' | 'google_meet';
     activityType?: string;
     topic?: string;
     notes?: string;
@@ -989,19 +991,19 @@ export default function CycleDetail() {
               </div>
             </div>
 
-            {/* Zoom Card - For online or private cycles */}
+            {/* Video Meeting Card - For online or private cycles */}
             {(cycle.activityType === 'online' || cycle.activityType === 'private_lesson' || cycle.type === 'private' || cycle.type === 'trial_private') && (
               <div className="card" data-testid="zoom-section">
                 <div className="card-header flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Video size={18} className="text-blue-600" />
-                    <h2 className="font-semibold">Zoom</h2>
+                    <h2 className="font-semibold">פגישת וידאו</h2>
                   </div>
                   {zoomMeeting?.hasMeeting && (
                     <button
                       onClick={handleDeleteZoomMeeting}
                       className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                      title="מחק פגישת Zoom"
+                      title="מחק פגישת וידאו"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -1012,6 +1014,9 @@ export default function CycleDetail() {
                     <div className="text-center py-4 text-gray-500">טוען...</div>
                   ) : zoomMeeting?.hasMeeting ? (
                     <div className="space-y-3">
+                      <div className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
+                        {zoomMeeting.videoProvider === 'google_meet' ? 'Google Meet' : 'Zoom'}
+                      </div>
                       {/* Join URL */}
                       <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
                         <div className="flex items-center gap-2">
@@ -1043,7 +1048,7 @@ export default function CycleDetail() {
                       <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                         <div className="flex items-center gap-2">
                           <Video size={16} className="text-gray-600" />
-                          <span className="text-sm">Meeting ID</span>
+                          <span className="text-sm">{zoomMeeting.videoProvider === 'google_meet' ? 'קוד Meet' : 'Meeting ID'}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-sm">{zoomMeeting.zoomMeetingId}</span>
@@ -1066,7 +1071,7 @@ export default function CycleDetail() {
                         <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
                           <div className="flex items-center gap-2">
                             <Mail size={16} className="text-purple-600" />
-                            <span className="text-sm">חשבון Zoom</span>
+                            <span className="text-sm">חשבון מארח</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="text-sm">{zoomMeeting.zoomHostEmail}</span>
@@ -1108,7 +1113,18 @@ export default function CycleDetail() {
                   ) : (
                     <div className="text-center py-4">
                       <Video size={48} className="mx-auto mb-4 text-gray-300" />
-                      <p className="text-gray-500 mb-4">לא הוגדרה פגישת Zoom למחזור זה</p>
+                      <p className="text-gray-500 mb-4">לא הוגדרה פגישת וידאו למחזור זה</p>
+                      <div className="mb-3 flex justify-center">
+                        <select
+                          value={selectedVideoProvider}
+                          onChange={(event) => setSelectedVideoProvider(event.target.value as 'zoom' | 'google_meet')}
+                          className="form-input w-auto"
+                          aria-label="סוג פגישת וידאו"
+                        >
+                          <option value="google_meet">Google Meet</option>
+                          <option value="zoom">Zoom</option>
+                        </select>
+                      </div>
                       <button
                         onClick={handleCreateZoomMeeting}
                         disabled={createZoomMeeting.isPending}
@@ -1123,7 +1139,7 @@ export default function CycleDetail() {
                         ) : (
                           <>
                             <Video size={16} />
-                            צור פגישת Zoom
+                            צור פגישת וידאו
                           </>
                         )}
                       </button>
@@ -3353,6 +3369,7 @@ interface CreateMeetingFormProps {
     startTime: string;
     endTime: string;
     withZoom: boolean;
+    videoProvider?: 'zoom' | 'google_meet';
     activityType?: string;
     topic?: string;
     notes?: string;
@@ -3369,6 +3386,7 @@ function CreateMeetingForm({ cycle, instructors, registrations, onSubmit, onCanc
     startTime: cycle.startTime ? (typeof cycle.startTime === 'string' ? cycle.startTime.substring(0, 5) : new Date(cycle.startTime).toISOString().substring(11, 16)) : '16:00',
     endTime: cycle.endTime ? (typeof cycle.endTime === 'string' ? cycle.endTime.substring(0, 5) : new Date(cycle.endTime).toISOString().substring(11, 16)) : '17:00',
     withZoom: cycle.activityType === 'online',
+    videoProvider: 'google_meet' as 'zoom' | 'google_meet',
     activityType: (cycle.activityType || 'frontal') as string,
     topic: '',
     notes: '',
@@ -3484,9 +3502,23 @@ function CreateMeetingForm({ cycle, instructors, registrations, onSubmit, onCanc
               onChange={(e) => setFormData({ ...formData, withZoom: e.target.checked })}
               className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
-            <span className="text-sm text-gray-700">צור פגישת Zoom</span>
+            <span className="text-sm text-gray-700">צור פגישת וידאו</span>
           </label>
         </div>
+
+        {formData.withZoom && (
+          <div>
+            <label className="form-label">ספק וידאו</label>
+            <select
+              value={formData.videoProvider}
+              onChange={(e) => setFormData({ ...formData, videoProvider: e.target.value as 'zoom' | 'google_meet' })}
+              className="form-input"
+            >
+              <option value="google_meet">Google Meet</option>
+              <option value="zoom">Zoom</option>
+            </select>
+          </div>
+        )}
 
         <div className="col-span-2">
           <label className="form-label">נושא</label>

@@ -15,6 +15,7 @@ export type UserRole = 'admin' | 'manager' | 'instructor' | 'sales' | 'operation
 export type ActivityType = 'online' | 'frontal' | 'private_lesson';
 export type TaskStatus = 'new' | 'in_progress' | 'waiting_info' | 'completed';
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
+export type VideoMeetingProvider = 'zoom' | 'google_meet';
 
 // Entities
 export interface User {
@@ -80,6 +81,9 @@ export interface InternalZoomMeeting {
   zoomStartUrl?: string | null;
   zoomPassword?: string | null;
   zoomHostKey?: string | null;
+  videoProvider?: VideoMeetingProvider;
+  googleMeetSpaceName?: string | null;
+  googleCalendarEventId?: string | null;
   status: 'scheduled' | 'cancelled';
   notes?: string | null;
   createdAt: string;
@@ -292,6 +296,9 @@ export interface Cycle {
   zoomPassword?: string;
   zoomHostKey?: string;
   zoomHostEmail?: string;
+  videoProvider?: VideoMeetingProvider;
+  googleMeetSpaceName?: string | null;
+  googleCalendarEventId?: string | null;
   completedMeetings: number;
   remainingMeetings: number;
   status: CycleStatus;
@@ -344,6 +351,9 @@ export interface Meeting {
   zoomPassword?: string;
   zoomHostKey?: string;
   zoomHostEmail?: string;
+  videoProvider?: VideoMeetingProvider;
+  googleMeetSpaceName?: string | null;
+  googleCalendarEventId?: string | null;
   zoomRecordingUrl?: string;
   zoomRecordingPassword?: string;
   lessonTranscript?: string;

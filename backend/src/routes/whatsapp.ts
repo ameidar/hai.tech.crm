@@ -97,6 +97,34 @@ const ACTIVE_PHONES: { phoneNumberId: string; businessPhone: string; label: stri
   ...(process.env.WA_PHONE_NUMBER_ID_2 ? [{ phoneNumberId: process.env.WA_PHONE_NUMBER_ID_2, businessPhone: '+972533009742', label: 'Bot Hai.Tech (+972 53 300 9742)' }] : []),
 ];
 
+function normalizeConversationPhone(phone: string | null | undefined): string | null {
+  const digits = (phone || '').replace(/\D/g, '');
+  if (!digits) return null;
+  if (digits.startsWith('972')) return digits;
+  if (digits.startsWith('0')) return `972${digits.slice(1)}`;
+  if (digits.length === 9) return `972${digits}`;
+  return digits;
+}
+
+function conversationPhoneVariants(phone: string | null | undefined): string[] {
+  const normalized = normalizeConversationPhone(phone);
+  if (!normalized) return [];
+
+  const variants = new Set<string>([normalized]);
+  if (normalized.startsWith('972')) {
+    variants.add(`0${normalized.slice(3)}`);
+  }
+  return Array.from(variants);
+}
+
+async function getInstructorConversationPhones(): Promise<string[]> {
+  const instructors = await prisma.instructor.findMany({
+    select: { phone: true },
+  });
+
+  return Array.from(new Set(instructors.flatMap(i => conversationPhoneVariants(i.phone))));
+}
+
 // OpenAI
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -1244,7 +1272,9 @@ router.get('/phones', authenticate, (_req: Request, res: Response) => {
 // ── GET /api/wa/conversations — List all conversations
 router.get('/conversations', authenticate, async (_req: Request, res: Response) => {
   try {
+    const instructorPhones = await getInstructorConversationPhones();
     const conversations = await prisma.waConversation.findMany({
+      where: instructorPhones.length > 0 ? { phone: { notIn: instructorPhones } } : undefined,
       orderBy: { lastMessageAt: 'desc' },
       include: {
         _count: { select: { messages: true } }

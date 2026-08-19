@@ -919,7 +919,15 @@ meetingsRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) =
 
     const meeting = await prisma.meeting.findUnique({
       where: { id },
-      select: { cycleId: true, status: true, zoomMeetingId: true, videoProvider: true },
+      select: {
+        cycleId: true,
+        status: true,
+        zoomMeetingId: true,
+        videoProvider: true,
+        zoomHostEmail: true,
+        googleMeetSpaceName: true,
+        googleCalendarEventId: true,
+      },
     });
 
     if (!meeting) {
@@ -935,6 +943,16 @@ meetingsRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) =
         await zoomService.deleteMeeting(meeting.zoomMeetingId);
       } catch (e) {
         console.warn(`[meetings] Failed to delete Zoom meeting ${meeting.zoomMeetingId}:`, e);
+      }
+    } else if ((meeting.videoProvider ?? 'zoom') === 'google_meet') {
+      try {
+        await googleMeetService.deleteGoogleMeetMeeting({
+          hostEmail: meeting.zoomHostEmail,
+          googleMeetSpaceName: meeting.googleMeetSpaceName,
+          googleCalendarEventIds: [meeting.googleCalendarEventId],
+        });
+      } catch (e) {
+        console.warn(`[meetings] Failed to delete Google Meet calendar event for meeting ${id}:`, e);
       }
     }
 

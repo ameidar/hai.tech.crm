@@ -5,6 +5,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createCycleSchema, updateCycleSchema, createRegistrationSchema, paginationSchema, uuidSchema, bulkUpdateCyclesSchema } from '../types/schemas.js';
 import { fetchHolidays, dayNameToNumber, calculateCycleEndDate } from '../utils/holidays.js';
 import { zoomService, getHostKeyByEmail } from '../services/zoom.js';
+import { googleMeetService } from '../services/google-meet.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
 import { meetingRevenueFromRegistrations, netAmount, revenueRegistrations, roundMoney } from '../utils/revenue.js';
@@ -654,6 +655,9 @@ cyclesRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) => 
             id: true,
             zoomMeetingId: true,
             videoProvider: true,
+            zoomHostEmail: true,
+            googleMeetSpaceName: true,
+            googleCalendarEventId: true,
             scheduledDate: true,
             status: true,
           }
@@ -674,6 +678,13 @@ cyclesRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) => 
         .filter(m => m.zoomMeetingId && (m.videoProvider ?? 'zoom') === 'zoom')
         .map(m => m.zoomMeetingId!)
     )];
+    const googleMeetCleanups = cycle.meetings
+      .filter(m => (m.videoProvider ?? 'zoom') === 'google_meet' && (m.googleCalendarEventId || m.googleMeetSpaceName))
+      .map(m => ({
+        hostEmail: m.zoomHostEmail,
+        googleMeetSpaceName: m.googleMeetSpaceName,
+        googleCalendarEventIds: [m.googleCalendarEventId],
+      }));
 
     // Create audit log entry
     await prisma.auditLog.create({
@@ -690,10 +701,13 @@ cyclesRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) => 
           branchName: cycle.branch?.name,
           meetingCount: cycle.meetings.length,
           zoomMeetingIds,
+          googleMeetEvents: googleMeetCleanups.length,
           meetings: cycle.meetings.map(m => ({
             date: m.scheduledDate,
             status: m.status,
-            zoomMeetingId: m.zoomMeetingId
+            zoomMeetingId: m.zoomMeetingId,
+            videoProvider: m.videoProvider,
+            googleCalendarEventId: m.googleCalendarEventId,
           }))
         },
         ipAddress: req.ip,
@@ -746,6 +760,23 @@ cyclesRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) => 
           }
         }
         console.log(`[Cycle Delete] Finished background cleanup of ${zoomMeetingIds.length} Zoom meetings`);
+      });
+    }
+
+    if (googleMeetCleanups.length > 0) {
+      setImmediate(async () => {
+        for (const cleanup of googleMeetCleanups) {
+          try {
+            const result = await googleMeetService.deleteGoogleMeetMeeting(cleanup);
+            console.log(
+              `[Cycle Delete] Deleted ${result.deletedCalendarEvents} Google Meet calendar events` +
+              `${result.endedActiveConference ? ' and ended active conference' : ''}`
+            );
+          } catch (error: any) {
+            console.error('[Cycle Delete] Failed to clean up Google Meet meeting:', error.message);
+          }
+        }
+        console.log(`[Cycle Delete] Finished background cleanup of ${googleMeetCleanups.length} Google Meet meetings`);
       });
     }
 

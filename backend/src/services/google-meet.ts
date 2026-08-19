@@ -178,7 +178,9 @@ function requestJson<T>(url: string, options: { method?: string; headers?: Recor
           }
           if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
             const apiError = json as { error?: { message?: string } };
-            reject(new Error(apiError.error?.message || text || `HTTP ${res.statusCode}`));
+            const error = new Error(apiError.error?.message || text || `HTTP ${res.statusCode}`) as Error & { statusCode?: number };
+            error.statusCode = res.statusCode;
+            reject(error);
             return;
           }
           resolve(json as T);
@@ -209,6 +211,11 @@ async function getAccessToken(credentials: GoogleServiceAccountCredentials, subj
     body
   );
   return response.access_token;
+}
+
+function isNotFoundError(error: unknown): boolean {
+  const statusCode = (error as { statusCode?: number } | null)?.statusCode;
+  return statusCode === 404 || statusCode === 410;
 }
 
 function addMinutes(date: Date, minutes: number): Date {
@@ -620,6 +627,68 @@ async function createCalendarEvent(
   );
 }
 
+async function deleteCalendarEvent(credentials: GoogleServiceAccountCredentials, host: string, eventId: string) {
+  const token = await getAccessToken(credentials, host);
+  try {
+    await requestJson(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(host)}/events/${encodeURIComponent(eventId)}?sendUpdates=none`,
+      {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+  } catch (error) {
+    if (!isNotFoundError(error)) throw error;
+  }
+}
+
+async function endActiveConference(credentials: GoogleServiceAccountCredentials, host: string, spaceName: string) {
+  const token = await getAccessToken(credentials, host);
+  try {
+    await requestJson(
+      `https://meet.googleapis.com/v2/${spaceName}:endActiveConference`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+      '{}'
+    );
+  } catch (error) {
+    console.warn(`[Google Meet] Could not end active conference for ${spaceName}:`, error);
+    return false;
+  }
+  return true;
+}
+
+export async function deleteGoogleMeetMeeting(params: {
+  hostEmail?: string | null;
+  googleMeetSpaceName?: string | null;
+  googleCalendarEventIds?: Array<string | null | undefined>;
+}) {
+  if (!params.hostEmail) return { deletedCalendarEvents: 0, endedActiveConference: false };
+
+  const credentials = readCredentials();
+  const uniqueEventIds = Array.from(new Set((params.googleCalendarEventIds || []).filter(Boolean))) as string[];
+  let deletedCalendarEvents = 0;
+
+  for (const eventId of uniqueEventIds) {
+    await deleteCalendarEvent(credentials, params.hostEmail, eventId);
+    deletedCalendarEvents += 1;
+  }
+
+  let endedActiveConference = false;
+  if (params.googleMeetSpaceName) {
+    endedActiveConference = await endActiveConference(credentials, params.hostEmail, params.googleMeetSpaceName);
+  }
+
+  return { deletedCalendarEvents, endedActiveConference };
+}
+
 export async function createMeeting(params: CreateGoogleMeetParams): Promise<GoogleMeetVideoMeeting | null> {
   const credentials = readCredentials();
   const availability = await findAvailableHost(credentials, params.lessonStart, params.durationMinutes);
@@ -684,4 +753,5 @@ export const googleMeetService = {
   createMeeting,
   createCycleMeeting,
   syncArtifactsForRecentMeetings,
+  deleteGoogleMeetMeeting,
 };

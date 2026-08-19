@@ -619,7 +619,12 @@ router.delete('/cycles/:cycleId/meeting', managerOrAdmin, async (req: Request, r
     const { cycleId } = req.params;
 
     const cycle = await prisma.cycle.findUnique({
-      where: { id: cycleId }
+      where: { id: cycleId },
+      include: {
+        meetings: {
+          select: { googleCalendarEventId: true },
+        },
+      },
     });
 
     if (!cycle) {
@@ -647,6 +652,15 @@ router.delete('/cycles/:cycleId/meeting', managerOrAdmin, async (req: Request, r
           throw error;
         }
       }
+    } else {
+      await googleMeetService.deleteGoogleMeetMeeting({
+        hostEmail: cycle.zoomHostEmail,
+        googleMeetSpaceName: cycle.googleMeetSpaceName,
+        googleCalendarEventIds: [
+          cycle.googleCalendarEventId,
+          ...cycle.meetings.map((meeting) => meeting.googleCalendarEventId),
+        ],
+      });
     }
 
     // Clear Zoom fields from cycle

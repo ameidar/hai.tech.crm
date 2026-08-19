@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import https from 'https';
 import path from 'path';
+import { prisma } from '../utils/prisma.js';
 
 const DEFAULT_HOSTS = ['ami@hai.tech', 'inna@hai.tech', 'hila@hai.tech', 'info@hai.tech'];
 const DEFAULT_BUFFER_BEFORE_MINUTES = 10;
@@ -9,6 +10,8 @@ const DEFAULT_TIMEZONE = 'Asia/Jerusalem';
 const DEFAULT_SEARCH_STEP_MINUTES = 15;
 const DEFAULT_SEARCH_UNTIL_HOUR = 21;
 const DEFAULT_ACCESS_TYPE = 'OPEN';
+const DEFAULT_ARTIFACT_LOOKBACK_DAYS = 14;
+const DEFAULT_ARTIFACT_READY_DELAY_MINUTES = 30;
 
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar',
@@ -42,6 +45,35 @@ interface GoogleMeetSpace {
 interface CalendarEvent {
   id: string;
   htmlLink?: string;
+}
+
+interface ConferenceRecord {
+  name: string;
+  startTime?: string;
+  endTime?: string;
+  space?: string;
+}
+
+interface Recording {
+  name?: string;
+  state?: string;
+  startTime?: string;
+  endTime?: string;
+  driveDestination?: {
+    exportUri?: string;
+    file?: string;
+  };
+}
+
+interface Transcript {
+  name?: string;
+  state?: string;
+  startTime?: string;
+  endTime?: string;
+  docsDestination?: {
+    exportUri?: string;
+    document?: string;
+  };
 }
 
 export interface GoogleMeetVideoMeeting {
@@ -146,7 +178,9 @@ function requestJson<T>(url: string, options: { method?: string; headers?: Recor
           }
           if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
             const apiError = json as { error?: { message?: string } };
-            reject(new Error(apiError.error?.message || text || `HTTP ${res.statusCode}`));
+            const error = new Error(apiError.error?.message || text || `HTTP ${res.statusCode}`) as Error & { statusCode?: number };
+            error.statusCode = res.statusCode;
+            reject(error);
             return;
           }
           resolve(json as T);
@@ -179,6 +213,11 @@ async function getAccessToken(credentials: GoogleServiceAccountCredentials, subj
   return response.access_token;
 }
 
+function isNotFoundError(error: unknown): boolean {
+  const statusCode = (error as { statusCode?: number } | null)?.statusCode;
+  return statusCode === 404 || statusCode === 410;
+}
+
 function addMinutes(date: Date, minutes: number): Date {
   return new Date(date.getTime() + minutes * 60_000);
 }
@@ -189,6 +228,28 @@ function calendarStart(lessonStart: Date): Date {
 
 function lessonEnd(lessonStart: Date, durationMinutes: number): Date {
   return addMinutes(lessonStart, durationMinutes);
+}
+
+function dateInput(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
+function timeInput(time: Date): string {
+  return `${time.getUTCHours().toString().padStart(2, '0')}:${time.getUTCMinutes().toString().padStart(2, '0')}`;
+}
+
+function israelOffset(date: Date): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: DEFAULT_TIMEZONE,
+    timeZoneName: 'longOffset',
+  }).formatToParts(date);
+  return parts.find((part) => part.type === 'timeZoneName')?.value.replace('GMT', '') || '+02:00';
+}
+
+function meetingDateTimeFromDateAndTime(date: Date, time: Date): Date {
+  const localDate = dateInput(date);
+  const localTime = `${timeInput(time)}:00`;
+  return new Date(`${localDate}T${localTime}${israelOffset(new Date(`${localDate}T${localTime}`))}`);
 }
 
 function candidateStarts(start: Date): Date[] {
@@ -379,6 +440,163 @@ function assertCoHostAdded(coHost: unknown, instructorEmail?: string | null) {
   }
 }
 
+async function listConferenceRecords(
+  token: string,
+  spaceName: string,
+  start: Date,
+  end: Date
+): Promise<ConferenceRecord[]> {
+  const params = new URLSearchParams({
+    pageSize: '10',
+    filter: `space.name = "${spaceName}" AND start_time >= "${start.toISOString()}" AND start_time <= "${end.toISOString()}"`,
+  });
+  const response = await requestJson<{ conferenceRecords?: ConferenceRecord[] }>(
+    `https://meet.googleapis.com/v2/conferenceRecords?${params.toString()}`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+  return response.conferenceRecords || [];
+}
+
+async function listRecordings(token: string, conferenceRecord: string): Promise<Recording[]> {
+  const response = await requestJson<{ recordings?: Recording[] }>(
+    `https://meet.googleapis.com/v2/${conferenceRecord}/recordings?pageSize=100`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+  return response.recordings || [];
+}
+
+async function listTranscripts(token: string, conferenceRecord: string): Promise<Transcript[]> {
+  const response = await requestJson<{ transcripts?: Transcript[] }>(
+    `https://meet.googleapis.com/v2/${conferenceRecord}/transcripts?pageSize=100`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+  return response.transcripts || [];
+}
+
+function closestEndedConferenceRecord(records: ConferenceRecord[], targetStart: Date): ConferenceRecord | null {
+  return records
+    .filter((record) => record.name && record.endTime)
+    .sort((left, right) => {
+      const leftDelta = Math.abs(new Date(left.startTime || left.endTime || 0).getTime() - targetStart.getTime());
+      const rightDelta = Math.abs(new Date(right.startTime || right.endTime || 0).getTime() - targetStart.getTime());
+      return leftDelta - rightDelta;
+    })[0] || null;
+}
+
+function artifactText(recordingUrl?: string | null, transcriptUrl?: string | null): string | null {
+  if (!transcriptUrl) return null;
+  return [
+    'Google Meet transcript:',
+    transcriptUrl,
+    recordingUrl ? `Recording: ${recordingUrl}` : null,
+  ].filter(Boolean).join('\n');
+}
+
+export async function syncArtifactsForRecentMeetings(options: { limit?: number; now?: Date } = {}) {
+  const credentials = readCredentials();
+  const now = options.now || new Date();
+  const lookbackDays = Number(process.env.GOOGLE_MEET_ARTIFACT_LOOKBACK_DAYS || DEFAULT_ARTIFACT_LOOKBACK_DAYS);
+  const readyDelayMinutes = Number(process.env.GOOGLE_MEET_ARTIFACT_READY_DELAY_MINUTES || DEFAULT_ARTIFACT_READY_DELAY_MINUTES);
+  const lookback = addMinutes(now, -lookbackDays * 24 * 60);
+  const tokenByHost = new Map<string, string>();
+
+  const meetings = await prisma.meeting.findMany({
+    where: {
+      videoProvider: 'google_meet',
+      googleMeetSpaceName: { not: null },
+      zoomHostEmail: { not: null },
+      deletedAt: null,
+      scheduledDate: { gte: lookback },
+      OR: [
+        { zoomRecordingUrl: null },
+        { lessonTranscript: null },
+      ],
+    },
+    orderBy: { scheduledDate: 'desc' },
+    take: options.limit || 100,
+  });
+
+  let checked = 0;
+  let updated = 0;
+  let skippedNotReady = 0;
+  let failed = 0;
+
+  for (const meeting of meetings) {
+    const host = meeting.zoomHostEmail;
+    const spaceName = meeting.googleMeetSpaceName;
+    if (!host || !spaceName) continue;
+
+    const start = meetingDateTimeFromDateAndTime(meeting.scheduledDate, meeting.startTime);
+    const end = meetingDateTimeFromDateAndTime(meeting.scheduledDate, meeting.endTime);
+    if (now.getTime() < addMinutes(end, readyDelayMinutes).getTime()) {
+      skippedNotReady += 1;
+      continue;
+    }
+
+    checked += 1;
+
+    try {
+      let token = tokenByHost.get(host);
+      if (!token) {
+        token = await getAccessToken(credentials, host);
+        tokenByHost.set(host, token);
+      }
+
+      const records = await listConferenceRecords(token, spaceName, addMinutes(start, -120), addMinutes(end, 240));
+      const record = closestEndedConferenceRecord(records, start);
+      if (!record?.name) continue;
+
+      const [recordings, transcripts] = await Promise.all([
+        meeting.zoomRecordingUrl ? Promise.resolve([]) : listRecordings(token, record.name),
+        meeting.lessonTranscript ? Promise.resolve([]) : listTranscripts(token, record.name),
+      ]);
+
+      const recordingUrl = meeting.zoomRecordingUrl
+        || recordings.find((recording) => recording.state === 'FILE_GENERATED' && recording.driveDestination?.exportUri)
+          ?.driveDestination?.exportUri
+        || null;
+      const transcriptUrl = meeting.lessonTranscript
+        ? null
+        : transcripts.find((transcript) => transcript.state === 'FILE_GENERATED' && transcript.docsDestination?.exportUri)
+          ?.docsDestination?.exportUri || null;
+
+      if (!recordingUrl && !transcriptUrl) continue;
+
+      await prisma.meeting.update({
+        where: { id: meeting.id },
+        data: {
+          zoomRecordingUrl: recordingUrl || undefined,
+          lessonTranscript: meeting.lessonTranscript || artifactText(recordingUrl, transcriptUrl) || undefined,
+        },
+      });
+      updated += 1;
+    } catch (error) {
+      failed += 1;
+      console.error(`[Google Meet] Failed to sync artifacts for meeting ${meeting.id}:`, error);
+    }
+  }
+
+  return {
+    checked,
+    updated,
+    skippedNotReady,
+    failed,
+    candidates: meetings.length,
+  };
+}
+
 async function createCalendarEvent(
   credentials: GoogleServiceAccountCredentials,
   host: string,
@@ -407,6 +625,68 @@ async function createCalendarEvent(
       end: { dateTime: lessonEnd(params.lessonStart, params.durationMinutes).toISOString(), timeZone: DEFAULT_TIMEZONE },
     })
   );
+}
+
+async function deleteCalendarEvent(credentials: GoogleServiceAccountCredentials, host: string, eventId: string) {
+  const token = await getAccessToken(credentials, host);
+  try {
+    await requestJson(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(host)}/events/${encodeURIComponent(eventId)}?sendUpdates=none`,
+      {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+  } catch (error) {
+    if (!isNotFoundError(error)) throw error;
+  }
+}
+
+async function endActiveConference(credentials: GoogleServiceAccountCredentials, host: string, spaceName: string) {
+  const token = await getAccessToken(credentials, host);
+  try {
+    await requestJson(
+      `https://meet.googleapis.com/v2/${spaceName}:endActiveConference`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+      '{}'
+    );
+  } catch (error) {
+    console.warn(`[Google Meet] Could not end active conference for ${spaceName}:`, error);
+    return false;
+  }
+  return true;
+}
+
+export async function deleteGoogleMeetMeeting(params: {
+  hostEmail?: string | null;
+  googleMeetSpaceName?: string | null;
+  googleCalendarEventIds?: Array<string | null | undefined>;
+}) {
+  if (!params.hostEmail) return { deletedCalendarEvents: 0, endedActiveConference: false };
+
+  const credentials = readCredentials();
+  const uniqueEventIds = Array.from(new Set((params.googleCalendarEventIds || []).filter(Boolean))) as string[];
+  let deletedCalendarEvents = 0;
+
+  for (const eventId of uniqueEventIds) {
+    await deleteCalendarEvent(credentials, params.hostEmail, eventId);
+    deletedCalendarEvents += 1;
+  }
+
+  let endedActiveConference = false;
+  if (params.googleMeetSpaceName) {
+    endedActiveConference = await endActiveConference(credentials, params.hostEmail, params.googleMeetSpaceName);
+  }
+
+  return { deletedCalendarEvents, endedActiveConference };
 }
 
 export async function createMeeting(params: CreateGoogleMeetParams): Promise<GoogleMeetVideoMeeting | null> {
@@ -472,4 +752,6 @@ export async function createCycleMeeting(params: CreateGoogleMeetSeriesParams): 
 export const googleMeetService = {
   createMeeting,
   createCycleMeeting,
+  syncArtifactsForRecentMeetings,
+  deleteGoogleMeetMeeting,
 };

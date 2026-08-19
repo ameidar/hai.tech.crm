@@ -1578,7 +1578,17 @@ meetingsRouter.post('/bulk-delete', operationsManagerOrAdmin, async (req, res, n
     // Get meetings to check their status and cycle
     const meetings = await prisma.meeting.findMany({
       where: { id: { in: ids } },
-      select: { id: true, cycleId: true, instructorId: true, scheduledDate: true, status: true },
+      select: {
+        id: true,
+        cycleId: true,
+        instructorId: true,
+        scheduledDate: true,
+        status: true,
+        videoProvider: true,
+        zoomHostEmail: true,
+        googleMeetSpaceName: true,
+        googleCalendarEventId: true,
+      },
     });
 
     for (const meeting of meetings) {
@@ -1592,6 +1602,19 @@ meetingsRouter.post('/bulk-delete', operationsManagerOrAdmin, async (req, res, n
         acc[m.cycleId] = (acc[m.cycleId] || 0) + 1;
         return acc;
       }, {} as Record<string, number>);
+
+    for (const meeting of meetings) {
+      if ((meeting.videoProvider ?? 'zoom') !== 'google_meet') continue;
+      try {
+        await googleMeetService.deleteGoogleMeetMeeting({
+          hostEmail: meeting.zoomHostEmail,
+          googleMeetSpaceName: meeting.googleMeetSpaceName,
+          googleCalendarEventIds: [meeting.googleCalendarEventId],
+        });
+      } catch (e) {
+        console.warn(`[meetings] Failed to delete Google Meet calendar event for bulk-deleted meeting ${meeting.id}:`, e);
+      }
+    }
 
     const result = await prisma.$transaction(async (tx) => {
       // Update cycle counters

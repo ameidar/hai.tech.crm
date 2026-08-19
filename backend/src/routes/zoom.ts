@@ -388,9 +388,10 @@ router.delete('/internal-meetings/:id', async (req: Request, res: Response) => {
  * Create a Zoom meeting for a cycle
  */
 router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
+  let provider: VideoProvider = 'zoom';
   try {
     const { cycleId } = req.params;
-    const provider = resolveVideoProvider(req.body.provider || req.body.videoProvider);
+    provider = resolveVideoProvider(req.body.provider || req.body.videoProvider);
 
     // Get cycle details
     const cycle = await prisma.cycle.findUnique({
@@ -595,11 +596,14 @@ router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
       }
     });
   } catch (error: any) {
-    console.error('Failed to create Zoom meeting:', error);
+    const providerLabel = provider === 'google_meet' ? 'Google Meet' : 'Zoom';
+    console.error(`Failed to create ${providerLabel} meeting:`, error);
     const zoomErrorData = error.response?.data;
-    console.error('Zoom API error details:', JSON.stringify(zoomErrorData, null, 2));
+    if (zoomErrorData) {
+      console.error(`${providerLabel} API error details:`, JSON.stringify(zoomErrorData, null, 2));
+    }
     res.status(500).json({ 
-      error: 'Failed to create Zoom meeting',
+      error: `Failed to create ${providerLabel} meeting`,
       details: error.message,
       zoomError: zoomErrorData || null
     });

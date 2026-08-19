@@ -370,6 +370,15 @@ async function addCoHost(credentials: GoogleServiceAccountCredentials, host: str
   return { ok: false, failures };
 }
 
+function assertCoHostAdded(coHost: unknown, instructorEmail?: string | null) {
+  if (!instructorEmail) return;
+  if ((coHost as { ok?: boolean } | null)?.ok === false) {
+    const failures = (coHost as { failures?: Array<{ space: string; reason: string }> }).failures || [];
+    const reasons = failures.map((failure) => `${failure.space}: ${failure.reason}`).join('; ');
+    throw new Error(`Failed to add ${instructorEmail} as Google Meet co-host${reasons ? ` (${reasons})` : ''}`);
+  }
+}
+
 async function createCalendarEvent(
   credentials: GoogleServiceAccountCredentials,
   host: string,
@@ -409,6 +418,7 @@ export async function createMeeting(params: CreateGoogleMeetParams): Promise<Goo
   if (!availability) return null;
   const space = await createMeetSpace(credentials, availability.host, params);
   const coHost = await addCoHost(credentials, availability.host, space.meetingCode, params.instructorEmail);
+  assertCoHostAdded(coHost, params.instructorEmail);
   const event = await createCalendarEvent(credentials, availability.host, {
     topic: params.topic,
     lessonStart: availability.start,
@@ -435,6 +445,7 @@ export async function createCycleMeeting(params: CreateGoogleMeetSeriesParams): 
   if (!host) return null;
   const space = await createMeetSpace(credentials, host, params);
   const coHost = await addCoHost(credentials, host, space.meetingCode, params.instructorEmail);
+  assertCoHostAdded(coHost, params.instructorEmail);
   const events = [];
   for (const occurrence of params.occurrences) {
     const event = await createCalendarEvent(credentials, host, {

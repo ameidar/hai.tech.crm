@@ -387,13 +387,11 @@ async function createCalendarEvent(
     lessonStart: Date;
     durationMinutes: number;
     meetLink: string;
-    instructorEmail?: string | null;
   }
 ): Promise<CalendarEvent> {
   const token = await getAccessToken(credentials, host);
-  const attendees = params.instructorEmail ? [{ email: params.instructorEmail }] : [];
   return requestJson<CalendarEvent>(
-    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(host)}/events?sendUpdates=all`,
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(host)}/events?sendUpdates=none`,
     {
       method: 'POST',
       headers: {
@@ -407,7 +405,6 @@ async function createCalendarEvent(
       description: `נוצר אוטומטית על ידי CRM דרך ההייטק.\n\nפתיחת חדר: ${DEFAULT_BUFFER_BEFORE_MINUTES} דקות לפני תחילת השיעור.\nGoogle Meet: ${params.meetLink}`,
       start: { dateTime: calendarStart(params.lessonStart).toISOString(), timeZone: DEFAULT_TIMEZONE },
       end: { dateTime: lessonEnd(params.lessonStart, params.durationMinutes).toISOString(), timeZone: DEFAULT_TIMEZONE },
-      attendees,
     })
   );
 }
@@ -423,7 +420,6 @@ export async function createMeeting(params: CreateGoogleMeetParams): Promise<Goo
     topic: params.topic,
     lessonStart: availability.start,
     durationMinutes: params.durationMinutes,
-    instructorEmail: params.instructorEmail,
     meetLink: space.meetingUri,
   });
   return {
@@ -452,7 +448,6 @@ export async function createCycleMeeting(params: CreateGoogleMeetSeriesParams): 
       topic: params.topic,
       lessonStart: occurrence.lessonStart,
       durationMinutes: occurrence.durationMinutes,
-      instructorEmail: params.instructorEmail,
       meetLink: space.meetingUri,
     });
     events.push({

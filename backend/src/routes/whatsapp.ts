@@ -55,6 +55,59 @@ function getWabaId(phoneNumberId?: string | null): string {
   return process.env.WA_WABA_ID || process.env.WA_CLOUD_WABA_ID || '';
 }
 
+function cleanContactValue(value?: string | null): string {
+  return (value || '').trim().replace(/\s+/g, ' ');
+}
+
+function digitsOnly(value?: string | null): string {
+  return (value || '').replace(/\D/g, '');
+}
+
+function looksLikeEmail(value?: string | null): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanContactValue(value));
+}
+
+function looksLikePhoneNumber(value?: string | null): boolean {
+  const clean = cleanContactValue(value);
+  return digitsOnly(clean).length >= 7 && !/[A-Za-zא-ת]/.test(clean);
+}
+
+function isUsablePersonName(value?: string | null): boolean {
+  const clean = cleanContactValue(value);
+  return Boolean(clean) && !looksLikeEmail(clean) && !looksLikePhoneNumber(clean);
+}
+
+async function findCrmCustomerNameForWhatsAppPhone(phone?: string | null): Promise<string> {
+  const last9 = digitsOnly(phone).slice(-9);
+  if (!last9) return '';
+
+  const customer = await prisma.customer.findFirst({
+    where: {
+      deletedAt: null,
+      phone: { endsWith: last9 },
+    },
+    select: { name: true },
+  });
+
+  return cleanContactValue(customer?.name);
+}
+
+async function resolveWhatsAppContactName(phone: string, metaName?: string | null, currentName?: string | null): Promise<string> {
+  const crmName = await findCrmCustomerNameForWhatsAppPhone(phone);
+  if (isUsablePersonName(crmName)) return crmName;
+
+  const cleanMetaName = cleanContactValue(metaName);
+  if (isUsablePersonName(cleanMetaName)) return cleanMetaName;
+
+  const cleanCurrentName = cleanContactValue(currentName);
+  if (isUsablePersonName(cleanCurrentName)) return cleanCurrentName;
+
+  if (looksLikeEmail(cleanMetaName)) return cleanMetaName;
+  if (looksLikeEmail(cleanCurrentName)) return cleanCurrentName;
+
+  return phone;
+}
+
 async function forwardInboundWebhookChangeToAgent(originalBody: any, entry: any, change: any): Promise<boolean> {
   const phoneNumberId = change?.value?.metadata?.phone_number_id;
   if (!WA_INBOUND_FORWARD_PHONE_NUMBER_ID || phoneNumberId !== WA_INBOUND_FORWARD_PHONE_NUMBER_ID) return false;
@@ -689,7 +742,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           const phone = msg.from;
           const text = msg.text?.body || '';
           const waMessageId = msg.id;
-          const contactName = value.contacts?.[0]?.profile?.name;
+          const rawContactName = value.contacts?.[0]?.profile?.name;
 
           // Dedup
           const existing = await prisma.waMessage.findUnique({ where: { waMessageId } });
@@ -704,7 +757,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
           let isNewConversation = false;
           if (!conv) {
             conv = await prisma.waConversation.create({
-              data: { phone, contactName, businessPhone, phoneNumberId: bizPhoneNumberId }
+              data: {
+                phone,
+                contactName: await resolveWhatsAppContactName(phone, rawContactName),
+                businessPhone,
+                phoneNumberId: bizPhoneNumberId
+              }
             });
             isNewConversation = true;
           } else if (!conv.businessPhone && businessPhone) {
@@ -713,6 +771,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
               data: { businessPhone, phoneNumberId: bizPhoneNumberId }
             });
           }
+
+          const contactName = await resolveWhatsAppContactName(phone, rawContactName, conv.contactName);
 
           // Auto-create lead if new conversation from unknown customer
           if (isNewConversation) {
@@ -1280,7 +1340,26 @@ router.get('/conversations', authenticate, async (_req: Request, res: Response) 
         _count: { select: { messages: true } }
       }
     });
-    res.json(conversations);
+
+    const displayConversations = await Promise.all(conversations.map(async (conv) => {
+      if (isUsablePersonName(conv.contactName)) return conv;
+
+      const leadName = cleanContactValue(conv.leadName);
+      if (isUsablePersonName(leadName)) {
+        return { ...conv, contactName: leadName };
+      }
+
+      if (conv.leadEmail) {
+        return { ...conv, contactName: conv.leadEmail };
+      }
+
+      return {
+        ...conv,
+        contactName: await resolveWhatsAppContactName(conv.phone, undefined, conv.contactName),
+      };
+    }));
+
+    res.json(displayConversations);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch conversations' });
   }

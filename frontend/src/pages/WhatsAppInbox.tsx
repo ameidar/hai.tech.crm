@@ -121,6 +121,23 @@ function formatPhone(phone: string) {
   return phone.replace(/^972/, '0').replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3');
 }
 
+function looksLikeEmail(value?: string | null) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((value || '').trim());
+}
+
+function looksLikePhoneNumber(value?: string | null) {
+  const clean = (value || '').trim();
+  return clean.replace(/\D/g, '').length >= 7 && !/[A-Za-zא-ת]/.test(clean);
+}
+
+function getConversationDisplayName(conv: WaConversation) {
+  if (conv.contactName && !looksLikeEmail(conv.contactName) && !looksLikePhoneNumber(conv.contactName)) return conv.contactName;
+  if (conv.leadName && !looksLikeEmail(conv.leadName) && !looksLikePhoneNumber(conv.leadName)) return conv.leadName;
+  if (conv.leadEmail) return conv.leadEmail;
+  if (conv.contactName && looksLikeEmail(conv.contactName)) return conv.contactName;
+  return formatPhone(conv.phone);
+}
+
 // ─── Message status icon ──────────────────────────────────────────────────────
 function StatusIcon({ status }: { status: string }) {
   if (status === 'read') return <CheckCheck size={14} className="text-blue-400" />;
@@ -1361,7 +1378,7 @@ export default function WhatsAppInbox() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                       <span className="font-medium text-sm text-gray-800 truncate">
-                        {conv.contactName || conv.leadName || formatPhone(conv.phone)}
+                        {getConversationDisplayName(conv)}
                       </span>
                       {conv.aiEnabled && (
                         <Bot size={12} className="text-purple-400 flex-shrink-0" />
@@ -1411,7 +1428,7 @@ export default function WhatsAppInbox() {
               </div>
               <div className="min-w-0">
                 <p className="font-semibold text-gray-800 truncate">
-                  {selected.contactName || selected.leadName || formatPhone(selected.phone)}
+                  {getConversationDisplayName(selected)}
                 </p>
                 <p className="text-xs text-gray-500 truncate">
                   {selected.phone}

@@ -96,9 +96,9 @@ export async function sendEmail(
 // Recipients for new-lead notifications
 const ADMIN_PHONE = '0528746137'; // Ami's phone
 const SALES_GROUP_CHAT_ID = '120363308669020817@g.us'; // Sales team WhatsApp group
+const LEAD_WHATSAPP_FAILURE_ALERT_EMAIL = process.env.LEAD_WHATSAPP_FAILURE_ALERT_EMAIL || 'info@hai.tech';
 
-// Notify admin about new lead
-export async function notifyAdminNewLead(lead: {
+type LeadAdminNotification = {
   name: string;
   phone?: string | null;
   email?: string | null;
@@ -107,7 +107,73 @@ export async function notifyAdminNewLead(lead: {
   source?: string;
   customerId?: string | null;
   leadAppointmentId?: string | null;
-}): Promise<void> {
+};
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildLeadWhatsAppFailureEmail(
+  lead: LeadAdminNotification,
+  leadLink: string,
+  failedRecipients: string[]
+): string {
+  const rows: Array<[string, string]> = [
+    ['שם', lead.name],
+    ['טלפון', lead.phone || 'לא צוין'],
+    ['מייל', lead.email || 'לא צוין'],
+    ['ילד/ה', lead.childName || 'לא צוין'],
+    ['תחום עניין', lead.interest || 'לא צוין'],
+    ['מקור', lead.source || 'website'],
+    ['יומן ליד', leadLink],
+    ['נמעני WhatsApp שנכשלו', failedRecipients.join(', ')],
+  ];
+
+  return `
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="UTF-8">
+</head>
+<body style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
+  <h2 style="color: #b91c1c;">התראת CRM: שליחת WhatsApp לליד חדש נכשלה</h2>
+  <p>נוצר ליד חדש, אבל התראת ה-WhatsApp הפנימית לא נשלחה לכל הנמענים.</p>
+  <table style="border-collapse: collapse; width: 100%; max-width: 720px;">
+    ${rows.map(([label, value]) => `
+      <tr>
+        <td style="border: 1px solid #e5e7eb; padding: 8px; font-weight: bold; width: 180px;">${escapeHtml(label)}</td>
+        <td style="border: 1px solid #e5e7eb; padding: 8px;">${escapeHtml(value)}</td>
+      </tr>
+    `).join('')}
+  </table>
+  <p style="margin-top: 18px;">מומלץ לבדוק את חיבור Green API ולחזור לליד ידנית במידת הצורך.</p>
+</body>
+</html>`;
+}
+
+async function sendLeadWhatsAppFailureAlert(
+  lead: LeadAdminNotification,
+  leadLink: string,
+  failedRecipients: string[]
+): Promise<void> {
+  if (failedRecipients.length === 0) return;
+
+  const html = buildLeadWhatsAppFailureEmail(lead, leadLink, failedRecipients);
+  const subject = `התראת CRM: WhatsApp לליד חדש לא נשלח - ${lead.name}`;
+  const sent = await sendEmail(LEAD_WHATSAPP_FAILURE_ALERT_EMAIL, subject, html);
+
+  if (!sent) {
+    console.error('[NOTIFICATION] Failed to send lead WhatsApp failure alert email');
+  }
+}
+
+// Notify admin about new lead
+export async function notifyAdminNewLead(lead: LeadAdminNotification): Promise<void> {
   const baseUrl = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
   const leadLink = lead.leadAppointmentId
     ? `${baseUrl}/lead-appointments?id=${lead.leadAppointmentId}`
@@ -124,10 +190,26 @@ ${lead.interest ? `🎓 *תחום עניין:* ${lead.interest}` : ''}
 
 🔗 פתח ביומן הלידים: ${leadLink}`;
 
-  await Promise.all([
-    sendWhatsAppMessage(ADMIN_PHONE, message),
-    sendWhatsAppMessage(SALES_GROUP_CHAT_ID, message),
-  ]);
+  const recipients = [
+    { label: 'עמי', phone: ADMIN_PHONE },
+    { label: 'קבוצת המכירות', phone: SALES_GROUP_CHAT_ID },
+  ];
+
+  const results = await Promise.all(recipients.map(async recipient => {
+    try {
+      const success = await sendWhatsAppMessage(recipient.phone, message);
+      return { ...recipient, success };
+    } catch (error) {
+      console.error(`[NOTIFICATION] WhatsApp send threw for ${recipient.label}:`, error);
+      return { ...recipient, success: false };
+    }
+  }));
+
+  const failedRecipients = results
+    .filter(result => !result.success)
+    .map(result => `${result.label} (${result.phone})`);
+
+  await sendLeadWhatsAppFailureAlert(lead, leadLink, failedRecipients);
 }
 
 // Welcome lead notification

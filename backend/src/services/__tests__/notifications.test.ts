@@ -1,5 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const { sendMailMock } = vi.hoisted(() => {
+  process.env.JWT_SECRET = 'test-jwt-secret';
+  process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
+  process.env.API_KEY = 'test-api-key';
+  process.env.GMAIL_USER = 'info@hai.tech';
+  process.env.GMAIL_APP_PASSWORD = 'test-gmail-password';
+  process.env.FRONTEND_URL = 'https://crm.orma-ai.com';
+  return { sendMailMock: vi.fn() };
+});
+
+vi.mock('nodemailer', () => ({
+  default: {
+    createTransport: vi.fn(() => ({
+      sendMail: sendMailMock,
+    })),
+  },
+}));
+
 vi.mock('../green-api-client.js', () => ({
   sendGreenApiMessage: vi.fn().mockResolvedValue({ success: true, instanceId: 'test-green' }),
 }));
@@ -33,6 +51,8 @@ const lead = {
 describe('lead admin notifications', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(sendGreenApiMessage).mockResolvedValue({ success: true, instanceId: 'test-green' });
+    vi.mocked(sendWhatsAppCloudTemplate).mockResolvedValue({ success: true, messageId: 'wamid.test' });
     delete process.env.LEAD_ADMIN_WA_TEMPLATE_ENABLED;
     delete process.env.LEAD_ADMIN_WA_TEMPLATE_NAME;
     delete process.env.LEAD_ADMIN_WA_TEMPLATE_RECIPIENTS;
@@ -72,6 +92,31 @@ describe('lead admin notifications', () => {
     expect(sendWhatsAppCloudTemplate).not.toHaveBeenCalled();
     expect(sendGreenApiMessage).toHaveBeenCalledTimes(3);
     expect(sendGreenApiMessage).toHaveBeenCalledWith('972543354550@c.us', expect.stringContaining('ישראל ישראלי'));
+    expect(sendMailMock).not.toHaveBeenCalled();
+  });
+
+  it('sends an email alert to info@hai.tech when internal Green WhatsApp delivery fails', async () => {
+    vi.mocked(sendGreenApiMessage).mockResolvedValue({ success: false, error: 'notAuthorized' });
+
+    await notifyAdminNewLead(lead);
+
+    expect(sendGreenApiMessage).toHaveBeenCalledTimes(3);
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    expect(sendMailMock).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'info@hai.tech',
+      subject: expect.stringContaining('WhatsApp לליד חדש לא נשלח'),
+      html: expect.stringContaining('lead-1'),
+    }));
+    expect(sendMailMock.mock.calls[0][0].html).toContain('עמי');
+    expect(sendMailMock.mock.calls[0][0].html).toContain('קים');
+    expect(sendMailMock.mock.calls[0][0].html).toContain('קבוצת המכירות');
+  });
+
+  it('does not send a failure email when all internal Green WhatsApp deliveries succeed', async () => {
+    await notifyAdminNewLead(lead);
+
+    expect(sendGreenApiMessage).toHaveBeenCalledTimes(3);
+    expect(sendMailMock).not.toHaveBeenCalled();
   });
 
   it('sends the admin template to configured direct recipients when enabled', async () => {
@@ -117,5 +162,6 @@ describe('lead admin notifications', () => {
 
     expect(sendWhatsAppCloudTemplate).toHaveBeenCalledTimes(2);
     expect(sendGreenApiMessage).not.toHaveBeenCalled();
+    expect(sendMailMock).not.toHaveBeenCalled();
   });
 });

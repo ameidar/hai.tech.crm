@@ -84,6 +84,7 @@ export const createCycleSchema = z.object({
   durationMinutes: z.number().int().positive(),
   totalMeetings: z.number().int().positive(),
   pricePerStudent: z.number().nonnegative().optional(),
+  defaultRegistrationAmount: z.number().nonnegative().optional().nullable(),
   meetingRevenue: z.number().nonnegative().optional(),
   instructorPaymentMode: instructorPaymentModeEnum.optional().default('hourly'),
   instructorDailyRate: z.number().nonnegative().optional().nullable(),
@@ -92,6 +93,7 @@ export const createCycleSchema = z.object({
   sendParentReminders: z.boolean().optional().default(true),
   activityType: activityTypeEnum.optional().default('frontal'),
   location: z.string().trim().optional().nullable(),
+  videoProvider: z.enum(['zoom', 'google_meet']).optional().default('zoom'),
   zoomHostId: z.string().optional(),
   zoomHostEmail: z.string().email().optional(),
 }).superRefine((data, ctx) => {
@@ -134,6 +136,7 @@ export const updateCycleSchema = z.object({
   totalMeetings: z.number().int().positive().optional(),
   completedMeetings: z.number().int().nonnegative().optional(),
   pricePerStudent: z.number().nonnegative().optional().nullable(),
+  defaultRegistrationAmount: z.number().nonnegative().optional().nullable(),
   meetingRevenue: z.number().nonnegative().optional().nullable(),
   instructorPaymentMode: instructorPaymentModeEnum.optional(),
   instructorDailyRate: z.number().nonnegative().optional().nullable(),
@@ -143,12 +146,15 @@ export const updateCycleSchema = z.object({
   activityType: activityTypeEnum.optional(),
   location: z.string().trim().optional().nullable(),
   status: cycleStatusEnum.optional(),
+  videoProvider: z.enum(['zoom', 'google_meet']).optional(),
   zoomHostId: z.string().optional().nullable(),
   zoomHostEmail: z.string().email().optional().nullable(),
   zoomMeetingId: z.string().optional().nullable(),
   zoomJoinUrl: z.string().url().optional().nullable(),
   zoomHostKey: z.string().optional().nullable(),
   zoomPassword: z.string().optional().nullable(),
+  googleMeetSpaceName: z.string().optional().nullable(),
+  googleCalendarEventId: z.string().optional().nullable(),
 });
 
 /**
@@ -187,6 +193,7 @@ export const bulkUpdateCyclesSchema = z.object({
     branchId: uuidSchema.optional(),
     meetingRevenue: z.number().nonnegative().optional(),
     pricePerStudent: z.number().nonnegative().optional(),
+    defaultRegistrationAmount: z.number().nonnegative().optional().nullable(),
     studentCount: z.number().int().nonnegative().optional(),
     sendParentReminders: z.boolean().optional(),
     activityType: activityTypeEnum.optional(),

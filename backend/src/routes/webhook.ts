@@ -7,8 +7,10 @@ import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
 import { handleStatusReply } from '../services/whatsapp-reminder.service.js';
 import { logAudit } from '../utils/audit.js';
 import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
-import { meetingRevenueFromRegistrations, revenueRegistrationCount, roundMoney } from '../utils/revenue.js';
+import { meetingRevenueForMeeting } from '../utils/revenue.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
+import { broadcastWaSSE } from '../services/wa-events.js';
+import { autoRegisterLeadToCycle } from '../services/lead-cycle-registration.js';
 import rateLimit from 'express-rate-limit';
 
 // Rate limiter for public lead submission endpoint
@@ -71,6 +73,239 @@ const apiKeyAuth = (req: Request, _res: Response, next: NextFunction) => {
 };
 
 webhookRouter.use(apiKeyAuth);
+
+const GREEN_INBOUND_LEAD_WINDOW_HOURS = Number(process.env.GREEN_INBOUND_LEAD_WINDOW_HOURS || 6);
+
+type GreenMatchedCustomer = {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+};
+
+type GreenMatchedLead = {
+  id: string;
+  customer_id: string | null;
+  customer_name: string;
+  customer_phone: string;
+  sales_status: string;
+};
+
+function normalizePhoneDigits(phone: string): string {
+  return phone.replace(/\D/g, '');
+}
+
+function phoneLast9(phone: string): string | null {
+  const digits = normalizePhoneDigits(phone);
+  return digits.length >= 9 ? digits.slice(-9) : null;
+}
+
+function normalizeWhatsAppPhone(phone: string): string | null {
+  const digits = normalizePhoneDigits(phone);
+  if (digits.length < 9) return null;
+  if (digits.startsWith('972')) return digits;
+  if (digits.startsWith('0')) return `972${digits.slice(1)}`;
+  return digits;
+}
+
+function greenMessageId(body: any): string | null {
+  return (
+    body?.idMessage ||
+    body?.messageData?.idMessage ||
+    body?.messageData?.extendedTextMessageData?.stanzaId ||
+    null
+  );
+}
+
+function greenMessageText(body: any, fallback: string): string {
+  const md = body?.messageData;
+  const text =
+    md?.textMessageData?.textMessage ||
+    md?.extendedTextMessageData?.text ||
+    md?.imageMessageData?.caption ||
+    md?.videoMessageData?.caption ||
+    md?.documentMessageData?.caption ||
+    md?.documentMessageData?.fileName ||
+    md?.buttonMessageData?.textMessage ||
+    fallback;
+
+  if (typeof text === 'string' && text.trim()) return text.trim();
+
+  const type = md?.typeMessage;
+  return type ? `התקבלה הודעת WhatsApp מסוג ${type}` : 'התקבלה הודעת WhatsApp';
+}
+
+async function routeGreenInboundToCrm(params: {
+  phone: string;
+  chatId: string;
+  message: string;
+  messageId: string | null;
+  messageType?: string;
+}) {
+  const last9 = phoneLast9(params.phone);
+  if (!last9) return;
+  const normalizedPhone = normalizeWhatsAppPhone(params.phone);
+  if (!normalizedPhone) return;
+  const greenWaMessageId = params.messageId ? `green:${params.messageId}` : null;
+
+  if (params.messageId) {
+    const existing = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT id
+      FROM audit_logs
+      WHERE entity = 'communication_whatsapp'
+        AND new_value->>'greenMessageId' = ${params.messageId}
+      LIMIT 1
+    `;
+    if (existing.length > 0) return;
+  }
+
+  if (greenWaMessageId) {
+    const existingMessage = await prisma.waMessage.findUnique({
+      where: { waMessageId: greenWaMessageId },
+      select: { id: true },
+    });
+    if (existingMessage) return;
+  }
+
+  const customers = await prisma.$queryRaw<GreenMatchedCustomer[]>`
+    SELECT id, name, phone, email
+    FROM customers
+    WHERE deleted_at IS NULL
+      AND RIGHT(regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g'), 9) = ${last9}
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `;
+
+  const windowStart = new Date(Date.now() - GREEN_INBOUND_LEAD_WINDOW_HOURS * 60 * 60 * 1000);
+  const leads = await prisma.$queryRaw<GreenMatchedLead[]>`
+    SELECT id, customer_id, customer_name, customer_phone, sales_status
+    FROM lead_appointments
+    WHERE appointment_status NOT IN ('done', 'cancelled', 'rejected')
+      AND COALESCE(sales_status, 'new') NOT IN ('converted', 'not_relevant')
+      AND RIGHT(regexp_replace(COALESCE(customer_phone, ''), '[^0-9]', '', 'g'), 9) = ${last9}
+      AND (
+        created_at >= ${windowStart}
+        OR updated_at >= ${windowStart}
+        OR last_contacted_at >= ${windowStart}
+      )
+    ORDER BY COALESCE(last_contacted_at, updated_at, created_at) DESC
+    LIMIT 1
+  `;
+
+  const lead = leads[0];
+  let customer: GreenMatchedCustomer | undefined = customers[0];
+
+  if (!customer && lead?.customer_id) {
+    const leadCustomer = await prisma.customer.findFirst({
+      where: { id: lead.customer_id, deletedAt: null },
+      select: { id: true, name: true, phone: true, email: true },
+    });
+    customer = leadCustomer || undefined;
+  }
+
+  if (customer) {
+    await prisma.auditLog.create({
+      data: {
+        userName: 'Green API',
+        action: 'CREATE',
+        entity: 'communication_whatsapp',
+        entityId: customer.id,
+        newValue: {
+          direction: 'inbound',
+          provider: 'green',
+          source: 'green_webhook',
+          phone: params.phone,
+          chatId: params.chatId,
+          message: params.message,
+          messageType: params.messageType,
+          greenMessageId: params.messageId,
+          customerId: customer.id,
+          customerName: customer.name,
+          leadAppointmentId: lead?.id,
+        },
+      },
+    });
+
+    let conversation = await prisma.waConversation.findFirst({
+      where: { phone: normalizedPhone },
+      orderBy: { lastMessageAt: 'desc' },
+    });
+
+    const contactName = customer.name || lead?.customer_name || normalizedPhone;
+    const now = new Date();
+
+    if (!conversation) {
+      conversation = await prisma.waConversation.create({
+        data: {
+          phone: normalizedPhone,
+          contactName,
+          status: 'open',
+          unreadCount: 0,
+          lastMessageAt: now,
+          lastMessagePreview: params.message.slice(0, 100),
+          businessPhone: 'Green API',
+          phoneNumberId: null,
+          aiEnabled: false,
+        },
+      });
+    }
+
+    const waMessage = await prisma.waMessage.create({
+      data: {
+        conversationId: conversation.id,
+        direction: 'inbound',
+        content: params.message,
+        waMessageId: greenWaMessageId,
+        status: 'received',
+      },
+    });
+
+    await prisma.waConversation.update({
+      where: { id: conversation.id },
+      data: {
+        unreadCount: { increment: 1 },
+        lastMessageAt: now,
+        lastMessagePreview: params.message.slice(0, 100),
+        contactName,
+        businessPhone: conversation.businessPhone || 'Green API',
+        aiEnabled: false,
+        updatedAt: now,
+      },
+    });
+
+    broadcastWaSSE('new_message', {
+      conversationId: conversation.id,
+      message: waMessage,
+      phone: normalizedPhone,
+      contactName,
+      provider: 'green',
+    });
+  }
+
+  if (!lead) return;
+
+  const now = new Date();
+  await (prisma as any).leadActivity.create({
+    data: {
+      leadAppointmentId: lead.id,
+      type: 'whatsapp',
+      result: 'green_reply',
+      note: `הלקוח הגיב ב-WhatsApp Green:\n${params.message}`,
+      nextFollowUpAt: now,
+    },
+  });
+
+  await (prisma as any).leadAppointment.update({
+    where: { id: lead.id },
+    data: {
+      customerId: customer?.id || undefined,
+      salesStatus: ['new', 'no_answer'].includes(lead.sales_status) ? 'follow_up' : undefined,
+      lastContactResult: 'green_reply',
+      lastContactedAt: now,
+      nextFollowUpAt: now,
+    },
+  });
+}
 
 // Search cycles by name
 // GET /api/webhook/cycles/search?name=xxx
@@ -376,9 +611,11 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       // New fields from website form
       childName,
       childAge,
+      grade,
       interest,
       message,
     } = req.body;
+    const cycleId = String(req.body.cycleId || req.body.cycle_id || req.body.selectedCycleId || '').trim();
 
     if (!name) {
       throw new AppError(400, 'name is required');
@@ -428,6 +665,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       if (notes) parts.push(notes);
       if (childName && childAge) parts.push(`ילד/ה: ${childName}, גיל ${childAge}`);
       else if (childName) parts.push(`ילד/ה: ${childName}`);
+      if (cycleId) parts.push(`מחזור: ${cycleId}`);
       return parts.length > 0 ? parts.join(' | ') : 'פנייה חדשה';
     };
 
@@ -476,6 +714,16 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
         appointmentNotes: noteText,
       });
 
+      const autoRegistration = await autoRegisterLeadToCycle({
+        source,
+        customerId: customer.id,
+        childName: childName || null,
+        childAge: childAge || null,
+        grade: grade || null,
+        cycleId,
+        interest: interest || null,
+      });
+
       // Send welcome template also for returning customers (every new lead submission)
       if (customer.phone) {
         sendLeadWelcomeTemplate(customer.phone, customer.name, interest)
@@ -510,6 +758,8 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
           phone: customer.phone,
           email: customer.email,
           childName,
+          cycleId,
+          autoRegistration,
           interest,
           isDuplicate,
           clientIp,
@@ -530,6 +780,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
           id: lead.id,
           appointmentStatus: lead.appointmentStatus,
         },
+        autoRegistration,
         message: 'Customer already exists, customer and lead updated',
       });
       return;
@@ -585,6 +836,16 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       appointmentNotes: noteText,
     });
 
+    const autoRegistration = await autoRegisterLeadToCycle({
+      source,
+      customerId: customer.id,
+      childName: childName || null,
+      childAge: childAge || null,
+      grade: grade || null,
+      cycleId,
+      interest: interest || null,
+    });
+
     // Send welcome notifications (async, don't block response)
     sendWelcomeNotifications({
       name: customer.name,
@@ -625,6 +886,8 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
         phone: customer.phone,
         email: customer.email,
         childName,
+        cycleId,
+        autoRegistration,
         interest,
         clientIp,
       },
@@ -643,6 +906,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
           name: s.name,
         })),
       },
+      autoRegistration,
     });
   } catch (error) {
     next(error);
@@ -771,19 +1035,7 @@ async function recalculateMeetingFinancials(meetingId: string) {
 
   const cycleData = meeting.cycle;
 
-  // Calculate revenue based on cycle type
-  let revenue = 0;
-  const registrationCount = revenueRegistrationCount(cycleData.registrations);
-
-  if (cycleData.type === 'private') {
-    revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
-  } else if (cycleData.type === 'institutional_per_child') {
-    const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-    const studentCount = cycleData.studentCount || registrationCount;
-    revenue = roundMoney(pricePerStudent * studentCount);
-  } else if (cycleData.type === 'institutional_fixed') {
-    revenue = Number(cycleData.meetingRevenue || 0);
-  }
+  const revenue = meetingRevenueForMeeting(cycleData, meeting);
 
   const instructorPayment = calculateInstructorPayment(cycleData, meeting.instructor, meeting);
 
@@ -934,6 +1186,15 @@ webhookRouter.post('/whatsapp-incoming', async (req: Request, res: Response) => 
     } else {
       console.log(`[WhatsApp] Unrecognized incoming message from ${phone}: "${rawMessage}"`);
     }
+
+    const message = greenMessageText(body, rawMessage);
+    await routeGreenInboundToCrm({
+      phone,
+      chatId,
+      message,
+      messageId: greenMessageId(body),
+      messageType: msgType,
+    });
   } catch (error: any) {
     console.error('[WhatsApp] Error processing incoming message:', error.message);
   }

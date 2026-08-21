@@ -30,6 +30,8 @@ const ROLE_LABELS: Record<string, string> = {
   manager: 'מנהל',
   sales: 'מכירות',
   operations: 'מנהל/ת תפעול',
+  operations_control: 'שימור / מגדל שליטה',
+  operations_manager: 'מנהלת תפעול',
 };
 
 const ROLE_COLORS: Record<string, string> = {
@@ -37,9 +39,11 @@ const ROLE_COLORS: Record<string, string> = {
   manager: 'bg-blue-100 text-blue-700',
   sales: 'bg-green-100 text-green-700',
   operations: 'bg-teal-100 text-teal-700',
+  operations_control: 'bg-violet-100 text-violet-700',
+  operations_manager: 'bg-cyan-100 text-cyan-700',
 };
 
-type ManagedRole = 'admin' | 'manager' | 'sales' | 'operations';
+type ManagedRole = 'admin' | 'manager' | 'sales' | 'operations' | 'operations_control' | 'operations_manager';
 
 // ===== Invite / Reset Modal =====
 interface LinkModalProps {
@@ -193,7 +197,7 @@ export default function SystemUsers() {
     return u.name.toLowerCase().includes(s) || u.email.toLowerCase().includes(s);
   });
 
-  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'operations';
+  const isAdmin = currentUser?.role === 'admin';
 
   const openAdd = () => {
     setFormData({ name: '', email: '', phone: '', role: 'manager', hourlyRate: 50, city: '', bankName: '', bankBranch: '', accountNumber: '' });
@@ -519,10 +523,12 @@ export default function SystemUsers() {
                 <option value="admin">מנהל מערכת</option>
                 <option value="sales">מכירות</option>
                 <option value="operations">מנהל/ת תפעול</option>
+                <option value="operations_control">שימור / מגדל שליטה</option>
+                <option value="operations_manager">מנהלת תפעול</option>
               </select>
               <p className="text-xs text-slate-400 mt-1">
-                מנהל מערכת — ניהול מלא. מנהל — גישה לכל. <strong>מכירות</strong> — WhatsApp + לקוחות בלבד.
-                <strong> תפעול</strong> — דיווח שעות, ללא ניהול משתמשים ודוחות כספיים.
+                מנהל מערכת — ניהול מלא. מנהל — גישה לכל. <strong>מכירות</strong> — יומן לידים, WhatsApp ולינק לתשלום.
+                <strong> תפעול</strong> — דיווח שעות. <strong>שימור</strong> — מגדל שליטה, משימות, מכירות בסיסיות ואזור מדריך.
               </p>
             </div>
           </div>

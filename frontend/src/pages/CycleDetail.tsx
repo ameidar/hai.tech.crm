@@ -326,7 +326,7 @@ export default function CycleDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations' || user?.role === 'operations_manager' || user?.role === 'operations_control';
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [viewingMeeting, setViewingMeeting] = useState<Meeting | null>(null);
   const [showAddStudentModal, setShowAddStudentModal] = useState(false);
@@ -359,6 +359,7 @@ export default function CycleDetail() {
   const { data: zoomMeeting, isLoading: zoomLoading } = useZoomMeeting(id!);
   const createZoomMeeting = useCreateZoomMeeting();
   const deleteZoomMeeting = useDeleteZoomMeeting();
+  const [selectedVideoProvider, setSelectedVideoProvider] = useState<'zoom' | 'google_meet'>('google_meet');
   const generateMeetings = useGenerateMeetings();
   const syncCycleProgress = useSyncCycleProgress();
   const createMeeting = useCreateMeeting();
@@ -404,20 +405,20 @@ export default function CycleDetail() {
 
   const handleCreateZoomMeeting = async () => {
     try {
-      await createZoomMeeting.mutateAsync(id!);
+      await createZoomMeeting.mutateAsync({ cycleId: id!, videoProvider: selectedVideoProvider });
     } catch (error: any) {
-      console.error('Failed to create Zoom meeting:', error);
-      alert(error.response?.data?.error || 'שגיאה ביצירת פגישת Zoom');
+      console.error('Failed to create video meeting:', error);
+      alert(error.response?.data?.error || 'שגיאה ביצירת פגישת וידאו');
     }
   };
 
   const handleDeleteZoomMeeting = async () => {
-    if (confirm('האם למחוק את פגישת הזום? פעולה זו לא ניתנת לביטול.')) {
+    if (confirm('האם למחוק את פגישת הווידאו? פעולה זו לא ניתנת לביטול.')) {
       try {
         await deleteZoomMeeting.mutateAsync(id!);
       } catch (error) {
-        console.error('Failed to delete Zoom meeting:', error);
-        alert('שגיאה במחיקת פגישת Zoom');
+        console.error('Failed to delete video meeting:', error);
+        alert('שגיאה במחיקת פגישת וידאו');
       }
     }
   };
@@ -443,10 +444,12 @@ export default function CycleDetail() {
 
   const handleCreateMeeting = async (data: {
     instructorId: string;
+    registrationId?: string;
     scheduledDate: string;
     startTime: string;
     endTime: string;
     withZoom: boolean;
+    videoProvider?: 'zoom' | 'google_meet';
     activityType?: string;
     topic?: string;
     notes?: string;
@@ -689,7 +692,20 @@ export default function CycleDetail() {
     }
   };
 
-  const handleUpdateMeetingData = async (meetingId: string, data: { status?: MeetingStatus; nature?: MeetingNature; instructorId?: string; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; activityType?: ActivityType; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => {
+  const getMeetingRegistration = (meeting: Meeting): Registration | null => {
+    if (meeting.registration) return meeting.registration;
+    const attendanceWithRegistration = meeting.attendance?.find((item) => item.registration);
+    return attendanceWithRegistration?.registration || null;
+  };
+
+  const formatRegistrationLabel = (registration: Registration) => {
+    const studentName = registration.student?.name || 'תלמיד ללא שם';
+    const customerName = registration.student?.customer?.name;
+    const phone = registration.student?.customer?.phone;
+    return [studentName, customerName, phone].filter(Boolean).join(' | ');
+  };
+
+  const handleUpdateMeetingData = async (meetingId: string, data: { status?: MeetingStatus; nature?: MeetingNature; instructorId?: string; registrationId?: string | null; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; activityType?: ActivityType; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => {
     try {
       await updateMeeting.mutateAsync({
         id: meetingId,
@@ -892,9 +908,17 @@ export default function CycleDetail() {
                     </div>
                     {!!cycle.pricePerStudent && (
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-500">מחיר לתלמיד:</span>
+                        <span className="text-gray-500">מחיר לתלמיד למפגש:</span>
                         <span className="font-semibold text-gray-500 text-xs">
                           ₪{Number(cycle.pricePerStudent).toLocaleString()}
+                        </span>
+                      </div>
+                    )}
+                    {!!cycle.defaultRegistrationAmount && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-500">סכום הרשמה:</span>
+                        <span className="font-semibold text-gray-500 text-xs">
+                          ₪{Number(cycle.defaultRegistrationAmount).toLocaleString()}
                         </span>
                       </div>
                     )}
@@ -967,19 +991,19 @@ export default function CycleDetail() {
               </div>
             </div>
 
-            {/* Zoom Card - For online or private cycles */}
+            {/* Video Meeting Card - For online or private cycles */}
             {(cycle.activityType === 'online' || cycle.activityType === 'private_lesson' || cycle.type === 'private' || cycle.type === 'trial_private') && (
               <div className="card" data-testid="zoom-section">
                 <div className="card-header flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Video size={18} className="text-blue-600" />
-                    <h2 className="font-semibold">Zoom</h2>
+                    <h2 className="font-semibold">פגישת וידאו</h2>
                   </div>
                   {zoomMeeting?.hasMeeting && (
                     <button
                       onClick={handleDeleteZoomMeeting}
                       className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                      title="מחק פגישת Zoom"
+                      title="מחק פגישת וידאו"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -990,6 +1014,9 @@ export default function CycleDetail() {
                     <div className="text-center py-4 text-gray-500">טוען...</div>
                   ) : zoomMeeting?.hasMeeting ? (
                     <div className="space-y-3">
+                      <div className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
+                        {zoomMeeting.videoProvider === 'google_meet' ? 'Google Meet' : 'Zoom'}
+                      </div>
                       {/* Join URL */}
                       <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
                         <div className="flex items-center gap-2">
@@ -1021,7 +1048,7 @@ export default function CycleDetail() {
                       <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                         <div className="flex items-center gap-2">
                           <Video size={16} className="text-gray-600" />
-                          <span className="text-sm">Meeting ID</span>
+                          <span className="text-sm">{zoomMeeting.videoProvider === 'google_meet' ? 'קוד Meet' : 'Meeting ID'}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-sm">{zoomMeeting.zoomMeetingId}</span>
@@ -1044,7 +1071,7 @@ export default function CycleDetail() {
                         <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
                           <div className="flex items-center gap-2">
                             <Mail size={16} className="text-purple-600" />
-                            <span className="text-sm">חשבון Zoom</span>
+                            <span className="text-sm">חשבון מארח</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="text-sm">{zoomMeeting.zoomHostEmail}</span>
@@ -1086,7 +1113,18 @@ export default function CycleDetail() {
                   ) : (
                     <div className="text-center py-4">
                       <Video size={48} className="mx-auto mb-4 text-gray-300" />
-                      <p className="text-gray-500 mb-4">לא הוגדרה פגישת Zoom למחזור זה</p>
+                      <p className="text-gray-500 mb-4">לא הוגדרה פגישת וידאו למחזור זה</p>
+                      <div className="mb-3 flex justify-center">
+                        <select
+                          value={selectedVideoProvider}
+                          onChange={(event) => setSelectedVideoProvider(event.target.value as 'zoom' | 'google_meet')}
+                          className="form-input w-auto"
+                          aria-label="סוג פגישת וידאו"
+                        >
+                          <option value="google_meet">Google Meet</option>
+                          <option value="zoom">Zoom</option>
+                        </select>
+                      </div>
                       <button
                         onClick={handleCreateZoomMeeting}
                         disabled={createZoomMeeting.isPending}
@@ -1101,7 +1139,7 @@ export default function CycleDetail() {
                         ) : (
                           <>
                             <Video size={16} />
-                            צור פגישת Zoom
+                            צור פגישת וידאו
                           </>
                         )}
                       </button>
@@ -1359,8 +1397,20 @@ export default function CycleDetail() {
                                 )}
                               </div>
                             </td>
-                            <td className="text-gray-500 truncate max-w-[200px]">
-                              {meeting.topic || '-'}
+                            <td className="text-gray-500 max-w-[240px]">
+                              <div className="truncate">{meeting.topic || '-'}</div>
+                              {cycle.type === 'trial_private' && (() => {
+                                const assignedRegistration = getMeetingRegistration(meeting);
+                                return assignedRegistration ? (
+                                  <div className="mt-1 text-xs text-blue-700 truncate">
+                                    {formatRegistrationLabel(assignedRegistration)}
+                                  </div>
+                                ) : (
+                                  <div className="mt-1 text-xs text-red-600 font-medium">
+                                    לא משויך לתלמיד
+                                  </div>
+                                );
+                              })()}
                             </td>
                             <td>
                               <div className="flex items-center gap-2">
@@ -1437,6 +1487,19 @@ export default function CycleDetail() {
                 <p className="text-sm text-gray-500">נושא</p>
                 <p className="font-medium">{viewingMeeting.topic || '-'}</p>
               </div>
+              {cycle.type === 'trial_private' && (
+                <div className="col-span-2">
+                  <p className="text-sm text-gray-500">תלמיד/הורה</p>
+                  {(() => {
+                    const assignedRegistration = getMeetingRegistration(viewingMeeting);
+                    return assignedRegistration ? (
+                      <p className="font-medium">{formatRegistrationLabel(assignedRegistration)}</p>
+                    ) : (
+                      <p className="font-medium text-red-600">לא משויך לתלמיד</p>
+                    );
+                  })()}
+                </div>
+              )}
               {viewingMeeting.notes && (
                 <div className="col-span-2">
                   <p className="text-sm text-gray-500">הערות</p>
@@ -1687,6 +1750,8 @@ export default function CycleDetail() {
           <MeetingUpdateForm
             meeting={selectedMeeting}
             instructors={instructors || []}
+            cycleType={cycle?.type}
+            registrations={registrations || cycle?.registrations || []}
             defaultInstructorId={cycle?.instructorId}
             defaultActivityType={cycle?.activityType}
             onUpdate={(data) => handleUpdateMeetingData(selectedMeeting.id, data)}
@@ -1950,6 +2015,7 @@ export default function CycleDetail() {
           <CreateMeetingForm
             cycle={cycle}
             instructors={instructors || []}
+            registrations={registrations || cycle.registrations || []}
             onSubmit={handleCreateMeeting}
             onCancel={() => setShowCreateMeetingModal(false)}
             isLoading={createMeeting.isPending}
@@ -2304,15 +2370,17 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
 interface MeetingUpdateFormProps {
   meeting: Meeting;
   instructors: { id: string; name: string; isActive: boolean }[];
+  cycleType?: CycleType;
+  registrations: Registration[];
   defaultInstructorId?: string;
   defaultActivityType?: ActivityType;
-  onUpdate: (data: { status?: MeetingStatus; nature?: MeetingNature; instructorId?: string; activityType?: ActivityType; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => void;
+  onUpdate: (data: { status?: MeetingStatus; nature?: MeetingNature; instructorId?: string; registrationId?: string | null; activityType?: ActivityType; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => void;
   onCancel: () => void;
   isLoading?: boolean;
   isAdmin?: boolean;
 }
 
-function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultActivityType, onUpdate, onCancel, isLoading, isAdmin = false }: MeetingUpdateFormProps) {
+function MeetingUpdateForm({ meeting, instructors, cycleType, registrations, defaultInstructorId, defaultActivityType, onUpdate, onCancel, isLoading, isAdmin = false }: MeetingUpdateFormProps) {
   const formatTimeForInput = (time: string | Date | undefined): string => {
     if (!time) return '16:00';
     if (typeof time === 'string') {
@@ -2334,6 +2402,7 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
   const [status, setStatus] = useState(meeting.status);
   const [nature, setNature] = useState<MeetingNature>(meeting.nature || 'regular');
   const [instructorId, setInstructorId] = useState(meeting.instructor?.id || defaultInstructorId || '');
+  const [registrationId, setRegistrationId] = useState(meeting.registrationId || meeting.registration?.id || '');
   const [activityType, setActivityType] = useState<ActivityType>(meeting.activityType || defaultActivityType || 'frontal');
   const [topic, setTopic] = useState(meeting.topic || '');
   const [notes, setNotes] = useState(meeting.notes || '');
@@ -2343,6 +2412,15 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
   const [zoomJoinUrl, setZoomJoinUrl] = useState((meeting as any).zoomJoinUrl || '');
   const [zoomMeetingId, setZoomMeetingId] = useState((meeting as any).zoomMeetingId || '');
   const [zoomHostKey, setZoomHostKey] = useState((meeting as any).zoomHostKey || '');
+  const trialRegistrations = registrations.filter((registration) =>
+    ['active', 'registered', 'trial'].includes(registration.status)
+  );
+  const registrationLabel = (registration: Registration) => {
+    const studentName = registration.student?.name || 'תלמיד ללא שם';
+    const customerName = registration.student?.customer?.name;
+    const phone = registration.student?.customer?.phone;
+    return [studentName, customerName, phone].filter(Boolean).join(' | ');
+  };
 
   const formatDateDisplay = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('he-IL', {
@@ -2361,6 +2439,7 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
       status,
       nature: nature !== (meeting.nature || 'regular') ? nature : undefined,
       instructorId: instructorId !== (meeting.instructor?.id || defaultInstructorId) ? instructorId : undefined,
+      registrationId: registrationId !== (meeting.registrationId || meeting.registration?.id || '') ? (registrationId || null) : undefined,
       activityType: activityType !== (meeting.activityType || defaultActivityType) ? activityType : undefined,
       topic: topic || undefined,
       notes: notes || undefined,
@@ -2428,6 +2507,24 @@ function MeetingUpdateForm({ meeting, instructors, defaultInstructorId, defaultA
             {instructors.filter(i => i.isActive).map((instructor) => (
               <option key={instructor.id} value={instructor.id}>
                 {instructor.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {isAdmin && cycleType === 'trial_private' && (
+        <div>
+          <label className="form-label">תלמיד/הרשמה לשיעור ניסיון</label>
+          <select
+            value={registrationId}
+            onChange={(e) => setRegistrationId(e.target.value)}
+            className="form-input"
+          >
+            <option value="">בחר תלמיד</option>
+            {trialRegistrations.map((registration) => (
+              <option key={registration.id} value={registration.id}>
+                {registrationLabel(registration)}
               </option>
             ))}
           </select>
@@ -2815,12 +2912,14 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     endTime: cycle.endTime ? formatTimeForInput(cycle.endTime) : '17:00',
     totalMeetings: cycle.totalMeetings,
     pricePerStudent: cycle.pricePerStudent || 0,
+    defaultRegistrationAmount: cycle.defaultRegistrationAmount || 0,
     meetingRevenue: cycle.meetingRevenue || 0,
     includesVat: false,
     instructorPaymentMode: (cycle.instructorPaymentMode || 'hourly') as InstructorPaymentMode,
     instructorDailyRate: cycle.instructorDailyRate || 0,
     studentCount: cycle.studentCount || 0,
     maxStudents: cycle.maxStudents || 15,
+    minimumStudentsThreshold: cycle.minimumStudentsThreshold || 0,
     activityType: cycle.activityType || 'frontal',
     location: cycle.location || '',
   });
@@ -2880,6 +2979,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     
     // Amounts entered here are always before VAT. VAT is not HaiTech revenue.
     let meetingRevenueValue = Number(formData.meetingRevenue);
+    const defaultRegistrationAmountValue = Number(formData.defaultRegistrationAmount);
 
     onSubmit({
       name: formData.name,
@@ -2894,13 +2994,15 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
       endTime: formData.endTime,
       durationMinutes: durationMinutes > 0 ? durationMinutes : 60,
       totalMeetings: Number(formData.totalMeetings),
-      pricePerStudent: (formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') ? Number(formData.pricePerStudent) : undefined,
+      pricePerStudent: formData.type === 'institutional_per_child' ? Number(formData.pricePerStudent) : null,
+      defaultRegistrationAmount: defaultRegistrationAmountValue > 0 ? defaultRegistrationAmountValue : null,
       meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'trial_private') ? meetingRevenueValue : undefined,
       revenueIncludesVat: formData.type === 'institutional_fixed' ? false : undefined,
       instructorPaymentMode: formData.instructorPaymentMode,
       instructorDailyRate: formData.instructorPaymentMode === 'daily' ? Number(formData.instructorDailyRate) : null,
       studentCount: formData.type === 'institutional_per_child' ? Number(formData.studentCount) : undefined,
       maxStudents: Number(formData.maxStudents),
+      minimumStudentsThreshold: Number(formData.minimumStudentsThreshold) > 0 ? Number(formData.minimumStudentsThreshold) : null,
       activityType: formData.activityType as ActivityType,
       location: formData.location.trim() || null,
       institutionalOrderId: formData.institutionalOrderId || null,
@@ -3120,9 +3222,9 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
           />
         </div>
 
-        {(formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && (
+        {formData.type === 'institutional_per_child' && (
           <div>
-            <label className="form-label">מחיר לתלמיד לפני מע״מ {formData.type === 'institutional_per_child' ? '(למפגש)' : ''} (₪)</label>
+            <label className="form-label">מחיר לתלמיד למפגש לפני מע״מ (₪)</label>
             <input
               type="number"
               value={formData.pricePerStudent}
@@ -3133,6 +3235,18 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
             />
           </div>
         )}
+
+        <div>
+          <label className="form-label">סכום הרשמה ברירת מחדל (₪)</label>
+          <input
+            type="number"
+            value={formData.defaultRegistrationAmount}
+            onChange={(e) => setFormData({ ...formData, defaultRegistrationAmount: Number(e.target.value) })}
+            className="form-input"
+            min="0"
+            step="0.01"
+          />
+        </div>
 
         {(formData.type === 'private' || formData.type === 'trial_private') && (
           <div>
@@ -3194,6 +3308,17 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
         </div>
 
         <div>
+          <label className="form-label">סף מינימום ילדים למעקב</label>
+          <input
+            type="number"
+            value={formData.minimumStudentsThreshold}
+            onChange={(e) => setFormData({ ...formData, minimumStudentsThreshold: Number(e.target.value) })}
+            className="form-input"
+            min="0"
+          />
+        </div>
+
+        <div>
           <label className="form-label">סוג פעילות</label>
           <select
             value={formData.activityType}
@@ -3236,12 +3361,15 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
 interface CreateMeetingFormProps {
   cycle: Cycle;
   instructors: Instructor[];
+  registrations: Registration[];
   onSubmit: (data: {
     instructorId: string;
+    registrationId?: string;
     scheduledDate: string;
     startTime: string;
     endTime: string;
     withZoom: boolean;
+    videoProvider?: 'zoom' | 'google_meet';
     activityType?: string;
     topic?: string;
     notes?: string;
@@ -3250,21 +3378,35 @@ interface CreateMeetingFormProps {
   isLoading?: boolean;
 }
 
-function CreateMeetingForm({ cycle, instructors, onSubmit, onCancel, isLoading }: CreateMeetingFormProps) {
+function CreateMeetingForm({ cycle, instructors, registrations, onSubmit, onCancel, isLoading }: CreateMeetingFormProps) {
   const [formData, setFormData] = useState({
     instructorId: cycle.instructorId || cycle.instructor?.id || '',
+    registrationId: '',
     scheduledDate: new Date().toISOString().split('T')[0],
     startTime: cycle.startTime ? (typeof cycle.startTime === 'string' ? cycle.startTime.substring(0, 5) : new Date(cycle.startTime).toISOString().substring(11, 16)) : '16:00',
     endTime: cycle.endTime ? (typeof cycle.endTime === 'string' ? cycle.endTime.substring(0, 5) : new Date(cycle.endTime).toISOString().substring(11, 16)) : '17:00',
     withZoom: cycle.activityType === 'online',
+    videoProvider: 'google_meet' as 'zoom' | 'google_meet',
     activityType: (cycle.activityType || 'frontal') as string,
     topic: '',
     notes: '',
   });
+  const trialRegistrations = registrations.filter((registration) =>
+    ['active', 'registered', 'trial'].includes(registration.status)
+  );
+  const registrationLabel = (registration: Registration) => {
+    const studentName = registration.student?.name || 'תלמיד ללא שם';
+    const customerName = registration.student?.customer?.name;
+    const phone = registration.student?.customer?.phone;
+    return [studentName, customerName, phone].filter(Boolean).join(' | ');
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(formData);
+    onSubmit({
+      ...formData,
+      registrationId: formData.registrationId || undefined,
+    });
   };
 
   return (
@@ -3333,6 +3475,25 @@ function CreateMeetingForm({ cycle, instructors, onSubmit, onCancel, isLoading }
           </select>
         </div>
 
+        {cycle.type === 'trial_private' && (
+          <div className="col-span-2">
+            <label className="form-label">תלמיד/הרשמה לשיעור ניסיון *</label>
+            <select
+              value={formData.registrationId}
+              onChange={(e) => setFormData({ ...formData, registrationId: e.target.value })}
+              className="form-input"
+              required
+            >
+              <option value="">בחר תלמיד</option>
+              {trialRegistrations.map((registration) => (
+                <option key={registration.id} value={registration.id}>
+                  {registrationLabel(registration)}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div className="flex items-center">
           <label className="flex items-center gap-2 cursor-pointer mt-6">
             <input
@@ -3341,9 +3502,23 @@ function CreateMeetingForm({ cycle, instructors, onSubmit, onCancel, isLoading }
               onChange={(e) => setFormData({ ...formData, withZoom: e.target.checked })}
               className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
-            <span className="text-sm text-gray-700">צור פגישת Zoom</span>
+            <span className="text-sm text-gray-700">צור פגישת וידאו</span>
           </label>
         </div>
+
+        {formData.withZoom && (
+          <div>
+            <label className="form-label">ספק וידאו</label>
+            <select
+              value={formData.videoProvider}
+              onChange={(e) => setFormData({ ...formData, videoProvider: e.target.value as 'zoom' | 'google_meet' })}
+              className="form-input"
+            >
+              <option value="google_meet">Google Meet</option>
+              <option value="zoom">Zoom</option>
+            </select>
+          </div>
+        )}
 
         <div className="col-span-2">
           <label className="form-label">נושא</label>

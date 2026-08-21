@@ -35,7 +35,7 @@ import type { Meeting, MeetingStatus } from '../types';
 
 export default function Meetings() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations' || user?.role === 'operations_manager';
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);
@@ -591,7 +591,7 @@ export default function Meetings() {
     ? {
         total: displayMeetings.length,
         completed: displayMeetings.filter((m) => m.status === 'completed').length,
-        pending: displayMeetings.filter((m) => m.status === 'scheduled').length,
+        pending: displayMeetings.filter((m) => m.status === 'scheduled' || m.status === 'pending_cancellation' || m.status === 'pending_postponement').length,
         cancelled: displayMeetings.filter((m) => m.status === 'cancelled').length,
       }
     : null;
@@ -614,8 +614,7 @@ export default function Meetings() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
-        {/* Pending requests banner - Admin only */}
-        {isAdmin && <PendingMeetingRequests />}
+        {isAdmin && <PendingMeetingRequests showRiskSummary={false} />}
 
         {/* Bulk Actions Bar - Admin only */}
         {someSelected && isAdmin && (
@@ -753,6 +752,8 @@ export default function Meetings() {
                         <option value="completed">התקיימה</option>
                         <option value="cancelled">בוטלה</option>
                         <option value="postponed">נדחתה</option>
+                        <option value="pending_cancellation">בקשת ביטול</option>
+                        <option value="pending_postponement">בקשת דחייה</option>
                       </select>
                     </div>
                     <div>

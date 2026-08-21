@@ -1,7 +1,5 @@
 import { prisma } from '../utils/prisma.js';
-import { sendWhatsApp } from './messaging.js';
-
-const ALERT_PHONE = process.env.ALERT_PHONE || '972528746137';
+import { sendOperationsWhatsApp } from './operations-notifications.js';
 
 function formatDbDate(date: Date): string {
   return date.toLocaleDateString('he-IL', { timeZone: 'Asia/Jerusalem' });
@@ -62,9 +60,10 @@ ${expensesTotal > 0 ? `🧾 הוצאות: ₪${expensesTotal}\n` : ''}📉 רו�
 
 מקור חישוב: ${source}`;
 
-  const result = await sendWhatsApp({ phone: ALERT_PHONE, message });
-  if (!result.success) {
-    console.error(`[NegativeProfitAlert] send failed for meeting ${meetingId}: ${result.error}`);
+  const results = await sendOperationsWhatsApp(message);
+  const failed = results.filter((result) => !result.success);
+  if (failed.length === results.length) {
+    console.error(`[NegativeProfitAlert] send failed for meeting ${meetingId}: ${failed.map((result) => result.error).join('; ')}`);
     return;
   }
 

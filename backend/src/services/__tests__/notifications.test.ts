@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const sendMailMock = vi.fn();
+const { sendMailMock } = vi.hoisted(() => {
+  process.env.JWT_SECRET = 'test-jwt-secret';
+  process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
+  process.env.API_KEY = 'test-api-key';
+  process.env.GMAIL_USER = 'info@hai.tech';
+  process.env.GMAIL_APP_PASSWORD = 'test-gmail-password';
+  process.env.FRONTEND_URL = 'https://crm.orma-ai.com';
+  return { sendMailMock: vi.fn() };
+});
 
 vi.mock('nodemailer', () => ({
   default: {
@@ -10,72 +18,150 @@ vi.mock('nodemailer', () => ({
   },
 }));
 
-function stubRequiredEnv() {
-  vi.stubEnv('JWT_SECRET', 'test-jwt-secret');
-  vi.stubEnv('JWT_REFRESH_SECRET', 'test-refresh-secret');
-  vi.stubEnv('API_KEY', 'test-api-key');
-  vi.stubEnv('GMAIL_USER', 'info@hai.tech');
-  vi.stubEnv('GMAIL_APP_PASSWORD', 'test-gmail-password');
-  vi.stubEnv('GREEN_API_INSTANCE_ID', '7103320181');
-  vi.stubEnv('GREEN_API_TOKEN', 'test-green-token');
-  vi.stubEnv('FRONTEND_URL', 'https://crm.orma-ai.com');
-}
+vi.mock('../green-api-client.js', () => ({
+  sendGreenApiMessage: vi.fn().mockResolvedValue({ success: true, instanceId: 'test-green' }),
+}));
 
-describe('notifyAdminNewLead', () => {
+vi.mock('../whatsapp-cloud-templates.js', async () => {
+  const actual = await vi.importActual<typeof import('../whatsapp-cloud-templates.js')>('../whatsapp-cloud-templates.js');
+  return {
+    ...actual,
+    sendWhatsAppCloudTemplate: vi.fn().mockResolvedValue({ success: true, messageId: 'wamid.test' }),
+  };
+});
+
+import { sendGreenApiMessage } from '../green-api-client.js';
+import { sendWhatsAppCloudTemplate } from '../whatsapp-cloud-templates.js';
+import {
+  buildLeadAdminTemplatePreview,
+  buildLeadAdminTemplateVariables,
+  notifyAdminNewLead,
+} from '../notifications.js';
+
+const lead = {
+  name: 'ישראל ישראלי',
+  phone: '0521234567',
+  email: 'lead@example.com',
+  childName: 'דנה',
+  interest: 'רובלוקס',
+  source: 'website',
+  leadAppointmentId: 'lead-1',
+};
+
+describe('lead admin notifications', () => {
   beforeEach(() => {
-    vi.resetModules();
-    vi.unstubAllEnvs();
-    vi.unstubAllGlobals();
-    sendMailMock.mockReset();
-    stubRequiredEnv();
+    vi.clearAllMocks();
+    vi.mocked(sendGreenApiMessage).mockResolvedValue({ success: true, instanceId: 'test-green' });
+    vi.mocked(sendWhatsAppCloudTemplate).mockResolvedValue({ success: true, messageId: 'wamid.test' });
+    delete process.env.LEAD_ADMIN_WA_TEMPLATE_ENABLED;
+    delete process.env.LEAD_ADMIN_WA_TEMPLATE_NAME;
+    delete process.env.LEAD_ADMIN_WA_TEMPLATE_RECIPIENTS;
+    delete process.env.LEAD_ADMIN_GREEN_FALLBACK_ENABLED;
+    delete process.env.LEAD_ADMIN_WA_PHONE_NUMBER_ID;
+    delete process.env.LEAD_ADMIN_WA_BUSINESS_PHONE;
+    process.env.FRONTEND_URL = 'https://crm.orma-ai.com';
   });
 
-  it('sends an email alert to info@hai.tech when internal WhatsApp delivery fails', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      text: vi.fn().mockResolvedValue('notAuthorized'),
-    });
-    vi.stubGlobal('fetch', fetchMock);
+  it('builds Meta template variables in the documented order', () => {
+    expect(buildLeadAdminTemplateVariables(lead, 'https://crm.orma-ai.com/lead-appointments?id=lead-1')).toEqual([
+      'ישראל ישראלי',
+      '0521234567',
+      'lead@example.com',
+      'דנה',
+      'רובלוקס',
+      'website',
+      'https://crm.orma-ai.com/lead-appointments?id=lead-1',
+    ]);
+  });
 
-    const { notifyAdminNewLead } = await import('../notifications.js');
+  it('uses safe fallbacks for missing lead fields', () => {
+    expect(buildLeadAdminTemplateVariables({ name: '' }, '')).toEqual([
+      'לא צוין',
+      'לא צוין',
+      'לא צוין',
+      'לא צוין',
+      'לא צוין',
+      'website',
+      'https://crm.orma-ai.com/lead-appointments',
+    ]);
+  });
 
-    await notifyAdminNewLead({
-      name: 'עמי מידר',
-      phone: '0528746137',
-      email: 'ami@example.com',
-      interest: 'אחר',
-      source: 'website',
-      leadAppointmentId: 'lead-123',
-    });
+  it('does not send Meta templates unless explicitly enabled', async () => {
+    await notifyAdminNewLead(lead);
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sendWhatsAppCloudTemplate).not.toHaveBeenCalled();
+    expect(sendGreenApiMessage).toHaveBeenCalledTimes(3);
+    expect(sendGreenApiMessage).toHaveBeenCalledWith('972543354550@c.us', expect.stringContaining('ישראל ישראלי'));
+    expect(sendMailMock).not.toHaveBeenCalled();
+  });
+
+  it('sends an email alert to info@hai.tech when internal Green WhatsApp delivery fails', async () => {
+    vi.mocked(sendGreenApiMessage).mockResolvedValue({ success: false, error: 'notAuthorized' });
+
+    await notifyAdminNewLead(lead);
+
+    expect(sendGreenApiMessage).toHaveBeenCalledTimes(3);
     expect(sendMailMock).toHaveBeenCalledTimes(1);
     expect(sendMailMock).toHaveBeenCalledWith(expect.objectContaining({
       to: 'info@hai.tech',
       subject: expect.stringContaining('WhatsApp לליד חדש לא נשלח'),
-      html: expect.stringContaining('lead-123'),
+      html: expect.stringContaining('lead-1'),
     }));
     expect(sendMailMock.mock.calls[0][0].html).toContain('עמי');
+    expect(sendMailMock.mock.calls[0][0].html).toContain('קים');
     expect(sendMailMock.mock.calls[0][0].html).toContain('קבוצת המכירות');
   });
 
-  it('does not send a failure email when all internal WhatsApp deliveries succeed', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      text: vi.fn().mockResolvedValue(''),
-    });
-    vi.stubGlobal('fetch', fetchMock);
+  it('does not send a failure email when all internal Green WhatsApp deliveries succeed', async () => {
+    await notifyAdminNewLead(lead);
 
-    const { notifyAdminNewLead } = await import('../notifications.js');
+    expect(sendGreenApiMessage).toHaveBeenCalledTimes(3);
+    expect(sendMailMock).not.toHaveBeenCalled();
+  });
 
-    await notifyAdminNewLead({
-      name: 'לקוח בדיקה',
-      phone: '0501234567',
-      source: 'website',
-      leadAppointmentId: 'lead-ok',
-    });
+  it('sends the admin template to configured direct recipients when enabled', async () => {
+    process.env.LEAD_ADMIN_WA_TEMPLATE_ENABLED = 'true';
+    process.env.LEAD_ADMIN_WA_TEMPLATE_NAME = 'lead_admin_new_lead';
+    process.env.LEAD_ADMIN_WA_TEMPLATE_RECIPIENTS = '0528746137,0541234567';
+    process.env.LEAD_ADMIN_WA_PHONE_NUMBER_ID = '171389679383708';
+    process.env.LEAD_ADMIN_WA_BUSINESS_PHONE = '+972533027763';
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await notifyAdminNewLead(lead);
+
+    expect(sendWhatsAppCloudTemplate).toHaveBeenCalledTimes(2);
+    expect(sendWhatsAppCloudTemplate).toHaveBeenCalledWith(expect.objectContaining({
+      phone: '0528746137',
+      templateName: 'lead_admin_new_lead',
+      phoneNumberId: '171389679383708',
+      businessPhone: '+972533027763',
+      bodyParameters: buildLeadAdminTemplateVariables(lead, 'https://crm.orma-ai.com/lead-appointments?id=lead-1'),
+      preview: buildLeadAdminTemplatePreview(lead, 'https://crm.orma-ai.com/lead-appointments?id=lead-1'),
+    }));
+    expect(sendWhatsAppCloudTemplate).toHaveBeenCalledWith(expect.objectContaining({
+      phone: '0541234567',
+      templateName: 'lead_admin_new_lead',
+    }));
+  });
+
+  it('labels Kim when sending the default admin template recipients', async () => {
+    process.env.LEAD_ADMIN_WA_TEMPLATE_ENABLED = 'true';
+
+    await notifyAdminNewLead(lead);
+
+    expect(sendWhatsAppCloudTemplate).toHaveBeenCalledWith(expect.objectContaining({
+      phone: '0543354550',
+      contactName: 'קים נווה',
+    }));
+  });
+
+  it('can disable the legacy Green notification fallback after the template is live', async () => {
+    process.env.LEAD_ADMIN_WA_TEMPLATE_ENABLED = 'true';
+    process.env.LEAD_ADMIN_GREEN_FALLBACK_ENABLED = 'false';
+
+    await notifyAdminNewLead(lead);
+
+    expect(sendWhatsAppCloudTemplate).toHaveBeenCalledTimes(2);
+    expect(sendGreenApiMessage).not.toHaveBeenCalled();
     expect(sendMailMock).not.toHaveBeenCalled();
   });
 });

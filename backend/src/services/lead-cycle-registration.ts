@@ -1,0 +1,139 @@
+import { prisma } from '../utils/prisma.js';
+import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
+import { defaultRegistrationAmountForCycle } from '../utils/registration-amount.js';
+
+const AUTO_REGISTRATION_SOURCES = new Set([
+  'omer-dafna-registration-form',
+]);
+
+type AutoRegistrationStatus =
+  | 'skipped'
+  | 'registered'
+  | 'already_registered'
+  | 'invalid_cycle'
+  | 'inactive_cycle'
+  | 'missing_child';
+
+export interface AutoRegisterLeadInput {
+  source: string;
+  customerId: string;
+  childName?: string | null;
+  childAge?: string | null;
+  grade?: string | null;
+  cycleId?: string | null;
+  interest?: string | null;
+}
+
+export interface AutoRegisterLeadResult {
+  status: AutoRegistrationStatus;
+  reason?: string;
+  cycleId?: string;
+  studentId?: string;
+  registrationId?: string;
+}
+
+function cleanText(value?: string | null): string {
+  return String(value ?? '').trim();
+}
+
+export async function autoRegisterLeadToCycle(input: AutoRegisterLeadInput): Promise<AutoRegisterLeadResult> {
+  if (!AUTO_REGISTRATION_SOURCES.has(input.source)) {
+    return { status: 'skipped', reason: 'source_not_enabled' };
+  }
+
+  const cycleId = cleanText(input.cycleId);
+  if (!cycleId) {
+    return { status: 'skipped', reason: 'missing_cycle_id' };
+  }
+
+  const childName = cleanText(input.childName);
+  if (!childName) {
+    return { status: 'missing_child', reason: 'missing_child_name', cycleId };
+  }
+
+  const cycle = await prisma.cycle.findFirst({
+    where: { id: cycleId, deletedAt: null },
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      defaultRegistrationAmount: true,
+    },
+  });
+
+  if (!cycle) {
+    return { status: 'invalid_cycle', reason: 'cycle_not_found', cycleId };
+  }
+
+  if (cycle.status !== 'active') {
+    return { status: 'inactive_cycle', reason: `cycle_status_${cycle.status}`, cycleId };
+  }
+
+  const studentNotes = [
+    input.childAge ? `גיל: ${cleanText(input.childAge)}` : null,
+    input.grade ? `כיתה: ${cleanText(input.grade)}` : null,
+    input.interest ? `תחום עניין: ${cleanText(input.interest)}` : null,
+    `מקור: ${input.source}`,
+  ].filter(Boolean).join(' | ');
+
+  let student = await prisma.student.findFirst({
+    where: {
+      customerId: input.customerId,
+      deletedAt: null,
+      name: childName,
+    },
+    select: { id: true },
+  });
+
+  if (!student) {
+    student = await prisma.student.create({
+      data: {
+        customerId: input.customerId,
+        name: childName,
+        notes: studentNotes || undefined,
+      },
+      select: { id: true },
+    });
+  }
+
+  const existingRegistration = await prisma.registration.findFirst({
+    where: {
+      studentId: student.id,
+      cycleId: cycle.id,
+      deletedAt: null,
+      status: { notIn: ['cancelled', 'pending_cancellation'] },
+    },
+    select: { id: true },
+  });
+
+  if (existingRegistration) {
+    return {
+      status: 'already_registered',
+      cycleId: cycle.id,
+      studentId: student.id,
+      registrationId: existingRegistration.id,
+    };
+  }
+
+  const registration = await prisma.registration.create({
+    data: {
+      studentId: student.id,
+      cycleId: cycle.id,
+      status: 'registered',
+      paymentStatus: 'unpaid',
+      amount: defaultRegistrationAmountForCycle(cycle),
+      notes: `נוצר אוטומטית מטופס ${input.source}`,
+    },
+    select: { id: true },
+  });
+
+  recalcMeetingRevenue(cycle.id)
+    .catch(err => console.error('[lead-cycle-registration] failed to recalculate cycle revenue:', err));
+
+  return {
+    status: 'registered',
+    cycleId: cycle.id,
+    studentId: student.id,
+    registrationId: registration.id,
+  };
+}

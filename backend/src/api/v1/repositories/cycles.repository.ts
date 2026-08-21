@@ -164,6 +164,7 @@ export class CyclesRepository {
         totalMeetings: data.totalMeetings,
         remainingMeetings: data.totalMeetings,
         pricePerStudent: data.pricePerStudent,
+        defaultRegistrationAmount: data.defaultRegistrationAmount,
         meetingRevenue: data.meetingRevenue,
         instructorPaymentMode: data.instructorPaymentMode ?? 'hourly',
         instructorDailyRate: data.instructorPaymentMode === 'daily' ? data.instructorDailyRate : null,

@@ -1,6 +1,8 @@
 import axios from 'axios';
 import { prisma } from '../utils/prisma.js';
 
+const TZ = 'Asia/Jerusalem';
+
 /**
  * Get the correct UTC offset string for a given date in Asia/Jerusalem timezone.
  * Returns '+02:00' in winter or '+03:00' during DST.
@@ -19,6 +21,40 @@ export function getIsraelOffset(date: Date): string {
     return `${sign}${hours.padStart(2, '0')}:00`;
   }
   return '+02:00'; // fallback
+}
+
+function getIsraelDateString(date: Date): string {
+  return new Intl.DateTimeFormat('sv', { timeZone: TZ }).format(date);
+}
+
+function getIsraelTimeParts(date: Date): { hours: number; minutes: number; seconds: number } {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+
+  const part = (type: string) => Number(parts.find(p => p.type === type)?.value ?? 0);
+  return {
+    hours: part('hour'),
+    minutes: part('minute'),
+    seconds: part('second'),
+  };
+}
+
+export function buildLocalZoomBookingWindow(startTime: Date, durationMinutes: number) {
+  const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
+  const scheduledDateStr = getIsraelDateString(startTime);
+  const start = getIsraelTimeParts(startTime);
+  const end = getIsraelTimeParts(endTime);
+
+  return {
+    scheduledDate: new Date(`${scheduledDateStr}T00:00:00.000Z`),
+    newStart: new Date(Date.UTC(1970, 0, 1, start.hours, start.minutes, start.seconds)),
+    newEnd: new Date(Date.UTC(1970, 0, 1, end.hours, end.minutes, end.seconds)),
+  };
 }
 
 // Zoom API configuration
@@ -54,6 +90,7 @@ interface ZoomMeeting {
   start_url: string;
   password: string;
   host_key?: string;
+  encrypted_password?: string;
 }
 
 interface CreateMeetingParams {
@@ -281,18 +318,7 @@ async function getLocallyBookedHostEmails(
   startTime: Date,
   durationMinutes: number
 ): Promise<Set<string>> {
-  const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
-
-  // Build the @db.Date scheduledDate (midnight UTC of that calendar day).
-  const scheduledDate = new Date(Date.UTC(
-    startTime.getUTCFullYear(),
-    startTime.getUTCMonth(),
-    startTime.getUTCDate()
-  ));
-
-  // @db.Time columns store the time on 1970-01-01, so compare against same epoch date.
-  const newStart = new Date(Date.UTC(1970, 0, 1, startTime.getUTCHours(), startTime.getUTCMinutes(), startTime.getUTCSeconds()));
-  const newEnd   = new Date(Date.UTC(1970, 0, 1, endTime.getUTCHours(),   endTime.getUTCMinutes(),   endTime.getUTCSeconds()));
+  const { scheduledDate, newStart, newEnd } = buildLocalZoomBookingWindow(startTime, durationMinutes);
 
   const overlapping = await prisma.meeting.findMany({
     where: {
@@ -312,6 +338,26 @@ async function getLocallyBookedHostEmails(
   for (const m of overlapping) {
     if (m.zoomHostEmail) booked.add(m.zoomHostEmail.toLowerCase());
   }
+
+  try {
+    const internalOverlapping = await prisma.$queryRaw<Array<{ zoom_host_email: string | null }>>`
+      SELECT zoom_host_email
+      FROM internal_zoom_meetings
+      WHERE status = 'scheduled'
+        AND zoom_host_email IS NOT NULL
+        AND start_at < ${new Date(startTime.getTime() + durationMinutes * 60000)}
+        AND end_at > ${startTime}
+    `;
+
+    for (const m of internalOverlapping) {
+      if (m.zoom_host_email) booked.add(m.zoom_host_email.toLowerCase());
+    }
+  } catch (error: any) {
+    if (error?.code !== 'P2010' && error?.meta?.code !== '42P01') {
+      throw error;
+    }
+  }
+
   return booked;
 }
 
@@ -396,6 +442,7 @@ export async function createMeeting(
     start_time: localTimeStr,
     duration: params.duration,
     timezone: params.timezone || 'Asia/Jerusalem',
+    password: '1111',
     settings: {
       host_video: true,
       participant_video: true,
@@ -404,6 +451,7 @@ export async function createMeeting(
       mute_upon_entry: true,
       auto_recording: 'none',
       meeting_authentication: false,
+      embed_password_in_join_link: true,
       alternative_hosts: 'hai.tech.teacher@gmail.com',
       alternative_hosts_email_notification: false,
       use_pmi: false
@@ -426,6 +474,14 @@ export async function createMeeting(
   console.log('[Zoom] Fetched host key:', hostKey);
   
   return { ...meeting, host_key: hostKey || undefined };
+}
+
+export function getDirectJoinUrl(meeting: Pick<ZoomMeeting, 'id' | 'join_url' | 'encrypted_password'>): string {
+  if (meeting.join_url.includes('?pwd=')) return meeting.join_url;
+  if (meeting.encrypted_password) {
+    return `https://us02web.zoom.us/j/${meeting.id}?pwd=${meeting.encrypted_password}`;
+  }
+  return meeting.join_url;
 }
 
 /**
@@ -580,5 +636,6 @@ export const zoomService = {
   deleteMeeting,
   deleteRecordings,
   getMeeting,
-  createCycleMeeting
+  createCycleMeeting,
+  getDirectJoinUrl
 };

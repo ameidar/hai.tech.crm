@@ -16,6 +16,8 @@ vi.mock('../../utils/prisma.js', () => ({
     leadActivity: {
       create: vi.fn(),
     },
+    $queryRaw: vi.fn(),
+    $executeRaw: vi.fn(),
     $transaction: vi.fn(),
   },
 }));
@@ -69,8 +71,33 @@ describe('Lead Appointments API', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (mockPrisma.$transaction as any).mockImplementation(async (cb: any) => cb(mockPrisma));
+    (mockPrisma.$queryRaw as any).mockResolvedValue([]);
+    (mockPrisma.$executeRaw as any).mockResolvedValue(undefined);
     mockFindOrCreateCustomer.mockResolvedValue({ customerId: 'customer-1', isNew: false } as any);
     mockSendLeadWelcomeTemplate.mockResolvedValue(undefined);
+  });
+
+  const expectedPaidPaymentsSelection = {
+    where: { status: 'paid' },
+    orderBy: { paidAt: 'desc' },
+    select: {
+      id: true,
+      description: true,
+      amount: true,
+      paidAt: true,
+      status: true,
+    },
+  };
+
+  const expectedLeadInclude = expect.objectContaining({
+    customer: {
+      select: expect.objectContaining({
+        id: true,
+        name: true,
+        payments: expectedPaidPaymentsSelection,
+      }),
+    },
+    assignedTo: expect.any(Object),
   });
 
   describe('GET /api/lead-appointments', () => {
@@ -94,6 +121,71 @@ describe('Lead Appointments API', () => {
       expect(mockPrisma.leadAppointment.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({ appointmentStatus: 'scheduled' }),
+        })
+      );
+    });
+
+    it('includes paid customer payments for sales status display', async () => {
+      mockPrisma.leadAppointment.findMany.mockResolvedValue([]);
+      mockPrisma.leadAppointment.count.mockResolvedValue(0);
+
+      await request(app).get('/api/lead-appointments');
+
+      expect(mockPrisma.leadAppointment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expectedLeadInclude,
+        })
+      );
+    });
+
+    it('collapses duplicate lead rows by customer identity when requested', async () => {
+      mockPrisma.leadAppointment.findMany.mockResolvedValue([
+        { id: 'lead-1', customerId: 'customer-1', customerName: 'לקוחה קיימת', updatedAt: new Date('2026-07-05') },
+        { id: 'lead-2', customerId: 'customer-1', customerName: 'לקוחה קיימת', updatedAt: new Date('2026-07-04') },
+        { id: 'lead-3', customerId: 'customer-2', customerName: 'לקוחה אחרת', updatedAt: new Date('2026-07-03') },
+      ]);
+
+      const res = await request(app).get('/api/lead-appointments?collapseDuplicates=true');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual([
+        expect.objectContaining({ id: 'lead-1', duplicateLeadCount: 2 }),
+        expect.objectContaining({ id: 'lead-3', duplicateLeadCount: 1 }),
+      ]);
+      expect(res.body.pagination.total).toBe(2);
+      expect(mockPrisma.leadAppointment.count).not.toHaveBeenCalled();
+    });
+
+    it('supports customer search by name, phone, email, or child name', async () => {
+      mockPrisma.leadAppointment.findMany.mockResolvedValue([]);
+      mockPrisma.leadAppointment.count.mockResolvedValue(0);
+
+      await request(app).get('/api/lead-appointments?search=0501234567');
+
+      expect(mockPrisma.leadAppointment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: expect.arrayContaining([
+              { customerName: { contains: '0501234567', mode: 'insensitive' } },
+              { customerPhone: { contains: '0501234567' } },
+              { customerPhone: { contains: '972501234567' } },
+              { childName: { contains: '0501234567', mode: 'insensitive' } },
+              expect.objectContaining({
+                customer: expect.objectContaining({
+                  is: expect.objectContaining({
+                    OR: expect.arrayContaining([
+                      { phone: { contains: '0501234567' } },
+                    ]),
+                  }),
+                }),
+              }),
+            ]),
+          }),
+        })
+      );
+      expect(mockPrisma.leadAppointment.count).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ OR: expect.any(Array) }),
         })
       );
     });
@@ -174,6 +266,7 @@ describe('Lead Appointments API', () => {
         assignedToId: 'sales-1',
       };
       mockPrisma.leadAppointment.create.mockResolvedValue(created);
+      mockPrisma.leadAppointment.findUnique.mockResolvedValue(created);
 
       const res = await request(app)
         .post('/api/lead-appointments')
@@ -210,7 +303,10 @@ describe('Lead Appointments API', () => {
           assignedToId: 'sales-1',
           nextFollowUpAt: new Date('2026-07-05T09:30:00.000Z'),
         }),
-        include: expect.any(Object),
+      });
+      expect(mockPrisma.leadAppointment.findUnique).toHaveBeenCalledWith({
+        where: { id: 'lead-1' },
+        include: expectedLeadInclude,
       });
       expect(mockSendLeadWelcomeTemplate).toHaveBeenCalledWith('0501234567', 'נועה כהן');
     });
@@ -233,6 +329,21 @@ describe('Lead Appointments API', () => {
       const res = await request(app).get('/api/lead-appointments/abc');
       expect(res.status).toBe(200);
       expect(res.body.data).toEqual(item);
+      expect(mockPrisma.leadAppointment.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({
+            customer: {
+              select: expect.objectContaining({
+                id: true,
+                name: true,
+                phone: true,
+                email: true,
+                payments: expectedPaidPaymentsSelection,
+              }),
+            },
+          }),
+        })
+      );
     });
 
     it('returns 404 when not found', async () => {
@@ -259,6 +370,37 @@ describe('Lead Appointments API', () => {
         data: { appointmentStatus: 'completed' },
         include: expect.any(Object),
       });
+    });
+
+    it('updates WhatsApp sent state', async () => {
+      const updated = { id: 'abc', whatsappSent: true, lastContactResult: 'whatsapp_sent' };
+      mockPrisma.leadAppointment.update.mockResolvedValue(updated);
+
+      const res = await request(app)
+        .patch('/api/lead-appointments/abc')
+        .send({ whatsappSent: true, lastContactResult: 'whatsapp_sent' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual(updated);
+      expect(mockPrisma.leadAppointment.update).toHaveBeenCalledWith({
+        where: { id: 'abc' },
+        data: {
+          whatsappSent: true,
+          lastContactResult: 'whatsapp_sent',
+          lastContactedAt: expect.any(Date),
+        },
+        include: expect.any(Object),
+      });
+    });
+
+    it('rejects saving an edited lead without a follow-up date', async () => {
+      const res = await request(app)
+        .patch('/api/lead-appointments/abc')
+        .send({ nextFollowUpAt: null });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('יש למלא תאריך חזרה לפני שמירת הליד');
+      expect(mockPrisma.leadAppointment.update).not.toHaveBeenCalled();
     });
 
     it('records activity when contact result is provided', async () => {

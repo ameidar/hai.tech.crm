@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
-import { authenticate, managerOrAdmin } from '../middleware/auth.js';
+import { authenticate, operationsManagerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { updateMeetingSchema, postponeMeetingSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
 import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { zoomService, getIsraelOffset } from '../services/zoom.js';
+import { googleMeetService } from '../services/google-meet.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
 import { syncCycleProgress, syncCycleEndDate } from '../utils/cycle-sync.js';
 import { meetingRevenueFromRegistrations, revenueRegistrationCount, roundMoney } from '../utils/revenue.js';
@@ -15,10 +16,105 @@ import {
   recalculateDailyInstructorPaymentsForMeeting,
 } from '../services/instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
+import { checkAndSendMeetingReportQualityAlert } from '../services/meeting-report-quality-alert.js';
 
 export const meetingsRouter = Router();
 
 meetingsRouter.use(authenticate);
+
+const registrationStudentInclude = {
+  student: {
+    include: {
+      customer: { select: { id: true, name: true, phone: true } },
+    },
+  },
+};
+
+async function assertRegistrationBelongsToCycle(registrationId: string, cycleId: string) {
+  const registration = await prisma.registration.findFirst({
+    where: {
+      id: registrationId,
+      cycleId,
+      deletedAt: null,
+      status: { notIn: ['cancelled', 'pending_cancellation'] as any },
+    },
+    select: { id: true },
+  });
+
+  if (!registration) {
+    throw new AppError(400, 'ההרשמה שנבחרה לא שייכת למחזור או אינה פעילה');
+  }
+}
+
+async function findLinkedTrialRegistrationId(meetingId: string, registrationId?: string | null) {
+  if (registrationId) return registrationId;
+
+  const attendance = await prisma.attendance.findFirst({
+    where: {
+      meetingId,
+      registrationId: { not: null },
+    },
+    select: { registrationId: true },
+  });
+
+  return attendance?.registrationId ?? null;
+}
+
+async function ensureTrialMeetingHasRegistration(meeting: {
+  id: string;
+  cycleId: string;
+  registrationId?: string | null;
+  cycle?: { type?: string | null } | null;
+}) {
+  if (meeting.cycle?.type !== 'trial_private') return null;
+
+  const registrationId = await findLinkedTrialRegistrationId(meeting.id, meeting.registrationId);
+  if (!registrationId) {
+    throw new AppError(400, 'חובה לשייך תלמיד/הרשמה לפני סימון שיעור ניסיון כהושלם');
+  }
+
+  await assertRegistrationBelongsToCycle(registrationId, meeting.cycleId);
+  return registrationId;
+}
+
+async function upsertTrialAttendance(meetingId: string, registrationId: string, recordedById?: string) {
+  await prisma.attendance.upsert({
+    where: {
+      meetingId_registrationId: {
+        meetingId,
+        registrationId,
+      },
+    },
+    update: {
+      status: 'present',
+      recordedAt: new Date(),
+      recordedById,
+      isTrial: true,
+    },
+    create: {
+      meetingId,
+      registrationId,
+      status: 'present',
+      recordedById,
+      isTrial: true,
+    },
+  });
+}
+
+async function getInstructorScopeForMeetingList(userId: string, role: string) {
+  if (role !== 'instructor' && role !== 'operations_control') return null;
+
+  const instructor = await prisma.instructor.findUnique({
+    where: { userId },
+    select: { id: true },
+  });
+
+  if (!instructor) {
+    throw new AppError(403, 'לא נמצא מדריך מקושר למשתמש הזה');
+  }
+
+  return instructor.id;
+}
 
 // List meetings
 meetingsRouter.get('/', async (req, res, next) => {
@@ -34,15 +130,9 @@ meetingsRouter.get('/', async (req, res, next) => {
     const sortParam = (req.query.sort as string | undefined)?.toLowerCase();
     const sortDir: 'asc' | 'desc' = sortParam === 'desc' ? 'desc' : 'asc';
 
-    // If user is an instructor, only show their meetings
-    if (req.user!.role === 'instructor') {
-      const instructor = await prisma.instructor.findUnique({
-        where: { userId: req.user!.userId },
-        select: { id: true },
-      });
-      if (instructor) {
-        instructorId = instructor.id;
-      }
+    const scopedInstructorId = await getInstructorScopeForMeetingList(req.user!.userId, req.user!.role);
+    if (scopedInstructorId) {
+      instructorId = scopedInstructorId;
     }
 
     const where = {
@@ -77,6 +167,12 @@ meetingsRouter.get('/', async (req, res, next) => {
             },
           },
           instructor: { select: { id: true, name: true, phone: true } },
+          registration: { include: registrationStudentInclude },
+          attendance: {
+            include: {
+              registration: { include: registrationStudentInclude },
+            },
+          },
           expenses: {
             where: { status: 'approved' },
             select: { id: true, type: true, amount: true, description: true, status: true },
@@ -173,13 +269,12 @@ meetingsRouter.get('/:id', async (req, res, next) => {
         attendance: {
           include: {
             registration: {
-              include: {
-                student: { select: { id: true, name: true } },
-              },
+              include: registrationStudentInclude,
             },
             recordedBy: { select: { id: true, name: true } },
           },
         },
+        registration: { include: registrationStudentInclude },
         statusUpdatedBy: { select: { id: true, name: true } },
         rescheduledTo: { select: { id: true, scheduledDate: true } },
         rescheduledFrom: { select: { id: true, scheduledDate: true } },
@@ -197,9 +292,10 @@ meetingsRouter.get('/:id', async (req, res, next) => {
 });
 
 // Create exceptional/ad-hoc meeting for a cycle
-meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
+meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
   try {
-    const { cycleId, instructorId, scheduledDate, startTime, endTime, withZoom, activityType, topic, notes } = req.body;
+    const { cycleId, instructorId, registrationId, scheduledDate, startTime, endTime, withZoom, activityType, topic, notes } = req.body;
+    const videoProvider = req.body.videoProvider === 'google_meet' ? 'google_meet' : 'zoom';
 
     if (!cycleId || !instructorId || !scheduledDate || !startTime || !endTime) {
       throw new AppError(400, 'Missing required fields: cycleId, instructorId, scheduledDate, startTime, endTime');
@@ -218,6 +314,15 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
 
     if (!cycle) {
       throw new AppError(404, 'Cycle not found');
+    }
+
+    if (cycle.type === 'trial_private') {
+      if (!registrationId) {
+        throw new AppError(400, 'חובה לבחור תלמיד/הרשמה לשיעור ניסיון');
+      }
+      await assertRegistrationBelongsToCycle(registrationId, cycleId);
+    } else if (registrationId) {
+      await assertRegistrationBelongsToCycle(registrationId, cycleId);
     }
 
     // Block adding meetings into a month that already has an issued billing invoice.
@@ -247,8 +352,6 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
     } else if (['private', 'trial_private'].includes(String(cycle.type))) {
       if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
         revenue = Number(cycle.meetingRevenue);
-      } else if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
-        revenue = Number(cycle.pricePerStudent) * cycle.registrations.length;
       } else {
         revenue = meetingRevenueFromRegistrations(cycle.registrations, cycle.totalMeetings, cycle.type);
       }
@@ -268,6 +371,7 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
       data: {
         cycleId,
         instructorId,
+        registrationId: registrationId || null,
         scheduledDate: new Date(scheduledDate),
         startTime: new Date(`1970-01-01T${startTime}:00Z`),
         endTime: new Date(`1970-01-01T${endTime}:00Z`),
@@ -282,65 +386,107 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
       include: {
         cycle: { include: { course: true, branch: true } },
         instructor: true,
+        registration: { include: registrationStudentInclude },
       },
     });
 
-    // Create Zoom meeting if requested
+    // Create video meeting if requested
     if (withZoom) {
       try {
-        // startTime is in Israel local time (HH:MM), build datetime with Israel timezone offset
-        let [sHour, sMin] = startTime.split(':').map(Number);
-        
-        // Start Zoom meeting 10 minutes early to allow participants to join before the lesson
-        sMin -= 10;
-        if (sMin < 0) {
-          sMin += 60;
-          sHour -= 1;
-          if (sHour < 0) sHour = 23;
-        }
-        
         const dateStr = new Date(scheduledDate).toISOString().split('T')[0];
-        const timeStr = `${sHour.toString().padStart(2, '0')}:${sMin.toString().padStart(2, '0')}:00`;
-        // Use the correct Israel UTC offset for the meeting date (handles DST: +02:00 winter / +03:00 summer)
-        const israelDateStr = `${dateStr}T${timeStr}${getIsraelOffset(new Date(scheduledDate))}`;
-        const meetingDate = new Date(israelDateStr);
-
-        // Add 10 minutes to duration to cover the early start
-        const zoomDuration = durationMinutes + 10;
-
-        // Find an available Zoom user
-        const availableUser = await zoomService.findAvailableUser(meetingDate, zoomDuration);
-        if (availableUser) {
-          const zoomMeeting = await zoomService.createMeeting(availableUser.id, {
+        if (videoProvider === 'google_meet') {
+          const lessonDate = new Date(`${dateStr}T${startTime}:00${getIsraelOffset(new Date(scheduledDate))}`);
+          const googleMeeting = await googleMeetService.createMeeting({
             topic: cycle.name,
-            startTime: meetingDate,
-            duration: zoomDuration,
+            lessonStart: lessonDate,
+            durationMinutes,
+            instructorEmail: instructor.email,
+            record: true,
+            transcript: true,
           });
+          if (googleMeeting) {
+            await prisma.meeting.update({
+              where: { id: meeting.id },
+              data: {
+                videoProvider: 'google_meet',
+                zoomMeetingId: googleMeeting.id,
+                zoomJoinUrl: googleMeeting.joinUrl,
+                zoomStartUrl: googleMeeting.startUrl,
+                zoomPassword: null,
+                zoomHostKey: null,
+                zoomHostEmail: googleMeeting.hostEmail,
+                googleMeetSpaceName: googleMeeting.spaceName ?? null,
+                googleCalendarEventId: googleMeeting.calendarEventId ?? null,
+              },
+            });
 
-          // Update meeting with Zoom details
-          await prisma.meeting.update({
-            where: { id: meeting.id },
-            data: {
+            Object.assign(meeting, {
+              videoProvider: 'google_meet',
+              zoomMeetingId: googleMeeting.id,
+              zoomJoinUrl: googleMeeting.joinUrl,
+              zoomStartUrl: googleMeeting.startUrl,
+              zoomPassword: null,
+              zoomHostKey: null,
+              zoomHostEmail: googleMeeting.hostEmail,
+              googleMeetSpaceName: googleMeeting.spaceName ?? null,
+              googleCalendarEventId: googleMeeting.calendarEventId ?? null,
+            });
+          } else {
+            console.warn('No available Google Meet host found for meeting');
+          }
+        }
+
+        if (videoProvider === 'zoom') {
+          // startTime is in Israel local time (HH:MM), build Zoom datetime 10 minutes early.
+          let [sHour, sMin] = startTime.split(':').map(Number);
+          sMin -= 10;
+          if (sMin < 0) {
+            sMin += 60;
+            sHour -= 1;
+            if (sHour < 0) sHour = 23;
+          }
+          const timeStr = `${sHour.toString().padStart(2, '0')}:${sMin.toString().padStart(2, '0')}:00`;
+          const meetingDate = new Date(`${dateStr}T${timeStr}${getIsraelOffset(new Date(scheduledDate))}`);
+
+          // Add 10 minutes to duration to cover the early start
+          const zoomDuration = durationMinutes + 10;
+
+          // Find an available Zoom user
+          const availableUser = await zoomService.findAvailableUser(meetingDate, zoomDuration);
+          if (availableUser) {
+            const zoomMeeting = await zoomService.createMeeting(availableUser.id, {
+              topic: cycle.name,
+              startTime: meetingDate,
+              duration: zoomDuration,
+            });
+
+            // Update meeting with Zoom details
+            await prisma.meeting.update({
+              where: { id: meeting.id },
+              data: {
+                videoProvider: 'zoom',
+                zoomMeetingId: zoomMeeting.id?.toString(),
+                zoomJoinUrl: zoomMeeting.join_url,
+                zoomStartUrl: zoomMeeting.start_url,
+                zoomPassword: zoomMeeting.password,
+                zoomHostKey: zoomMeeting.host_key,
+                zoomHostEmail: availableUser.email,
+              },
+            });
+
+            // Merge Zoom details into response
+            Object.assign(meeting, {
+              videoProvider: 'zoom',
               zoomMeetingId: zoomMeeting.id?.toString(),
               zoomJoinUrl: zoomMeeting.join_url,
               zoomStartUrl: zoomMeeting.start_url,
               zoomPassword: zoomMeeting.password,
               zoomHostKey: zoomMeeting.host_key,
               zoomHostEmail: availableUser.email,
-            },
-          });
-
-          // Merge Zoom details into response
-          Object.assign(meeting, {
-            zoomMeetingId: zoomMeeting.id?.toString(),
-            zoomJoinUrl: zoomMeeting.join_url,
-            zoomStartUrl: zoomMeeting.start_url,
-            zoomPassword: zoomMeeting.password,
-            zoomHostKey: zoomMeeting.host_key,
-            zoomHostEmail: availableUser.email,
-          });
-        } else {
-          console.warn('No available Zoom user found for meeting');
+            });
+          } else {
+            console.warn('No available Zoom user found for meeting');
+          }
         }
       } catch (zoomError) {
         console.error('Failed to create Zoom meeting:', zoomError);
@@ -421,6 +567,13 @@ meetingsRouter.put('/:id', async (req, res, next) => {
     }
 
     const updateData: any = { ...data };
+
+    if (Object.prototype.hasOwnProperty.call(data, 'registrationId')) {
+      updateData.registrationId = data.registrationId || null;
+      if (data.registrationId) {
+        await assertRegistrationBelongsToCycle(data.registrationId, existingMeeting.cycleId);
+      }
+    }
     
     // Handle date and time updates
     if (data.scheduledDate) {
@@ -444,6 +597,11 @@ meetingsRouter.put('/:id', async (req, res, next) => {
       
       // Update cycle counters and calculate financials when completed
       if (data.status === 'completed') {
+        const trialRegistrationId = await ensureTrialMeetingHasRegistration({
+          ...existingMeeting,
+          registrationId: updateData.registrationId ?? existingMeeting.registrationId,
+        });
+
         // Get full cycle data with registrations and instructor
         const cycleData = await prisma.cycle.findUnique({
           where: { id: existingMeeting.cycleId },
@@ -510,6 +668,11 @@ meetingsRouter.put('/:id', async (req, res, next) => {
           // Mark for post-update sync (cycle counters updated after meeting is saved)
           statusChangedToCompleted = true;
 
+          if (trialRegistrationId) {
+            await upsertTrialAttendance(id, trialRegistrationId, req.user!.userId);
+            updateData.registrationId = trialRegistrationId;
+          }
+
         }
       }
       
@@ -546,6 +709,12 @@ meetingsRouter.put('/:id', async (req, res, next) => {
           },
         },
         instructor: { select: { id: true, name: true } },
+        registration: { include: registrationStudentInclude },
+        attendance: {
+          include: {
+            registration: { include: registrationStudentInclude },
+          },
+        },
       },
     });
     await recalculateDailyInstructorPaymentsForMeeting(existingMeeting);
@@ -563,6 +732,10 @@ meetingsRouter.put('/:id', async (req, res, next) => {
           console.error('Cycle completion error:', err)
         );
       }
+    }
+
+    if (req.user!.role === 'instructor' && statusChangedToCompleted) {
+      await checkAndSendMeetingReportQualityAlert(id, 'instructor-meeting-update');
     }
 
     // Audit log for meeting updates - capture all changed fields
@@ -613,7 +786,7 @@ meetingsRouter.put('/:id', async (req, res, next) => {
 });
 
 // Postpone meeting
-meetingsRouter.post('/:id/postpone', managerOrAdmin, async (req, res, next) => {
+meetingsRouter.post('/:id/postpone', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
     const data = postponeMeetingSchema.parse(req.body);
@@ -740,13 +913,21 @@ meetingsRouter.get('/:id/attendance', async (req, res, next) => {
 });
 
 // Delete a single meeting
-meetingsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
+meetingsRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
     const meeting = await prisma.meeting.findUnique({
       where: { id },
-      select: { cycleId: true, status: true, zoomMeetingId: true },
+      select: {
+        cycleId: true,
+        status: true,
+        zoomMeetingId: true,
+        videoProvider: true,
+        zoomHostEmail: true,
+        googleMeetSpaceName: true,
+        googleCalendarEventId: true,
+      },
     });
 
     if (!meeting) {
@@ -757,32 +938,51 @@ meetingsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
     await assertMeetingNotInIssuedPeriod(id);
 
     // Delete Zoom meeting if exists
-    if (meeting.zoomMeetingId) {
+    if (meeting.zoomMeetingId && (meeting.videoProvider ?? 'zoom') === 'zoom') {
       try {
         await zoomService.deleteMeeting(meeting.zoomMeetingId);
       } catch (e) {
         console.warn(`[meetings] Failed to delete Zoom meeting ${meeting.zoomMeetingId}:`, e);
       }
-    }
-
-    // If meeting was completed, decrement cycle counters
-    if (meeting.status === 'completed') {
-      const cycleData = await prisma.cycle.findUnique({
-        where: { id: meeting.cycleId },
-      });
-      
-      if (cycleData && cycleData.completedMeetings > 0) {
-        await prisma.cycle.update({
-          where: { id: meeting.cycleId },
-          data: {
-            completedMeetings: { decrement: 1 },
-            remainingMeetings: { increment: 1 },
-          },
+    } else if ((meeting.videoProvider ?? 'zoom') === 'google_meet') {
+      try {
+        await googleMeetService.deleteGoogleMeetMeeting({
+          hostEmail: meeting.zoomHostEmail,
+          googleMeetSpaceName: meeting.googleMeetSpaceName,
+          googleCalendarEventIds: [meeting.googleCalendarEventId],
         });
+      } catch (e) {
+        console.warn(`[meetings] Failed to delete Google Meet calendar event for meeting ${id}:`, e);
       }
     }
 
-    await prisma.meeting.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      // If meeting was completed, decrement cycle counters
+      if (meeting.status === 'completed') {
+        const cycleData = await tx.cycle.findUnique({
+          where: { id: meeting.cycleId },
+        });
+
+        if (cycleData && cycleData.completedMeetings > 0) {
+          await tx.cycle.update({
+            where: { id: meeting.cycleId },
+            data: {
+              completedMeetings: { decrement: 1 },
+              remainingMeetings: { increment: 1 },
+            },
+          });
+        }
+      }
+
+      await tx.meetingChangeRequest.deleteMany({
+        where: { meetingId: id },
+      });
+      await tx.meeting.updateMany({
+        where: { rescheduledToId: id },
+        data: { rescheduledToId: null },
+      });
+      await tx.meeting.delete({ where: { id } });
+    });
 
     res.json({ success: true });
   } catch (error) {
@@ -791,13 +991,14 @@ meetingsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
 });
 
 // Add Zoom meeting to an existing meeting
-meetingsRouter.post('/:id/add-zoom', managerOrAdmin, async (req, res, next) => {
+meetingsRouter.post('/:id/add-zoom', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
+    const provider = req.body.videoProvider === 'google_meet' || req.body.provider === 'google_meet' ? 'google_meet' : 'zoom';
     const meeting = await prisma.meeting.findUnique({
       where: { id },
-      include: { cycle: true },
+      include: { cycle: true, instructor: true },
     });
     if (!meeting) throw new AppError(404, 'Meeting not found');
 
@@ -817,6 +1018,34 @@ meetingsRouter.post('/:id/add-zoom', managerOrAdmin, async (req, res, next) => {
     const israelDateStr = `${dateStr}T${String(sHour).padStart(2,'0')}:${String(sMin).padStart(2,'0')}:00${israelOffset}`;
     const meetingDate = new Date(israelDateStr);
 
+    if (provider === 'google_meet') {
+      const googleMeeting = await googleMeetService.createMeeting({
+        topic: meeting.cycle?.name || 'שיעור',
+        lessonStart: meetingDate,
+        durationMinutes: duration,
+        instructorEmail: meeting.instructor?.email,
+        record: true,
+        transcript: true,
+      });
+      if (!googleMeeting) throw new AppError(503, 'No available Google Meet host found');
+      const updated = await prisma.meeting.update({
+        where: { id },
+        data: {
+          videoProvider: 'google_meet',
+          zoomMeetingId: googleMeeting.id,
+          zoomJoinUrl: googleMeeting.joinUrl,
+          zoomStartUrl: googleMeeting.startUrl,
+          zoomPassword: null,
+          zoomHostKey: null,
+          zoomHostEmail: googleMeeting.hostEmail,
+          googleMeetSpaceName: googleMeeting.spaceName ?? null,
+          googleCalendarEventId: googleMeeting.calendarEventId ?? null,
+        },
+        include: { cycle: true, instructor: true },
+      });
+      return res.json({ success: true, zoomJoinUrl: googleMeeting.joinUrl, zoomPassword: null, meeting: updated });
+    }
+
     const availableUser = await zoomService.findAvailableUser(meetingDate, duration + 10);
     if (!availableUser) throw new AppError(503, 'No available Zoom host found');
 
@@ -829,6 +1058,7 @@ meetingsRouter.post('/:id/add-zoom', managerOrAdmin, async (req, res, next) => {
     const updated = await prisma.meeting.update({
       where: { id },
       data: {
+        videoProvider: 'zoom',
         zoomMeetingId: zoomMeeting.id?.toString(),
         zoomJoinUrl: zoomMeeting.join_url,
         zoomStartUrl: zoomMeeting.start_url,
@@ -844,7 +1074,7 @@ meetingsRouter.post('/:id/add-zoom', managerOrAdmin, async (req, res, next) => {
 });
 
 // Recalculate meeting costs
-meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) => {
+meetingsRouter.post('/:id/recalculate', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
     const force = req.query.force === 'true' || req.body.force === true;
@@ -947,7 +1177,7 @@ meetingsRouter.post('/:id/recalculate', managerOrAdmin, async (req, res, next) =
 });
 
 // Bulk recalculate meetings
-meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) => {
+meetingsRouter.post('/bulk-recalculate', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const { ids, force } = req.body;
     
@@ -1026,7 +1256,7 @@ meetingsRouter.post('/bulk-recalculate', managerOrAdmin, async (req, res, next) 
 });
 
 // Bulk update meeting status
-meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next) => {
+meetingsRouter.post('/bulk-update-status', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const { ids, status } = req.body;
     
@@ -1061,6 +1291,8 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
 
         // Handle status change to completed - calculate financials
         if (status === 'completed' && existingMeeting.status !== 'completed') {
+          const trialRegistrationId = await ensureTrialMeetingHasRegistration(existingMeeting);
+
           const cycleData = await prisma.cycle.findUnique({
             where: { id: existingMeeting.cycleId },
             include: {
@@ -1099,6 +1331,11 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
             updateData.revenue = revenue;
             updateData.instructorPayment = instructorPayment;
             updateData.profit = profit;
+
+            if (trialRegistrationId) {
+              await upsertTrialAttendance(id, trialRegistrationId, req.user!.userId);
+              updateData.registrationId = trialRegistrationId;
+            }
 
             // Update cycle counters
             const updatedCompleted = cycleData.completedMeetings + 1;
@@ -1195,7 +1432,7 @@ meetingsRouter.post('/bulk-update-status', managerOrAdmin, async (req, res, next
 });
 
 // Bulk update meetings (multiple fields)
-meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
+meetingsRouter.post('/bulk-update', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const { ids, data } = req.body;
     
@@ -1208,7 +1445,7 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
     }
 
     // Allowed fields for bulk update
-    const allowedFields = ['status', 'activityType', 'topic', 'notes', 'scheduledDate', 'startTime', 'endTime', 'instructorId'];
+    const allowedFields = ['status', 'activityType', 'topic', 'notes', 'scheduledDate', 'startTime', 'endTime', 'instructorId', 'registrationId'];
     const updateData: Record<string, any> = {};
     
     for (const field of allowedFields) {
@@ -1238,6 +1475,7 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
       try {
         const existingMeeting = await prisma.meeting.findUnique({
           where: { id },
+          include: { cycle: true },
         });
 
         if (!existingMeeting) {
@@ -1245,15 +1483,29 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
           continue;
         }
 
+        const perMeetingUpdateData = { ...updateData };
+
         // If status changing to completed and wasn't completed before, add timestamps
-        if (updateData.status === 'completed' && existingMeeting.status !== 'completed') {
-          updateData.statusUpdatedAt = new Date();
-          updateData.statusUpdatedById = req.user!.userId;
+        if (perMeetingUpdateData.status === 'completed' && existingMeeting.status !== 'completed') {
+          const trialRegistrationId = await ensureTrialMeetingHasRegistration({
+            ...existingMeeting,
+            registrationId: perMeetingUpdateData.registrationId ?? existingMeeting.registrationId,
+          });
+          if (trialRegistrationId) {
+            await upsertTrialAttendance(id, trialRegistrationId, req.user!.userId);
+            perMeetingUpdateData.registrationId = trialRegistrationId;
+          }
+          perMeetingUpdateData.statusUpdatedAt = new Date();
+          perMeetingUpdateData.statusUpdatedById = req.user!.userId;
+        }
+
+        if (Object.prototype.hasOwnProperty.call(perMeetingUpdateData, 'registrationId') && perMeetingUpdateData.registrationId) {
+          await assertRegistrationBelongsToCycle(perMeetingUpdateData.registrationId, existingMeeting.cycleId);
         }
 
         await prisma.meeting.update({
           where: { id },
-          data: updateData,
+          data: perMeetingUpdateData,
         });
 
         // Recalculate financials if status changed to completed
@@ -1315,7 +1567,7 @@ meetingsRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
 });
 
 // Bulk delete meetings
-meetingsRouter.post('/bulk-delete', managerOrAdmin, async (req, res, next) => {
+meetingsRouter.post('/bulk-delete', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const { ids } = req.body;
     
@@ -1326,8 +1578,22 @@ meetingsRouter.post('/bulk-delete', managerOrAdmin, async (req, res, next) => {
     // Get meetings to check their status and cycle
     const meetings = await prisma.meeting.findMany({
       where: { id: { in: ids } },
-      select: { id: true, cycleId: true, instructorId: true, scheduledDate: true, status: true },
+      select: {
+        id: true,
+        cycleId: true,
+        instructorId: true,
+        scheduledDate: true,
+        status: true,
+        videoProvider: true,
+        zoomHostEmail: true,
+        googleMeetSpaceName: true,
+        googleCalendarEventId: true,
+      },
     });
+
+    for (const meeting of meetings) {
+      await assertMeetingNotInIssuedPeriod(meeting.id);
+    }
 
     // Group completed meetings by cycle to update counters
     const completedByCycle = meetings
@@ -1337,20 +1603,42 @@ meetingsRouter.post('/bulk-delete', managerOrAdmin, async (req, res, next) => {
         return acc;
       }, {} as Record<string, number>);
 
-    // Update cycle counters
-    for (const [cycleId, count] of Object.entries(completedByCycle)) {
-      await prisma.cycle.update({
-        where: { id: cycleId },
-        data: {
-          completedMeetings: { decrement: count },
-          remainingMeetings: { increment: count },
-        },
-      });
+    for (const meeting of meetings) {
+      if ((meeting.videoProvider ?? 'zoom') !== 'google_meet') continue;
+      try {
+        await googleMeetService.deleteGoogleMeetMeeting({
+          hostEmail: meeting.zoomHostEmail,
+          googleMeetSpaceName: meeting.googleMeetSpaceName,
+          googleCalendarEventIds: [meeting.googleCalendarEventId],
+        });
+      } catch (e) {
+        console.warn(`[meetings] Failed to delete Google Meet calendar event for bulk-deleted meeting ${meeting.id}:`, e);
+      }
     }
 
-    // Delete all meetings
-    const result = await prisma.meeting.deleteMany({
-      where: { id: { in: ids } },
+    const result = await prisma.$transaction(async (tx) => {
+      // Update cycle counters
+      for (const [cycleId, count] of Object.entries(completedByCycle)) {
+        await tx.cycle.update({
+          where: { id: cycleId },
+          data: {
+            completedMeetings: { decrement: count },
+            remainingMeetings: { increment: count },
+          },
+        });
+      }
+
+      await tx.meetingChangeRequest.deleteMany({
+        where: { meetingId: { in: ids } },
+      });
+      await tx.meeting.updateMany({
+        where: { rescheduledToId: { in: ids } },
+        data: { rescheduledToId: null },
+      });
+
+      return tx.meeting.deleteMany({
+        where: { id: { in: ids } },
+      });
     });
 
     for (const meeting of meetings) {

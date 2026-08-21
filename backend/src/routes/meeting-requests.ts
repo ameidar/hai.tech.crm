@@ -18,11 +18,63 @@ const createRequestSchema = z.object({
   reason: z.string().min(1, 'סיבה היא שדה חובה'),
 });
 
+const reviewRequestSchema = z.object({
+  reviewNotes: z.string().trim().max(1000).optional(),
+  reason: z.string().trim().max(1000).optional(),
+});
+
+const logQuerySchema = z.object({
+  instructorId: z.string().min(1).optional(),
+  studentId: z.string().min(1).optional(),
+  type: z.enum(['cancel', 'postpone', 'replacement', 'all']).optional(),
+  status: z.enum(['pending', 'approved', 'rejected', 'all']).optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  meetingFrom: z.string().optional(),
+  meetingTo: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(500).optional().default(200),
+});
+
 const typeHebrew: Record<string, string> = {
   cancel: 'ביטול',
   postpone: 'דחייה',
   replacement: 'החלפה',
 };
+
+const RISK_REQUEST_TYPES = ['cancel', 'postpone'];
+const RISK_MIN_REQUESTS = 2;
+const RISK_MIN_CYCLE_MEETINGS = 16;
+
+function buildLogWhere(query: z.infer<typeof logQuerySchema>, includeStudent = true) {
+  const createdAt: Record<string, Date> = {};
+  const scheduledDate: Record<string, Date> = {};
+
+  if (query.from) createdAt.gte = new Date(query.from);
+  if (query.to) {
+    const to = new Date(query.to);
+    to.setHours(23, 59, 59, 999);
+    createdAt.lte = to;
+  }
+  if (query.meetingFrom) scheduledDate.gte = new Date(query.meetingFrom);
+  if (query.meetingTo) scheduledDate.lte = new Date(query.meetingTo);
+
+  const meetingWhere: any = {};
+  if (Object.keys(scheduledDate).length) meetingWhere.scheduledDate = scheduledDate;
+  if (includeStudent && query.studentId) {
+    meetingWhere.OR = [
+      { registration: { is: { studentId: query.studentId } } },
+      { cycle: { registrations: { some: { studentId: query.studentId, deletedAt: null } } } },
+    ];
+  }
+
+  return {
+    type: query.type && query.type !== 'all' ? query.type : { in: ['cancel', 'postpone'] },
+    ...(query.instructorId && { instructorId: query.instructorId }),
+    ...(query.status && query.status !== 'all' && { status: query.status }),
+    ...(Object.keys(createdAt).length && { createdAt }),
+    ...(Object.keys(meetingWhere).length && { meeting: meetingWhere }),
+  };
+}
 
 // POST /api/meeting-requests — instructor creates a request
 meetingRequestsRouter.post('/', async (req, res, next) => {
@@ -145,10 +197,141 @@ meetingRequestsRouter.post('/', async (req, res, next) => {
   }
 });
 
+// GET /api/meeting-requests/risk-summary — cancellation/postponement risk grouped by instructor + cycle
+meetingRequestsRouter.get('/risk-summary', async (req, res, next) => {
+  try {
+    const instructorId = req.query.instructorId as string | undefined;
+    const cycleId = req.query.cycleId as string | undefined;
+
+    const where: any = {
+      type: { in: RISK_REQUEST_TYPES },
+      meeting: {
+        deletedAt: null,
+        cycle: {
+          deletedAt: null,
+          totalMeetings: { gte: RISK_MIN_CYCLE_MEETINGS },
+        },
+      },
+    };
+
+    if (req.user!.role === 'instructor') {
+      const instructor = await prisma.instructor.findUnique({
+        where: { userId: req.user!.userId },
+        select: { id: true },
+      });
+      if (!instructor) {
+        throw new AppError(403, 'לא נמצא מדריך מקושר למשתמש');
+      }
+      where.instructorId = instructor.id;
+    } else if (instructorId) {
+      where.instructorId = instructorId;
+    }
+
+    if (cycleId) {
+      where.meeting.cycleId = cycleId;
+    }
+
+    const requests = await prisma.meetingChangeRequest.findMany({
+      where,
+      include: {
+        meeting: {
+          select: {
+            id: true,
+            scheduledDate: true,
+            cycleId: true,
+            cycle: {
+              select: {
+                id: true,
+                name: true,
+                totalMeetings: true,
+                branch: { select: { id: true, name: true } },
+              },
+            },
+          },
+        },
+        instructor: { select: { id: true, name: true, phone: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const grouped = new Map<string, {
+      instructorId: string;
+      instructorName: string;
+      instructorPhone: string | null;
+      cycleId: string;
+      cycleName: string;
+      branchName: string | null;
+      totalMeetings: number;
+      cancelCount: number;
+      postponeCount: number;
+      totalRiskRequests: number;
+      latestRequestAt: Date;
+      latestMeetingDate: Date | null;
+      requestIds: string[];
+    }>();
+
+    for (const request of requests) {
+      const cycle = request.meeting?.cycle;
+      if (!cycle) continue;
+
+      const key = `${request.instructorId}:${cycle.id}`;
+      const existing = grouped.get(key);
+      const latestMeetingDate = request.meeting?.scheduledDate ?? null;
+
+      if (!existing) {
+        grouped.set(key, {
+          instructorId: request.instructorId,
+          instructorName: request.instructor?.name ?? 'לא ידוע',
+          instructorPhone: request.instructor?.phone ?? null,
+          cycleId: cycle.id,
+          cycleName: cycle.name,
+          branchName: cycle.branch?.name ?? null,
+          totalMeetings: cycle.totalMeetings,
+          cancelCount: request.type === 'cancel' ? 1 : 0,
+          postponeCount: request.type === 'postpone' ? 1 : 0,
+          totalRiskRequests: 1,
+          latestRequestAt: request.createdAt,
+          latestMeetingDate,
+          requestIds: [request.id],
+        });
+        continue;
+      }
+
+      if (request.type === 'cancel') existing.cancelCount += 1;
+      if (request.type === 'postpone') existing.postponeCount += 1;
+      existing.totalRiskRequests += 1;
+      existing.requestIds.push(request.id);
+      if (request.createdAt > existing.latestRequestAt) existing.latestRequestAt = request.createdAt;
+      if (latestMeetingDate && (!existing.latestMeetingDate || latestMeetingDate > existing.latestMeetingDate)) {
+        existing.latestMeetingDate = latestMeetingDate;
+      }
+    }
+
+    const risks = Array.from(grouped.values())
+      .filter((item) => item.totalRiskRequests >= RISK_MIN_REQUESTS)
+      .sort((a, b) => {
+        if (b.totalRiskRequests !== a.totalRiskRequests) return b.totalRiskRequests - a.totalRiskRequests;
+        return b.latestRequestAt.getTime() - a.latestRequestAt.getTime();
+      });
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      threshold: {
+        minRequests: RISK_MIN_REQUESTS,
+        minCycleMeetings: RISK_MIN_CYCLE_MEETINGS,
+        requestTypes: RISK_REQUEST_TYPES,
+      },
+      risks,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // GET /api/meeting-requests — list requests
 meetingRequestsRouter.get('/', async (req, res, next) => {
   try {
-    const { meetingId, status: filterStatus } = req.query;
+    const { meetingId, status: filterStatus, instructorId, cycleId, type } = req.query;
 
     const where: any = {};
 
@@ -166,6 +349,18 @@ meetingRequestsRouter.get('/', async (req, res, next) => {
 
     if (meetingId) {
       where.meetingId = meetingId;
+    }
+
+    if (req.user!.role !== 'instructor' && instructorId) {
+      where.instructorId = instructorId;
+    }
+
+    if (cycleId) {
+      where.meeting = { cycleId };
+    }
+
+    if (type) {
+      where.type = type;
     }
 
     if (filterStatus) {
@@ -191,12 +386,167 @@ meetingRequestsRouter.get('/', async (req, res, next) => {
   }
 });
 
+// GET /api/meeting-requests/log/students — student options for the selected instructor/log filters
+meetingRequestsRouter.get('/log/students', async (req, res, next) => {
+  try {
+    if (!['admin', 'manager', 'operations_control', 'operations_manager'].includes(req.user!.role)) {
+      throw new AppError(403, 'אין הרשאה לצפות בלוג בקשות מדריכים');
+    }
+
+    const query = logQuerySchema.parse(req.query);
+    if (!query.instructorId) {
+      return res.json({ students: [] });
+    }
+
+    const requests = await prisma.meetingChangeRequest.findMany({
+      where: buildLogWhere(query, false),
+      select: {
+        meeting: {
+          select: {
+            registration: {
+              select: {
+                student: { select: { id: true, name: true } },
+              },
+            },
+            cycle: {
+              select: {
+                registrations: {
+                  where: { deletedAt: null },
+                  select: {
+                    student: { select: { id: true, name: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+
+    const byStudent = new Map<string, { id: string; name: string }>();
+    for (const request of requests) {
+      const directStudent = request.meeting?.registration?.student;
+      if (directStudent) byStudent.set(directStudent.id, directStudent);
+      for (const registration of request.meeting?.cycle?.registrations ?? []) {
+        byStudent.set(registration.student.id, registration.student);
+      }
+    }
+
+    res.json({ students: Array.from(byStudent.values()).sort((a, b) => a.name.localeCompare(b.name, 'he')) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/meeting-requests/log — cancellation/postponement history for monitoring instructor load
+meetingRequestsRouter.get('/log', async (req, res, next) => {
+  try {
+    if (!['admin', 'manager', 'operations_control', 'operations_manager'].includes(req.user!.role)) {
+      throw new AppError(403, 'אין הרשאה לצפות בלוג בקשות מדריכים');
+    }
+
+    const query = logQuerySchema.parse(req.query);
+    const where = buildLogWhere(query);
+
+    const requests = await prisma.meetingChangeRequest.findMany({
+      where,
+      include: {
+        meeting: {
+          include: {
+            registration: { include: { student: true } },
+            cycle: {
+              include: {
+                branch: true,
+                course: true,
+                registrations: {
+                  where: { deletedAt: null },
+                  include: { student: true },
+                },
+              },
+            },
+          },
+        },
+        instructor: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: query.limit,
+    });
+
+    const byInstructor = new Map<string, {
+      instructorId: string;
+      instructorName: string;
+      total: number;
+      cancel: number;
+      postpone: number;
+      replacement: number;
+      pending: number;
+      approved: number;
+      rejected: number;
+      lastRequestAt: Date | null;
+    }>();
+
+    const totals = {
+      total: 0,
+      cancel: 0,
+      postpone: 0,
+      replacement: 0,
+      pending: 0,
+      approved: 0,
+      rejected: 0,
+    };
+
+    for (const request of requests) {
+      totals.total += 1;
+      if (request.type in totals) totals[request.type as 'cancel' | 'postpone' | 'replacement'] += 1;
+      if (request.status in totals) totals[request.status as 'pending' | 'approved' | 'rejected'] += 1;
+
+      const existing = byInstructor.get(request.instructorId) ?? {
+        instructorId: request.instructorId,
+        instructorName: request.instructor.name,
+        total: 0,
+        cancel: 0,
+        postpone: 0,
+        replacement: 0,
+        pending: 0,
+        approved: 0,
+        rejected: 0,
+        lastRequestAt: null,
+      };
+
+      existing.total += 1;
+      if (request.type === 'cancel') existing.cancel += 1;
+      if (request.type === 'postpone') existing.postpone += 1;
+      if (request.type === 'replacement') existing.replacement += 1;
+      if (request.status === 'pending') existing.pending += 1;
+      if (request.status === 'approved') existing.approved += 1;
+      if (request.status === 'rejected') existing.rejected += 1;
+      if (!existing.lastRequestAt || request.createdAt > existing.lastRequestAt) {
+        existing.lastRequestAt = request.createdAt;
+      }
+      byInstructor.set(request.instructorId, existing);
+    }
+
+    res.json({
+      summary: {
+        totals,
+        byInstructor: Array.from(byInstructor.values()).sort((a, b) => b.total - a.total),
+      },
+      requests,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // PUT /api/meeting-requests/:id/approve
 meetingRequestsRouter.put('/:id/approve', async (req, res, next) => {
   try {
     if (req.user!.role === 'instructor') {
       throw new AppError(403, 'אין הרשאה לאשר בקשות');
     }
+    const review = reviewRequestSchema.parse(req.body ?? {});
 
     const request = await prisma.meetingChangeRequest.findUnique({
       where: { id: req.params.id },
@@ -248,6 +598,7 @@ meetingRequestsRouter.put('/:id/approve', async (req, res, next) => {
         status: 'approved',
         reviewedBy: req.user!.userId,
         reviewedAt: new Date(),
+        reviewNotes: review.reviewNotes || review.reason || null,
       },
       include: {
         meeting: { include: { cycle: true } },
@@ -267,6 +618,7 @@ meetingRequestsRouter.put('/:id/reject', async (req, res, next) => {
     if (req.user!.role === 'instructor') {
       throw new AppError(403, 'אין הרשאה לדחות בקשות');
     }
+    const review = reviewRequestSchema.parse(req.body ?? {});
 
     const request = await prisma.meetingChangeRequest.findUnique({
       where: { id: req.params.id },
@@ -286,6 +638,7 @@ meetingRequestsRouter.put('/:id/reject', async (req, res, next) => {
         status: 'rejected',
         reviewedBy: req.user!.userId,
         reviewedAt: new Date(),
+        reviewNotes: review.reviewNotes || review.reason || null,
       },
       include: {
         meeting: { include: { cycle: true } },

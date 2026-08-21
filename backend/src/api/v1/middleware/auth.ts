@@ -146,7 +146,12 @@ export const adminOnly = authorize('admin');
 /**
  * Manager or admin middleware
  */
-export const managerOrAdmin = authorize('admin', 'manager');
+export const managerOrAdmin = authorize('admin', 'manager', 'operations_manager');
+
+/**
+ * Operational manager middleware for CRM operations without finance/system-admin access
+ */
+export const operationsManagerOrAdmin = authorize('admin', 'manager', 'operations_manager');
 
 /**
  * Optional authentication - doesn't fail if no token

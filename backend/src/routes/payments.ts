@@ -4,11 +4,69 @@ import { authenticate } from '../middleware/auth.js';
 import { config } from '../config.js';
 import { prisma } from '../utils/prisma.js';
 import { handlePostPaymentPlacement } from '../services/trial-placement.js';
+import { reconcileOmerRegistrationPayment } from '../services/omer-payment-reconciliation.js';
+import { extractGreenInvoice, syncRecentWooPayments, upsertWooOrderPayment } from '../services/woo-sync.js';
 
 // Shared secret for WP auto-login tokens (must match WP snippet constant)
 const HAITECH_PAY_SECRET = process.env.HAITECH_PAY_SECRET || 'haitech-pay-secret-2026-xK9mP3qL7';
-// WordPress user ID for crm-payments (created 01/03/2026)
-const CRM_PAYMENTS_WP_USER_ID = 354;
+
+type WooAuth = { siteUrl: string; auth: string };
+type WooCustomer = { id: number; email?: string; first_name?: string; last_name?: string };
+
+const DIGITAL_COURSE_PRODUCT_ALIASES: Array<{ productId: number; aliases: string[] }> = [
+  { productId: 30688, aliases: ['קורס בניית עולמות במיינקראפט', 'קורס למידה עצמית בניית עולמות minecraft באמצעות תכנות', 'minecraft worlds', 'minecraft-worlds'] },
+  { productId: 30772, aliases: ['קורס רובלוקס - פיתוח משחקים עם lua', 'משחקי roblox ב-lua', 'רובלוקס lua', 'roblox lua'] },
+  { productId: 30857, aliases: ["קורס תכנות בסקראץ'", 'קורס תכנות בסקראץ׳', 'scratch', 'סקראץ'] },
+  { productId: 30680, aliases: ['קורס פיתוח משחקים בשפת python', 'קורס למידה עצמית – פיתוח משחקים בשפת python', 'python'] },
+  { productId: 30853, aliases: ['קורס מיינקראפט + javascript', 'מיינקראפט javascript גילאי 10+', 'minecraft javascript'] },
+  { productId: 30855, aliases: ['minecraft java plugins- לגילאי 12+', 'minecraft java plugins', 'java plugins'] },
+  { productId: 39850, aliases: ['קורס מידול תלת מימד - tinkercad', 'tinkercad', 'מידול תלת מימד'] },
+  { productId: 39737, aliases: ['קורס קנבה עם בינה מלאכותית', 'קנבה עם בינה מלאכותית', 'canva'] },
+  { productId: 35988, aliases: ['קורס פיתוח אתרים ומשחקים בשילוב בינה מלאכותית', 'פיתוח אתרים ומשחקים בשילוב בינה מלאכותית'] },
+  { productId: 30770, aliases: ['פיתוח בוטים לשרת דיסקורד node.js - גילאי 12+', 'discord node.js', 'דיסקורד node'] },
+  { productId: 30677, aliases: ['קורס למידה עצמית תכנות לבניית מודים במיינקראפט', 'בניית מודים במיינקראפט'] },
+];
+
+function normalizeCourseText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[׳']/g, '')
+    .replace(/[״"]/g, '')
+    .replace(/[־–—]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function inferDigitalCourseProductId(description: string, amount?: number): number | null {
+  const normalized = normalizeCourseText(description);
+  if (!normalized) return null;
+  for (const item of DIGITAL_COURSE_PRODUCT_ALIASES) {
+    if (item.aliases.some((alias) => normalized.includes(normalizeCourseText(alias)))) {
+      return item.productId;
+    }
+  }
+  if (Number(amount) === 297 && normalized.includes('מחנה') && normalized.includes('מיינקראפט')) return 39309;
+  return null;
+}
+
+function buildWooOrderLinePayload(description: string, amount: number, wooProductId?: number | null) {
+  if (wooProductId) {
+    return {
+      line_items: [{
+        product_id: wooProductId,
+        quantity: 1,
+        total: String(Number(amount).toFixed(2)),
+      }],
+    };
+  }
+
+  return {
+    fee_lines: [{
+      name: description.trim(),
+      total: String(Number(amount).toFixed(2)),
+    }],
+  };
+}
 
 /** Generate a time-limited HMAC token for order payment */
 function generatePayToken(orderId: number): { token: string; ts: number } {
@@ -19,65 +77,65 @@ function generatePayToken(orderId: number): { token: string; ts: number } {
   return { token, ts };
 }
 
-/**
- * Resolve or auto-create a CRM customer from WooCommerce billing info.
- * Search order: email → phone → create new.
- * Returns the customer ID (always).
- */
-async function resolveOrCreateCustomer(
-  email: string | undefined,
-  phone: string,
-  fullName: string
-): Promise<string> {
-  // 1. Try by email
-  if (email) {
-    const byEmail = await prisma.customer.findFirst({ where: { email } });
-    if (byEmail) return byEmail.id;
-  }
-  // 2. Try by phone (last 9 digits)
-  if (phone.length >= 9) {
-    const byPhone = await prisma.customer.findFirst({
-      where: { phone: { contains: phone.slice(-9) } },
-    });
-    if (byPhone) return byPhone.id;
-  }
-  // 3. Create new customer — will appear in CRM for follow-up
-  const newCustomer = await prisma.customer.create({
-    data: {
-      name: fullName || email || 'לקוח חדש',
-      email: email || undefined,
-      phone: phone || undefined,
-      source: 'website',
+async function wooFetchJson<T>(
+  { siteUrl, auth }: WooAuth,
+  path: string,
+  init: RequestInit = {}
+): Promise<T> {
+  const res = await fetch(`${siteUrl}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/json',
+      ...(init.headers || {}),
     },
   });
-  console.log(`[Payments] Auto-created customer "${newCustomer.name}" (${newCustomer.id}) from WC order`);
-  return newCustomer.id;
+  const bodyText = await res.text();
+  let body: any = null;
+  try { body = bodyText ? JSON.parse(bodyText) : null; } catch { body = bodyText; }
+  if (!res.ok) {
+    const message = typeof body === 'string' ? body : body?.message || bodyText;
+    throw new Error(`WooCommerce API error (${res.status}): ${message}`);
+  }
+  return body as T;
 }
 
-/** Extract Morning/GreenInvoice invoice URL and number from WC order meta_data */
-function extractGreenInvoice(metaData: any[]): { invoiceUrl: string | null; invoiceNumber: string | null } {
-  // Primary: greeninvoice_data JSON object (contains id → view URL)
-  const giData = metaData?.find((m: any) => m.key === 'greeninvoice_data');
-  if (giData?.value) {
-    let gd = giData.value;
-    // WooCommerce REST API may return it as a string — parse if needed
-    if (typeof gd === 'string') {
-      try { gd = JSON.parse(gd); } catch { gd = null; }
-    }
-    if (gd && typeof gd === 'object' && gd.id) {
-      return {
-        invoiceUrl: `https://app.greeninvoice.co.il/incomes/documents/${gd.id}`,
-        invoiceNumber: String(gd.number || gd.document_id || ''),
-      };
-    }
+async function ensureWooCustomerId(
+  woo: WooAuth,
+  email: string,
+  firstName: string,
+  lastName: string,
+  phone?: string
+): Promise<number | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) return null;
+
+  try {
+    const existing = await wooFetchJson<WooCustomer[]>(
+      woo,
+      `/wp-json/wc/v3/customers?email=${encodeURIComponent(normalizedEmail)}`
+    );
+    if (existing[0]?.id) return existing[0].id;
+
+    const created = await wooFetchJson<WooCustomer>(woo, '/wp-json/wc/v3/customers', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: normalizedEmail,
+        first_name: firstName,
+        last_name: lastName,
+        billing: {
+          first_name: firstName,
+          last_name: lastName,
+          email: normalizedEmail,
+          phone: phone || '',
+        },
+      }),
+    });
+    return created.id || null;
+  } catch (error) {
+    console.warn('[payments/create-link] Could not resolve Woo customer, creating guest order:', error);
+    return null;
   }
-  // Fallback: _greeninvoice_document_url (older format)
-  const urlMeta = metaData?.find((m: any) => m.key === '_greeninvoice_document_url' || m.key === 'greeninvoice_document_url');
-  const numMeta = metaData?.find((m: any) => m.key === '_greeninvoice_document_number' || m.key === 'greeninvoice_document_number');
-  return {
-    invoiceUrl: urlMeta?.value || null,
-    invoiceNumber: numMeta?.value || null,
-  };
 }
 
 const router = Router();
@@ -94,7 +152,7 @@ router.use('/sync-woo', authenticate);
  * Creates a WooCommerce order and returns a payment URL. Saves to DB.
  */
 router.post('/create-link', async (req, res) => {
-  const { customerId, customerName, customerPhone, customerEmail, amount, description, installments } = req.body;
+  const { customerId, customerName, customerPhone, customerEmail, amount, description, installments, wooProductId } = req.body;
   // maxInstallments = customer can choose from 1 up to this number on the CRM pay page
   const maxInstallments = installments && Number(installments) > 1 ? Number(installments) : 1;
 
@@ -107,29 +165,36 @@ router.post('/create-link', async (req, res) => {
 
   const { siteUrl, consumerKey, consumerSecret } = config.woo;
   const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
+  const woo = { siteUrl, auth };
 
   const nameParts = (customerName || 'לקוח').trim().split(' ');
   const firstName = nameParts[0] || 'לקוח';
   const lastName = nameParts.slice(1).join(' ') || '';
+  const normalizedEmail = String(customerEmail || '').trim().toLowerCase();
+  const resolvedWooCustomerId = normalizedEmail
+    ? await ensureWooCustomerId(woo, normalizedEmail, firstName, lastName, customerPhone)
+    : null;
+  const requestedProductId = Number(wooProductId);
+  const productId = Number.isInteger(requestedProductId) && requestedProductId > 0
+    ? requestedProductId
+    : inferDigitalCourseProductId(description.trim(), Number(amount));
 
-  // Create WC order WITHOUT installments — customer picks on CRM pay page
+  // Create WC order WITHOUT installments — customer picks on CRM pay page.
+  // Digital course payments should use real Woo products so LearnDash grants
+  // access to the buyer. Generic/manual payments remain fee lines.
   const orderPayload: any = {
     payment_method: 'greeninvoice-creditcard',
     payment_method_title: 'כרטיס אשראי / ביט',
     status: 'pending',
-    customer_id: CRM_PAYMENTS_WP_USER_ID,
+    ...(resolvedWooCustomerId ? { customer_id: resolvedWooCustomerId } : {}),
     billing: {
       first_name: firstName,
       last_name: lastName,
-      email: customerEmail || 'noreply@haitech.co.il',
+      email: normalizedEmail || 'noreply@haitech.co.il',
       phone: customerPhone || '',
     },
-    fee_lines: [
-      {
-        name: description.trim(),
-        total: String(Number(amount).toFixed(2)),
-      },
-    ],
+    meta_data: productId ? [{ key: 'haitech_crm_digital_product_id', value: String(productId) }] : [],
+    ...buildWooOrderLinePayload(description.trim(), Number(amount), productId),
   };
 
   const wooRes = await fetch(`${siteUrl}/wp-json/wc/v3/orders`, {
@@ -199,6 +264,8 @@ router.post('/create-link', async (req, res) => {
     amount: Number(amount),
     description: description.trim(),
     maxInstallments,
+    wooProductId: productId,
+    wooCustomerId: resolvedWooCustomerId,
   });
 });
 
@@ -285,9 +352,10 @@ router.post('/pay-page/:token/confirm', async (req, res) => {
     body: JSON.stringify(updatePayload),
   });
 
-  // Return checkout URL
-  const { token: payToken, ts } = generatePayToken(payment.wooOrderId);
-  const checkoutUrl = `${siteUrl}/?haitech_pay=1&order_id=${payment.wooOrderId}&ts=${ts}&token=${payToken}`;
+  // Return direct order-pay URL. The WordPress site has a signed order-key
+  // capability snippet, so we do not need the crm-payments auto-login that
+  // rewrites the Woo customer and breaks buyer-specific LearnDash access.
+  const checkoutUrl = `${siteUrl}/checkout/order-pay/${payment.wooOrderId}/?pay_for_order=true&key=${payment.wooOrderKey}`;
 
   res.json({ checkoutUrl, installments: chosenInstallments });
 });
@@ -370,67 +438,8 @@ router.post('/wc-webhook', async (req, res) => {
   try {
     const order = req.body as any;
     if (!order?.id) return;
-
-    const paid = ['processing', 'completed', 'on-hold'].includes(order.status);
-
-    // Extract Morning invoice URL
-    const { invoiceUrl: wh_invoiceUrl, invoiceNumber: wh_invoiceNumber } = extractGreenInvoice(order.meta_data || []);
-
-    const updateData: any = {
-      status: paid ? 'paid' : order.status === 'cancelled' ? 'cancelled' : 'pending',
-      paymentMethod: order.payment_method || undefined,
-      updatedAt: new Date(),
-    };
-    if (paid) {
-      updateData.paidAt = new Date(order.date_paid || order.date_modified || Date.now());
-    }
-    if (wh_invoiceUrl) updateData.invoiceUrl = wh_invoiceUrl;
-    if (wh_invoiceNumber) updateData.invoiceNumber = wh_invoiceNumber;
-
-    // Try to update existing payment record
-    const existing = await prisma.payment.findFirst({ where: { wooOrderId: Number(order.id) } });
-
-    if (existing) {
-      await prisma.payment.update({ where: { id: existing.id }, data: updateData });
-      console.log(`[WC Webhook] Updated order ${order.id} → ${order.status}`);
-    } else if (paid) {
-      // New order from website (not initiated from CRM) — create record + link to customer
-      const email = order.billing?.email;
-      const phone = (order.billing?.phone || '').replace(/\D/g, '');
-      const firstName = order.billing?.first_name || '';
-      const lastName = order.billing?.last_name || '';
-      const fullName = `${firstName} ${lastName}`.trim();
-
-      // Always resolve (or auto-create) a CRM customer — no orphan payments
-      const customerId = await resolveOrCreateCustomer(email, phone, fullName);
-
-      // Build description from line items or fee lines
-      const items: string[] = [];
-      for (const li of order.line_items || []) items.push(li.name);
-      for (const fl of order.fee_lines || []) items.push(fl.name);
-      const description = items.join(', ') || 'קורס דיגיטלי';
-
-      const createdPayment = await prisma.payment.create({
-        data: {
-          wooOrderId: Number(order.id),
-          amount: parseFloat(order.total || '0'),
-          description,
-          status: 'paid',
-          paidAt: new Date(order.date_paid || order.date_modified || Date.now()),
-          paymentMethod: order.payment_method || undefined,
-          customerName: fullName || email || `הזמנה #${order.id}`,
-          customerEmail: email || undefined,
-          customerPhone: phone || undefined,
-          invoiceUrl: wh_invoiceUrl || undefined,
-          invoiceNumber: wh_invoiceNumber || undefined,
-          customerId,
-        },
-      });
-      console.log(`[WC Webhook] Created new payment for order ${order.id} (${fullName}, ${email}) → customer ${customerId}`);
-
-      // Trial-lesson placement automation (non-digital payments → flag + notify).
-      await handlePostPaymentPlacement(createdPayment.id);
-    }
+    const result = await upsertWooOrderPayment(order, { runPlacementAutomation: true, source: 'webhook' });
+    console.log(`[WC Webhook] ${result.action} order ${order.id} → ${order.status}`);
   } catch (e) {
     console.error('[WC Webhook] Error:', e);
   }
@@ -446,76 +455,11 @@ router.post('/sync-woo', async (req: any, res) => {
     return res.status(403).json({ error: 'אין הרשאה' });
   }
 
-  const days = Number(req.query.days) || 7;
-  const after = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-
   try {
-    const wooRes = await fetch(
-      `${config.woo.siteUrl}/wp-json/wc/v3/orders?per_page=50&status=on-hold,processing,completed&after=${after}`,
-      { headers: { Authorization: 'Basic ' + Buffer.from(`${config.woo.consumerKey}:${config.woo.consumerSecret}`).toString('base64') } }
-    );
-    if (!wooRes.ok) throw new Error('WooCommerce API error');
-    const orders = await wooRes.json() as any[];
-
-    let created = 0;
-    let skipped = 0;
-
-    let updated = 0;
-
-    for (const order of orders) {
-      const existing = await prisma.payment.findFirst({ where: { wooOrderId: Number(order.id) } });
-
-      // If exists but missing invoice URL — update it
-      if (existing) {
-        const { invoiceUrl: ex_invUrl, invoiceNumber: ex_invNum } = extractGreenInvoice(order.meta_data || []);
-        if (ex_invUrl && !existing.invoiceUrl) {
-          await prisma.payment.update({
-            where: { id: existing.id },
-            data: { invoiceUrl: ex_invUrl, invoiceNumber: ex_invNum || undefined },
-          });
-          updated++;
-        } else {
-          skipped++;
-        }
-        continue;
-      }
-
-      const email = order.billing?.email;
-      const phone = (order.billing?.phone || '').replace(/\D/g, '');
-      const firstName = order.billing?.first_name || '';
-      const lastName = order.billing?.last_name || '';
-      const fullName = `${firstName} ${lastName}`.trim();
-
-      // Always resolve (or auto-create) a CRM customer — no orphan payments
-      const customerId = await resolveOrCreateCustomer(email, phone, fullName);
-
-      const items: string[] = [];
-      for (const li of order.line_items || []) items.push(li.name);
-      for (const fl of order.fee_lines || []) items.push(fl.name);
-
-      const { invoiceUrl: sync_invoiceUrl, invoiceNumber: sync_invoiceNumber } = extractGreenInvoice(order.meta_data || []);
-
-      await prisma.payment.create({
-        data: {
-          wooOrderId: Number(order.id),
-          amount: parseFloat(order.total || '0'),
-          description: items.join(', ') || 'קורס דיגיטלי',
-          status: 'paid',
-          paidAt: new Date(order.date_paid || order.date_modified || Date.now()),
-          paymentMethod: order.payment_method || undefined,
-          customerName: fullName || email || `הזמנה #${order.id}`,
-          customerEmail: email || undefined,
-          customerPhone: phone || undefined,
-          invoiceUrl: sync_invoiceUrl || undefined,
-          invoiceNumber: sync_invoiceNumber || undefined,
-          customerId,
-        },
-      });
-      created++;
-    }
-
-    console.log(`[sync-woo] Synced ${created} new, updated ${updated} invoices, skipped ${skipped}`);
-    res.json({ ok: true, created, updated, skipped, total: orders.length, days });
+    const days = Number(req.query.days) || 7;
+    const result = await syncRecentWooPayments(days);
+    console.log(`[sync-woo] Synced ${result.created} new, updated ${result.updated}, skipped ${result.skipped}, failed ${result.failed}`);
+    res.json(result);
   } catch (err: any) {
     console.error('[sync-woo] Error:', err);
     res.status(500).json({ error: err.message });
@@ -578,6 +522,7 @@ router.post('/manual', authenticate, async (req: any, res) => {
   });
 
   // Trial-lesson placement automation (non-digital payments → flag + notify).
+  await reconcileOmerRegistrationPayment(payment.id);
   await handlePostPaymentPlacement(payment.id);
 
   return res.status(201).json(payment);

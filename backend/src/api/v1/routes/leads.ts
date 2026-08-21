@@ -5,6 +5,7 @@ import { authenticate, AuthRequest } from '../middleware/auth.js';
 import { requireScope } from '../middleware/scope-check.js';
 import { validateParams, validateQuery, validateBody } from '../middleware/validate.js';
 import { idParamSchema } from '../validators/common.js';
+import { ForbiddenError } from '../../../common/errors/index.js';
 
 const router = Router();
 
@@ -18,6 +19,7 @@ const leadQuerySchema = z.object({
   assignedToId: z.string().optional(),
   followUp: z.enum(['due']).optional(),
   updatedSince: z.string().datetime().optional(),
+  includePayments: z.preprocess((value) => value === 'true' || value === true, z.boolean().default(false)),
 });
 
 const updateLeadSchema = z.object({
@@ -41,6 +43,20 @@ function userId(req: AuthRequest) {
   return req.user?.userId || null;
 }
 
+function canReadPayments(req: AuthRequest) {
+  const apiScopes = req.apiKey?.scopes || [];
+  if (apiScopes.includes('*') || apiScopes.includes('read:*') || apiScopes.includes('read:payments')) {
+    return true;
+  }
+  return req.user?.role === 'admin' || req.user?.role === 'manager';
+}
+
+function requirePaymentRead(req: AuthRequest) {
+  if (!canReadPayments(req)) {
+    throw new ForbiddenError('Missing required scope: read:payments');
+  }
+}
+
 function leadInclude(withActivities = false) {
   return {
     assignedTo: { select: { id: true, name: true, email: true, role: true } },
@@ -52,6 +68,90 @@ function leadInclude(withActivities = false) {
       },
     } : {}),
   };
+}
+
+type PaymentForLead = {
+  id: string;
+  customerId: string | null;
+  customerName: string;
+  customerEmail: string | null;
+  customerPhone: string | null;
+  description: string;
+  amount: number;
+  currency: string;
+  status: string;
+  paidAt: Date | null;
+  invoiceUrl: string | null;
+  invoiceNumber: string | null;
+  paymentMethod: string | null;
+};
+
+type LeadForPaymentMatch = {
+  customerId?: string | null;
+  customerPhone?: string | null;
+  customerEmail?: string | null;
+};
+
+function cleanContact(value?: string | null) {
+  const clean = value?.trim();
+  return clean || null;
+}
+
+function matchesLeadPayment(lead: LeadForPaymentMatch, payment: PaymentForLead) {
+  if (lead.customerId) return payment.customerId === lead.customerId;
+  const phone = cleanContact(lead.customerPhone);
+  const email = cleanContact(lead.customerEmail)?.toLowerCase();
+  return (
+    (phone && payment.customerPhone === phone) ||
+    (email && payment.customerEmail?.toLowerCase() === email)
+  );
+}
+
+function summarizePayments(lead: LeadForPaymentMatch, payments: PaymentForLead[]) {
+  const matched = payments
+    .filter((payment) => matchesLeadPayment(lead, payment))
+    .sort((a, b) => new Date(b.paidAt || 0).getTime() - new Date(a.paidAt || 0).getTime());
+
+  return {
+    hasPaid: matched.length > 0,
+    paidCount: matched.length,
+    totalPaid: matched.reduce((sum, payment) => sum + Number(payment.amount || 0), 0),
+    latestPaidAt: matched[0]?.paidAt || null,
+    latestPayment: matched[0] || null,
+    payments: matched,
+  };
+}
+
+async function findPaidPaymentsForLeads(leads: LeadForPaymentMatch[]) {
+  const customerIds = [...new Set(leads.map((lead) => cleanContact(lead.customerId)).filter(Boolean))];
+  const phones = [...new Set(leads.map((lead) => cleanContact(lead.customerPhone)).filter(Boolean))];
+  const emails = [...new Set(leads.map((lead) => cleanContact(lead.customerEmail)?.toLowerCase()).filter(Boolean))];
+
+  const or: any[] = [];
+  if (customerIds.length) or.push({ customerId: { in: customerIds } });
+  if (phones.length) or.push({ customerPhone: { in: phones } });
+  if (emails.length) or.push({ customerEmail: { in: emails } });
+  if (!or.length) return [];
+
+  return prisma.payment.findMany({
+    where: { status: 'paid', OR: or },
+    orderBy: { paidAt: 'desc' },
+    select: {
+      id: true,
+      customerId: true,
+      customerName: true,
+      customerEmail: true,
+      customerPhone: true,
+      description: true,
+      amount: true,
+      currency: true,
+      status: true,
+      paidAt: true,
+      invoiceUrl: true,
+      invoiceNumber: true,
+      paymentMethod: true,
+    },
+  });
 }
 
 router.get('/', requireScope('read:leads'), validateQuery(leadQuerySchema), async (req, res, next) => {
@@ -79,6 +179,19 @@ router.get('/', requireScope('read:leads'), validateQuery(leadQuerySchema), asyn
       prisma.leadAppointment.count({ where }),
     ]);
 
+    if (query.includePayments) {
+      requirePaymentRead(req as AuthRequest);
+      const payments = await findPaidPaymentsForLeads(items);
+      res.json({
+        data: items.map((item) => ({
+          ...item,
+          paymentSummary: summarizePayments(item, payments),
+        })),
+        meta: { total, limit: query.limit, offset: query.offset },
+      });
+      return;
+    }
+
     res.json({ data: items, meta: { total, limit: query.limit, offset: query.offset } });
   } catch (error) {
     next(error);
@@ -94,6 +207,13 @@ router.get('/:id', requireScope('read:leads'), validateParams(idParamSchema), as
 
     if (!item) {
       res.status(404).json({ error: { message: 'Lead not found' } });
+      return;
+    }
+
+    if (req.query.includePayments === 'true') {
+      requirePaymentRead(req as AuthRequest);
+      const payments = await findPaidPaymentsForLeads([item]);
+      res.json({ data: { ...item, paymentSummary: summarizePayments(item, payments) } });
       return;
     }
 

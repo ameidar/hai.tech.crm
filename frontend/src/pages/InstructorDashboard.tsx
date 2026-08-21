@@ -1,14 +1,14 @@
 import { useState, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Calendar, Clock, Users, CheckCircle, XCircle, AlertCircle, Video, ChevronLeft, BookOpen, Sparkles } from 'lucide-react';
+import { Calendar, Clock, CheckCircle, XCircle, AlertCircle, Video, BookOpen, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useMeetings, useUpdateMeeting, useCycles } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import Modal from '../components/ui/Modal';
 import { CourseMaterials } from '../components/CourseMaterials';
-import { meetingStatusHebrew, dayOfWeekHebrew, cycleStatusHebrew } from '../types';
-import type { Meeting, MeetingStatus } from '../types';
+import { meetingStatusHebrew, cycleStatusHebrew } from '../types';
+import type { Cycle, Meeting, MeetingStatus } from '../types';
 
 export default function InstructorDashboard() {
   const { user } = useAuth();
@@ -42,14 +42,15 @@ export default function InstructorDashboard() {
   // Pass higher limit for 'all' view to avoid missing future meetings
   const meetingsParams = useMemo(() => ({
     ...dateRange,
+    ...(cycleFilter !== 'all' ? { cycleId: cycleFilter, limit: 500 } : {}),
     ...(viewMode === 'all' ? { limit: 500 } : {}),
-  }), [dateRange, viewMode]);
+  }), [dateRange, viewMode, cycleFilter]);
 
   const { data: meetings, isLoading } = useMeetings(meetingsParams);
   const updateMeeting = useUpdateMeeting();
 
   // Fetch ALL instructor cycles independently (so DDL is always complete)
-  const { data: allCyclesData } = useCycles({ limit: 200 });
+  const { data: allCyclesData } = useCycles({ limit: 500 });
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -106,7 +107,7 @@ export default function InstructorDashboard() {
   // This ensures the active cycle always appears even if its meetings are beyond the pagination limit
   const cycles = useMemo(() => {
     if (allCyclesData && Array.isArray(allCyclesData) && allCyclesData.length > 0) {
-      return allCyclesData.map((c: any) => ({
+      return allCyclesData.map((c: Cycle) => ({
         id: c.id,
         name: c.name,
         status: c.status,

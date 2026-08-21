@@ -1,7 +1,7 @@
 import { prisma } from '../utils/prisma.js';
-import { zoomService } from './zoom.js';
 import { sendEmail } from './email/sender.js';
 import { checkAndSendInstitutionalOrderCompletionAlert } from './institutional-order-completion-alert.js';
+import { getOperationsEmailRecipients } from './operations-notifications.js';
 
 /**
  * Cycle Completion Service
@@ -68,35 +68,17 @@ export async function handleCycleCompletion(cycleId: string): Promise<void> {
       console.log(`  ✅ ${upsellLeads.length} upsell leads created`);
     }
 
-    // d & e. Delete future meetings (with Zoom cleanup)
-    const now = new Date();
+    // Future scheduled meetings are intentionally preserved. Some cycles can
+    // reach remainingMeetings=0 while still having operational follow-up
+    // meetings, and those must stay visible in the CRM.
     const futureMeetings = cycle.meetings.filter(
-      m => m.status === 'scheduled' && m.scheduledDate > now
+      m => m.status === 'scheduled' && m.scheduledDate > new Date()
     );
-
-    for (const meeting of futureMeetings) {
-      // Delete Zoom meeting if exists
-      if (meeting.zoomMeetingId) {
-        try {
-          await zoomService.deleteMeeting(meeting.zoomMeetingId);
-          console.log(`  🔗 Deleted Zoom meeting ${meeting.zoomMeetingId}`);
-        } catch (err: any) {
-          console.error(`  ⚠️ Failed to delete Zoom meeting ${meeting.zoomMeetingId}:`, err.message);
-        }
-      }
-    }
-
-    // Delete all future scheduled meetings from DB
     if (futureMeetings.length > 0) {
-      await prisma.meeting.deleteMany({
-        where: {
-          id: { in: futureMeetings.map(m => m.id) },
-        },
-      });
-      console.log(`  ✅ ${futureMeetings.length} future meetings deleted`);
+      console.log(`  ℹ️ ${futureMeetings.length} future scheduled meetings preserved`);
     }
 
-    // f. Send summary email
+    // d. Send summary email
     await sendCompletionSummaryEmail(cycle, activeRegistrations);
 
     await checkAndSendInstitutionalOrderCompletionAlert(cycle.institutionalOrderId, 'cycle-completion');
@@ -190,11 +172,11 @@ async function sendCompletionSummaryEmail(cycle: any, activeRegistrations: any[]
     `;
 
     await sendEmail({
-      to: 'info@hai.tech',
+      to: getOperationsEmailRecipients(),
       subject: `🎓 מחזור הושלם: ${cycle.name}`,
       html,
     });
-    console.log(`  📧 Summary email sent to info@hai.tech`);
+    console.log('  📧 Summary email sent to operations recipients');
   } catch (err) {
     console.error('  ⚠️ Failed to send summary email:', err);
   }

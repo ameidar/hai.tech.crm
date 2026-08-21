@@ -16,6 +16,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { sendEmail } from '../services/email/sender.js';
 import { sendWhatsAppToChat } from '../services/messaging.js';
+import { handleStatusReply, parseInstructorStatusReply } from '../services/whatsapp-reminder.service.js';
+import { addWaSseClient, broadcastWaSSE as broadcastSSE, removeWaSseClient } from '../services/wa-events.js';
 
 const router = Router();
 
@@ -51,6 +53,59 @@ const PHONE_WABA_MAP: Record<string, string> = {
 function getWabaId(phoneNumberId?: string | null): string {
   if (phoneNumberId && PHONE_WABA_MAP[phoneNumberId]) return PHONE_WABA_MAP[phoneNumberId];
   return process.env.WA_WABA_ID || process.env.WA_CLOUD_WABA_ID || '';
+}
+
+function cleanContactValue(value?: string | null): string {
+  return (value || '').trim().replace(/\s+/g, ' ');
+}
+
+function digitsOnly(value?: string | null): string {
+  return (value || '').replace(/\D/g, '');
+}
+
+function looksLikeEmail(value?: string | null): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanContactValue(value));
+}
+
+function looksLikePhoneNumber(value?: string | null): boolean {
+  const clean = cleanContactValue(value);
+  return digitsOnly(clean).length >= 7 && !/[A-Za-zא-ת]/.test(clean);
+}
+
+function isUsablePersonName(value?: string | null): boolean {
+  const clean = cleanContactValue(value);
+  return Boolean(clean) && !looksLikeEmail(clean) && !looksLikePhoneNumber(clean);
+}
+
+async function findCrmCustomerNameForWhatsAppPhone(phone?: string | null): Promise<string> {
+  const last9 = digitsOnly(phone).slice(-9);
+  if (!last9) return '';
+
+  const customer = await prisma.customer.findFirst({
+    where: {
+      deletedAt: null,
+      phone: { endsWith: last9 },
+    },
+    select: { name: true },
+  });
+
+  return cleanContactValue(customer?.name);
+}
+
+async function resolveWhatsAppContactName(phone: string, metaName?: string | null, currentName?: string | null): Promise<string> {
+  const crmName = await findCrmCustomerNameForWhatsAppPhone(phone);
+  if (isUsablePersonName(crmName)) return crmName;
+
+  const cleanMetaName = cleanContactValue(metaName);
+  if (isUsablePersonName(cleanMetaName)) return cleanMetaName;
+
+  const cleanCurrentName = cleanContactValue(currentName);
+  if (isUsablePersonName(cleanCurrentName)) return cleanCurrentName;
+
+  if (looksLikeEmail(cleanMetaName)) return cleanMetaName;
+  if (looksLikeEmail(cleanCurrentName)) return cleanCurrentName;
+
+  return phone;
 }
 
 async function forwardInboundWebhookChangeToAgent(originalBody: any, entry: any, change: any): Promise<boolean> {
@@ -95,6 +150,34 @@ const ACTIVE_PHONES: { phoneNumberId: string; businessPhone: string; label: stri
   ...(process.env.WA_PHONE_NUMBER_ID_2 ? [{ phoneNumberId: process.env.WA_PHONE_NUMBER_ID_2, businessPhone: '+972533009742', label: 'Bot Hai.Tech (+972 53 300 9742)' }] : []),
 ];
 
+function normalizeConversationPhone(phone: string | null | undefined): string | null {
+  const digits = (phone || '').replace(/\D/g, '');
+  if (!digits) return null;
+  if (digits.startsWith('972')) return digits;
+  if (digits.startsWith('0')) return `972${digits.slice(1)}`;
+  if (digits.length === 9) return `972${digits}`;
+  return digits;
+}
+
+function conversationPhoneVariants(phone: string | null | undefined): string[] {
+  const normalized = normalizeConversationPhone(phone);
+  if (!normalized) return [];
+
+  const variants = new Set<string>([normalized]);
+  if (normalized.startsWith('972')) {
+    variants.add(`0${normalized.slice(3)}`);
+  }
+  return Array.from(variants);
+}
+
+async function getInstructorConversationPhones(): Promise<string[]> {
+  const instructors = await prisma.instructor.findMany({
+    select: { phone: true },
+  });
+
+  return Array.from(new Set(instructors.flatMap(i => conversationPhoneVariants(i.phone))));
+}
+
 // OpenAI
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -137,16 +220,6 @@ async function initBotConfigFromDB() {
 }
 // Fire-and-forget at startup
 initBotConfigFromDB();
-
-// SSE clients for real-time updates
-const sseClients = new Set<Response>();
-
-function broadcastSSE(event: string, data: any) {
-  const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  sseClients.forEach(client => {
-    try { client.write(msg); } catch {}
-  });
-}
 
 // ============================================================
 // Meta WhatsApp Cloud API helper
@@ -669,7 +742,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           const phone = msg.from;
           const text = msg.text?.body || '';
           const waMessageId = msg.id;
-          const contactName = value.contacts?.[0]?.profile?.name;
+          const rawContactName = value.contacts?.[0]?.profile?.name;
 
           // Dedup
           const existing = await prisma.waMessage.findUnique({ where: { waMessageId } });
@@ -684,7 +757,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
           let isNewConversation = false;
           if (!conv) {
             conv = await prisma.waConversation.create({
-              data: { phone, contactName, businessPhone, phoneNumberId: bizPhoneNumberId }
+              data: {
+                phone,
+                contactName: await resolveWhatsAppContactName(phone, rawContactName),
+                businessPhone,
+                phoneNumberId: bizPhoneNumberId
+              }
             });
             isNewConversation = true;
           } else if (!conv.businessPhone && businessPhone) {
@@ -693,6 +771,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
               data: { businessPhone, phoneNumberId: bizPhoneNumberId }
             });
           }
+
+          const contactName = await resolveWhatsAppContactName(phone, rawContactName, conv.contactName);
 
           // Auto-create lead if new conversation from unknown customer
           if (isNewConversation) {
@@ -752,6 +832,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
             phone,
             contactName
           });
+
+          const instructorStatusReply = parseInstructorStatusReply(text);
+          if (instructorStatusReply !== null) {
+            const handled = await handleStatusReply(phone, instructorStatusReply);
+            if (handled) continue;
+          }
 
           // Quiet-wakeup alert — notify the management group via Green API when a
           // customer breaks silence. New conversations (no prior message) always alert.
@@ -951,10 +1037,10 @@ router.get('/events', (req: Request, res: Response) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  sseClients.add(res);
+  addWaSseClient(res);
   res.write('event: connected\ndata: {}\n\n');
 
-  req.on('close', () => sseClients.delete(res));
+  req.on('close', () => removeWaSseClient(res));
 });
 
 // ── POST /api/wa/templates — Create a new template in Meta
@@ -1246,13 +1332,34 @@ router.get('/phones', authenticate, (_req: Request, res: Response) => {
 // ── GET /api/wa/conversations — List all conversations
 router.get('/conversations', authenticate, async (_req: Request, res: Response) => {
   try {
+    const instructorPhones = await getInstructorConversationPhones();
     const conversations = await prisma.waConversation.findMany({
+      where: instructorPhones.length > 0 ? { phone: { notIn: instructorPhones } } : undefined,
       orderBy: { lastMessageAt: 'desc' },
       include: {
         _count: { select: { messages: true } }
       }
     });
-    res.json(conversations);
+
+    const displayConversations = await Promise.all(conversations.map(async (conv) => {
+      if (isUsablePersonName(conv.contactName)) return conv;
+
+      const leadName = cleanContactValue(conv.leadName);
+      if (isUsablePersonName(leadName)) {
+        return { ...conv, contactName: leadName };
+      }
+
+      if (conv.leadEmail) {
+        return { ...conv, contactName: conv.leadEmail };
+      }
+
+      return {
+        ...conv,
+        contactName: await resolveWhatsAppContactName(conv.phone, undefined, conv.contactName),
+      };
+    }));
+
+    res.json(displayConversations);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch conversations' });
   }

@@ -17,10 +17,11 @@ import { authenticate, adminOnly } from '../middleware/auth.js';
 import { sendWhatsAppMessage } from '../services/notifications.js';
 import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
-import { meetingRevenueFromRegistrations, revenueRegistrationCount, roundMoney } from '../utils/revenue.js';
+import { meetingRevenueForMeeting } from '../utils/revenue.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
+import { checkAndSendMeetingReportQualityAlert } from '../services/meeting-report-quality-alert.js';
 
 // WhatsApp group for pending meeting requests (postponements, cancellations)
 const ADMIN_PHONE = '120363353459332838@g.us';
@@ -134,6 +135,24 @@ router.get('/verify/:meetingId/:token', async (req: Request, res: Response) => {
         isTrial: reg.status === 'trial',
       };
     });
+
+    const totalMeetings = meeting.cycle?.totalMeetings ?? 0;
+    const completedMeetings = await prisma.meeting.count({
+      where: {
+        cycleId: meeting.cycleId,
+        status: 'completed',
+        deletedAt: null,
+      },
+    });
+    const currentLessonNumber = totalMeetings > 0
+      ? Math.min(totalMeetings, completedMeetings + (meeting.status === 'completed' ? 0 : 1))
+      : null;
+    const remainingMeetings = totalMeetings > 0
+      ? Math.max(0, totalMeetings - completedMeetings)
+      : null;
+    const remainingAfterCurrent = remainingMeetings !== null
+      ? Math.max(0, remainingMeetings - (meeting.status === 'completed' ? 0 : 1))
+      : null;
     
     res.json({
       meeting: {
@@ -153,6 +172,13 @@ router.get('/verify/:meetingId/:token', async (req: Request, res: Response) => {
       instructor: {
         id: meeting.instructor?.id,
         name: meeting.instructor?.name,
+      },
+      progress: {
+        currentLessonNumber,
+        totalMeetings,
+        completedMeetings,
+        remainingMeetings,
+        remainingAfterCurrent,
       },
       attendance: attendanceList,
       stats: {
@@ -260,19 +286,7 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
         });
 
         if (cycleData) {
-          // Calculate revenue based on cycle type
-          let revenue = 0;
-          const registrationCount = revenueRegistrationCount(cycleData.registrations);
-
-          if (cycleData.type === 'private') {
-            revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
-          } else if (cycleData.type === 'institutional_per_child') {
-            const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-            const studentCount = cycleData.studentCount || registrationCount;
-            revenue = roundMoney(pricePerStudent * studentCount);
-          } else if (cycleData.type === 'institutional_fixed') {
-            revenue = Number(cycleData.meetingRevenue || 0);
-          }
+          const revenue = meetingRevenueForMeeting(cycleData, meeting);
 
           const instructor = await prisma.instructor.findUnique({ where: { id: meeting.instructorId! } });
           const instructorPayment = calculateInstructorPayment(cycleData, instructor, meeting);
@@ -304,6 +318,10 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
         console.error('Failed to calculate financials after instructor update:', finErr);
         // Don't fail the request — financials can be recalculated manually
       }
+    }
+
+    if (status === 'completed') {
+      await checkAndSendMeetingReportQualityAlert(meetingId, 'instructor-magic');
     }
 
     // Create MeetingChangeRequest record so the dashboard shows it

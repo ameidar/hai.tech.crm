@@ -115,8 +115,8 @@ describe('findOrCreateLeadAppointment', () => {
     expect(mockQueryRaw).not.toHaveBeenCalled(); // skip dedup when no phone
   });
 
-  it('does not dedup when existing lead is closed (done)', async () => {
-    // The SQL query filters out done/cancelled, so returns empty
+  it('does not dedup when existing lead is closed (completed/done)', async () => {
+    // The SQL query filters out completed/done/cancelled, so returns empty
     mockQueryRaw.mockResolvedValueOnce([]);
     mockCreate.mockResolvedValueOnce({ id: 'lead-3', source: 'website', appointmentStatus: 'pending' });
 

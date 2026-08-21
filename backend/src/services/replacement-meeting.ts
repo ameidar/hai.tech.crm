@@ -11,10 +11,11 @@
 
 import { prisma } from '../utils/prisma.js';
 import { zoomService, getIsraelOffset } from './zoom.js';
+import { googleMeetService } from './google-meet.js';
 import { isHoliday, isShabbat } from '../utils/holidays.js';
 import { sendWhatsAppMessage } from './notifications.js';
 import { calculateInstructorPayment } from './instructor-payment.js';
-import { meetingRevenueFromRegistrations, revenueRegistrationCount } from '../utils/revenue.js';
+import { meetingRevenueForCycle } from '../utils/revenue.js';
 import { syncCycleEndDate } from '../utils/cycle-sync.js';
 
 const ADMIN_PHONE = process.env.ADMIN_PHONE || '0528746137';
@@ -91,21 +92,10 @@ export async function addReplacementMeeting(postponedMeetingId: string, _actorUs
     },
   });
 
-  let revenue = 0;
-  if (cycle.type === 'institutional_fixed' && cycle.meetingRevenue) {
-    revenue = Number(cycle.meetingRevenue);
-  } else if (cycle.type === 'institutional_per_child' && cycle.pricePerStudent) {
-    const count = cycle.studentCount ?? revenueRegistrationCount(cycleWithReg?.registrations ?? []);
-    revenue = Number(cycle.pricePerStudent) * count;
-  } else if (cycle.type === 'private') {
-    if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
-      revenue = Number(cycle.meetingRevenue);
-    } else if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
-      revenue = Number(cycle.pricePerStudent) * revenueRegistrationCount(cycleWithReg?.registrations ?? []);
-    } else {
-      revenue = meetingRevenueFromRegistrations(cycleWithReg?.registrations ?? [], cycle.totalMeetings, cycle.type);
-    }
-  }
+  const revenue = meetingRevenueForCycle({
+    ...cycle,
+    registrations: cycleWithReg?.registrations ?? [],
+  });
 
   const instructorPayment = calculateInstructorPayment(cycle, instructor, {
     instructorId,
@@ -148,50 +138,87 @@ export async function addReplacementMeeting(postponedMeetingId: string, _actorUs
   // When a meeting is postponed, remainingMeetings is not decremented in the existing code,
   // so we balance by also not incrementing when adding the replacement.
 
-  // Create Zoom meeting if the postponed meeting had Zoom (or cycle is online)
-  const needsZoom = (cycle.isOnline || activityType === 'online' || activityType === 'private_lesson')
+  // Create video meeting if the postponed meeting had one (or cycle is online)
+  const provider = postponed.videoProvider || cycle.videoProvider || 'zoom';
+  const needsVideoMeeting = (cycle.isOnline || activityType === 'online' || activityType === 'private_lesson')
     && (postponed.zoomMeetingId !== null || cycle.zoomMeetingId !== null);
 
-  if (needsZoom) {
+  if (needsVideoMeeting) {
     try {
-      // Build start time in Israel TZ (10 min early)
       const startHHMM = startTime.toISOString().substring(11, 16); // "HH:MM"
-      let [sHour, sMin] = startHHMM.split(':').map(Number);
-      sMin -= 10;
-      if (sMin < 0) { sMin += 60; sHour -= 1; if (sHour < 0) sHour = 23; }
-
       const dateStr = newDate.toISOString().split('T')[0];
-      const timeStr = `${sHour.toString().padStart(2, '0')}:${sMin.toString().padStart(2, '0')}:00`;
-      const meetingDate = new Date(`${dateStr}T${timeStr}${getIsraelOffset(newDate)}`);
-      const durationMin = (cycle.durationMinutes || 60) + 10;
-
-      const availableUser = await zoomService.findAvailableUser(meetingDate, durationMin);
-      if (availableUser) {
-        const zoomMeeting = await zoomService.createMeeting(availableUser.id, {
+      if (provider === 'google_meet') {
+        const lessonDate = new Date(`${dateStr}T${startHHMM}:00${getIsraelOffset(newDate)}`);
+        const googleMeeting = await googleMeetService.createMeeting({
           topic: cycle.name,
-          startTime: meetingDate,
-          duration: durationMin,
+          lessonStart: lessonDate,
+          durationMinutes: cycle.durationMinutes || 60,
+          instructorEmail: instructor?.email,
+          record: true,
+          transcript: true,
         });
 
-        await prisma.meeting.update({
-          where: { id: replacement.id },
-          data: {
-            zoomMeetingId: zoomMeeting.id?.toString(),
-            zoomJoinUrl: zoomMeeting.join_url,
-            zoomStartUrl: zoomMeeting.start_url,
-            zoomPassword: zoomMeeting.password,
-            zoomHostKey: zoomMeeting.host_key,
-            zoomHostEmail: availableUser.email,
-          },
-        });
+        if (googleMeeting) {
+          await prisma.meeting.update({
+            where: { id: replacement.id },
+            data: {
+              videoProvider: 'google_meet',
+              zoomMeetingId: googleMeeting.id,
+              zoomJoinUrl: googleMeeting.joinUrl,
+              zoomStartUrl: googleMeeting.startUrl,
+              zoomPassword: null,
+              zoomHostKey: null,
+              zoomHostEmail: googleMeeting.hostEmail,
+              googleMeetSpaceName: googleMeeting.spaceName ?? null,
+              googleCalendarEventId: googleMeeting.calendarEventId ?? null,
+            },
+          });
 
-        console.log(`[ReplacementMeeting] Zoom meeting created for replacement ${replacement.id}`);
+          console.log(`[ReplacementMeeting] Google Meet created for replacement ${replacement.id}`);
+        } else {
+          console.warn('[ReplacementMeeting] No available Google Meet host found — replacement meeting without video link');
+        }
       } else {
-        console.warn('[ReplacementMeeting] No available Zoom user found — replacement meeting without Zoom');
+        // Build Zoom start time in Israel TZ, 10 minutes early.
+        let [sHour, sMin] = startHHMM.split(':').map(Number);
+        sMin -= 10;
+        if (sMin < 0) { sMin += 60; sHour -= 1; if (sHour < 0) sHour = 23; }
+
+        const timeStr = `${sHour.toString().padStart(2, '0')}:${sMin.toString().padStart(2, '0')}:00`;
+        const meetingDate = new Date(`${dateStr}T${timeStr}${getIsraelOffset(newDate)}`);
+        const durationMin = (cycle.durationMinutes || 60) + 10;
+
+        const availableUser = await zoomService.findAvailableUser(meetingDate, durationMin);
+        if (availableUser) {
+          const zoomMeeting = await zoomService.createMeeting(availableUser.id, {
+            topic: cycle.name,
+            startTime: meetingDate,
+            duration: durationMin,
+          });
+
+          await prisma.meeting.update({
+            where: { id: replacement.id },
+            data: {
+              videoProvider: 'zoom',
+              zoomMeetingId: zoomMeeting.id?.toString(),
+              zoomJoinUrl: zoomMeeting.join_url,
+              zoomStartUrl: zoomMeeting.start_url,
+              zoomPassword: zoomMeeting.password,
+              zoomHostKey: zoomMeeting.host_key,
+              zoomHostEmail: availableUser.email,
+              googleMeetSpaceName: null,
+              googleCalendarEventId: null,
+            },
+          });
+
+          console.log(`[ReplacementMeeting] Zoom meeting created for replacement ${replacement.id}`);
+        } else {
+          console.warn('[ReplacementMeeting] No available Zoom user found — replacement meeting without Zoom');
+        }
       }
-    } catch (zoomError) {
-      console.error('[ReplacementMeeting] Failed to create Zoom meeting:', zoomError);
-      // Don't fail — replacement meeting exists without Zoom
+    } catch (videoMeetingError) {
+      console.error('[ReplacementMeeting] Failed to create video meeting:', videoMeetingError);
+      // Don't fail — replacement meeting exists without video link
     }
   }
 

@@ -25,12 +25,22 @@ vi.mock('../../services/notifications.js', () => ({
   sendWhatsAppMessage: vi.fn(),
 }));
 
+vi.mock('../../services/trial-placement.js', () => ({
+  handlePostPaymentPlacement: vi.fn(),
+}));
+
+vi.mock('../../services/omer-payment-reconciliation.js', () => ({
+  reconcileOmerRegistrationPayment: vi.fn(),
+}));
+
 import { morningWebhookRouter } from '../morning-webhook.js';
 import { prisma } from '../../utils/prisma.js';
 import { sendWhatsAppMessage } from '../../services/notifications.js';
+import { reconcileOmerRegistrationPayment } from '../../services/omer-payment-reconciliation.js';
 
 const mockPrisma = vi.mocked(prisma);
 const mockSendWhatsAppMessage = vi.mocked(sendWhatsAppMessage);
+const mockReconcileOmerRegistrationPayment = vi.mocked(reconcileOmerRegistrationPayment);
 
 const app = express();
 app.use(express.json());
@@ -58,6 +68,7 @@ describe('Morning webhook payment-link sync', () => {
     mockPrisma.payment.findFirst.mockResolvedValue(null);
     mockPrisma.payment.create.mockResolvedValue({ id: 'payment-id' } as any);
     mockSendWhatsAppMessage.mockResolvedValue(undefined as any);
+    mockReconcileOmerRegistrationPayment.mockResolvedValue({ status: 'skipped', reason: 'no_matching_registration' } as any);
   });
 
   it('attaches the paid payment to the CRM customer selected on the payment link', async () => {
@@ -97,6 +108,7 @@ describe('Morning webhook payment-link sync', () => {
         description: expect.stringContaining('[payment-link:abc23]'),
       }),
     }));
+    expect(mockReconcileOmerRegistrationPayment).toHaveBeenCalledWith('payment-id');
   });
 
   it('creates a customer and connects the payment when the link was not tied to a CRM customer', async () => {

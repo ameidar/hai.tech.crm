@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
-import { authenticate, managerOrAdmin } from '../middleware/auth.js';
+import { authenticate, operationsManagerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createCourseSchema, updateCourseSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
@@ -82,7 +82,7 @@ coursesRouter.get('/:id', async (req, res, next) => {
 });
 
 // Create course
-coursesRouter.post('/', managerOrAdmin, async (req, res, next) => {
+coursesRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const data = createCourseSchema.parse(req.body);
 
@@ -99,7 +99,7 @@ coursesRouter.post('/', managerOrAdmin, async (req, res, next) => {
 });
 
 // Update course
-coursesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
+coursesRouter.put('/:id', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
     const data = updateCourseSchema.parse(req.body);
@@ -148,7 +148,7 @@ coursesRouter.get('/:id/materials', async (req, res, next) => {
 });
 
 // Delete course
-coursesRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
+coursesRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 

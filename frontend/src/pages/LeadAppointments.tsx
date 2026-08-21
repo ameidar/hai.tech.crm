@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
-import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Trash2, Plus, AlertCircle, UserCheck, MessageCircle, CalendarCheck, Clock, Flame, CheckCircle2 } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Phone, X, ChevronDown, ChevronUp, Eye, Save, Trash2, Plus, AlertCircle, UserCheck, MessageCircle, CalendarCheck, Clock, Flame, CheckCircle2, UserRound, ExternalLink, Search, Send } from 'lucide-react';
 import api from '../api/client';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -10,9 +10,11 @@ import { useAuth } from '../context/AuthContext';
 
 interface LeadAppointment {
   id: string;
+  customerId?: string | null;
   customerName: string;
   customerPhone: string;
   customerEmail: string;
+  customer?: { id: string; name: string; phone?: string | null; email?: string | null; payments?: LeadPayment[] } | null;
   childName?: string;
   interest: string;
   source: string;
@@ -37,6 +39,7 @@ interface LeadAppointment {
   emailSent?: boolean;
   createdAt: string;
   updatedAt: string;
+  duplicateLeadCount?: number;
   // Campaign fields (Facebook)
   campaignId?: string;
   campaignName?: string;
@@ -44,6 +47,14 @@ interface LeadAppointment {
   adName?: string;
   adsetName?: string;
   formId?: string;
+}
+
+interface LeadPayment {
+  id: string;
+  description: string;
+  amount: number;
+  paidAt?: string;
+  status: string;
 }
 
 interface LeadActivity {
@@ -55,15 +66,6 @@ interface LeadActivity {
   createdAt: string;
   user?: { id: string; name: string; email: string; role: string };
 }
-
-const statusColors: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-800',
-  queued: 'bg-blue-100 text-blue-800',
-  scheduled: 'bg-green-100 text-green-800',
-  completed: 'bg-gray-100 text-gray-800',
-  cancelled: 'bg-red-100 text-red-800',
-  no_answer: 'bg-orange-100 text-orange-800',
-};
 
 const statusLabels: Record<string, string> = {
   pending: 'ממתין',
@@ -102,6 +104,7 @@ const contactResultLabels: Record<string, string> = {
   called: 'התקשרתי',
   no_answer: 'לא ענה',
   whatsapp_sent: 'שלחתי WhatsApp',
+  green_reply: 'הגיב ב-WhatsApp',
   interested: 'מתעניין',
   scheduled: 'נקבעה שיחה',
   not_relevant: 'לא רלוונטי',
@@ -123,17 +126,13 @@ function formatFollowUp(lead: LeadAppointment) {
   return new Date(lead.nextFollowUpAt).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' });
 }
 
-function normalizeWhatsAppPhone(phone: string) {
-  const digits = phone.replace(/\D/g, '');
-  if (digits.startsWith('972')) return digits;
-  if (digits.startsWith('0')) return `972${digits.slice(1)}`;
-  return digits;
+function linkedCustomerId(lead: LeadAppointment) {
+  return lead.customer?.id || lead.customerId || null;
 }
 
 const quickActions = [
   { key: 'called', label: 'דיברתי', icon: Phone, result: 'called', salesStatus: 'follow_up', appointmentStatus: undefined, note: 'בוצעה שיחה עם הליד' },
   { key: 'no_answer', label: 'לא ענה', icon: Clock, result: 'no_answer', salesStatus: 'no_answer', appointmentStatus: undefined, note: 'לא היה מענה' },
-  { key: 'whatsapp', label: 'וואטסאפ', icon: MessageCircle, result: 'whatsapp_sent', salesStatus: 'follow_up', appointmentStatus: undefined, note: 'נשלחה הודעת WhatsApp' },
   { key: 'scheduled', label: 'נקבעה', icon: CalendarCheck, result: 'scheduled', salesStatus: 'scheduled', appointmentStatus: 'scheduled', note: 'נקבעה שיחה' },
 ] as const;
 
@@ -147,14 +146,6 @@ const manualSourceOptions: { value: string; label: string }[] = [
   { value: 'other', label: 'אחר' },
 ];
 
-function StatusBadge({ status }: { status: string }) {
-  return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[status] || 'bg-gray-100 text-gray-800'}`}>
-      {statusLabels[status] || status}
-    </span>
-  );
-}
-
 function SalesStatusBadge({ status }: { status: string }) {
   return (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${salesStatusColors[status] || 'bg-gray-100 text-gray-800'}`}>
@@ -163,11 +154,41 @@ function SalesStatusBadge({ status }: { status: string }) {
   );
 }
 
+function latestPaidPayment(lead: LeadAppointment): LeadPayment | undefined {
+  return lead.customer?.payments?.find((payment) => payment.status === 'paid');
+}
+
+function LeadSalesStatus({ lead }: { lead: LeadAppointment }) {
+  const payment = latestPaidPayment(lead);
+  if (!payment) return <SalesStatusBadge status={lead.salesStatus || 'new'} />;
+
+  const paidAt = payment.paidAt ? new Date(payment.paidAt).toLocaleDateString('he-IL') : null;
+  const title = [
+    payment.description,
+    `₪${Number(payment.amount).toLocaleString('he-IL')}`,
+    paidAt,
+  ].filter(Boolean).join(' · ');
+
+  return (
+    <div className="space-y-1" title={title}>
+      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
+        נרכש קורס
+      </span>
+      <div className="text-xs text-gray-500 max-w-[180px] truncate">
+        ₪{Number(payment.amount).toLocaleString('he-IL')}
+        {payment.description ? ` · ${payment.description}` : ''}
+      </div>
+    </div>
+  );
+}
+
 export default function LeadAppointments() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
+  const [searchDraft, setSearchDraft] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [salesStatusFilter, setSalesStatusFilter] = useState('');
@@ -175,6 +196,7 @@ export default function LeadAppointments() {
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState<'createdAt' | 'updatedAt' | 'nextFollowUpAt'>('updatedAt');
   const [selectedLead, setSelectedLead] = useState<LeadAppointment | null>(null);
+  const [whatsAppLead, setWhatsAppLead] = useState<LeadAppointment | null>(null);
   const [showNewLead, setShowNewLead] = useState(false);
 
   // Deep-link: if ?id=X is in the URL, fetch and auto-open that lead's modal.
@@ -207,6 +229,8 @@ export default function LeadAppointments() {
   const params = new URLSearchParams();
   params.set('page', String(page));
   params.set('limit', '25');
+  params.set('collapseDuplicates', 'true');
+  if (searchQuery.trim()) params.set('search', searchQuery.trim());
   if (statusFilter) params.set('status', statusFilter);
   if (sourceFilter) params.set('source', sourceFilter);
   if (salesStatusFilter) params.set('salesStatus', salesStatusFilter);
@@ -216,7 +240,7 @@ export default function LeadAppointments() {
   if (sortBy !== 'createdAt') params.set('sortBy', sortBy);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['lead-appointments', page, statusFilter, sourceFilter, salesStatusFilter, followUpFilter, fromDate, toDate, sortBy],
+    queryKey: ['lead-appointments', page, searchQuery, statusFilter, sourceFilter, salesStatusFilter, followUpFilter, fromDate, toDate, sortBy],
     queryFn: async () => {
       const res = await api.get(`/lead-appointments?${params.toString()}`);
       return res.data;
@@ -319,6 +343,8 @@ export default function LeadAppointments() {
           onClick={() => {
             setStatusFilter('');
             setSourceFilter('');
+            setSearchDraft('');
+            setSearchQuery('');
             setSalesStatusFilter('');
             setFollowUpFilter('');
             setFromDate('');
@@ -338,6 +364,46 @@ export default function LeadAppointments() {
 
       {/* Filters */}
       <div className="bg-white rounded-lg border border-gray-200 p-4 flex flex-wrap gap-4 items-end">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            setSearchQuery(searchDraft.trim());
+            setPage(1);
+          }}
+          className="min-w-[260px] flex-1"
+        >
+          <label className="block text-sm font-medium text-gray-700 mb-1">חיפוש לקוח</label>
+          <div className="flex rounded-md border border-gray-300 bg-white focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
+            <input
+              type="search"
+              value={searchDraft}
+              onChange={(e) => setSearchDraft(e.target.value)}
+              className="w-full min-w-0 rounded-r-md border-0 px-3 py-2 text-sm focus:ring-0"
+              placeholder="שם, טלפון, אימייל או ילד/ה"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchDraft('');
+                  setSearchQuery('');
+                  setPage(1);
+                }}
+                title="נקה חיפוש"
+                className="inline-flex w-9 items-center justify-center text-gray-400 hover:text-gray-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+            <button
+              type="submit"
+              title="חפש"
+              className="inline-flex h-[38px] w-10 items-center justify-center rounded-l-md bg-blue-600 text-white hover:bg-blue-700"
+            >
+              <Search className="h-4 w-4" />
+            </button>
+          </div>
+        </form>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">סטטוס מכירה</label>
           <select
@@ -448,6 +514,7 @@ export default function LeadAppointments() {
             <tbody className="bg-white divide-y divide-gray-200">
               {leads.map((lead) => {
                 const due = isFollowUpDue(lead);
+                const customerId = linkedCustomerId(lead);
                 return (
                 <tr
                   key={lead.id}
@@ -474,7 +541,16 @@ export default function LeadAppointments() {
                       new Date(lead.createdAt).toLocaleDateString('he-IL')
                     )}
                   </td>
-                  <td className="px-4 py-3 text-sm font-medium">{lead.customerName}</td>
+                  <td className="px-4 py-3 text-sm font-medium">
+                    <div className="space-y-1">
+                      <div>{lead.customerName}</div>
+                      {(lead.duplicateLeadCount || 1) > 1 && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                          {lead.duplicateLeadCount} פניות
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-4 py-3 text-sm" dir="ltr">
                     {lead.customerPhone ? (
                       <a
@@ -490,7 +566,7 @@ export default function LeadAppointments() {
                   <td className="px-4 py-3 text-sm">{lead.childName || '-'}</td>
                   <td className="px-4 py-3 text-sm">{lead.interest || '-'}</td>
                   <td className="px-4 py-3 text-sm">
-                    <SalesStatusBadge status={lead.salesStatus || 'new'} />
+                    <LeadSalesStatus lead={lead} />
                   </td>
                   <td className="px-4 py-3 text-sm whitespace-nowrap">
                     <span className={due ? 'font-semibold text-amber-800' : ''}>
@@ -535,17 +611,23 @@ export default function LeadAppointments() {
                           </button>
                         );
                       })}
-                      {lead.customerPhone && (
-                        <a
-                          href={`https://wa.me/${normalizeWhatsAppPhone(lead.customerPhone)}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="פתח WhatsApp"
+                      <button
+                        title={lead.customerPhone ? 'שלח WhatsApp דרך Green API' : 'אין מספר טלפון'}
+                        onClick={(e) => { e.stopPropagation(); if (lead.customerPhone) setWhatsAppLead(lead); }}
+                        disabled={!lead.customerPhone}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-green-200 text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-300"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                      </button>
+                      {customerId && (
+                        <Link
+                          to={`/customers/${customerId}`}
+                          title="פתח כרטיס לקוח"
                           onClick={(e) => e.stopPropagation()}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-green-200 text-green-700 hover:bg-green-50"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
                         >
-                          <MessageCircle className="w-4 h-4" />
-                        </a>
+                          <UserRound className="w-4 h-4" />
+                        </Link>
                       )}
                       <button
                         onClick={(e) => { e.stopPropagation(); setSelectedLead(lead); }}
@@ -605,6 +687,10 @@ export default function LeadAppointments() {
             queryClient.invalidateQueries({ queryKey: ['lead-appointments'] });
             closeModal();
           }}
+          onUpdated={(lead) => {
+            setSelectedLead(lead);
+            queryClient.invalidateQueries({ queryKey: ['lead-appointments'] });
+          }}
         />
       )}
 
@@ -618,6 +704,134 @@ export default function LeadAppointments() {
           }}
         />
       )}
+
+      {whatsAppLead && (
+        <LeadWhatsAppModal
+          lead={whatsAppLead}
+          onClose={() => setWhatsAppLead(null)}
+          onSent={() => {
+            queryClient.invalidateQueries({ queryKey: ['lead-appointments'] });
+            setWhatsAppLead(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function LeadWhatsAppModal({
+  lead,
+  onClose,
+  onSent,
+}: {
+  lead: LeadAppointment;
+  onClose: () => void;
+  onSent: () => void;
+}) {
+  const customerId = linkedCustomerId(lead);
+  const [message, setMessage] = useState(`שלום ${lead.customerName}, מדברים מדרך ההייטק.`);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSend = async () => {
+    const trimmedMessage = message.trim();
+    if (!trimmedMessage) {
+      setError('יש לכתוב הודעה לשליחה');
+      return;
+    }
+
+    setSending(true);
+    setError('');
+    try {
+      await api.post('/communication/whatsapp', {
+        phone: lead.customerPhone,
+        message: trimmedMessage,
+        customerId: customerId || undefined,
+        customerName: lead.customerName,
+      });
+      await api.patch(`/lead-appointments/${lead.id}`, {
+        salesStatus: 'follow_up',
+        whatsappSent: true,
+        lastContactResult: 'whatsapp_sent',
+        activityType: 'whatsapp',
+        activityNote: `נשלחה הודעת WhatsApp: ${trimmedMessage}`,
+      });
+      onSent();
+    } catch (err: unknown) {
+      console.error('Failed to send lead WhatsApp:', err);
+      const message = typeof err === 'object' && err && 'response' in err
+        ? (err as { response?: { data?: { error?: string; message?: string } } }).response?.data?.message ||
+          (err as { response?: { data?: { error?: string; message?: string } } }).response?.data?.error
+        : undefined;
+      setError(message || 'שגיאה בשליחת הוואטסאפ');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div
+        className="bg-white rounded-lg shadow-xl w-full max-w-lg m-4"
+        onClick={(e) => e.stopPropagation()}
+        dir="rtl"
+      >
+        <div className="flex items-center justify-between p-4 border-b">
+          <div className="flex items-center gap-2">
+            <MessageCircle className="w-5 h-5 text-green-600" />
+            <h2 className="text-lg font-semibold">שליחת WhatsApp</h2>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <div className="rounded-md border border-gray-200 bg-gray-50 p-3 text-sm">
+            <div className="font-medium text-gray-900">{lead.customerName}</div>
+            <div className="text-gray-500" dir="ltr">{lead.customerPhone}</div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">הודעה</label>
+            <textarea
+              value={message}
+              onChange={(e) => {
+                setMessage(e.target.value);
+                if (error) setError('');
+              }}
+              rows={6}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+              placeholder="כתוב הודעה לליד..."
+            />
+          </div>
+
+          {error && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 border-t pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm"
+            >
+              ביטול
+            </button>
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={sending || !message.trim()}
+              className="inline-flex items-center gap-2 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              <Send className="w-4 h-4" />
+              {sending ? 'שולח...' : 'שלח ב-WhatsApp'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -673,8 +887,11 @@ function NewLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
         sendWelcome,
       });
       onCreated();
-    } catch (err: any) {
-      setError(err?.response?.data?.message || 'שגיאה ביצירת הליד');
+    } catch (err: unknown) {
+      const message = typeof err === 'object' && err && 'response' in err
+        ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
+        : undefined;
+      setError(message || 'שגיאה ביצירת הליד');
     } finally {
       setSaving(false);
     }
@@ -849,12 +1066,15 @@ function LeadDetailModal({
   lead,
   onClose,
   onSaved,
+  onUpdated,
 }: {
   lead: LeadAppointment;
   onClose: () => void;
   onSaved: () => void;
+  onUpdated: (lead: LeadAppointment) => void;
 }) {
   const { user } = useAuth();
+  const customerId = linkedCustomerId(lead);
   const [status, setStatus] = useState(lead.appointmentStatus);
   const [salesStatus, setSalesStatus] = useState(lead.salesStatus || 'new');
   const [date, setDate] = useState(lead.appointmentDate?.split('T')[0] || '');
@@ -865,8 +1085,15 @@ function LeadDetailModal({
   const [notes, setNotes] = useState(lead.appointmentNotes || '');
   const [showTranscript, setShowTranscript] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSave = async () => {
+    if (!nextFollowUpAt) {
+      setError('יש למלא תאריך חזרה לפני שמירת הליד');
+      return;
+    }
+
+    setError('');
     setSaving(true);
     try {
       await api.patch(`/lead-appointments/${lead.id}`, {
@@ -881,8 +1108,12 @@ function LeadDetailModal({
         appointmentNotes: notes,
       });
       onSaved();
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to save:', err);
+      const message = typeof err === 'object' && err && 'response' in err
+        ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
+        : undefined;
+      setError(message || 'שגיאה בשמירת הליד');
     } finally {
       setSaving(false);
     }
@@ -892,12 +1123,13 @@ function LeadDetailModal({
     if (!user?.id) return;
     setSaving(true);
     try {
-      await api.patch(`/lead-appointments/${lead.id}`, {
+      const res = await api.patch(`/lead-appointments/${lead.id}`, {
         assignedToId: user.id,
         activityType: 'assignment',
         activityNote: `${user.name} לקח/ה אחריות על הליד`,
       });
-      onSaved();
+      const updatedLead = res.data?.data ?? res.data;
+      if (updatedLead) onUpdated(updatedLead);
     } catch (err) {
       console.error('Failed to take ownership:', err);
     } finally {
@@ -906,7 +1138,7 @@ function LeadDetailModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div
         className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4"
         onClick={(e) => e.stopPropagation()}
@@ -914,7 +1146,19 @@ function LeadDetailModal({
       >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-lg font-semibold">פרטי ליד - {lead.customerName}</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-semibold">פרטי ליד - {lead.customerName}</h2>
+            {customerId && (
+              <Link
+                to={`/customers/${customerId}`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+              >
+                <UserRound className="w-4 h-4" />
+                כרטיס לקוח
+                <ExternalLink className="w-3.5 h-3.5" />
+              </Link>
+            )}
+          </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X className="w-5 h-5" />
           </button>
@@ -947,7 +1191,7 @@ function LeadDetailModal({
             </div>
             <div>
               <span className="text-gray-500">סטטוס מכירה:</span>
-              <span className="mr-2"><SalesStatusBadge status={lead.salesStatus || 'new'} /></span>
+              <span className="mr-2 inline-flex align-middle"><LeadSalesStatus lead={lead} /></span>
             </div>
             <div>
               <span className="text-gray-500">אחראי:</span>
@@ -1112,12 +1356,18 @@ function LeadDetailModal({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">חזרה הבאה</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">תאריך חזרה *</label>
               <input
                 type="datetime-local"
                 value={nextFollowUpAt}
-                onChange={(e) => setNextFollowUpAt(e.target.value)}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                onChange={(e) => {
+                  setNextFollowUpAt(e.target.value);
+                  if (error) setError('');
+                }}
+                required
+                className={`w-full rounded-md border px-3 py-2 text-sm ${
+                  error && !nextFollowUpAt ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                }`}
               />
             </div>
             <div>
@@ -1179,6 +1429,13 @@ function LeadDetailModal({
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 

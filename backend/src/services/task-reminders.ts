@@ -58,6 +58,39 @@ function israelLocalDateTimeToUtc(year: number, month: number, day: number, hour
   return new Date(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00${offset}`);
 }
 
+function addLocalDays(year: number, month: number, day: number, days: number) {
+  const localNoon = new Date(Date.UTC(year, month - 1, day + days, 12, 0));
+  return israelDateParts(localNoon);
+}
+
+function nextIsraelMorningAfter(date: Date) {
+  const { year, month, day } = israelDateParts(date);
+  let next = israelLocalDateTimeToUtc(year, month, day, 9, 0);
+  if (next <= date) {
+    const nextDay = addLocalDays(year, month, day, 1);
+    next = israelLocalDateTimeToUtc(nextDay.year, nextDay.month, nextDay.day, 9, 0);
+  }
+  return next;
+}
+
+async function createReminderIfMissing(taskId: string, channel: ReminderChannel, remindAt: Date) {
+  const windowStart = new Date(remindAt.getTime() - 60_000);
+  const windowEnd = new Date(remindAt.getTime() + 60_000);
+  const existing = await prisma.taskReminder.findFirst({
+    where: {
+      taskId,
+      channel,
+      status: 'pending',
+      remindAt: { gte: windowStart, lte: windowEnd },
+    },
+    select: { id: true },
+  });
+  if (existing) return;
+  await prisma.taskReminder.create({
+    data: { taskId, channel, remindAt },
+  });
+}
+
 export async function rebuildTaskReminders(taskId: string) {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
@@ -80,8 +113,9 @@ export async function rebuildTaskReminders(taskId: string) {
   const { year, month, day } = israelDateParts(task.dueDate);
   const dueMorning = israelLocalDateTimeToUtc(year, month, day, 9, 0);
   const twentyFourHoursBefore = new Date(task.dueDate.getTime() - 24 * 60 * 60 * 1000);
-  const remindAtValues = [twentyFourHoursBefore, dueMorning]
-    .filter((value) => value > now)
+  const overdueFollowUp = dueMorning <= now ? nextIsraelMorningAfter(now) : null;
+  const remindAtValues = [twentyFourHoursBefore, dueMorning, overdueFollowUp]
+    .filter((value): value is Date => !!value && value > now)
     .filter((value, index, array) => array.findIndex((other) => Math.abs(other.getTime() - value.getTime()) < 60_000) === index);
 
   if (remindAtValues.length === 0) return;
@@ -93,6 +127,22 @@ export async function rebuildTaskReminders(taskId: string) {
       remindAt,
     }))),
   });
+}
+
+async function scheduleNextFollowUpReminder(task: {
+  id: string;
+  dueDate: Date | null;
+  status: string;
+  deletedAt: Date | null;
+  assigneeId: string | null;
+}, channel: ReminderChannel, after: Date) {
+  if (task.deletedAt || task.status === 'completed' || !task.dueDate || !task.assigneeId) return;
+
+  const { year, month, day } = israelDateParts(task.dueDate);
+  const dueMorning = israelLocalDateTimeToUtc(year, month, day, 9, 0);
+  if (after < dueMorning) return;
+
+  await createReminderIfMissing(task.id, channel, nextIsraelMorningAfter(after));
 }
 
 async function sendReminder(reminderId: string) {
@@ -152,6 +202,7 @@ async function sendReminder(reminderId: string) {
       where: { id: reminder.id },
       data: { status: 'sent', sentAt: new Date(), failureReason: null },
     });
+    await scheduleNextFollowUpReminder(task, reminder.channel, reminder.remindAt);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     await prisma.taskReminder.update({

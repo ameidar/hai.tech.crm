@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
-import { authenticate, managerOrAdmin } from '../middleware/auth.js';
+import { authenticate, operationsManagerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createStudentSchema, updateStudentSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
@@ -111,7 +111,7 @@ studentsRouter.get('/:id', async (req, res, next) => {
 });
 
 // Create student
-studentsRouter.post('/', managerOrAdmin, async (req, res, next) => {
+studentsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const data = createStudentSchema.parse(req.body);
 
@@ -146,7 +146,7 @@ studentsRouter.post('/', managerOrAdmin, async (req, res, next) => {
 });
 
 // Update student
-studentsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
+studentsRouter.put('/:id', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
     const data = updateStudentSchema.parse(req.body);
@@ -175,7 +175,7 @@ studentsRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
 });
 
 // Delete student
-studentsRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
+studentsRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 

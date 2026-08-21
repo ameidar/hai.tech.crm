@@ -16,11 +16,18 @@ import {
 import { buildInstructorMonthlyReport, getPreviousMonth } from '../instructorReport.service.js';
 import { generateInstructorReportExcel } from '../../utils/excelReportGenerator.js';
 import { sendInstructorMonthlyReportEmail } from './instructorReportEmail.js';
-import { sendWhatsApp } from '../messaging.js';
 import { reminderEligibleMeetingWhereForDate } from '../reminder-eligibility.js';
+import {
+  findZoomHostConflictsForDate,
+  formatZoomHostConflictAlert,
+} from '../zoom-conflicts.js';
+import { sendTomorrowMeetingCheckReport } from '../meeting-check-report.js';
+import { sendParentWhatsAppReminder } from '../parent-whatsapp-reminders.js';
+import { sendWhatsAppCloudTemplate, templateText } from '../whatsapp-cloud-templates.js';
+import { getOperationsEmailRecipients } from '../operations-notifications.js';
 
 // Management email list (configure via env or database)
-const MANAGEMENT_EMAILS = (process.env.MANAGEMENT_EMAILS || 'ami@hai.tech').split(',');
+const MANAGEMENT_EMAILS = getOperationsEmailRecipients(process.env.MANAGEMENT_EMAILS);
 
 const TZ = 'Asia/Jerusalem';
 
@@ -157,12 +164,13 @@ const sendParentReminders = async () => {
     console.log(`Found ${meetings.length} meetings for tomorrow`);
 
     let emailCount = 0;
+    let whatsAppCount = 0;
+    let whatsAppSkipped = 0;
     for (const meeting of meetings) {
       for (const registration of meeting.cycle.registrations) {
         const student = registration.student;
         const parent = student.customer;
-        
-        if (!parent?.email) continue;
+        if (!parent) continue;
 
         const isOnline = !meeting.cycle.branch;
         
@@ -178,20 +186,38 @@ const sendParentReminders = async () => {
           zoomLink: isOnline ? meeting.zoomJoinUrl || undefined : undefined,
         };
 
-        await queueEmail({
-          to: parent.email,
-          subject: `📚 תזכורת: ל-${data.studentName} יש שיעור ${data.className} מחר`,
-          html: getTemplate('parent-reminder', data),
-          priority: EmailPriority.NORMAL,
-          templateId: 'parent-reminder',
-          metadata: { meetingId: meeting.id, studentId: student.id },
-        });
+        if (parent.email) {
+          await queueEmail({
+            to: parent.email,
+            subject: `📚 תזכורת: ל-${data.studentName} יש שיעור ${data.className} מחר`,
+            html: getTemplate('parent-reminder', data),
+            priority: EmailPriority.NORMAL,
+            templateId: 'parent-reminder',
+            metadata: { meetingId: meeting.id, studentId: student.id },
+          });
+          emailCount++;
+        }
 
-        emailCount++;
+        try {
+          const result = await sendParentWhatsAppReminder({
+            phone: parent.phone,
+            contactName: parent.name,
+            data,
+          });
+          if (result.sent) {
+            whatsAppCount++;
+          } else if (result.skipped && result.skipped !== 'disabled') {
+            whatsAppSkipped++;
+            console.log(`[ParentReminderWA] skipped ${parent.name || parent.id}/${student.name}: ${result.skipped}`);
+          }
+        } catch (error: any) {
+          whatsAppSkipped++;
+          console.error(`[ParentReminderWA] failed for ${parent.name || parent.id}/${student.name}:`, error.response?.data || error.message);
+        }
       }
     }
 
-    console.log(`✅ Queued ${emailCount} parent reminders`);
+    console.log(`✅ Queued ${emailCount} parent email reminders; sent ${whatsAppCount} parent WhatsApp reminders; skipped/failed ${whatsAppSkipped}`);
   } catch (error) {
     console.error('❌ Error sending parent reminders:', error);
   }
@@ -331,6 +357,15 @@ const sendManagementSummary = async () => {
     });
     if (postponedMeetings > 0) {
       alerts.push(`${postponedMeetings} שיעורים נדחו`);
+    }
+
+    const { start: tomorrowForZoomCheck } = getIsraelDateBoundsForDB(1);
+    const zoomHostConflicts = await findZoomHostConflictsForDate(tomorrowForZoomCheck);
+    for (const conflict of zoomHostConflicts.slice(0, 5)) {
+      alerts.push(formatZoomHostConflictAlert(conflict));
+    }
+    if (zoomHostConflicts.length > 5) {
+      alerts.push(`ועוד ${zoomHostConflicts.length - 5} התנגשויות Zoom מחר שלא פורטו כאן`);
     }
 
     // Build insights
@@ -478,7 +513,7 @@ async function checkCyclesNearCompletion(): Promise<void> {
 
     // Send email to management
     await queueEmail({
-      to: 'info@hai.tech',
+      to: getOperationsEmailRecipients(),
       subject: `🔔 ${dueCycles.length} מחזורים עם שיעור אחרון לסיום`,
       html: `
         <div dir="rtl" style="font-family:Arial,sans-serif;padding:20px;max-width:700px;">
@@ -503,7 +538,7 @@ async function checkCyclesNearCompletion(): Promise<void> {
         </div>`,
       priority: EmailPriority.NORMAL,
     });
-    console.log('[CycleCheck] Summary email sent to info@hai.tech');
+    console.log('[CycleCheck] Summary email sent to operations recipients');
 
     // Send WhatsApp to each instructor
     for (const cycle of dueCycles) {
@@ -519,8 +554,18 @@ async function checkCyclesNearCompletion(): Promise<void> {
         `נותר שיעור אחד בלבד לסיום המחזור "${cycle.name}"${nextDateStr}.\n` +
         `אנא וודא שכל פרטי הכיתה מעודכנים לקראת השיעור האחרון 🙏`;
       try {
-        await sendWhatsApp({ phone: cycle.instructor.phone, message });
-        console.log(`[CycleCheck] WhatsApp sent to ${cycle.instructor.name}`);
+        const result = await sendWhatsAppCloudTemplate({
+          phone: cycle.instructor.phone,
+          contactName: cycle.instructor.name,
+          templateName: process.env.INSTRUCTOR_LAST_LESSON_WA_TEMPLATE_NAME || 'instructor_last_lesson_reminder',
+          bodyParameters: [
+            templateText(cycle.instructor.name, 'מדריך/ה'),
+            templateText(cycle.name, 'המחזור'),
+            templateText(nextDateStr.replace(/^ — /, ''), 'מחר'),
+          ],
+          preview: `[תבנית: instructor_last_lesson_reminder] ${message}`,
+        });
+        console.log(`[CycleCheck] WhatsApp to ${cycle.instructor.name}: ${result.success ? '✓' : result.error}`);
       } catch (err) {
         console.error(`[CycleCheck] WhatsApp failed for ${cycle.instructor.name}:`, err);
       }
@@ -537,6 +582,7 @@ const schedules = {
   managementSummary:        '0 23 * * *',   // 23:00 daily
   monthlyInstructorReport:  '0 8 1 * *',    // 08:00 on 1st of every month
   cyclesNearCompletion:     '0 9 * * *',    // 09:00 daily — cycles with 1 meeting left
+  meetingCheckReport:       process.env.MEETINGS_CHECK_REPORT_CRON || '0 20 * * *',
 };
 
 // Scheduled tasks
@@ -605,6 +651,18 @@ export const initEmailScheduler = () => {
   scheduledTasks.push(cyclesNearCompletionTask);
   console.log('   ✓ Cycles near completion check: 09:00 daily → WhatsApp instructor + email info@hai.tech');
 
+  if (process.env.MEETINGS_CHECK_REPORT_ENABLED !== 'false') {
+    const meetingCheckTask = cron.schedule(schedules.meetingCheckReport, () => {
+      sendTomorrowMeetingCheckReport().catch((err: any) =>
+        console.error('[MeetingCheck] Cron failed:', err)
+      );
+    }, { timezone: 'Asia/Jerusalem' });
+    scheduledTasks.push(meetingCheckTask);
+    console.log(`   ✓ Meeting validation report: ${schedules.meetingCheckReport} Asia/Jerusalem → WhatsApp`);
+  } else {
+    console.log('   - Meeting validation report disabled; set MEETINGS_CHECK_REPORT_ENABLED=false to keep it disabled');
+  }
+
   console.log('📅 Email scheduler initialized');
 };
 
@@ -625,3 +683,4 @@ export const triggerPreMeetingWhatsApp = () => sendPreMeetingReminders();
 export const triggerEveningStatusCheck = () => sendEveningStatusCheck();
 export const triggerMonthlyInstructorReport = () => sendMonthlyInstructorReport();
 export const triggerCyclesNearCompletion = () => checkCyclesNearCompletion();
+export const triggerMeetingCheckReport = () => sendTomorrowMeetingCheckReport();

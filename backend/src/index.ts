@@ -37,6 +37,9 @@ import { initCancellationScheduler } from './services/cancellation-scheduler.js'
 import { initBillingScheduler } from './services/billing-scheduler.js';
 import { initProformaAlertScheduler } from './services/proforma-alerts.js';
 import { initTaskReminderScheduler } from './services/task-reminders.js';
+import { initWooBackupSyncScheduler } from './services/woo-sync-scheduler.js';
+import { initGoogleMeetArtifactsScheduler } from './services/google-meet-artifacts-scheduler.js';
+import { reconcileOmerRegistrationPayment } from './services/omer-payment-reconciliation.js';
 import { forecastRouter } from './routes/forecast.js';
 import { quotesRouter } from './routes/quotes.js';
 import { publicQuoteRouter } from './routes/public-quote.js';
@@ -56,6 +59,7 @@ import { meetingRequestsRouter } from './routes/meeting-requests.js';
 import { filesRouter } from './routes/files.js';
 import { systemUsersRouter } from './routes/system-users.js';
 import { tasksRouter } from './routes/tasks.js';
+import { operationsControlRouter } from './routes/operations-control.js';
 import waRouter from './routes/whatsapp.js';
 import { messengerRouter } from './routes/messenger.js';
 import { instagramRouter } from './routes/instagram.js';
@@ -238,6 +242,7 @@ app.use('/api/payments', paymentsRouter); // WooCommerce payment links
 app.use('/api/payment-links', paymentLinksRouter); // Morning hosted payment forms
 app.use('/api/system-users', systemUsersRouter); // System users management (admin/manager)
 app.use('/api/tasks', tasksRouter); // Internal task board
+app.use('/api/operations-control', operationsControlRouter); // Daily operations control tower
 app.use('/api/upsell-leads', upsellLeadsRouter); // Upsell leads from completed cycles
 app.use('/api/reports', reportsRouter); // Instructor activity reports
 app.use('/api/work-hours', workHoursRouter); // Operations staff self-reported work hours
@@ -332,6 +337,8 @@ async function recordPaidPaymentLink(code: string) {
       paidAt: new Date(),
     },
   });
+
+  await reconcileOmerRegistrationPayment(payment.id);
 
   return { link, payment, customer, created: createdCustomer, duplicate: false };
 }
@@ -657,6 +664,8 @@ const start = async () => {
       initBillingScheduler();
       initProformaAlertScheduler();
       initTaskReminderScheduler();
+      initWooBackupSyncScheduler();
+      initGoogleMeetArtifactsScheduler();
     }
 
     app.listen(config.port, () => {

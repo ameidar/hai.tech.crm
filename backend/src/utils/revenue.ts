@@ -45,6 +45,19 @@ type RegistrationLike = {
   deletedAt?: Date | string | null;
 };
 
+type CycleRevenueLike = {
+  type?: string | null;
+  meetingRevenue?: number | string | { toString(): string } | null;
+  pricePerStudent?: number | string | { toString(): string } | null;
+  studentCount?: number | null;
+  totalMeetings?: number | null;
+  registrations?: RegistrationLike[] | null;
+};
+
+type MeetingRevenueLike = {
+  nature?: string | null;
+};
+
 export function isRevenueRegistration(registration: RegistrationLike): boolean {
   if (registration.deletedAt) return false;
   return REVENUE_REGISTRATION_STATUSES.has(String(registration.status || 'registered'));
@@ -76,4 +89,41 @@ export function meetingRevenueFromRegistrations(
   );
   const net = netAmount(gross, cycleType);
   return roundMoney(net / totalMeetings);
+}
+
+export function meetingRevenueForCycle(cycle: CycleRevenueLike): number {
+  const type = String(cycle.type || '');
+  const registrations = revenueRegistrations(cycle.registrations ?? []);
+
+  if (type === 'institutional_fixed') {
+    return Number(cycle.meetingRevenue || 0);
+  }
+
+  if (type === 'institutional_per_child') {
+    const pricePerStudent = Number(cycle.pricePerStudent || 0);
+    const studentCount = cycle.studentCount || registrations.length;
+    return roundMoney(pricePerStudent * studentCount);
+  }
+
+  if (PRIVATE_TYPES.has(type)) {
+    if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
+      return Number(cycle.meetingRevenue);
+    }
+
+    return meetingRevenueFromRegistrations(
+      registrations,
+      Number(cycle.totalMeetings) || 0,
+      type,
+    );
+  }
+
+  return 0;
+}
+
+export function meetingRevenueForMeeting(
+  cycle: CycleRevenueLike,
+  meeting: MeetingRevenueLike | null | undefined,
+): number {
+  if (meeting?.nature === 'no_revenue') return 0;
+  return meetingRevenueForCycle(cycle);
 }

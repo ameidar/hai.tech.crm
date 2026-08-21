@@ -2,6 +2,7 @@ import { NotFoundError, ConflictError } from '../../../common/errors/index.js';
 import { registrationsRepository, RegistrationsRepository } from '../repositories/registrations.repository.js';
 import { logAudit } from '../../../utils/audit.js';
 import { prisma } from '../../../utils/prisma.js';
+import { resolveRegistrationAmount } from '../../../utils/registration-amount.js';
 import { Request } from 'express';
 import {
   RegistrationQuery,
@@ -62,7 +63,10 @@ export class RegistrationsService {
       throw new ConflictError('Student is already registered for this cycle');
     }
 
-    const registration = await this.repository.create(data);
+    const registration = await this.repository.create({
+      ...data,
+      amount: resolveRegistrationAmount(data.amount, cycle) ?? undefined,
+    });
 
     // Audit log
     if (req) {

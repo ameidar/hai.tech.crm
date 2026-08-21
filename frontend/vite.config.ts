@@ -8,6 +8,9 @@ export default defineConfig({
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
   plugins: [react(), tailwindcss()],
+  build: {
+    target: ['chrome90', 'edge90', 'firefox90', 'safari13'],
+  },
   server: {
     port: 5173,
     host: true,

@@ -178,8 +178,8 @@ export default function Cycles() {
           break;
         case 'dayOfWeek':
           const dayOrder = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
-          aVal = dayOrder[a.dayOfWeek] ?? 0;
-          bVal = dayOrder[b.dayOfWeek] ?? 0;
+          aVal = `${dayOrder[a.dayOfWeek] ?? 0}-${a.startTime || ''}`;
+          bVal = `${dayOrder[b.dayOfWeek] ?? 0}-${b.startTime || ''}`;
           break;
         case 'type':
           aVal = a.type || '';
@@ -201,6 +201,10 @@ export default function Cycles() {
           aVal = a.status || '';
           bVal = b.status || '';
           break;
+        case 'zoom':
+          aVal = a.zoomJoinUrl ? 1 : 0;
+          bVal = b.zoomJoinUrl ? 1 : 0;
+          break;
         default:
           return 0;
       }
@@ -216,12 +220,14 @@ export default function Cycles() {
 
   // Toggle sort
   const handleSort = (field: string) => {
+    const newParams = new URLSearchParams(searchParams);
     if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+      newParams.set('dir', sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
-      setSortField(field);
-      setSortDirection('asc');
+      newParams.set('sort', field);
+      newParams.set('dir', 'asc');
     }
+    setSearchParams(newParams, { replace: true });
   };
 
   // Selection helpers

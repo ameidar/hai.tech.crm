@@ -385,17 +385,7 @@ router.get('/order-status/:orderId', async (req, res) => {
   // Update DB if paid
   if (paid) {
     try {
-      await prisma.payment.updateMany({
-        where: { wooOrderId: Number(orderId) },
-        data: {
-          status: 'paid',
-          paymentMethod: order.payment_method || null,
-          invoiceUrl: invoiceUrl || undefined,
-          invoiceNumber: invoiceNumber || undefined,
-          paidAt: new Date(order.date_paid || order.date_modified),
-          updatedAt: new Date(),
-        },
-      });
+      await upsertWooOrderPayment(order, { source: 'manual' });
     } catch (e) {
       console.error('Failed to update payment in DB:', e);
     }

@@ -21,6 +21,11 @@ vi.mock('../../config.js', () => ({
       consumerKey: 'ck_test',
       consumerSecret: 'cs_test',
     },
+    morning: {
+      apiKeyId: 'morning-key-id',
+      apiSecret: 'morning-secret',
+      baseUrl: 'https://api.greeninvoice.co.il',
+    },
   },
 }));
 

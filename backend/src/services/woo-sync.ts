@@ -1,5 +1,6 @@
 import { config } from '../config.js';
 import { prisma } from '../utils/prisma.js';
+import { createMorningClient, findClientForCustomer } from './morning/clients.js';
 import { reconcileOmerRegistrationPayment } from './omer-payment-reconciliation.js';
 import { handlePostPaymentPlacement } from './trial-placement.js';
 
@@ -108,6 +109,48 @@ async function resolveOrCreateCustomer(
   return newCustomer.id;
 }
 
+async function ensureMorningClientForCustomer(customerId: string): Promise<string | null> {
+  const customer = await prisma.customer.findUnique({
+    where: { id: customerId },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone: true,
+      address: true,
+      city: true,
+      morningClientId: true,
+    },
+  });
+  if (!customer) return null;
+  if (customer.morningClientId) return customer.morningClientId;
+
+  try {
+    const existing = await findClientForCustomer({
+      name: customer.name,
+      email: customer.email,
+      phone: customer.phone,
+    });
+    const morningClient = existing ?? await createMorningClient({
+      name: customer.name,
+      emails: customer.email ? [customer.email] : undefined,
+      phone: customer.phone ?? undefined,
+      address: customer.address ?? undefined,
+      city: customer.city ?? undefined,
+    });
+
+    await prisma.customer.update({
+      where: { id: customer.id },
+      data: { morningClientId: morningClient.id },
+    });
+    console.log(`[WooSync] Linked CRM customer ${customer.id} -> Morning client ${morningClient.id}`);
+    return morningClient.id;
+  } catch (error) {
+    console.error(`[WooSync] Failed to ensure Morning client for CRM customer ${customer.id}:`, error);
+    return null;
+  }
+}
+
 function getWooOrderDescription(order: WooOrder): string {
   const items: string[] = [];
   for (const li of order.line_items || []) if (li.name) items.push(li.name);
@@ -140,8 +183,27 @@ export async function upsertWooOrderPayment(
   if (invoiceNumber) updateData.invoiceNumber = invoiceNumber;
 
   if (existing) {
-    await prisma.payment.update({ where: { id: existing.id }, data: updateData });
-    if (paid) await reconcileOmerRegistrationPayment(existing.id);
+    const customerPatch: any = {};
+    if (paid && !existing.customerId) {
+      const email = order.billing?.email || undefined;
+      const phone = (order.billing?.phone || '').replace(/\D/g, '');
+      const firstName = order.billing?.first_name || '';
+      const lastName = order.billing?.last_name || '';
+      const fullName = `${firstName} ${lastName}`.trim();
+      const customerId = await resolveOrCreateCustomer(email, phone, fullName);
+
+      customerPatch.customerId = customerId;
+      if (fullName) customerPatch.customerName = fullName;
+      customerPatch.customerEmail = email || null;
+      customerPatch.customerPhone = phone || null;
+    }
+
+    await prisma.payment.update({ where: { id: existing.id }, data: { ...updateData, ...customerPatch } });
+    if (paid) {
+      const linkedCustomerId = customerPatch.customerId || existing.customerId;
+      if (linkedCustomerId) await ensureMorningClientForCustomer(linkedCustomerId);
+      await reconcileOmerRegistrationPayment(existing.id);
+    }
     return { action: 'updated', orderId, paymentId: existing.id };
   }
 
@@ -155,6 +217,7 @@ export async function upsertWooOrderPayment(
   const lastName = order.billing?.last_name || '';
   const fullName = `${firstName} ${lastName}`.trim();
   const customerId = await resolveOrCreateCustomer(email, phone, fullName);
+  await ensureMorningClientForCustomer(customerId);
 
   const createdPayment = await prisma.payment.create({
     data: {

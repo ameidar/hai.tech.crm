@@ -13,7 +13,7 @@ import {
   formatWhatsAppReminder,
   getDailyMeetingsForInstructors 
 } from '../services/instructor-reminder.service.js';
-import { authenticate, adminOnly } from '../middleware/auth.js';
+import { authenticate, operationsManagerOrAdmin } from '../middleware/auth.js';
 import { sendWhatsAppMessage } from '../services/notifications.js';
 import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
@@ -380,9 +380,9 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
 
 /**
  * GET /api/instructor-magic/pending-requests
- * Get all meetings pending cancellation or postponement approval (admin only)
+ * Get all meetings pending cancellation or postponement approval.
  */
-router.get('/pending-requests', authenticate, adminOnly, async (_req: Request, res: Response) => {
+router.get('/pending-requests', authenticate, operationsManagerOrAdmin, async (_req: Request, res: Response) => {
   try {
     const pending = await prisma.meeting.findMany({
       where: {
@@ -410,9 +410,9 @@ router.get('/pending-requests', authenticate, adminOnly, async (_req: Request, r
 
 /**
  * POST /api/instructor-magic/approve-request/:meetingId
- * Approve a pending cancellation/postponement request (admin only)
+ * Approve a pending cancellation/postponement request.
  */
-router.post('/approve-request/:meetingId', authenticate, adminOnly, async (req: Request, res: Response) => {
+router.post('/approve-request/:meetingId', authenticate, operationsManagerOrAdmin, async (req: Request, res: Response) => {
   try {
     const { meetingId } = req.params;
     const { action, adminNotes } = req.body; // action: 'approve' | 'reject'
@@ -483,9 +483,9 @@ router.post('/approve-request/:meetingId', authenticate, adminOnly, async (req: 
 
 /**
  * GET /api/instructor-magic/preview-reminders
- * Preview today's reminders (admin only, for testing)
+ * Preview today's reminders.
  */
-router.get('/preview-reminders', authenticate, adminOnly, async (_req: Request, res: Response) => {
+router.get('/preview-reminders', authenticate, operationsManagerOrAdmin, async (_req: Request, res: Response) => {
   try {
     const preview = await previewDailyReminders();
     
@@ -510,9 +510,9 @@ router.get('/preview-reminders', authenticate, adminOnly, async (_req: Request, 
 
 /**
  * POST /api/instructor-magic/send-test/:instructorId
- * Send test reminder to a specific instructor (admin only)
+ * Send test reminder to a specific instructor.
  */
-router.post('/send-test/:instructorId', authenticate, adminOnly, async (req: Request, res: Response) => {
+router.post('/send-test/:instructorId', authenticate, operationsManagerOrAdmin, async (req: Request, res: Response) => {
   try {
     const { instructorId } = req.params;
     const summaries = await getDailyMeetingsForInstructors();

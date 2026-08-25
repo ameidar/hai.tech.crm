@@ -16,6 +16,7 @@ import {
   recalculateDailyInstructorPaymentsForMeeting,
 } from '../services/instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
+import { findDuplicateMeetingWarnings } from '../services/meeting-duplicate-warning.js';
 import { checkAndSendMeetingReportQualityAlert } from '../services/meeting-report-quality-alert.js';
 
 export const meetingsRouter = Router();
@@ -365,6 +366,18 @@ meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
     });
     
     const profit = revenue - instructorPayment;
+    const duplicateMeetingWarnings = await findDuplicateMeetingWarnings([{
+      instructorId,
+      scheduledDate: new Date(scheduledDate),
+      startTime: new Date(`1970-01-01T${startTime}:00Z`),
+      endTime: new Date(`1970-01-01T${endTime}:00Z`),
+    }]);
+    if (duplicateMeetingWarnings.length > 0) {
+      console.warn('[MeetingDuplicateWarning]', {
+        cycleId,
+        warnings: duplicateMeetingWarnings.map(w => w.message),
+      });
+    }
 
     // Create the meeting
     const meeting = await prisma.meeting.create({
@@ -389,6 +402,7 @@ meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
         registration: { include: registrationStudentInclude },
       },
     });
+    (meeting as any).duplicateMeetingWarnings = duplicateMeetingWarnings;
 
     // Create video meeting if requested
     if (withZoom) {

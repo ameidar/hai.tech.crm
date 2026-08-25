@@ -20,6 +20,7 @@ import type {
   TaskUser,
   User,
   InternalZoomMeeting,
+  MeetingDuplicateWarning,
 } from '../types';
 
 // Pagination metadata
@@ -523,7 +524,7 @@ export const useCycle = (id: string) => {
 export const useCreateCycle = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: Partial<Cycle>) => mutateData<Cycle, Partial<Cycle>>('/cycles', 'post', data),
+    mutationFn: (data: Partial<Cycle>) => mutateData<Cycle & { duplicateMeetingWarnings?: MeetingDuplicateWarning[] }, Partial<Cycle>>('/cycles', 'post', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['cycles'] });
     },
@@ -556,7 +557,7 @@ export const useGenerateMeetings = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (cycleId: string) =>
-      mutateData<{ message: string; generated: number; total: number }, undefined>(
+      mutateData<{ message: string; generated: number; total: number; duplicateMeetingWarnings?: MeetingDuplicateWarning[] }, undefined>(
         `/cycles/${cycleId}/generate-meetings`,
         'post'
       ),
@@ -587,7 +588,7 @@ export const useBulkGenerateMeetings = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (ids: string[]) =>
-      mutateData<{ message: string; totalGenerated: number; results: any[] }, { ids: string[] }>(
+      mutateData<{ message: string; totalGenerated: number; results: any[]; duplicateMeetingWarnings?: MeetingDuplicateWarning[] }, { ids: string[] }>(
         '/cycles/bulk-generate-meetings',
         'post',
         { ids }
@@ -719,11 +720,38 @@ export interface CreateMeetingData {
   notes?: string;
 }
 
+export type MeetingMutationResult = Meeting & {
+  duplicateMeetingWarnings?: MeetingDuplicateWarning[];
+};
+
+export function meetingDuplicateWarningsAlert(warnings?: MeetingDuplicateWarning[]): string | null {
+  if (!warnings?.length) return null;
+
+  const visibleWarnings = warnings.slice(0, 5);
+  const extraCount = warnings.length - visibleWarnings.length;
+  const lines = visibleWarnings.map(warning =>
+    `• ${warning.instructorName} | ${warning.scheduledDate} | ${warning.startTime}-${warning.endTime} | ${warning.cycleName}`
+  );
+
+  if (extraCount > 0) {
+    lines.push(`ועוד ${extraCount} כפילויות נוספות`);
+  }
+
+  return [
+    'התראת כפילות למדריך:',
+    'קיימת כבר פגישה עם אותו מדריך, אותו יום ואותן שעות.',
+    '',
+    ...lines,
+    '',
+    'הפגישה נוצרה בכל זאת, לפי ההגדרה שלא לחסום יצירה.',
+  ].join('\n');
+}
+
 export const useCreateMeeting = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: CreateMeetingData) =>
-      mutateData<Meeting, CreateMeetingData>('/meetings', 'post', data),
+      mutateData<MeetingMutationResult, CreateMeetingData>('/meetings', 'post', data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['meetings'] });
       queryClient.invalidateQueries({ queryKey: ['cycle-meetings', data.cycleId] });

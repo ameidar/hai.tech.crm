@@ -58,6 +58,7 @@ import {
   useCreateMeeting,
   useInstitutionalOrders,
   api,
+  meetingDuplicateWarningsAlert,
 } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -455,11 +456,13 @@ export default function CycleDetail() {
     notes?: string;
   }) => {
     try {
-      await createMeeting.mutateAsync({
+      const result = await createMeeting.mutateAsync({
         cycleId: id!,
         ...data,
       });
       setShowCreateMeetingModal(false);
+      const duplicateAlert = meetingDuplicateWarningsAlert(result.duplicateMeetingWarnings);
+      if (duplicateAlert) alert(duplicateAlert);
     } catch (error) {
       console.error('Failed to create meeting:', error);
       alert('שגיאה ביצירת הפגישה');
@@ -1278,7 +1281,7 @@ export default function CycleDetail() {
                         if (confirm(`האם ליצור ${cycle.totalMeetings - (meetings?.length || 0)} פגישות חדשות?`)) {
                           try {
                             const result = await generateMeetings.mutateAsync(id!);
-                            alert(result.message);
+                            alert([result.message, meetingDuplicateWarningsAlert(result.duplicateMeetingWarnings)].filter(Boolean).join('\n\n'));
                           } catch (error: any) {
                             alert(error.message || 'שגיאה ביצירת פגישות');
                           }

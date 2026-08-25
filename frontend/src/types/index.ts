@@ -17,6 +17,19 @@ export type TaskStatus = 'new' | 'in_progress' | 'waiting_info' | 'completed';
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type VideoMeetingProvider = 'zoom' | 'google_meet';
 
+export interface MeetingDuplicateWarning {
+  meetingId: string;
+  cycleId: string;
+  cycleName: string;
+  instructorId: string;
+  instructorName: string;
+  scheduledDate: string;
+  startTime: string;
+  endTime: string;
+  status: string;
+  message: string;
+}
+
 // Entities
 export interface User {
   id: string;

@@ -380,12 +380,14 @@ router.get('/order-status/:orderId', async (req, res) => {
   const paid = ['processing', 'completed', 'on-hold'].includes(order.status);
 
   // Extract Morning invoice URL from order meta
-  const { invoiceUrl, invoiceNumber } = extractGreenInvoice(order.meta_data || []);
+  let { invoiceUrl, invoiceNumber } = extractGreenInvoice(order.meta_data || []);
 
   // Update DB if paid
   if (paid) {
     try {
-      await upsertWooOrderPayment(order, { source: 'manual' });
+      const result = await upsertWooOrderPayment(order, { source: 'manual' });
+      invoiceUrl = result.invoiceUrl || invoiceUrl;
+      invoiceNumber = result.invoiceNumber || invoiceNumber;
     } catch (e) {
       console.error('Failed to update payment in DB:', e);
     }

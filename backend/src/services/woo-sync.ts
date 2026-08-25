@@ -1,6 +1,7 @@
 import { config } from '../config.js';
 import { prisma } from '../utils/prisma.js';
 import { createMorningClient, findClientForCustomer } from './morning/clients.js';
+import { DOCUMENT_TYPES, searchMorningDocuments, type MorningDocument } from './morning/documents.js';
 import { reconcileOmerRegistrationPayment } from './omer-payment-reconciliation.js';
 import { handlePostPaymentPlacement } from './trial-placement.js';
 
@@ -34,6 +35,9 @@ export type WooPaymentSyncResult = {
   action: WooPaymentSyncAction;
   orderId?: number;
   paymentId?: string;
+  invoiceUrl?: string | null;
+  invoiceNumber?: string | null;
+  invoiceSource?: 'woo' | 'morning-search' | null;
 };
 
 export type WooRecentSyncResult = {
@@ -47,6 +51,11 @@ export type WooRecentSyncResult = {
 };
 
 const PAID_WOO_STATUSES = new Set(['processing', 'completed', 'on-hold']);
+const MORNING_WOO_DOCUMENT_TYPES = [
+  DOCUMENT_TYPES.TAX_INVOICE_RECEIPT,
+  DOCUMENT_TYPES.RECEIPT,
+  DOCUMENT_TYPES.TAX_INVOICE,
+];
 
 export function isPaidWooStatus(status: string | undefined | null): boolean {
   return PAID_WOO_STATUSES.has(String(status || ''));
@@ -74,6 +83,107 @@ export function extractGreenInvoice(metaData: WooMeta[] = []): { invoiceUrl: str
     invoiceUrl: urlMeta?.value || null,
     invoiceNumber: numMeta?.value || null,
   };
+}
+
+function normalizeText(value: string | null | undefined): string {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}@.]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function digitsOnly(value: string | null | undefined): string {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function dateOnly(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+function daysBetween(a: string | null, b: string | null): number | null {
+  if (!a || !b) return null;
+  const aTime = new Date(`${a}T00:00:00.000Z`).getTime();
+  const bTime = new Date(`${b}T00:00:00.000Z`).getTime();
+  if (Number.isNaN(aTime) || Number.isNaN(bTime)) return null;
+  return Math.abs(aTime - bTime) / (24 * 60 * 60 * 1000);
+}
+
+function getWooBillingCustomer(order: WooOrder): { email: string | undefined; phone: string; fullName: string } {
+  const email = order.billing?.email?.trim().toLowerCase() || undefined;
+  const phone = digitsOnly(order.billing?.phone);
+  const firstName = order.billing?.first_name || '';
+  const lastName = order.billing?.last_name || '';
+  const fullName = `${firstName} ${lastName}`.trim();
+  return { email, phone, fullName };
+}
+
+function morningDocumentUrl(doc: MorningDocument): string | null {
+  return doc.url?.he || doc.url?.origin || doc.url?.en || (doc.id ? `https://app.greeninvoice.co.il/incomes/documents/${doc.id}` : null);
+}
+
+function isClearMorningWooInvoiceMatch(order: WooOrder, doc: MorningDocument): boolean {
+  const orderAmount = Number(order.total || 0);
+  const docAmount = Number(doc.amount || 0);
+  if (!Number.isFinite(orderAmount) || !Number.isFinite(docAmount)) return false;
+  if (Math.abs(orderAmount - docAmount) > 0.05) return false;
+
+  const paidDate = dateOnly(order.date_paid || order.date_modified || null);
+  const docDate = dateOnly(doc.documentDate);
+  const dateDiff = daysBetween(paidDate, docDate);
+  if (dateDiff === null || dateDiff > 3) return false;
+
+  const { email, phone, fullName } = getWooBillingCustomer(order);
+  const client = doc.client || {};
+  const clientText = normalizeText([
+    client.name,
+    ...(Array.isArray(client.emails) ? client.emails : []),
+    client.phone,
+    client.mobile,
+  ].filter(Boolean).join(' '));
+
+  const emailMatch = !!email && clientText.includes(normalizeText(email));
+  const phoneTail = phone.length >= 7 ? phone.slice(-7) : '';
+  const clientDigits = digitsOnly(`${client.phone || ''} ${client.mobile || ''}`);
+  const phoneMatch = !!phoneTail && clientDigits.includes(phoneTail);
+  const nameParts = normalizeText(fullName).split(' ').filter((part) => part.length > 1);
+  const nameMatch = nameParts.length > 0 && nameParts.every((part) => clientText.includes(part));
+
+  return emailMatch || phoneMatch || nameMatch;
+}
+
+export async function findMorningInvoiceForWooOrder(order: WooOrder): Promise<{ invoiceUrl: string; invoiceNumber: string } | null> {
+  const paidDate = dateOnly(order.date_paid || order.date_modified || null);
+  const orderAmount = Number(order.total || 0);
+  if (!paidDate || !Number.isFinite(orderAmount) || orderAmount <= 0) return null;
+
+  try {
+    const matches: MorningDocument[] = [];
+    const { items } = await searchMorningDocuments({ type: MORNING_WOO_DOCUMENT_TYPES, page: 1, pageSize: 100 });
+    for (const doc of items || []) {
+      if (isClearMorningWooInvoiceMatch(order, doc) && morningDocumentUrl(doc)) matches.push(doc);
+    }
+
+    const unique = new Map(matches.map((doc) => [doc.id, doc]));
+    if (unique.size !== 1) {
+      if (unique.size > 1) {
+        console.warn(`[WooSync] Morning invoice fallback found ${unique.size} possible documents for Woo order ${order.id}; leaving invoice empty`);
+      }
+      return null;
+    }
+
+    const doc = [...unique.values()][0];
+    return {
+      invoiceUrl: morningDocumentUrl(doc)!,
+      invoiceNumber: String(doc.number || ''),
+    };
+  } catch (error) {
+    console.warn(`[WooSync] Morning invoice fallback failed for Woo order ${order.id}:`, error);
+    return null;
+  }
 }
 
 /**
@@ -168,8 +278,19 @@ export async function upsertWooOrderPayment(
   }
 
   const paid = isPaidWooStatus(order.status);
-  const { invoiceUrl, invoiceNumber } = extractGreenInvoice(order.meta_data || []);
+  let invoiceSource: WooPaymentSyncResult['invoiceSource'] = null;
+  let { invoiceUrl, invoiceNumber } = extractGreenInvoice(order.meta_data || []);
+  if (invoiceUrl) invoiceSource = 'woo';
   const existing = await prisma.payment.findFirst({ where: { wooOrderId: orderId } });
+
+  if (paid && !invoiceUrl && !existing?.invoiceUrl) {
+    const morningInvoice = await findMorningInvoiceForWooOrder(order);
+    if (morningInvoice) {
+      invoiceUrl = morningInvoice.invoiceUrl;
+      invoiceNumber = morningInvoice.invoiceNumber;
+      invoiceSource = 'morning-search';
+    }
+  }
 
   const updateData: any = {
     status: paid ? 'paid' : order.status === 'cancelled' ? 'cancelled' : 'pending',
@@ -185,11 +306,7 @@ export async function upsertWooOrderPayment(
   if (existing) {
     const customerPatch: any = {};
     if (paid && !existing.customerId) {
-      const email = order.billing?.email || undefined;
-      const phone = (order.billing?.phone || '').replace(/\D/g, '');
-      const firstName = order.billing?.first_name || '';
-      const lastName = order.billing?.last_name || '';
-      const fullName = `${firstName} ${lastName}`.trim();
+      const { email, phone, fullName } = getWooBillingCustomer(order);
       const customerId = await resolveOrCreateCustomer(email, phone, fullName);
 
       customerPatch.customerId = customerId;
@@ -204,18 +321,21 @@ export async function upsertWooOrderPayment(
       if (linkedCustomerId) await ensureMorningClientForCustomer(linkedCustomerId);
       await reconcileOmerRegistrationPayment(existing.id);
     }
-    return { action: 'updated', orderId, paymentId: existing.id };
+    return {
+      action: 'updated',
+      orderId,
+      paymentId: existing.id,
+      invoiceUrl: invoiceUrl || existing.invoiceUrl || null,
+      invoiceNumber: invoiceNumber || existing.invoiceNumber || null,
+      invoiceSource,
+    };
   }
 
   if (!paid) {
     return { action: 'skipped_pending', orderId };
   }
 
-  const email = order.billing?.email || undefined;
-  const phone = (order.billing?.phone || '').replace(/\D/g, '');
-  const firstName = order.billing?.first_name || '';
-  const lastName = order.billing?.last_name || '';
-  const fullName = `${firstName} ${lastName}`.trim();
+  const { email, phone, fullName } = getWooBillingCustomer(order);
   const customerId = await resolveOrCreateCustomer(email, phone, fullName);
   await ensureMorningClientForCustomer(customerId);
 
@@ -242,7 +362,7 @@ export async function upsertWooOrderPayment(
 
   await reconcileOmerRegistrationPayment(createdPayment.id);
 
-  return { action: 'created', orderId, paymentId: createdPayment.id };
+  return { action: 'created', orderId, paymentId: createdPayment.id, invoiceUrl: invoiceUrl || null, invoiceNumber: invoiceNumber || null, invoiceSource };
 }
 
 export async function syncRecentWooPayments(days = 1): Promise<WooRecentSyncResult> {

@@ -27,7 +27,8 @@ export function initGoogleMeetArtifactsScheduler() {
       const result = await googleMeetService.syncArtifactsForRecentMeetings();
       console.log(
         `[GoogleMeetArtifacts] Sync done: candidates=${result.candidates}, checked=${result.checked}, ` +
-        `updated=${result.updated}, skippedNotReady=${result.skippedNotReady}, failed=${result.failed}`
+        `updated=${result.updated}, missingArtifactAlerts=${result.missingArtifactAlerts}, ` +
+        `skippedNotReady=${result.skippedNotReady}, failed=${result.failed}`
       );
     } catch (error) {
       console.error('[GoogleMeetArtifacts] Sync failed:', error);

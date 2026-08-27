@@ -3,6 +3,7 @@ import fs from 'fs';
 import https from 'https';
 import path from 'path';
 import { prisma } from '../utils/prisma.js';
+import { sendOperationsWhatsApp } from './operations-notifications.js';
 
 const DEFAULT_HOSTS = ['ami@hai.tech', 'inna@hai.tech', 'hila@hai.tech', 'info@hai.tech'];
 const DEFAULT_BUFFER_BEFORE_MINUTES = 10;
@@ -12,6 +13,7 @@ const DEFAULT_SEARCH_UNTIL_HOUR = 21;
 const DEFAULT_ACCESS_TYPE = 'OPEN';
 const DEFAULT_ARTIFACT_LOOKBACK_DAYS = 14;
 const DEFAULT_ARTIFACT_READY_DELAY_MINUTES = 30;
+const DEFAULT_ARTIFACT_ALERT_DELAY_MINUTES = 60;
 
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar',
@@ -75,6 +77,9 @@ interface Transcript {
     document?: string;
   };
 }
+
+type DateLike = Date | string | null | undefined;
+type GoogleMeetArtifactConfig = NonNullable<GoogleMeetSpace['config']>['artifactConfig'];
 
 export interface GoogleMeetVideoMeeting {
   provider: 'google_meet';
@@ -504,11 +509,126 @@ function artifactText(recordingUrl?: string | null, transcriptUrl?: string | nul
   ].filter(Boolean).join('\n');
 }
 
+function formatMeetingDate(date: Date): string {
+  return new Intl.DateTimeFormat('he-IL', {
+    timeZone: DEFAULT_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
+function formatMeetingTime(time: DateLike): string {
+  if (!time) return '';
+  if (typeof time === 'string') return time.substring(0, 5);
+  return `${time.getUTCHours().toString().padStart(2, '0')}:${time.getUTCMinutes().toString().padStart(2, '0')}`;
+}
+
+export function buildMissingGoogleMeetArtifactsAlert(params: {
+  cycleName?: string | null;
+  instructorName?: string | null;
+  instructorEmail?: string | null;
+  scheduledDate: Date;
+  startTime: DateLike;
+  endTime: DateLike;
+  joinUrl?: string | null;
+  hostEmail?: string | null;
+  recordingExpected: boolean;
+  transcriptExpected: boolean;
+  conferenceRecordFound: boolean;
+}): string {
+  const expected = [
+    params.recordingExpected ? 'הקלטה' : null,
+    params.transcriptExpected ? 'תמלול' : null,
+  ].filter(Boolean).join(' + ') || 'artifact';
+  const reason = params.conferenceRecordFound
+    ? 'Google Meet מציג שהפגישה התקיימה, אבל לא החזיר את כל קבצי ההקלטה/תמלול המצופים.'
+    : 'לא נמצא conference record לפגישה בחלון הזמן הצפוי.';
+
+  return [
+    '⚠️ *חסר artifact מ-Google Meet*',
+    '',
+    `שיעור: ${params.cycleName || 'ללא שם'}`,
+    `מדריך: ${params.instructorName || 'לא ידוע'}${params.instructorEmail ? ` (${params.instructorEmail})` : ''}`,
+    `מועד: ${formatMeetingDate(params.scheduledDate)} ${formatMeetingTime(params.startTime)}-${formatMeetingTime(params.endTime)}`,
+    `Host: ${params.hostEmail || 'לא ידוע'}`,
+    params.joinUrl ? `לינק: ${params.joinUrl}` : null,
+    `ציפייה: ${expected}`,
+    `סיבה: ${reason}`,
+  ].filter(Boolean).join('\n');
+}
+
+async function getMeetSpace(token: string, spaceName: string): Promise<GoogleMeetSpace | null> {
+  try {
+    return await requestJson<GoogleMeetSpace>(
+      `https://meet.googleapis.com/v2/${spaceName}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+  } catch (error) {
+    console.warn(`[Google Meet] Could not fetch space config for ${spaceName}:`, error);
+    return null;
+  }
+}
+
+function artifactExpectation(spaceConfig?: GoogleMeetArtifactConfig) {
+  if (!spaceConfig) {
+    return {
+      recordingExpected: true,
+      transcriptExpected: true,
+    };
+  }
+  return {
+    recordingExpected: spaceConfig?.recordingConfig?.autoRecordingGeneration === 'ON',
+    transcriptExpected: spaceConfig?.transcriptionConfig?.autoTranscriptionGeneration === 'ON',
+  };
+}
+
+async function sendMissingArtifactsAlert(params: {
+  meeting: {
+    id: string;
+    scheduledDate: Date;
+    startTime: DateLike;
+    endTime: DateLike;
+    zoomJoinUrl?: string | null;
+    zoomHostEmail?: string | null;
+    cycle?: { name?: string | null } | null;
+    instructor?: { name?: string | null; email?: string | null } | null;
+  };
+  recordingExpected: boolean;
+  transcriptExpected: boolean;
+  conferenceRecordFound: boolean;
+}) {
+  const message = buildMissingGoogleMeetArtifactsAlert({
+    cycleName: params.meeting.cycle?.name,
+    instructorName: params.meeting.instructor?.name,
+    instructorEmail: params.meeting.instructor?.email,
+    scheduledDate: params.meeting.scheduledDate,
+    startTime: params.meeting.startTime,
+    endTime: params.meeting.endTime,
+    joinUrl: params.meeting.zoomJoinUrl,
+    hostEmail: params.meeting.zoomHostEmail,
+    recordingExpected: params.recordingExpected,
+    transcriptExpected: params.transcriptExpected,
+    conferenceRecordFound: params.conferenceRecordFound,
+  });
+
+  const results = await sendOperationsWhatsApp(message);
+  const failed = results.filter((result) => !result.success);
+  if (failed.length) {
+    throw new Error(`Failed to send Google Meet artifact alert for meeting ${params.meeting.id}: ${failed.map((result) => result.error).join('; ')}`);
+  }
+}
+
 export async function syncArtifactsForRecentMeetings(options: { limit?: number; now?: Date } = {}) {
   const credentials = readCredentials();
   const now = options.now || new Date();
   const lookbackDays = Number(process.env.GOOGLE_MEET_ARTIFACT_LOOKBACK_DAYS || DEFAULT_ARTIFACT_LOOKBACK_DAYS);
   const readyDelayMinutes = Number(process.env.GOOGLE_MEET_ARTIFACT_READY_DELAY_MINUTES || DEFAULT_ARTIFACT_READY_DELAY_MINUTES);
+  const alertDelayMinutes = Number(process.env.GOOGLE_MEET_ARTIFACT_ALERT_DELAY_MINUTES || DEFAULT_ARTIFACT_ALERT_DELAY_MINUTES);
   const lookback = addMinutes(now, -lookbackDays * 24 * 60);
   const tokenByHost = new Map<string, string>();
 
@@ -524,6 +644,10 @@ export async function syncArtifactsForRecentMeetings(options: { limit?: number; 
         { lessonTranscript: null },
       ],
     },
+    include: {
+      cycle: { select: { name: true } },
+      instructor: { select: { name: true, email: true } },
+    },
     orderBy: { scheduledDate: 'desc' },
     take: options.limit || 100,
   });
@@ -531,6 +655,7 @@ export async function syncArtifactsForRecentMeetings(options: { limit?: number; 
   let checked = 0;
   let updated = 0;
   let skippedNotReady = 0;
+  let missingArtifactAlerts = 0;
   let failed = 0;
 
   for (const meeting of meetings) {
@@ -554,9 +679,29 @@ export async function syncArtifactsForRecentMeetings(options: { limit?: number; 
         tokenByHost.set(host, token);
       }
 
+      const space = await getMeetSpace(token, spaceName);
+      const expectation = artifactExpectation(space?.config?.artifactConfig);
       const records = await listConferenceRecords(token, spaceName, addMinutes(start, -120), addMinutes(end, 240));
       const record = closestEndedConferenceRecord(records, start);
-      if (!record?.name) continue;
+      if (!record?.name) {
+        if (
+          !meeting.googleMeetArtifactAlertSentAt
+          && now.getTime() >= addMinutes(end, alertDelayMinutes).getTime()
+          && (expectation.recordingExpected || expectation.transcriptExpected)
+        ) {
+          await sendMissingArtifactsAlert({
+            meeting,
+            ...expectation,
+            conferenceRecordFound: false,
+          });
+          await prisma.meeting.update({
+            where: { id: meeting.id },
+            data: { googleMeetArtifactAlertSentAt: now },
+          });
+          missingArtifactAlerts += 1;
+        }
+        continue;
+      }
 
       const [recordings, transcripts] = await Promise.all([
         meeting.zoomRecordingUrl ? Promise.resolve([]) : listRecordings(token, record.name),
@@ -572,7 +717,27 @@ export async function syncArtifactsForRecentMeetings(options: { limit?: number; 
         : transcripts.find((transcript) => transcript.state === 'FILE_GENERATED' && transcript.docsDestination?.exportUri)
           ?.docsDestination?.exportUri || null;
 
-      if (!recordingUrl && !transcriptUrl) continue;
+      const missingExpectedArtifact = (expectation.recordingExpected && !recordingUrl)
+        || (expectation.transcriptExpected && !transcriptUrl);
+      if (!recordingUrl && !transcriptUrl) {
+        if (
+          !meeting.googleMeetArtifactAlertSentAt
+          && now.getTime() >= addMinutes(end, alertDelayMinutes).getTime()
+          && missingExpectedArtifact
+        ) {
+          await sendMissingArtifactsAlert({
+            meeting,
+            ...expectation,
+            conferenceRecordFound: true,
+          });
+          await prisma.meeting.update({
+            where: { id: meeting.id },
+            data: { googleMeetArtifactAlertSentAt: now },
+          });
+          missingArtifactAlerts += 1;
+        }
+        continue;
+      }
 
       await prisma.meeting.update({
         where: { id: meeting.id },
@@ -582,6 +747,22 @@ export async function syncArtifactsForRecentMeetings(options: { limit?: number; 
         },
       });
       updated += 1;
+      if (
+        !meeting.googleMeetArtifactAlertSentAt
+        && now.getTime() >= addMinutes(end, alertDelayMinutes).getTime()
+        && missingExpectedArtifact
+      ) {
+        await sendMissingArtifactsAlert({
+          meeting,
+          ...expectation,
+          conferenceRecordFound: true,
+        });
+        await prisma.meeting.update({
+          where: { id: meeting.id },
+          data: { googleMeetArtifactAlertSentAt: now },
+        });
+        missingArtifactAlerts += 1;
+      }
     } catch (error) {
       failed += 1;
       console.error(`[Google Meet] Failed to sync artifacts for meeting ${meeting.id}:`, error);
@@ -592,6 +773,7 @@ export async function syncArtifactsForRecentMeetings(options: { limit?: number; 
     checked,
     updated,
     skippedNotReady,
+    missingArtifactAlerts,
     failed,
     candidates: meetings.length,
   };

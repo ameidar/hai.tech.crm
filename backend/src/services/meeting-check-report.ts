@@ -3,9 +3,10 @@ import { sendWhatsApp } from './messaging.js';
 import { getOperationsWhatsAppRecipients } from './operations-notifications.js';
 
 const TZ = 'Asia/Jerusalem';
-const MONDAY_PREFIX = 'מנדיי';
 const ACTIVE_REGISTRATION_STATUS = 'active';
 const PAID_STATUS = 'paid';
+const VIDEO_ACTIVITY_TYPES = new Set(['online', 'private_lesson']);
+const VIDEO_CYCLE_TYPES = new Set(['private', 'trial_private']);
 
 type DateLike = Date | string | null | undefined;
 
@@ -21,11 +22,16 @@ export type MeetingCheckMeeting = {
   endTime: DateLike;
   status: string;
   zoomMeetingId: string | null;
+  zoomJoinUrl?: string | null;
   zoomHostEmail: string | null;
   instructorId: string | null;
+  activityType?: string | null;
   instructor?: { name: string | null } | null;
   cycle: {
     name: string;
+    type?: string | null;
+    isOnline?: boolean | null;
+    activityType?: string | null;
     deletedAt?: Date | null;
     course?: { name: string | null } | null;
     registrations: MeetingCheckRegistration[];
@@ -81,6 +87,15 @@ function meetingLine(meeting: MeetingCheckMeeting, extra = ''): string {
   return `${meetingName(meeting)} | ${formatTime(meeting.startTime)}-${formatTime(meeting.endTime)}${suffix}`;
 }
 
+function expectsVideoLink(meeting: MeetingCheckMeeting): boolean {
+  return Boolean(
+    meeting.cycle.isOnline
+      || VIDEO_ACTIVITY_TYPES.has(meeting.activityType || '')
+      || VIDEO_ACTIVITY_TYPES.has(meeting.cycle.activityType || '')
+      || VIDEO_CYCLE_TYPES.has(meeting.cycle.type || '')
+  );
+}
+
 function addSection(lines: string[], title: string, items: string[], issueCounter: { count: number }): void {
   if (items.length === 0) return;
   issueCounter.count += items.length;
@@ -126,7 +141,6 @@ function findPairConflicts<T extends string | null>(
 export function buildMeetingCheckReport(dateLabel: string, meetingsInput: MeetingCheckMeeting[]): MeetingCheckReport {
   const meetings = meetingsInput
     .filter((meeting) => !meeting.cycle.deletedAt)
-    .filter((meeting) => !meeting.cycle.name.startsWith(MONDAY_PREFIX))
     .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
 
   const lines = [`🚨 *דוח בדיקת פגישות ל-${dateLabel}*`, ''];
@@ -161,6 +175,17 @@ export function buildMeetingCheckReport(dateLabel: string, meetingsInput: Meetin
   const unpaidLines = unpaid.slice(0, 15).map((meeting) => meetingLine(meeting));
   if (unpaid.length > 15) unpaidLines.push(`...ועוד ${unpaid.length - 15}`);
   addSection(lines, `🟠 *לא שולם (סה"כ ${unpaid.length}):*`, unpaidLines, issueCounter);
+
+  addSection(
+    lines,
+    '🔴 *פגישת וידאו חסרה:*',
+    meetings
+      .filter((meeting) => meeting.status === 'scheduled')
+      .filter(expectsVideoLink)
+      .filter((meeting) => !meeting.zoomJoinUrl)
+      .map((meeting) => meetingLine(meeting)),
+    issueCounter
+  );
 
   addSection(
     lines,

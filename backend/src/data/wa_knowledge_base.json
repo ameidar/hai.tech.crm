@@ -276,7 +276,31 @@
         }
       ],
       "guarantee": "החזר כספי מובטח עד השיעור השלישי - אין מחויבות!"
-    }
+    },
+    "active_group_cycles": [
+      {
+        "id": "roblox-group-20261004",
+        "cycle_id": "824448eb-e8dd-4be7-bd9c-9ffd622bd9be",
+        "title": "רובלוקס מתחילים גילאי 10-13",
+        "status": "הרשמה פתוחה",
+        "short_description": "מחזור אונליין קבוצתי שבו ילדים שאוהבים Roblox לומדים ליצור משחקים בעצמם ב-Roblox Studio.",
+        "age_range": "10-13",
+        "level": "מתחילים",
+        "start_date": "04.10.2026",
+        "schedule": "ימי ראשון בשעה 17:00",
+        "meetings_count": 10,
+        "meeting_duration_minutes": 60,
+        "format": "אונליין ב-Google Meet",
+        "instructor": "מורין לוגסי בן הרוש",
+        "full_cycle_price": 999,
+        "currency": "ILS",
+        "minimum_students_to_open": 6,
+        "registration_link": "https://crm.orma-ai.com/campaign/roblox-group-20261004",
+        "payment_note": "לאחר מילוי טופס ההרשמה מופיע מעבר לתשלום מאובטח על סך 999 ש״ח לכל המחזור.",
+        "late_registration": "אפשר להצטרף גם אחרי תחילת המחזור בכפוף לתיאום השלמה.",
+        "bot_response": "יש עכשיו הרשמה למחזור רובלוקס למתחילים לגילאי 10-13: 10 מפגשי אונליין ב-Google Meet, ימי ראשון ב-17:00, החל מ-04.10.2026. המחיר הוא 999 ש״ח לכל המחזור. להרשמה: https://crm.orma-ai.com/campaign/roblox-group-20261004"
+      }
+    ]
   },
   "institution_programs": {
     "description": "תוכניות למוסדות חינוך - מוכרים בגפ\"ן ומאושרים במאגר משרד החינוך",

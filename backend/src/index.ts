@@ -367,7 +367,6 @@ app.get('/pl/:code', async (req, res, next) => {
     const amountStr = amountNum.toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const paymentsStr = link.maxPayments > 1 ? `עד ${link.maxPayments} תשלומים` : 'תשלום אחד';
     const docStr = docTypeLabel[link.documentType] || `מסמך ${link.documentType}`;
-    const checkoutUrl = escapeHtml(link.morningUrl);
     const installmentOptions = Array.from({ length: Math.max(1, Math.min(36, link.maxPayments)) }, (_, i) => i + 1);
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -458,6 +457,8 @@ app.get('/pl/:code', async (req, res, next) => {
     font-weight: 600;
     transition: transform 0.15s ease, box-shadow 0.15s ease;
     box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+    border: 0;
+    cursor: pointer;
   }
   .cta:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45); }
   .secure {
@@ -509,14 +510,15 @@ app.get('/pl/:code', async (req, res, next) => {
       </div>
     </div>
 
-    ${link.maxPayments > 1 ? `
     <form class="installments" method="post" action="/pl/${escapeHtml(code)}/pay">
+    ${link.maxPayments > 1 ? `
       <p class="installments-label">בחר/י מספר תשלומים — עד ${link.maxPayments}</p>
       <div class="installment-grid">
         ${installmentOptions.map(n => `<button class="installment-option" type="submit" name="payments" value="${n}">${n === 1 ? 'תשלום אחד' : `${n} תשלומים`}</button>`).join('')}
-      </div>
-    </form>` : `
-    <a class="cta" href="${checkoutUrl}">המשך לתשלום מאובטח ←</a>`}
+      </div>` : `
+      <input type="hidden" name="payments" value="1" />
+      <button class="cta" type="submit">המשך לתשלום מאובטח ←</button>`}
+    </form>
     <div class="secure">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
       סליקה מאובטחת באמצעות Meshulam

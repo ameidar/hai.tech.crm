@@ -7,6 +7,44 @@ import { autoRegisterLeadToCycle } from '../services/lead-cycle-registration.js'
 
 export const campaignLeadsRouter = Router();
 
+interface CampaignChildInput {
+  childName?: string;
+  childAge?: string;
+  grade?: string;
+}
+
+function cleanText(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+function normalizeChildren(body: {
+  children?: unknown;
+  childName?: string;
+  childAge?: string;
+  grade?: string;
+}): CampaignChildInput[] {
+  if (Array.isArray(body.children)) {
+    return body.children
+      .flatMap((child) => {
+        if (!child || typeof child !== 'object') return [];
+        const item = child as CampaignChildInput;
+        const normalized = {
+          childName: cleanText(item.childName),
+          childAge: cleanText(item.childAge),
+          grade: cleanText(item.grade),
+        };
+        return normalized.childName ? [normalized] : [];
+      })
+  }
+
+  const childName = cleanText(body.childName);
+  return childName ? [{
+    childName,
+    childAge: cleanText(body.childAge),
+    grade: cleanText(body.grade),
+  }] : [];
+}
+
 function getCampaignCycleId(audienceFilters: unknown): string | null {
   if (!audienceFilters || typeof audienceFilters !== 'object' || Array.isArray(audienceFilters)) {
     return null;
@@ -138,7 +176,7 @@ campaignLeadsRouter.get('/:campaignId', async (req: Request, res: Response, next
  */
 campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { campaignId, name, phone, email, interest, childName, childAge, grade } = req.body as {
+    const { campaignId, name, phone, email, interest } = req.body as {
       campaignId?: string;
       name?: string;
       phone?: string;
@@ -147,7 +185,10 @@ campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunc
       childName?: string;
       childAge?: string;
       grade?: string;
+      children?: unknown;
     };
+    const children = normalizeChildren(req.body);
+    const primaryChild = children[0] ?? {};
 
     if (!name || !phone) {
       res.status(400).json({ error: 'שם וטלפון הם שדות חובה' });
@@ -162,8 +203,8 @@ campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunc
       : null;
     const cycleId = campaign ? getCampaignCycleId(campaign.audienceFilters) : null;
 
-    if (cycleId && !childName?.trim()) {
-      res.status(400).json({ error: 'שם הילד הוא שדה חובה להרשמה למחזור' });
+    if (cycleId && children.length === 0) {
+      res.status(400).json({ error: 'שם הילד הוא שדה חובה להרשמה למחזור, ואפשר להוסיף כמה ילדים' });
       return;
     }
 
@@ -171,9 +212,11 @@ campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunc
     const leadNotes = [
       cycleId ? `הרשמה למחזור: ${cycleId}` : null,
       interest ? `תחום עניין: ${interest}` : null,
-      childName ? `שם הילד: ${childName}` : null,
-      childAge ? `גיל הילד: ${childAge}` : null,
-      grade ? `כיתה: ${grade}` : null,
+      children.length > 0 ? `ילדים: ${children.map(child => [
+        child.childName,
+        child.childAge ? `גיל ${child.childAge}` : null,
+        child.grade ? `כיתה ${child.grade}` : null,
+      ].filter(Boolean).join(' / ')).join('; ')}` : null,
     ].filter(Boolean).join(' | ') || 'ליד מקמפיין';
 
     // Find or create customer + add to communication history
@@ -183,8 +226,8 @@ campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunc
       email,
       source: leadSource,
       notes: leadNotes,
-      childName,
-      childAge,
+      childName: primaryChild.childName,
+      childAge: primaryChild.childAge,
     });
 
     // Create or merge LeadAppointment (dedup by phone)
@@ -193,7 +236,7 @@ campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunc
       customerName: name,
       customerPhone: phone,
       customerEmail: email,
-      childName: childName || null,
+      childName: children.map(child => child.childName).filter(Boolean).join(', ') || null,
       interest,
       source: leadSource,
       appointmentNotes: leadNotes,
@@ -201,17 +244,18 @@ campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunc
       campaignName: campaign?.name ?? null,
     });
 
-    const autoRegistration = customerId
-      ? await autoRegisterLeadToCycle({
+    const registrations = customerId
+      ? await Promise.all(children.map(child => autoRegisterLeadToCycle({
         source: leadSource,
         customerId,
-        childName: childName || null,
-        childAge: childAge || null,
-        grade: grade || null,
+        childName: child.childName || null,
+        childAge: child.childAge || null,
+        grade: child.grade || null,
         cycleId,
         interest: interest || null,
-      })
-      : { status: 'skipped' as const, reason: 'missing_customer' };
+      })))
+      : [{ status: 'skipped' as const, reason: 'missing_customer' }];
+    const autoRegistration = registrations[0] ?? { status: 'skipped' as const, reason: 'missing_child' };
     const paymentLink = cycleId ? await findCyclePaymentLink(cycleId) : null;
 
     console.log(`[Campaign] Lead ${lead.id} — ${isDuplicate ? 'merged duplicate' : (isNew ? 'new' : 'existing')} customer ${customerId}`);
@@ -241,6 +285,7 @@ campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunc
       leadId: lead.id,
       customerId,
       registration: autoRegistration,
+      registrations,
       payment: paymentLink ? {
         url: publicPaymentUrl(req, paymentLink.code),
         amount: paymentLink.amount,

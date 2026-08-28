@@ -1,6 +1,7 @@
 import { prisma } from '../utils/prisma.js';
 import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
 import { defaultRegistrationAmountForCycle } from '../utils/registration-amount.js';
+import { Prisma } from '@prisma/client';
 
 const AUTO_REGISTRATION_SOURCES = new Set([
   'omer-dafna-registration-form',
@@ -130,17 +131,44 @@ export async function autoRegisterLeadToCycle(input: AutoRegisterLeadInput): Pro
     };
   }
 
-  const registration = await prisma.registration.create({
-    data: {
-      studentId: student.id,
+  let registration: { id: string };
+  try {
+    registration = await prisma.registration.create({
+      data: {
+        studentId: student.id,
+        cycleId: cycle.id,
+        status: 'registered',
+        paymentStatus: 'unpaid',
+        amount: defaultRegistrationAmountForCycle(cycle),
+        notes: `נוצר אוטומטית מטופס ${input.source}`,
+      },
+      select: { id: true },
+    });
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+      throw error;
+    }
+
+    const conflictingRegistration = await prisma.registration.findFirst({
+      where: {
+        studentId: student.id,
+        cycleId: cycle.id,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    if (!conflictingRegistration) {
+      throw error;
+    }
+
+    return {
+      status: 'already_registered',
       cycleId: cycle.id,
-      status: 'registered',
-      paymentStatus: 'unpaid',
-      amount: defaultRegistrationAmountForCycle(cycle),
-      notes: `נוצר אוטומטית מטופס ${input.source}`,
-    },
-    select: { id: true },
-  });
+      studentId: student.id,
+      registrationId: conflictingRegistration.id,
+    };
+  }
 
   recalcMeetingRevenue(cycle.id)
     .catch(err => console.error('[lead-cycle-registration] failed to recalculate cycle revenue:', err));

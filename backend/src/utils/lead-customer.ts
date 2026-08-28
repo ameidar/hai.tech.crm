@@ -53,16 +53,29 @@ export async function findOrCreateCustomer(lead: LeadData): Promise<{
       ? `[${timestamp}] ${source}: ${notes}`
       : `[${timestamp}] ${source}: פנייה חדשה`;
 
+    const updateData: Prisma.CustomerUpdateInput = {
+      notes: existing.notes
+        ? `${existing.notes}\n---\n${historyNote}`
+        : historyNote,
+    };
+
+    if (!existing.phone && normalizedPhone) {
+      const phoneConflict = await findExistingCustomerByPhoneOrEmail(last9, null);
+      if (!phoneConflict || phoneConflict.id === existing.id) {
+        updateData.phone = phone!;
+      }
+    }
+
+    if (!existing.email && email) {
+      const emailConflict = await findExistingCustomerByPhoneOrEmail(null, email);
+      if (!emailConflict || emailConflict.id === existing.id) {
+        updateData.email = email;
+      }
+    }
+
     await prisma.customer.update({
       where: { id: existing.id },
-      data: {
-        notes: existing.notes
-          ? `${existing.notes}\n---\n${historyNote}`
-          : historyNote,
-        // Update phone/email if we have them and they're missing
-        phone: existing.phone ?? (normalizedPhone ? phone! : undefined),
-        email: existing.email ?? (email || undefined),
-      },
+      data: updateData,
     });
 
     return { customerId: existing.id, isNew: false };

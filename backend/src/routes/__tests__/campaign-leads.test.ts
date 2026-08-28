@@ -160,6 +160,60 @@ describe('campaign leads public API', () => {
     }));
   });
 
+  it('auto-registers multiple children from one campaign submission', async () => {
+    mockAutoRegisterLeadToCycle
+      .mockResolvedValueOnce({
+        status: 'registered',
+        cycleId: 'cycle-1',
+        studentId: 'student-1',
+        registrationId: 'registration-1',
+      })
+      .mockResolvedValueOnce({
+        status: 'registered',
+        cycleId: 'cycle-1',
+        studentId: 'student-2',
+        registrationId: 'registration-2',
+      });
+
+    const res = await request(app)
+      .post('/api/campaign-leads')
+      .set('Host', 'crm.test')
+      .send({
+        campaignId: 'roblox-group-20261004',
+        name: 'הורה בדיקה',
+        phone: '0501234567',
+        email: 'parent@example.com',
+        children: [
+          { childName: 'ילד ראשון', childAge: '10', grade: 'ה' },
+          { childName: 'ילד שני', childAge: '12', grade: 'ז' },
+        ],
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.registrations).toHaveLength(2);
+    expect(res.body.registrations.map((reg: { registrationId: string }) => reg.registrationId)).toEqual([
+      'registration-1',
+      'registration-2',
+    ]);
+    expect(mockFindOrCreateCustomer).toHaveBeenCalledWith(expect.objectContaining({
+      childName: 'ילד ראשון',
+      childAge: '10',
+    }));
+    expect(mockFindOrCreateLeadAppointment).toHaveBeenCalledWith(expect.objectContaining({
+      childName: 'ילד ראשון, ילד שני',
+    }));
+    expect(mockAutoRegisterLeadToCycle).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      childName: 'ילד ראשון',
+      childAge: '10',
+      grade: 'ה',
+    }));
+    expect(mockAutoRegisterLeadToCycle).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      childName: 'ילד שני',
+      childAge: '12',
+      grade: 'ז',
+    }));
+  });
+
   it('requires child name for cycle-linked campaign registration', async () => {
     const res = await request(app)
       .post('/api/campaign-leads')

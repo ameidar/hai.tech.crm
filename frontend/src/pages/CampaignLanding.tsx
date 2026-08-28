@@ -7,6 +7,10 @@ interface LeadForm {
   phone: string;
   email: string;
   interest: string;
+  children: ChildForm[];
+}
+
+interface ChildForm {
   childName: string;
   childAge: string;
   grade: string;
@@ -50,6 +54,11 @@ interface SubmitResult {
   registration?: {
     status?: string;
   };
+  registrations?: Array<{
+    status?: string;
+    registrationId?: string;
+    studentId?: string;
+  }>;
 }
 
 const COURSES = [
@@ -62,6 +71,14 @@ const COURSES = [
   'עיצוב ואנימציה',
   'אחר',
 ];
+
+function emptyChild(): ChildForm {
+  return {
+    childName: '',
+    childAge: '',
+    grade: '',
+  };
+}
 
 function formatDate(value?: string): string {
   if (!value) return '';
@@ -97,9 +114,7 @@ export default function CampaignLanding() {
     phone: '',
     email: '',
     interest: '',
-    childName: '',
-    childAge: '',
-    grade: '',
+    children: [emptyChild()],
   });
   const [landingData, setLandingData] = useState<CampaignLandingData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -155,12 +170,20 @@ export default function CampaignLanding() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const children = form.children
+      .map(child => ({
+        childName: child.childName.trim(),
+        childAge: child.childAge.trim(),
+        grade: child.grade.trim(),
+      }))
+      .filter(child => child.childName);
+
     if (!form.name.trim() || !form.phone.trim()) {
       setError('שם הורה וטלפון הם שדות חובה');
       return;
     }
-    if (isCycleRegistration && !form.childName.trim()) {
-      setError('שם הילד הוא שדה חובה להרשמה למחזור');
+    if (isCycleRegistration && children.length === 0) {
+      setError('שם הילד הוא שדה חובה להרשמה למחזור, ואפשר להוסיף כמה ילדים');
       return;
     }
 
@@ -173,9 +196,7 @@ export default function CampaignLanding() {
         phone: form.phone,
         email: form.email,
         interest: form.interest || cycle?.courseName,
-        childName: form.childName,
-        childAge: form.childAge,
-        grade: form.grade,
+        children,
       });
       setSubmitResult(res.data);
       setSubmitted(true);
@@ -190,7 +211,11 @@ export default function CampaignLanding() {
   };
 
   if (submitted) {
-    const alreadyRegistered = submitResult?.registration?.status === 'already_registered';
+    const registrations = submitResult?.registrations || (submitResult?.registration ? [submitResult.registration] : []);
+    const registeredCount = registrations.filter(reg => reg.status === 'registered').length;
+    const alreadyRegisteredCount = registrations.filter(reg => reg.status === 'already_registered').length;
+    const childNames = form.children.map(child => child.childName.trim()).filter(Boolean).join(', ');
+    const alreadyRegistered = registeredCount === 0 && alreadyRegisteredCount > 0;
     return (
       <div dir="rtl" className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full text-center">
@@ -199,8 +224,15 @@ export default function CampaignLanding() {
             {alreadyRegistered ? 'ההרשמה כבר קיימת' : 'ההרשמה נקלטה'}
           </h1>
           <p className="text-gray-600 text-lg">
-            {cycle ? `שמנו את ${form.childName} ברשימת ההרשמה ל${cycle.name}.` : 'קיבלנו את הפרטים ונחזור אליך בהקדם.'}
+            {cycle
+              ? `שמנו את ${childNames} ברשימת ההרשמה ל${cycle.name}.`
+              : 'קיבלנו את הפרטים ונחזור אליך בהקדם.'}
           </p>
+          {cycle && alreadyRegisteredCount > 0 && (
+            <p className="mt-3 text-sm text-amber-700">
+              {alreadyRegisteredCount} מתוך הילדים כבר היו רשומים למחזור.
+            </p>
+          )}
           {payment?.url && (
             <a
               href={payment.url}
@@ -294,41 +326,84 @@ export default function CampaignLanding() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                שם הילד{isCycleRegistration && <span className="text-red-500"> *</span>}
-              </label>
-              <input
-                type="text"
-                value={form.childName}
-                onChange={e => setForm(f => ({ ...f, childName: e.target.value }))}
-                placeholder="שם הילד"
-                className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-indigo-500 outline-none text-base"
-                required={isCycleRegistration}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">גיל הילד</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={form.childAge}
-                onChange={e => setForm(f => ({ ...f, childAge: e.target.value }))}
-                placeholder="10"
-                className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-indigo-500 outline-none text-base"
-              />
-            </div>
-          </div>
+            {form.children.map((child, index) => (
+              <div key={index} className="sm:col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <span className="text-sm font-semibold text-gray-700">פרטי ילד {index + 1}</span>
+                  {form.children.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setForm(f => ({
+                        ...f,
+                        children: f.children.filter((_, childIndex) => childIndex !== index),
+                      }))}
+                      className="text-sm text-red-600 hover:text-red-700"
+                    >
+                      הסרה
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      שם הילד{isCycleRegistration && <span className="text-red-500"> *</span>}
+                    </label>
+                    <input
+                      type="text"
+                      value={child.childName}
+                      onChange={e => setForm(f => ({
+                        ...f,
+                        children: f.children.map((item, childIndex) => childIndex === index
+                          ? { ...item, childName: e.target.value }
+                          : item),
+                      }))}
+                      placeholder="שם הילד"
+                      className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-indigo-500 outline-none text-base bg-white"
+                      required={isCycleRegistration && index === 0}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">גיל הילד</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={child.childAge}
+                      onChange={e => setForm(f => ({
+                        ...f,
+                        children: f.children.map((item, childIndex) => childIndex === index
+                          ? { ...item, childAge: e.target.value }
+                          : item),
+                      }))}
+                      placeholder="10"
+                      className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-indigo-500 outline-none text-base bg-white"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">כיתה</label>
+                    <input
+                      type="text"
+                      value={child.grade}
+                      onChange={e => setForm(f => ({
+                        ...f,
+                        children: f.children.map((item, childIndex) => childIndex === index
+                          ? { ...item, grade: e.target.value }
+                          : item),
+                      }))}
+                      placeholder="למשל: ה׳"
+                      className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-indigo-500 outline-none text-base bg-white"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">כיתה</label>
-            <input
-              type="text"
-              value={form.grade}
-              onChange={e => setForm(f => ({ ...f, grade: e.target.value }))}
-              placeholder="למשל: ה׳"
-              className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-indigo-500 outline-none text-base"
-            />
+            <button
+              type="button"
+              onClick={() => setForm(f => ({ ...f, children: [...f.children, emptyChild()] }))}
+              className="sm:col-span-2 w-full rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-700 hover:bg-indigo-100"
+            >
+              הוספת ילד נוסף
+            </button>
           </div>
 
           {!cycle && (

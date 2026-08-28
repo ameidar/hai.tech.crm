@@ -7,6 +7,7 @@
  * - New customer → creates with source + notes
  */
 import { prisma } from './prisma.js';
+import { Prisma } from '@prisma/client';
 
 export interface LeadData {
   name?: string | null;
@@ -93,17 +94,52 @@ export async function findOrCreateCustomer(lead: LeadData): Promise<{
       },
     });
     return { customerId: customer.id, isNew: true };
-  } catch {
-    // Phone might conflict (duplicate unique) — try without phone
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+      throw error;
+    }
+
+    const conflict = await findExistingCustomerByPhoneOrEmail(last9, email);
+    if (conflict) {
+      const duplicateFields = Array.isArray(error.meta?.target)
+        ? error.meta.target.join(', ')
+        : 'phone/email';
+      await prisma.customer.update({
+        where: { id: conflict.id },
+        data: {
+          notes: conflict.notes
+            ? `${conflict.notes}\n---\n${historyNote}\n[שים לב: פנייה אוחדה אחרי כפילות בשדה ${duplicateFields}]`
+            : `${historyNote}\n[שים לב: פנייה אוחדה אחרי כפילות בשדה ${duplicateFields}]`,
+          source: conflict.source || source,
+        },
+      });
+      return { customerId: conflict.id, isNew: false };
+    }
+
     const customer = await prisma.customer.create({
       data: {
         name,
         phone: null,
-        email: email || null,
+        email: null,
         source,
-        notes: `${historyNote}\n[שים לב: הטלפון ${phone} כבר קיים במערכת]`,
+        notes: `${historyNote}\n[שים לב: נוצר ללא טלפון/מייל בגלל כפילות קיימת במערכת]`,
       },
     });
     return { customerId: customer.id, isNew: true };
   }
+}
+
+async function findExistingCustomerByPhoneOrEmail(last9: string | null, email?: string | null) {
+  if (last9) {
+    const byPhone = await prisma.customer.findFirst({
+      where: { phone: { endsWith: last9 } },
+    });
+    if (byPhone) return byPhone;
+  }
+
+  if (email) {
+    return prisma.customer.findFirst({ where: { email } });
+  }
+
+  return null;
 }

@@ -64,7 +64,7 @@ import waRouter from './routes/whatsapp.js';
 import { messengerRouter } from './routes/messenger.js';
 import { instagramRouter } from './routes/instagram.js';
 import { paymentsRouter } from './routes/payments.js';
-import { ensureMorningClientId, paymentLinksRouter } from './routes/payment-links.js';
+import { paymentLinksRouter } from './routes/payment-links.js';
 import { campaignsRouter } from './routes/campaigns.js';
 import { campaignLeadsRouter } from './routes/campaign-leads.js';
 import { facebookLeadsRouter } from './routes/facebook-leads.js';
@@ -73,7 +73,6 @@ import linkedinRouter from './routes/linkedin.js';
 import socialRouter from './routes/social.js';
 import { googleAdsRouter } from './routes/google-ads.js';
 import { devReadOnly } from './middleware/devReadOnly.js';
-import { createPaymentForm } from './services/morning/payment-forms.js';
 
 // API v1 Router
 import { apiV1Router } from './api/v1/index.js';
@@ -542,31 +541,7 @@ app.post('/pl/:code/pay', async (req, res, next) => {
       return res.status(400).send('Invalid payment count');
     }
 
-    let morningClientId: string | undefined;
-    if (link.customerId) {
-      const resolved = await ensureMorningClientId(link.customerId);
-      if (resolved) morningClientId = resolved;
-    }
-
-    const result = await createPaymentForm({
-      description: link.description,
-      amount: Number(link.amount),
-      maxPayments: payments,
-      vatType: link.vatType as 0 | 1 | 2,
-      type: link.documentType,
-      client: {
-        id: morningClientId,
-        name: link.clientName,
-        emails: link.clientEmail ? [link.clientEmail] : undefined,
-        phone: link.clientPhone || undefined,
-        taxId: link.clientTaxId || undefined,
-      },
-      notifyUrl: `${(req.headers['x-forwarded-proto'] as string) || req.protocol}://${req.get('host')}/api/morning-webhook?paymentLinkCode=${encodeURIComponent(link.code)}`,
-      successUrl: `${(req.headers['x-forwarded-proto'] as string) || req.protocol}://${req.get('host')}/pl/${encodeURIComponent(link.code)}/success`,
-      failureUrl: `${(req.headers['x-forwarded-proto'] as string) || req.protocol}://${req.get('host')}/pl/${encodeURIComponent(link.code)}?failed=1`,
-    });
-
-    return res.redirect(302, result.url);
+    return res.redirect(302, link.morningUrl);
   } catch (e) { next(e); }
 });
 

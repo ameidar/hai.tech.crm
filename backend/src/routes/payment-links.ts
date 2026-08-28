@@ -113,10 +113,7 @@ paymentLinksRouter.post('/', salesOrAbove, async (req: Request, res: Response, n
     const result = await createPaymentForm({
       description: input.description,
       amount: input.amount,
-      // Morning's hosted form treats maxPayments as the exact installment count
-      // for this payment URL. The CRM short link handles "up to N" by letting
-      // the customer choose and then generating a URL for the chosen count.
-      maxPayments: 1,
+      maxPayments: input.maxPayments ?? 1,
       vatType: input.vatType,
       type: documentType,
       client: {

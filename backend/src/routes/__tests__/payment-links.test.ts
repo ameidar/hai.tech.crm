@@ -108,7 +108,7 @@ describe('payment links', () => {
     }));
   });
 
-  it('stores maxPayments as an upper bound but creates the initial Morning URL as one payment', async () => {
+  it('creates the Morning URL with the requested installment count', async () => {
     const res = await request(app)
       .post('/api/payment-links')
       .set('Host', 'crm.test')
@@ -120,7 +120,7 @@ describe('payment links', () => {
       });
 
     expect(res.status).toBe(200);
-    expect(mockCreatePaymentForm).toHaveBeenCalledWith(expect.objectContaining({ maxPayments: 1 }));
+    expect(mockCreatePaymentForm).toHaveBeenCalledWith(expect.objectContaining({ maxPayments: 4 }));
     expect(mockPrisma.paymentLink.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ maxPayments: 4 }),
     }));

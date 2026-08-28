@@ -349,7 +349,7 @@ meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
     } else if (cycle.type === 'institutional_per_child' && cycle.pricePerStudent) {
       const studentCount = cycle.studentCount || cycle.registrations.length;
       revenue = Number(cycle.pricePerStudent) * studentCount;
-    } else if (['private', 'trial_private'].includes(String(cycle.type))) {
+    } else if (['private', 'trial_private', 'group'].includes(String(cycle.type))) {
       if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
         revenue = Number(cycle.meetingRevenue);
       } else {
@@ -620,7 +620,7 @@ meetingsRouter.put('/:id', async (req, res, next) => {
           const registrationCount = revenueRegistrationCount(cycleData.registrations);
 
           if (existingMeeting.nature !== 'no_revenue') {
-            if (['private', 'trial_private'].includes(String(cycleData.type))) {
+            if (['private', 'trial_private', 'group'].includes(String(cycleData.type))) {
               if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
                 revenue = Number(cycleData.meetingRevenue);
               } else {
@@ -1118,7 +1118,7 @@ meetingsRouter.post('/:id/recalculate', operationsManagerOrAdmin, async (req, re
     const registrationCount = revenueRegistrationCount(cycleData.registrations);
 
     if (meeting.nature !== 'no_revenue') {
-      if (['private', 'trial_private'].includes(String(cycleData.type))) {
+      if (['private', 'trial_private', 'group'].includes(String(cycleData.type))) {
         if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
           revenue = Number(cycleData.meetingRevenue);
         } else {
@@ -1220,7 +1220,7 @@ meetingsRouter.post('/bulk-recalculate', operationsManagerOrAdmin, async (req, r
       const registrationCount = revenueRegistrationCount(cycleData.registrations);
 
       if (meeting.nature !== 'no_revenue') {
-        if (['private', 'trial_private'].includes(String(cycleData.type))) {
+        if (['private', 'trial_private', 'group'].includes(String(cycleData.type))) {
           if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
             revenue = Number(cycleData.meetingRevenue);
           } else {
@@ -1308,7 +1308,7 @@ meetingsRouter.post('/bulk-update-status', operationsManagerOrAdmin, async (req,
             let revenue = 0;
             const registrationCount = revenueRegistrationCount(cycleData.registrations);
             
-            if (['private', 'trial_private'].includes(String(cycleData.type))) {
+            if (['private', 'trial_private', 'group'].includes(String(cycleData.type))) {
               if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
                 revenue = Number(cycleData.meetingRevenue);
               } else {
@@ -1527,7 +1527,7 @@ meetingsRouter.post('/bulk-update', operationsManagerOrAdmin, async (req, res, n
             let revenue = 0;
             const registrationCount = revenueRegistrationCount(cycleData.registrations);
 
-            if (['private', 'trial_private'].includes(String(cycleData.type))) {
+            if (['private', 'trial_private', 'group'].includes(String(cycleData.type))) {
               if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
                 revenue = Number(cycleData.meetingRevenue);
               } else {

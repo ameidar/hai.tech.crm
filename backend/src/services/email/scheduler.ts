@@ -459,7 +459,7 @@ async function checkCyclesNearCompletion(): Promise<void> {
         status: 'active',
         deletedAt: null,
         remainingMeetings: 1,
-        type: 'private', // הודעת "שיעור אחרון" רלוונטית רק למחזורים פרטיים
+        type: { in: ['private', 'group'] }, // B2C cycles get last-lesson instructor reminders.
       },
       include: {
         course: { select: { name: true } },

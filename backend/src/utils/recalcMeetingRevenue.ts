@@ -30,7 +30,7 @@ export async function recalcMeetingRevenue(cycleId: string): Promise<void> {
     // pricePerStudent × active students
     const activeCount = cycle.registrations.length;
     newRevenue = roundMoney(Number(cycle.pricePerStudent || 0) * activeCount);
-  } else if (cycle.type === 'private' || cycle.type === 'trial_private') {
+  } else if (cycle.type === 'private' || cycle.type === 'trial_private' || cycle.type === 'group') {
     if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
       newRevenue = Number(cycle.meetingRevenue);
     } else {

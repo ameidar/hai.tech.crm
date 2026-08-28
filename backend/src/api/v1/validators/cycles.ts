@@ -10,7 +10,7 @@ import {
 /**
  * Cycle type enum
  */
-export const cycleTypeEnum = z.enum(['private', 'institutional_per_child', 'institutional_fixed']);
+export const cycleTypeEnum = z.enum(['private', 'trial_private', 'group', 'institutional_per_child', 'institutional_fixed']);
 
 /**
  * Cycle status enum

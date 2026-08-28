@@ -161,6 +161,7 @@ const issueStatusLabels: Record<IssueStatus, string> = {
 const cycleTypeLabels: Record<string, string> = {
   private: 'פרטי',
   trial_private: 'ניסיון פרטי',
+  group: 'קבוצתי',
   institutional_per_child: 'מוסדי',
   institutional_fixed: 'מוסדי',
 };

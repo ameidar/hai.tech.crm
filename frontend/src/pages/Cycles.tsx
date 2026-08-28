@@ -742,7 +742,9 @@ export default function Cycles() {
                       )}
                       {isColVisible('pricePerStudent') && (
                         <td className="text-gray-600">
-                          {cycle.pricePerStudent ? `₪${Number(cycle.pricePerStudent).toLocaleString()}` : '-'}
+                          {cycle.pricePerStudent || cycle.defaultRegistrationAmount
+                            ? `₪${Number(cycle.pricePerStudent || cycle.defaultRegistrationAmount).toLocaleString()}`
+                            : '-'}
                         </td>
                       )}
                       {isColVisible('meetingRevenue') && (
@@ -1054,6 +1056,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
           >
             <option value="private">פרטי</option>
             <option value="trial_private">שיעור ניסיון פרטי</option>
+            <option value="group">קבוצתי</option>
             <option value="institutional_per_child">מוסדי (פר ילד)</option>
             <option value="institutional_fixed">מוסדי (סכום קבוע)</option>
           </select>
@@ -1517,6 +1520,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
           >
             <option value="private">פרטי</option>
             <option value="trial_private">שיעור ניסיון פרטי</option>
+            <option value="group">קבוצתי</option>
             <option value="institutional_per_child">מוסדי (פר ילד)</option>
             <option value="institutional_fixed">מוסדי (סכום קבוע)</option>
           </select>

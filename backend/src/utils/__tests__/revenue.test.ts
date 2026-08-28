@@ -66,6 +66,17 @@ describe('revenue helpers', () => {
     })).toBe(100);
   });
 
+  it('treats group cycles as B2C registration-funded revenue', () => {
+    expect(meetingRevenueForCycle({
+      type: 'group',
+      totalMeetings: 10,
+      registrations: [
+        { status: 'registered', amount: 999 },
+        { status: 'active', amount: 999 },
+      ],
+    })).toBe(169.32);
+  });
+
   it('does not use pricePerStudent for private cycle revenue', () => {
     expect(meetingRevenueForCycle({
       type: 'private',

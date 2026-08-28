@@ -898,7 +898,7 @@ export default function CycleDetail() {
                   </div>
                 )}
 
-                {(cycle.type === 'private' || cycle.type === 'trial_private') && (
+                {(cycle.type === 'private' || cycle.type === 'trial_private' || cycle.type === 'group') && (
                   <div className="pt-3 mt-3 border-t space-y-1">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-gray-500">מחיר לפגישה:</span>
@@ -3091,6 +3091,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
             className="form-input"
           >
             <option value="private">פרטי</option>
+            <option value="group">קבוצתי</option>
             <option value="institutional_per_child">מוסדי (לפי ילד)</option>
             <option value="institutional_fixed">מוסדי (סכום קבוע)</option>
           </select>
@@ -3248,7 +3249,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
           />
         </div>
 
-        {(formData.type === 'private' || formData.type === 'trial_private') && (
+        {(formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'group') && (
           <div>
             <label className="form-label">מחיר לפגישה לפני מע״מ (₪)</label>
             <input

@@ -623,6 +623,20 @@ async function sendMissingArtifactsAlert(params: {
   }
 }
 
+async function sendMissingArtifactsAlertOnce(params: Parameters<typeof sendMissingArtifactsAlert>[0] & { sentAt: Date }) {
+  const claimed = await prisma.meeting.updateMany({
+    where: {
+      id: params.meeting.id,
+      googleMeetArtifactAlertSentAt: null,
+    },
+    data: { googleMeetArtifactAlertSentAt: params.sentAt },
+  });
+  if (claimed.count === 0) return false;
+
+  await sendMissingArtifactsAlert(params);
+  return true;
+}
+
 export async function syncArtifactsForRecentMeetings(options: { limit?: number; now?: Date } = {}) {
   const credentials = readCredentials();
   const now = options.now || new Date();
@@ -689,16 +703,13 @@ export async function syncArtifactsForRecentMeetings(options: { limit?: number; 
           && now.getTime() >= addMinutes(end, alertDelayMinutes).getTime()
           && (expectation.recordingExpected || expectation.transcriptExpected)
         ) {
-          await sendMissingArtifactsAlert({
+          const sent = await sendMissingArtifactsAlertOnce({
             meeting,
             ...expectation,
             conferenceRecordFound: false,
+            sentAt: now,
           });
-          await prisma.meeting.update({
-            where: { id: meeting.id },
-            data: { googleMeetArtifactAlertSentAt: now },
-          });
-          missingArtifactAlerts += 1;
+          if (sent) missingArtifactAlerts += 1;
         }
         continue;
       }
@@ -725,16 +736,13 @@ export async function syncArtifactsForRecentMeetings(options: { limit?: number; 
           && now.getTime() >= addMinutes(end, alertDelayMinutes).getTime()
           && missingExpectedArtifact
         ) {
-          await sendMissingArtifactsAlert({
+          const sent = await sendMissingArtifactsAlertOnce({
             meeting,
             ...expectation,
             conferenceRecordFound: true,
+            sentAt: now,
           });
-          await prisma.meeting.update({
-            where: { id: meeting.id },
-            data: { googleMeetArtifactAlertSentAt: now },
-          });
-          missingArtifactAlerts += 1;
+          if (sent) missingArtifactAlerts += 1;
         }
         continue;
       }
@@ -752,16 +760,13 @@ export async function syncArtifactsForRecentMeetings(options: { limit?: number; 
         && now.getTime() >= addMinutes(end, alertDelayMinutes).getTime()
         && missingExpectedArtifact
       ) {
-        await sendMissingArtifactsAlert({
+        const sent = await sendMissingArtifactsAlertOnce({
           meeting,
           ...expectation,
           conferenceRecordFound: true,
+          sentAt: now,
         });
-        await prisma.meeting.update({
-          where: { id: meeting.id },
-          data: { googleMeetArtifactAlertSentAt: now },
-        });
-        missingArtifactAlerts += 1;
+        if (sent) missingArtifactAlerts += 1;
       }
     } catch (error) {
       failed += 1;

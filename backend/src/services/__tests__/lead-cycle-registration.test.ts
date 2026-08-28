@@ -140,4 +140,41 @@ describe('autoRegisterLeadToCycle', () => {
     expect(result).toEqual({ status: 'skipped', reason: 'source_not_enabled' });
     expect(mockPrisma.cycle.findFirst).not.toHaveBeenCalled();
   });
+
+  it('allows campaign sources to create cycle registrations', async () => {
+    mockPrisma.cycle.findFirst.mockResolvedValue({
+      id: 'cycle-1',
+      name: 'רובלוקס מתחילים גילאי 10-13',
+      status: 'active',
+      defaultRegistrationAmount: 999,
+    } as any);
+    mockPrisma.student.findFirst.mockResolvedValue(null);
+    mockPrisma.student.create.mockResolvedValue({ id: 'student-1' } as any);
+    mockPrisma.registration.findFirst.mockResolvedValue(null);
+    mockPrisma.registration.create.mockResolvedValue({ id: 'registration-1' } as any);
+
+    const result = await autoRegisterLeadToCycle({
+      ...baseInput,
+      source: 'campaign:roblox-group-20261004',
+      childAge: '10',
+      grade: 'ה',
+      interest: 'Roblox בני 10+',
+    });
+
+    expect(result.status).toBe('registered');
+    expect(mockPrisma.student.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        age: 10,
+        grade: 'ה',
+      }),
+      select: { id: true },
+    });
+    expect(mockPrisma.registration.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        amount: 999,
+        notes: 'נוצר אוטומטית מטופס campaign:roblox-group-20261004',
+      }),
+      select: { id: true },
+    });
+  });
 });

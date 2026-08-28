@@ -36,8 +36,21 @@ function cleanText(value?: string | null): string {
   return String(value ?? '').trim();
 }
 
+function shouldAutoRegister(source: string): boolean {
+  return AUTO_REGISTRATION_SOURCES.has(source) || source.startsWith('campaign:');
+}
+
+function parseChildAge(value?: string | null): number | undefined {
+  const cleaned = cleanText(value);
+  if (!cleaned) return undefined;
+  const match = cleaned.match(/\d+/);
+  if (!match) return undefined;
+  const age = Number(match[0]);
+  return Number.isInteger(age) && age > 0 && age < 25 ? age : undefined;
+}
+
 export async function autoRegisterLeadToCycle(input: AutoRegisterLeadInput): Promise<AutoRegisterLeadResult> {
-  if (!AUTO_REGISTRATION_SOURCES.has(input.source)) {
+  if (!shouldAutoRegister(input.source)) {
     return { status: 'skipped', reason: 'source_not_enabled' };
   }
 
@@ -90,6 +103,8 @@ export async function autoRegisterLeadToCycle(input: AutoRegisterLeadInput): Pro
       data: {
         customerId: input.customerId,
         name: childName,
+        age: parseChildAge(input.childAge),
+        grade: cleanText(input.grade) || undefined,
         notes: studentNotes || undefined,
       },
       select: { id: true },

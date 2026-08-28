@@ -1,141 +1,25 @@
 import { Router } from 'express';
-import { createHmac, randomUUID } from 'crypto';
+import { createHmac } from 'crypto';
 import { authenticate } from '../middleware/auth.js';
 import { config } from '../config.js';
 import { prisma } from '../utils/prisma.js';
 import { handlePostPaymentPlacement } from '../services/trial-placement.js';
 import { reconcileOmerRegistrationPayment } from '../services/omer-payment-reconciliation.js';
 import { extractGreenInvoice, syncRecentWooPayments, upsertWooOrderPayment } from '../services/woo-sync.js';
+import { createWooPaymentLink, inferDigitalCourseProductId } from '../services/woo-payment-link.js';
 
 // Shared secret for WP auto-login tokens (must match WP snippet constant)
 const HAITECH_PAY_SECRET = process.env.HAITECH_PAY_SECRET || 'haitech-pay-secret-2026-xK9mP3qL7';
 
-type WooAuth = { siteUrl: string; auth: string };
-type WooCustomer = { id: number; email?: string; first_name?: string; last_name?: string };
+export { inferDigitalCourseProductId };
 
-const DIGITAL_COURSE_PRODUCT_ALIASES: Array<{ productId: number; aliases: string[] }> = [
-  { productId: 30688, aliases: ['קורס בניית עולמות במיינקראפט', 'קורס למידה עצמית בניית עולמות minecraft באמצעות תכנות', 'minecraft worlds', 'minecraft-worlds'] },
-  { productId: 30772, aliases: ['קורס רובלוקס - פיתוח משחקים עם lua', 'משחקי roblox ב-lua', 'רובלוקס lua', 'roblox lua'] },
-  { productId: 30857, aliases: ["קורס תכנות בסקראץ'", 'קורס תכנות בסקראץ׳', 'scratch', 'סקראץ'] },
-  { productId: 30680, aliases: ['קורס פיתוח משחקים בשפת python', 'קורס למידה עצמית – פיתוח משחקים בשפת python', 'python'] },
-  { productId: 30853, aliases: ['קורס מיינקראפט + javascript', 'מיינקראפט javascript גילאי 10+', 'minecraft javascript'] },
-  { productId: 30855, aliases: ['minecraft java plugins- לגילאי 12+', 'minecraft java plugins', 'java plugins'] },
-  { productId: 39850, aliases: ['קורס מידול תלת מימד - tinkercad', 'tinkercad', 'מידול תלת מימד'] },
-  { productId: 39737, aliases: ['קורס קנבה עם בינה מלאכותית', 'קנבה עם בינה מלאכותית', 'canva'] },
-  { productId: 35988, aliases: ['קורס פיתוח אתרים ומשחקים בשילוב בינה מלאכותית', 'פיתוח אתרים ומשחקים בשילוב בינה מלאכותית'] },
-  { productId: 30770, aliases: ['פיתוח בוטים לשרת דיסקורד node.js - גילאי 12+', 'discord node.js', 'דיסקורד node'] },
-  { productId: 30677, aliases: ['קורס למידה עצמית תכנות לבניית מודים במיינקראפט', 'בניית מודים במיינקראפט'] },
-];
-
-function normalizeCourseText(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[׳']/g, '')
-    .replace(/[״"]/g, '')
-    .replace(/[־–—]/g, '-')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-export function inferDigitalCourseProductId(description: string, amount?: number): number | null {
-  const normalized = normalizeCourseText(description);
-  if (!normalized) return null;
-  for (const item of DIGITAL_COURSE_PRODUCT_ALIASES) {
-    if (item.aliases.some((alias) => normalized.includes(normalizeCourseText(alias)))) {
-      return item.productId;
-    }
-  }
-  if (Number(amount) === 297 && normalized.includes('מחנה') && normalized.includes('מיינקראפט')) return 39309;
-  return null;
-}
-
-function buildWooOrderLinePayload(description: string, amount: number, wooProductId?: number | null) {
-  if (wooProductId) {
-    return {
-      line_items: [{
-        product_id: wooProductId,
-        quantity: 1,
-        total: String(Number(amount).toFixed(2)),
-      }],
-    };
-  }
-
-  return {
-    fee_lines: [{
-      name: description.trim(),
-      total: String(Number(amount).toFixed(2)),
-    }],
-  };
-}
-
-/** Generate a time-limited HMAC token for order payment */
+/** Generate a time-limited HMAC token for legacy order payment */
 function generatePayToken(orderId: number): { token: string; ts: number } {
   const ts = Math.floor(Date.now() / 1000);
   const token = createHmac('sha256', HAITECH_PAY_SECRET)
     .update(`${orderId}:${ts}`)
     .digest('hex');
   return { token, ts };
-}
-
-async function wooFetchJson<T>(
-  { siteUrl, auth }: WooAuth,
-  path: string,
-  init: RequestInit = {}
-): Promise<T> {
-  const res = await fetch(`${siteUrl}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Basic ${auth}`,
-      'Content-Type': 'application/json',
-      ...(init.headers || {}),
-    },
-  });
-  const bodyText = await res.text();
-  let body: any = null;
-  try { body = bodyText ? JSON.parse(bodyText) : null; } catch { body = bodyText; }
-  if (!res.ok) {
-    const message = typeof body === 'string' ? body : body?.message || bodyText;
-    throw new Error(`WooCommerce API error (${res.status}): ${message}`);
-  }
-  return body as T;
-}
-
-async function ensureWooCustomerId(
-  woo: WooAuth,
-  email: string,
-  firstName: string,
-  lastName: string,
-  phone?: string
-): Promise<number | null> {
-  const normalizedEmail = email.trim().toLowerCase();
-  if (!normalizedEmail) return null;
-
-  try {
-    const existing = await wooFetchJson<WooCustomer[]>(
-      woo,
-      `/wp-json/wc/v3/customers?email=${encodeURIComponent(normalizedEmail)}`
-    );
-    if (existing[0]?.id) return existing[0].id;
-
-    const created = await wooFetchJson<WooCustomer>(woo, '/wp-json/wc/v3/customers', {
-      method: 'POST',
-      body: JSON.stringify({
-        email: normalizedEmail,
-        first_name: firstName,
-        last_name: lastName,
-        billing: {
-          first_name: firstName,
-          last_name: lastName,
-          email: normalizedEmail,
-          phone: phone || '',
-        },
-      }),
-    });
-    return created.id || null;
-  } catch (error) {
-    console.warn('[payments/create-link] Could not resolve Woo customer, creating guest order:', error);
-    return null;
-  }
 }
 
 const router = Router();
@@ -153,8 +37,6 @@ router.use('/sync-woo', authenticate);
  */
 router.post('/create-link', async (req, res) => {
   const { customerId, customerName, customerPhone, customerEmail, amount, description, installments, wooProductId } = req.body;
-  // maxInstallments = customer can choose from 1 up to this number on the CRM pay page
-  const maxInstallments = installments && Number(installments) > 1 ? Number(installments) : 1;
 
   if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
     return res.status(400).json({ error: 'סכום לא תקין' });
@@ -163,110 +45,30 @@ router.post('/create-link', async (req, res) => {
     return res.status(400).json({ error: 'נדרש תיאור' });
   }
 
-  const { siteUrl, consumerKey, consumerSecret } = config.woo;
-  const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
-  const woo = { siteUrl, auth };
-
-  const nameParts = (customerName || 'לקוח').trim().split(' ');
-  const firstName = nameParts[0] || 'לקוח';
-  const lastName = nameParts.slice(1).join(' ') || '';
-  const normalizedEmail = String(customerEmail || '').trim().toLowerCase();
-  const resolvedWooCustomerId = normalizedEmail
-    ? await ensureWooCustomerId(woo, normalizedEmail, firstName, lastName, customerPhone)
-    : null;
-  const requestedProductId = Number(wooProductId);
-  const productId = Number.isInteger(requestedProductId) && requestedProductId > 0
-    ? requestedProductId
-    : inferDigitalCourseProductId(description.trim(), Number(amount));
-
-  // Create WC order WITHOUT installments — customer picks on CRM pay page.
-  // Digital course payments should use real Woo products so LearnDash grants
-  // access to the buyer. Generic/manual payments remain fee lines.
-  const orderPayload: any = {
-    payment_method: 'greeninvoice-creditcard',
-    payment_method_title: 'כרטיס אשראי / ביט',
-    status: 'pending',
-    ...(resolvedWooCustomerId ? { customer_id: resolvedWooCustomerId } : {}),
-    billing: {
-      first_name: firstName,
-      last_name: lastName,
-      email: normalizedEmail || 'noreply@haitech.co.il',
-      phone: customerPhone || '',
-    },
-    meta_data: productId ? [{ key: 'haitech_crm_digital_product_id', value: String(productId) }] : [],
-    ...buildWooOrderLinePayload(description.trim(), Number(amount), productId),
-  };
-
-  const wooRes = await fetch(`${siteUrl}/wp-json/wc/v3/orders`, {
-    method: 'POST',
-    headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(orderPayload),
-  });
-
-  if (!wooRes.ok) {
-    const errText = await wooRes.text();
-    console.error('WooCommerce order error:', errText);
-    return res.status(502).json({ error: 'שגיאה ביצירת הזמנה ב-WooCommerce', details: errText });
-  }
-
-  const order = (await wooRes.json()) as { id: number; order_key: string };
-
-  // Auto-link to customer by phone if customerId not provided
-  let resolvedCustomerId = customerId || null;
-  if (!resolvedCustomerId && customerPhone) {
-    const normalizedPhone = customerPhone.replace(/\D/g, '');
-    const found = await prisma.customer.findFirst({
-      where: {
-        phone: { contains: normalizedPhone.slice(-9) }, // match last 9 digits
-      },
-      select: { id: true },
-    });
-    if (found) resolvedCustomerId = found.id;
-  }
-
-  // Generate CRM pay page token
-  const payToken = randomUUID();
   const baseUrl = process.env.BASE_URL || 'https://crm.orma-ai.com';
-
-  // Save to CRM DB
-  const payment = await prisma.payment.create({
-    data: {
-      customerId: resolvedCustomerId,
-      customerName: customerName || 'לקוח',
-      customerEmail: customerEmail || null,
-      customerPhone: customerPhone || null,
-      description: description.trim(),
+  try {
+    const result = await createWooPaymentLink({
+      customerId,
+      customerName,
+      customerPhone,
+      customerEmail,
       amount: Number(amount),
-      currency: 'ILS',
-      wooOrderId: order.id,
-      wooOrderKey: order.order_key,
-      status: 'pending',
-      payToken,
-      maxInstallments: maxInstallments > 1 ? maxInstallments : null,
-    },
-  });
-
-  // CRM pay page — customer picks installments here
-  const crmPayUrl = `${baseUrl}/pay/${payToken}`;
-
-  // Legacy WC URL (used after installment selection)
-  const { token, ts } = generatePayToken(order.id);
-  const paymentUrl = `${siteUrl}/?haitech_pay=1&order_id=${order.id}&ts=${ts}&token=${token}`;
-  const directPaymentUrl = `${siteUrl}/checkout/order-pay/${order.id}/?pay_for_order=true&key=${order.order_key}`;
-
-  return res.json({
-    paymentId: payment.id,
-    orderId: order.id,
-    orderKey: order.order_key,
-    paymentUrl: crmPayUrl,        // ← CRM pay page with installment picker
-    directPaymentUrl,
-    legacyPaymentUrl: paymentUrl, // ← direct WC URL (for fallback)
-    amount: Number(amount),
-    description: description.trim(),
-    maxInstallments,
-    wooProductId: productId,
-    wooCustomerId: resolvedWooCustomerId,
-  });
+      description: description.trim(),
+      installments,
+      wooProductId,
+      baseUrl,
+    });
+    const { token, ts } = generatePayToken(result.orderId);
+    return res.json({
+      ...result,
+      legacyPaymentUrl: `${config.woo.siteUrl}/?haitech_pay=1&order_id=${result.orderId}&ts=${ts}&token=${token}`,
+    });
+  } catch (e: any) {
+    if (String(e?.message || '').startsWith('שגיאה ביצירת הזמנה ב-WooCommerce')) {
+      return res.status(502).json({ error: 'שגיאה ביצירת הזמנה ב-WooCommerce', details: e.message });
+    }
+    return res.status(500).json({ error: e?.message || 'שגיאה ביצירת לינק תשלום' });
+  }
 });
 
 // ─── Public pay-page routes (no auth) ────────────────────────────────────────

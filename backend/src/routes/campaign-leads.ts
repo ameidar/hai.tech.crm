@@ -4,6 +4,7 @@ import { findOrCreateCustomer } from '../utils/lead-customer.js';
 import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
 import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
 import { autoRegisterLeadToCycle } from '../services/lead-cycle-registration.js';
+import { createWooPaymentLink } from '../services/woo-payment-link.js';
 
 export const campaignLeadsRouter = Router();
 
@@ -52,6 +53,17 @@ function getCampaignCycleId(audienceFilters: unknown): string | null {
 
   const value = (audienceFilters as { cycleId?: unknown }).cycleId;
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function getCampaignMaxInstallments(audienceFilters: unknown): number {
+  if (!audienceFilters || typeof audienceFilters !== 'object' || Array.isArray(audienceFilters)) {
+    return 0;
+  }
+
+  const value = (audienceFilters as { maxInstallments?: unknown; maxPayments?: unknown }).maxInstallments
+    ?? (audienceFilters as { maxPayments?: unknown }).maxPayments;
+  const num = Number(value);
+  return Number.isInteger(num) && num > 1 && num <= 36 ? num : 0;
 }
 
 function publicOrigin(req: Request): string {
@@ -202,6 +214,7 @@ campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunc
       })
       : null;
     const cycleId = campaign ? getCampaignCycleId(campaign.audienceFilters) : null;
+    const configuredMaxInstallments = campaign ? getCampaignMaxInstallments(campaign.audienceFilters) : 0;
 
     if (cycleId && children.length === 0) {
       res.status(400).json({ error: 'שם הילד הוא שדה חובה להרשמה למחזור, ואפשר להוסיף כמה ילדים' });
@@ -256,7 +269,51 @@ campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunc
       })))
       : [{ status: 'skipped' as const, reason: 'missing_customer' }];
     const autoRegistration = registrations[0] ?? { status: 'skipped' as const, reason: 'missing_child' };
-    const paymentLink = cycleId ? await findCyclePaymentLink(cycleId) : null;
+    const registeredChildren = registrations.filter(reg => reg.status === 'registered').length;
+    const alreadyRegisteredChildren = registrations.filter(reg => reg.status === 'already_registered').length;
+    const billableChildren = registeredChildren || (alreadyRegisteredChildren === children.length ? 0 : children.length);
+    let payment: { url: string; amount: number; maxPayments: number } | null = null;
+    const existingPaymentLink = cycleId ? await findCyclePaymentLink(cycleId) : null;
+    const maxInstallments = configuredMaxInstallments || existingPaymentLink?.maxPayments || 1;
+
+    if (cycleId && billableChildren > 0) {
+      const cycle = await prisma.cycle.findFirst({
+        where: { id: cycleId, deletedAt: null },
+        select: {
+          name: true,
+          defaultRegistrationAmount: true,
+          course: { select: { name: true } },
+        },
+      });
+      const amountPerChild = Number(cycle?.defaultRegistrationAmount || 0);
+      if (cycle && amountPerChild > 0) {
+        const amount = amountPerChild * billableChildren;
+        const childLabel = billableChildren === 1 ? 'ילד אחד' : `${billableChildren} ילדים`;
+        const result = await createWooPaymentLink({
+          customerId,
+          customerName: name,
+          customerPhone: phone,
+          customerEmail: email,
+          amount,
+          description: `רישום למחזור ${cycle.name} - ${childLabel} [cycle:${cycleId}]`,
+          installments: maxInstallments,
+          baseUrl: publicOrigin(req),
+        });
+        payment = {
+          url: result.paymentUrl,
+          amount: result.amount,
+          maxPayments: result.maxInstallments,
+        };
+      }
+    }
+
+    if (!payment) {
+      payment = existingPaymentLink ? {
+        url: publicPaymentUrl(req, existingPaymentLink.code) as string,
+        amount: Number(existingPaymentLink.amount),
+        maxPayments: existingPaymentLink.maxPayments,
+      } : null;
+    }
 
     console.log(`[Campaign] Lead ${lead.id} — ${isDuplicate ? 'merged duplicate' : (isNew ? 'new' : 'existing')} customer ${customerId}`);
 
@@ -286,11 +343,7 @@ campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunc
       customerId,
       registration: autoRegistration,
       registrations,
-      payment: paymentLink ? {
-        url: publicPaymentUrl(req, paymentLink.code),
-        amount: paymentLink.amount,
-        maxPayments: paymentLink.maxPayments,
-      } : null,
+      payment,
     });
   } catch (err) {
     next(err);

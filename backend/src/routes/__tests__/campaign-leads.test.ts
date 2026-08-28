@@ -35,18 +35,24 @@ vi.mock('../../services/lead-cycle-registration.js', () => ({
   autoRegisterLeadToCycle: vi.fn(),
 }));
 
+vi.mock('../../services/woo-payment-link.js', () => ({
+  createWooPaymentLink: vi.fn(),
+}));
+
 import { campaignLeadsRouter } from '../campaign-leads.js';
 import { prisma } from '../../utils/prisma.js';
 import { findOrCreateCustomer } from '../../utils/lead-customer.js';
 import { findOrCreateLeadAppointment } from '../../utils/lead-dedup.js';
 import { sendLeadWelcomeTemplate } from '../../services/lead-welcome.js';
 import { autoRegisterLeadToCycle } from '../../services/lead-cycle-registration.js';
+import { createWooPaymentLink } from '../../services/woo-payment-link.js';
 
 const mockPrisma = vi.mocked(prisma);
 const mockFindOrCreateCustomer = vi.mocked(findOrCreateCustomer);
 const mockFindOrCreateLeadAppointment = vi.mocked(findOrCreateLeadAppointment);
 const mockSendLeadWelcomeTemplate = vi.mocked(sendLeadWelcomeTemplate);
 const mockAutoRegisterLeadToCycle = vi.mocked(autoRegisterLeadToCycle);
+const mockCreateWooPaymentLink = vi.mocked(createWooPaymentLink);
 
 const app = express();
 app.use(express.json());
@@ -89,7 +95,7 @@ describe('campaign leads public API', () => {
     mockPrisma.paymentLink.findFirst.mockResolvedValue({
       code: 'f3627',
       amount: 999,
-      maxPayments: 1,
+      maxPayments: 3,
     } as any);
     mockPrisma.campaignRecipient.updateMany.mockResolvedValue({ count: 0 } as any);
     mockFindOrCreateCustomer.mockResolvedValue({ customerId: 'customer-1', isNew: true });
@@ -102,6 +108,18 @@ describe('campaign leads public API', () => {
       cycleId: 'cycle-1',
       studentId: 'student-1',
       registrationId: 'registration-1',
+    });
+    mockCreateWooPaymentLink.mockResolvedValue({
+      paymentId: 'payment-id',
+      orderId: 40510,
+      orderKey: 'wc_order_key',
+      paymentUrl: 'http://crm.test/pay/pay-token',
+      directPaymentUrl: 'https://woo.test/checkout/order-pay/40510/?pay_for_order=true&key=wc_order_key',
+      amount: 999,
+      description: 'רישום למחזור רובלוקס מתחילים גילאי 10-13 - ילד אחד [cycle:cycle-1]',
+      maxInstallments: 3,
+      wooProductId: null,
+      wooCustomerId: null,
     });
     mockSendLeadWelcomeTemplate.mockResolvedValue(undefined);
   });
@@ -139,7 +157,16 @@ describe('campaign leads public API', () => {
       status: 'registered',
       registrationId: 'registration-1',
     }));
-    expect(res.body.payment.url).toBe('http://crm.test/pl/f3627');
+    expect(res.body.payment.url).toBe('http://crm.test/pay/pay-token');
+    expect(mockCreateWooPaymentLink).toHaveBeenCalledWith(expect.objectContaining({
+      customerId: 'customer-1',
+      customerName: 'הורה בדיקה',
+      customerPhone: '0501234567',
+      customerEmail: 'parent@example.com',
+      amount: 999,
+      installments: 3,
+      baseUrl: 'http://crm.test',
+    }));
     expect(mockFindOrCreateCustomer).toHaveBeenCalledWith(expect.objectContaining({
       source: 'campaign:roblox-group-20261004',
       childName: 'ילד בדיקה',
@@ -174,6 +201,18 @@ describe('campaign leads public API', () => {
         studentId: 'student-2',
         registrationId: 'registration-2',
       });
+    mockCreateWooPaymentLink.mockResolvedValue({
+      paymentId: 'payment-id',
+      orderId: 40511,
+      orderKey: 'wc_order_key_2',
+      paymentUrl: 'http://crm.test/pay/pay-token-2',
+      directPaymentUrl: 'https://woo.test/checkout/order-pay/40511/?pay_for_order=true&key=wc_order_key_2',
+      amount: 1998,
+      description: 'רישום למחזור רובלוקס מתחילים גילאי 10-13 - 2 ילדים [cycle:cycle-1]',
+      maxInstallments: 3,
+      wooProductId: null,
+      wooCustomerId: null,
+    });
 
     const res = await request(app)
       .post('/api/campaign-leads')
@@ -191,10 +230,16 @@ describe('campaign leads public API', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.registrations).toHaveLength(2);
+    expect(res.body.payment.url).toBe('http://crm.test/pay/pay-token-2');
+    expect(res.body.payment.amount).toBe(1998);
     expect(res.body.registrations.map((reg: { registrationId: string }) => reg.registrationId)).toEqual([
       'registration-1',
       'registration-2',
     ]);
+    expect(mockCreateWooPaymentLink).toHaveBeenCalledWith(expect.objectContaining({
+      amount: 1998,
+      description: expect.stringContaining('2 ילדים'),
+    }));
     expect(mockFindOrCreateCustomer).toHaveBeenCalledWith(expect.objectContaining({
       childName: 'ילד ראשון',
       childAge: '10',

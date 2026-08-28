@@ -325,9 +325,9 @@ export default function MeetingDetailModal({
             <div className="mt-4 p-4 bg-gray-50 rounded-lg text-sm">
               <h5 className="font-medium text-gray-700 mb-2">פירוט החישוב:</h5>
               <div className="space-y-1 text-gray-600">
-                {meeting.cycle.type === 'private' && (
+                {(meeting.cycle.type === 'private' || meeting.cycle.type === 'group') && (
                   <>
-                    <p>• סוג: פרטי - חישוב לפי הרשמות</p>
+                    <p>• סוג: {cycleTypeHebrew[meeting.cycle.type]} - חישוב לפי הרשמות</p>
                     <p>• מחיר מחזור: {formatCurrency(meeting.cycle.pricePerStudent)} לתלמיד</p>
                     <p>• מספר מפגשים: {meeting.cycle.totalMeetings}</p>
                   </>

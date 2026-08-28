@@ -1915,7 +1915,7 @@ function QuickCycleForm({ onClose, onCreated }: QuickCycleFormProps) {
     startDate: new Date().toISOString().split('T')[0],
     totalMeetings: 12,
     activityType: 'frontal' as 'online' | 'frontal' | 'private_lesson',
-    cycleType: 'institutional_per_child' as 'private' | 'institutional_per_child' | 'institutional_fixed',
+    cycleType: 'institutional_per_child' as 'private' | 'group' | 'institutional_per_child' | 'institutional_fixed',
   });
 
   // Auto-update cycle type when activity type changes to private_lesson
@@ -2044,6 +2044,7 @@ function QuickCycleForm({ onClose, onCreated }: QuickCycleFormProps) {
                 className="form-input"
               >
                 <option value="private">פרטי (הכנסה מהרשמות)</option>
+                <option value="group">קבוצתי (הכנסה מהרשמות)</option>
                 <option value="institutional_per_child">מוסדי - לפי ילד</option>
                 <option value="institutional_fixed">מוסדי - סכום קבוע</option>
               </select>

@@ -6,7 +6,7 @@ const TZ = 'Asia/Jerusalem';
 const ACTIVE_REGISTRATION_STATUS = 'active';
 const PAID_STATUS = 'paid';
 const VIDEO_ACTIVITY_TYPES = new Set(['online', 'private_lesson']);
-const VIDEO_CYCLE_TYPES = new Set(['private', 'trial_private']);
+const VIDEO_CYCLE_TYPES = new Set(['private', 'trial_private', 'group']);
 
 type DateLike = Date | string | null | undefined;
 

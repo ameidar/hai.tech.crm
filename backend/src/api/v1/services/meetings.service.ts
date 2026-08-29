@@ -20,6 +20,7 @@ import {
   calculateInstructorPayment,
   recalculateDailyInstructorPaymentsForMeeting,
 } from '../../../services/instructor-payment.js';
+import { findDuplicateMeetingWarnings } from '../../../services/meeting-duplicate-warning.js';
 
 /**
  * Meetings Service - Business logic layer
@@ -64,7 +65,21 @@ export class MeetingsService {
       throw new NotFoundError('Instructor', data.instructorId);
     }
 
+    const duplicateMeetingWarnings = await findDuplicateMeetingWarnings([{
+      instructorId: data.instructorId,
+      scheduledDate: new Date(data.scheduledDate),
+      startTime: new Date(`1970-01-01T${data.startTime}:00Z`),
+      endTime: new Date(`1970-01-01T${data.endTime}:00Z`),
+    }]);
+    if (duplicateMeetingWarnings.length > 0) {
+      console.warn('[MeetingDuplicateWarning]', {
+        cycleId: data.cycleId,
+        warnings: duplicateMeetingWarnings.map(w => w.message),
+      });
+    }
+
     const meeting = await this.repository.create(data);
+    (meeting as any).duplicateMeetingWarnings = duplicateMeetingWarnings;
 
     // Update cycle meeting counts
     await prisma.cycle.update({

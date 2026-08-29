@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Plus, RefreshCcw, Calendar, Users, Clock, Edit, Trash2, Search, X, Check, CheckSquare, Square, ArrowUpDown, ArrowUp, ArrowDown, Filter, Columns, Download } from 'lucide-react';
-import { useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useBulkGenerateMeetings, useViewData, useSyncAllCycles, useInstitutionalOrders, api } from '../hooks/useApi';
+import { meetingDuplicateWarningsAlert, useCycles, useCourses, useBranches, useInstructors, useCreateCycle, useUpdateCycle, useDeleteCycle, useBulkUpdateCycles, useBulkGenerateMeetings, useViewData, useSyncAllCycles, useInstitutionalOrders, api } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading, { SkeletonTable } from '../components/ui/Loading';
 import EmptyState from '../components/ui/EmptyState';
@@ -321,8 +321,10 @@ export default function Cycles() {
 
   const handleAddCycle = async (data: Partial<Cycle>) => {
     try {
-      await createCycle.mutateAsync(data);
+      const result = await createCycle.mutateAsync(data);
       setShowAddModal(false);
+      const duplicateAlert = meetingDuplicateWarningsAlert(result.duplicateMeetingWarnings);
+      if (duplicateAlert) alert(duplicateAlert);
     } catch (error) {
       console.error('Failed to create cycle:', error);
     }
@@ -558,7 +560,7 @@ export default function Cycles() {
                       if (confirm(`האם ליצור פגישות ל-${selectedCycles.size} מחזורים?`)) {
                         try {
                           const result = await bulkGenerateMeetings.mutateAsync(Array.from(selectedCycles));
-                          alert(result.message);
+                          alert([result.message, meetingDuplicateWarningsAlert(result.duplicateMeetingWarnings)].filter(Boolean).join('\n\n'));
                           setSelectedCycles(new Set());
                         } catch (error: any) {
                           alert(error.message || 'שגיאה ביצירת פגישות');

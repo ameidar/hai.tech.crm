@@ -17,7 +17,7 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
-import { useMeetings, useMeeting, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus, useUpdateMeeting, useBulkUpdateMeetings, useBulkRecalculateMeetings, useBranches, useInstructors, useDeleteMeeting, useCreateMeeting, useCycles } from '../hooks/useApi';
+import { meetingDuplicateWarningsAlert, useMeetings, useMeeting, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus, useUpdateMeeting, useBulkUpdateMeetings, useBulkRecalculateMeetings, useBranches, useInstructors, useDeleteMeeting, useCreateMeeting, useCycles } from '../hooks/useApi';
 import type { CreateMeetingData } from '../hooks/useApi';
 import { useAuth } from '../context/AuthContext';
 import PageHeader from '../components/ui/PageHeader';
@@ -397,8 +397,10 @@ export default function Meetings() {
   // Handle create meeting
   const handleCreateMeeting = async (data: CreateMeetingData) => {
     try {
-      await createMeeting.mutateAsync(data);
+      const result = await createMeeting.mutateAsync(data);
       setShowAddMeetingModal(false);
+      const duplicateAlert = meetingDuplicateWarningsAlert(result.duplicateMeetingWarnings);
+      if (duplicateAlert) alert(duplicateAlert);
       refetch();
     } catch (error: any) {
       alert(error?.response?.data?.message || 'שגיאה ביצירת הפגישה');

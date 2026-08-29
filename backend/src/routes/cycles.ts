@@ -13,6 +13,7 @@ import { recalculateInstructorPaymentsForCycle } from '../services/instructor-pa
 import { checkAndSendInstitutionalOrderCompletionAlert } from '../services/institutional-order-completion-alert.js';
 import { assertMeetingNotInIssuedPeriod } from '../services/billing-lock.js';
 import { resolveRegistrationAmountForCycle } from '../utils/registration-amount.js';
+import { findDuplicateMeetingWarnings, type MeetingDuplicateWarning } from '../services/meeting-duplicate-warning.js';
 
 // Make.com webhook removed — Zoom recordings handled directly via /api/zoom-webhook
 
@@ -73,7 +74,7 @@ async function generateMeetingsForCycle(cycleId: string, fromDate?: Date, target
     },
   });
 
-  if (!cycle) return;
+  if (!cycle) return { created: 0, duplicateMeetingWarnings: [] as MeetingDuplicateWarning[] };
 
   const meetings = [];
   const targetDay = dayNameToNumber(cycle.dayOfWeek);
@@ -92,7 +93,7 @@ async function generateMeetingsForCycle(cycleId: string, fromDate?: Date, target
   // How many meetings to generate. Existing callers that do not pass targetCount
   // should fill only the missing meetings, not create another full cycle.
   const meetingsToGenerate = targetCount ?? Math.max(0, cycle.totalMeetings - cycle.meetings.length);
-  if (meetingsToGenerate <= 0) return;
+  if (meetingsToGenerate <= 0) return { created: 0, duplicateMeetingWarnings: [] as MeetingDuplicateWarning[] };
 
   // Fetch holidays for relevant years
   const startYear = currentDate.getFullYear();
@@ -131,6 +132,14 @@ async function generateMeetingsForCycle(cycleId: string, fromDate?: Date, target
   }
 
   if (meetings.length > 0) {
+    const duplicateMeetingWarnings = await findDuplicateMeetingWarnings(meetings);
+    if (duplicateMeetingWarnings.length > 0) {
+      console.warn('[MeetingDuplicateWarning]', {
+        cycleId,
+        warnings: duplicateMeetingWarnings.map(w => w.message),
+      });
+    }
+
     await prisma.meeting.createMany({ data: meetings });
     
     // Update cycle progress and end date based on the generated schedule.
@@ -143,7 +152,11 @@ async function generateMeetingsForCycle(cycleId: string, fromDate?: Date, target
         endDate: lastMeetingDate,
       },
     });
+
+    return { created: meetings.length, duplicateMeetingWarnings };
   }
+
+  return { created: 0, duplicateMeetingWarnings: [] as MeetingDuplicateWarning[] };
 }
 
 async function regenerateMeetingsForCycle(cycleId: string) {
@@ -466,7 +479,8 @@ cyclesRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
 
     // Generate meetings (skip for trial_private — meetings are added manually)
     if (data.type !== 'trial_private') {
-      await generateMeetingsForCycle(cycle.id);
+      const generationResult = await generateMeetingsForCycle(cycle.id);
+      (cycle as any).duplicateMeetingWarnings = generationResult.duplicateMeetingWarnings;
     }
 
     // Audit log for cycle creation
@@ -813,7 +827,7 @@ cyclesRouter.post('/:id/generate-meetings', operationsManagerOrAdmin, async (req
     }
 
     // Generate only the missing meetings
-    await generateMeetingsForCycle(cycleId, undefined, meetingsToGenerate);
+    const generationResult = await generateMeetingsForCycle(cycleId, undefined, meetingsToGenerate);
 
     // Get updated cycle
     const updatedCycle = await prisma.cycle.findUnique({
@@ -824,7 +838,8 @@ cyclesRouter.post('/:id/generate-meetings', operationsManagerOrAdmin, async (req
     res.json({ 
       message: `נוצרו ${meetingsToGenerate} פגישות חדשות`,
       generated: meetingsToGenerate,
-      total: updatedCycle?.meetings.length || 0
+      total: updatedCycle?.meetings.length || 0,
+      duplicateMeetingWarnings: generationResult.duplicateMeetingWarnings,
     });
   } catch (error) {
     next(error);
@@ -847,6 +862,7 @@ cyclesRouter.post('/bulk-generate-meetings', operationsManagerOrAdmin, async (re
       generated?: number;
       message?: string;
       error?: string;
+      duplicateMeetingWarnings?: MeetingDuplicateWarning[];
     }
 
     const results: GenerateResult[] = [];
@@ -870,8 +886,14 @@ cyclesRouter.post('/bulk-generate-meetings', operationsManagerOrAdmin, async (re
           continue;
         }
 
-        await generateMeetingsForCycle(cycleId, undefined, meetingsToGenerate);
-        results.push({ cycleId, name: cycle.name, success: true, generated: meetingsToGenerate });
+        const generationResult = await generateMeetingsForCycle(cycleId, undefined, meetingsToGenerate);
+        results.push({
+          cycleId,
+          name: cycle.name,
+          success: true,
+          generated: meetingsToGenerate,
+          duplicateMeetingWarnings: generationResult.duplicateMeetingWarnings,
+        });
       } catch (err: any) {
         results.push({ cycleId, success: false, error: err.message });
       }
@@ -883,6 +905,7 @@ cyclesRouter.post('/bulk-generate-meetings', operationsManagerOrAdmin, async (re
     res.json({
       message: `נוצרו פגישות ל-${successCount} מחזורים`,
       totalGenerated,
+      duplicateMeetingWarnings: results.flatMap(result => result.duplicateMeetingWarnings || []),
       results
     });
   } catch (error) {

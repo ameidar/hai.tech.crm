@@ -14,6 +14,7 @@ import {
 import { fetchHolidays, dayNameToNumber } from '../../../utils/holidays.js';
 import { recalculateInstructorPaymentsForCycle } from '../../../services/instructor-payment.js';
 import { resolveRegistrationAmount } from '../../../utils/registration-amount.js';
+import { findDuplicateMeetingWarnings, type MeetingDuplicateWarning } from '../../../services/meeting-duplicate-warning.js';
 
 /**
  * Cycles Service - Business logic layer
@@ -303,7 +304,16 @@ export class CyclesService {
       currentDate.setDate(currentDate.getDate() + 7);
     }
 
+    let duplicateMeetingWarnings: MeetingDuplicateWarning[] = [];
     if (meetings.length > 0) {
+      duplicateMeetingWarnings = await findDuplicateMeetingWarnings(meetings);
+      if (duplicateMeetingWarnings.length > 0) {
+        console.warn('[MeetingDuplicateWarning]', {
+          cycleId,
+          warnings: duplicateMeetingWarnings.map(w => w.message),
+        });
+      }
+
       await prisma.meeting.createMany({ data: meetings });
 
       // Update cycle end date and remaining meetings
@@ -333,6 +343,7 @@ export class CyclesService {
       message: `Generated ${meetings.length} new meetings`,
       generated: meetings.length,
       total: existingCount + meetings.length,
+      duplicateMeetingWarnings,
     };
   }
 

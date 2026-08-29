@@ -1,9 +1,10 @@
-import { useState } from 'react';
-import { Sparkles, Copy, Image, CheckCircle, Play } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Sparkles, Copy, Image, CheckCircle, Play, Upload, ExternalLink, AlertCircle } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 function getToken() { return localStorage.getItem('accessToken') || ''; }
 const headers = () => ({ Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' });
+const authHeaders = () => ({ Authorization: `Bearer ${getToken()}` });
 
 function YouTubeIcon({ size = 24 }: { size?: number }) {
   return (
@@ -20,6 +21,29 @@ interface VideoMeta {
   chapters: string;
 }
 
+interface YouTubeStatus {
+  connected: boolean;
+  channelId?: string;
+  channelTitle?: string | null;
+  message?: string;
+  error?: string;
+  warning?: string;
+}
+
+interface PublishResult {
+  videoId: string;
+  url: string;
+  privacyStatus: string;
+  thumbnailWarning?: string | null;
+}
+
+function base64ToFile(base64: string, mimeType: string, filename: string) {
+  const bytes = atob(base64);
+  const arr = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i += 1) arr[i] = bytes.charCodeAt(i);
+  return new File([arr], filename, { type: mimeType });
+}
+
 export default function YouTubePage() {
   const [direction, setDirection] = useState('');
   const [videoMeta, setVideoMeta] = useState<VideoMeta | null>(null);
@@ -28,7 +52,21 @@ export default function YouTubePage() {
   const [imagePrompt, setImagePrompt] = useState('');
   const [generatingText, setGeneratingText] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
+  const [youtubeStatus, setYoutubeStatus] = useState<YouTubeStatus | null>(null);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
+  const [privacyStatus, setPrivacyStatus] = useState<'private' | 'unlisted' | 'public'>('private');
+  const [publishing, setPublishing] = useState(false);
+  const [publishResult, setPublishResult] = useState<PublishResult | null>(null);
+  const [publishError, setPublishError] = useState('');
   const [copied, setCopied] = useState<string>('');
+
+  useEffect(() => {
+    fetch(`${API_BASE}/social/youtube/status`, { headers: authHeaders() })
+      .then(res => res.json())
+      .then(setYoutubeStatus)
+      .catch(err => setYoutubeStatus({ connected: false, error: err.message }));
+  }, []);
 
   const generateContent = async () => {
     if (!direction.trim()) return;
@@ -67,6 +105,42 @@ export default function YouTubePage() {
     } finally { setGeneratingImage(false); }
   };
 
+  const publishToYouTube = async () => {
+    if (!videoFile || !videoMeta?.title.trim()) return;
+
+    setPublishing(true);
+    setPublishError('');
+    setPublishResult(null);
+
+    const description = [videoMeta.description, videoMeta.chapters].filter(Boolean).join('\n\n');
+    const form = new FormData();
+    form.append('video', videoFile);
+    form.append('title', videoMeta.title);
+    form.append('description', description);
+    form.append('tags', videoMeta.tags || '');
+    form.append('privacyStatus', privacyStatus);
+    if (thumbnailFile) {
+      form.append('thumbnail', thumbnailFile);
+    } else if (imageBase64) {
+      form.append('thumbnail', base64ToFile(imageBase64, imageMime, 'youtube-thumbnail.png'));
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/social/publish/youtube`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: form,
+      });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'שגיאה בפרסום ל-YouTube');
+      setPublishResult(d);
+    } catch (err) {
+      setPublishError(err instanceof Error ? err.message : 'שגיאה בפרסום ל-YouTube');
+    } finally {
+      setPublishing(false);
+    }
+  };
+
   const copy = (key: string, text: string) => {
     navigator.clipboard.writeText(text);
     setCopied(key);
@@ -88,14 +162,20 @@ export default function YouTubePage() {
         </div>
         <div>
           <h1 className="text-2xl font-bold">YouTube</h1>
-          <p className="text-gray-500 text-sm">יצירת כותרת, תיאור, תגיות ו-Thumbnail לסרטון</p>
+          <p className="text-gray-500 text-sm">יצירת מטא-דאטה ופרסום סרטונים לערוץ</p>
         </div>
-        <span className="badge badge-warning mr-auto">📋 יצירה ידנית</span>
+        <span className={`badge mr-auto ${youtubeStatus?.connected ? 'badge-success' : 'badge-warning'}`}>
+          {youtubeStatus?.connected ? 'מחובר' : 'לא מחובר'}
+        </span>
       </div>
 
       {/* Info */}
-      <div className="alert alert-info mb-5 text-sm">
-        <span>💡 YouTube מחייב העלאת סרטון — ה-AI יכין כותרת, תיאור, תגיות ו-Thumbnail. העלה דרך YouTube Studio.</span>
+      <div className={`alert mb-5 text-sm ${youtubeStatus?.connected ? 'alert-success' : 'alert-warning'}`}>
+        <span>
+          {youtubeStatus?.connected
+            ? `העלאה פעילה${youtubeStatus.channelTitle || youtubeStatus.channelId ? ` לערוץ: ${youtubeStatus.channelTitle || youtubeStatus.channelId}` : ''}${youtubeStatus.warning ? ` (לא ניתן לקרוא שם ערוץ: ${youtubeStatus.warning})` : ''}`
+            : `חסר קונפיגורציית YouTube בשרת${youtubeStatus?.message || youtubeStatus?.error ? `: ${youtubeStatus.message || youtubeStatus.error}` : ''}`}
+        </span>
       </div>
 
       {/* AI Generator */}
@@ -170,6 +250,73 @@ export default function YouTubePage() {
         </div>
       )}
 
+      {/* YouTube Publisher */}
+      <div className="card bg-base-100 shadow-sm border border-red-200 p-5 mb-4">
+        <h2 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+          <Upload size={18} className="text-red-600" /> פרסום ל-YouTube
+        </h2>
+        <div className="grid gap-3">
+          <label className="form-control w-full">
+            <span className="label-text mb-1">קובץ וידאו</span>
+            <input
+              type="file"
+              accept="video/*"
+              className="file-input file-input-bordered w-full"
+              onChange={e => setVideoFile(e.target.files?.[0] || null)}
+            />
+          </label>
+          <label className="form-control w-full">
+            <span className="label-text mb-1">Thumbnail אופציונלי</span>
+            <input
+              type="file"
+              accept="image/*"
+              className="file-input file-input-bordered w-full"
+              onChange={e => setThumbnailFile(e.target.files?.[0] || null)}
+            />
+          </label>
+          <label className="form-control w-full">
+            <span className="label-text mb-1">פרטיות</span>
+            <select
+              className="select select-bordered w-full"
+              value={privacyStatus}
+              onChange={e => setPrivacyStatus(e.target.value as 'private' | 'unlisted' | 'public')}
+            >
+              <option value="private">פרטי</option>
+              <option value="unlisted">לא רשום</option>
+              <option value="public">ציבורי</option>
+            </select>
+          </label>
+          <button
+            onClick={publishToYouTube}
+            disabled={publishing || !youtubeStatus?.connected || !videoFile || !videoMeta?.title.trim()}
+            className="btn bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 gap-2"
+          >
+            {publishing ? <span className="loading loading-spinner loading-sm" /> : <Upload size={16} />}
+            {publishing ? 'מעלה ומפרסם…' : 'פרסם ל-YouTube'}
+          </button>
+          {publishError && (
+            <div className="alert alert-error text-sm">
+              <AlertCircle size={16} />
+              <span>{publishError}</span>
+            </div>
+          )}
+          {publishResult && (
+            <div className="alert alert-success text-sm">
+              <CheckCircle size={16} />
+              <div>
+                <div>הסרטון פורסם בהצלחה ({publishResult.privacyStatus})</div>
+                <a href={publishResult.url} target="_blank" rel="noreferrer" className="link inline-flex items-center gap-1">
+                  פתח ביוטיוב <ExternalLink size={12} />
+                </a>
+                {publishResult.thumbnailWarning && (
+                  <div className="text-xs mt-1">הסרטון עלה, אבל ה-thumbnail לא עודכן: {publishResult.thumbnailWarning}</div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Thumbnail Generator */}
       <div className="card bg-base-100 shadow-sm border border-green-200 bg-green-50 p-5 mb-4">
         <h2 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
@@ -207,15 +354,13 @@ export default function YouTubePage() {
 
       {/* Steps */}
       <div className="card bg-gray-50 border p-4 text-sm text-gray-600">
-        <p className="font-semibold mb-2">🎬 שלבים לפרסום ב-YouTube:</p>
+        <p className="font-semibold mb-2">🎬 תהליך עבודה מומלץ:</p>
         <ol className="list-decimal list-inside space-y-1">
           <li>צלם/ערוך את הסרטון</li>
-          <li>נכנס ל-<a href="https://studio.youtube.com" target="_blank" rel="noreferrer" className="text-red-600 underline">YouTube Studio</a></li>
-          <li>לחץ "צור" → "העלה סרטונים"</li>
-          <li>הדבק את הכותרת, תיאור, תגיות</li>
-          <li>העלה את ה-Thumbnail</li>
-          <li>הוסף פרקים בתיאור</li>
-          <li>פרסם!</li>
+          <li>צור או ערוך כותרת, תיאור ותגיות</li>
+          <li>צור Thumbnail או העלה קובץ תמונה מוכן</li>
+          <li>בחר קובץ וידאו ופרטיות</li>
+          <li>לחץ "פרסם ל-YouTube"</li>
         </ol>
       </div>
     </div>

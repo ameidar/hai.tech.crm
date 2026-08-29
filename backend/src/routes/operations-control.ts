@@ -18,6 +18,7 @@ const querySchema = z.object({
     'instructor_change_risk',
     'cycle_churn_risk',
     'low_enrollment',
+    'lead_follow_up',
   ]).optional(),
 });
 
@@ -36,9 +37,10 @@ const issueStatusSchema = z.object({
       'instructor_change_risk',
       'cycle_churn_risk',
       'low_enrollment',
+      'lead_follow_up',
     ]).optional(),
     priority: z.enum(['urgent', 'high', 'normal']).optional(),
-    entityType: z.enum(['meeting', 'cycle', 'task', 'instructor']).optional(),
+    entityType: z.enum(['meeting', 'cycle', 'task', 'instructor', 'lead']).optional(),
     entityId: z.string().optional(),
   }).optional(),
 });

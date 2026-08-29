@@ -523,6 +523,62 @@ async function extractLeadData(conversationId: string) {
           // Instead, send internal alert to team so they can follow up manually.
           const convPhone = conv.phone || 'לא ידוע';
           const convSummary = data.summary || 'אין סיכום';
+          try {
+            const digitsOnly = (p: string) => p.replace(/\D/g, '');
+            const phoneLast9 = digitsOnly(conv.phone || '').slice(-9);
+            if (phoneLast9) {
+              const leads = await prisma.$queryRaw<{
+                id: string;
+                customer_email: string | null;
+                appointment_notes: string | null;
+              }[]>`
+                SELECT id, customer_email, appointment_notes FROM lead_appointments
+                WHERE deleted_at IS NULL
+                AND RIGHT(REPLACE(REPLACE(REPLACE(customer_phone, '+', ''), '-', ''), ' ', ''), 9) = ${phoneLast9}
+                ORDER BY created_at DESC
+                LIMIT 1
+              `;
+
+              if (leads.length > 0) {
+                const lead = leads[0];
+                const now = new Date();
+                const manualNote = [
+                  'נדרשת תשובה ידנית - הבוט הבטיח לשלוח מייל אך לא מצא מידע מדויק.',
+                  `מייל: ${data.lead_email}`,
+                  `טלפון: ${convPhone}`,
+                  `נושא: ${courseTitle || 'לא זוהה'}`,
+                  `סיכום שיחה: ${convSummary}`,
+                ].join('\n');
+                const existingNotes = lead.appointment_notes || '';
+                const nextNotes = existingNotes.includes('נדרשת תשובה ידנית')
+                  ? existingNotes
+                  : [existingNotes, manualNote].filter(Boolean).join('\n\n');
+
+                await prisma.leadAppointment.update({
+                  where: { id: lead.id },
+                  data: {
+                    customerEmail: lead.customer_email || data.lead_email,
+                    appointmentStatus: 'pending',
+                    salesStatus: 'interested',
+                    nextFollowUpAt: now,
+                    appointmentNotes: nextNotes,
+                  },
+                });
+                await prisma.leadActivity.create({
+                  data: {
+                    leadAppointmentId: lead.id,
+                    type: 'manual_email_required',
+                    result: 'manual_email_required',
+                    note: manualNote,
+                    nextFollowUpAt: now,
+                  },
+                });
+                console.log(`[WA] Marked lead ${lead.id} as manual_email_required`);
+              }
+            }
+          } catch (e) {
+            console.error('[WA] Manual email lead marker failed:', e);
+          }
           await sendEmail({
             to: 'info@hai.tech',
             subject: `⚠️ ליד ממתין לתשובה — אין מידע מדויק | ${leadName}`,

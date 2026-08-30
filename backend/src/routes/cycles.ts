@@ -13,6 +13,7 @@ import { recalculateInstructorPaymentsForCycle } from '../services/instructor-pa
 import { checkAndSendInstitutionalOrderCompletionAlert } from '../services/institutional-order-completion-alert.js';
 import { assertMeetingNotInIssuedPeriod } from '../services/billing-lock.js';
 import { resolveRegistrationAmountForCycle } from '../utils/registration-amount.js';
+import { cancelFutureMeetingsForCycle } from '../services/cancellations.js';
 
 // Make.com webhook removed — Zoom recordings handled directly via /api/zoom-webhook
 
@@ -547,31 +548,23 @@ cyclesRouter.put('/:id', operationsManagerOrAdmin, async (req, res, next) => {
     // Remove regenerateMeetings from updateData as it's not a Cycle field
     delete updateData.regenerateMeetings;
 
-    // If the cycle is being cancelled (transitioning into 'cancelled'), cascade to all
-    // of its meetings. Invariant: cancelled cycle => every meeting is cancelled too.
+    // If the cycle is being cancelled, only future open meetings should be cancelled.
+    // Past/completed/cancelled meetings remain historical records.
     const cancellingNow = data.status === 'cancelled' && existingCycle.status !== 'cancelled';
 
-    const cycle = await prisma.$transaction(async (tx) => {
-      const updated = await tx.cycle.update({
-        where: { id },
-        data: updateData,
-        include: {
-          course: { select: { id: true, name: true } },
-          branch: { select: { id: true, name: true } },
-          instructor: { select: { id: true, name: true } },
-        },
-      });
-      if (cancellingNow) {
-        const cascade = await tx.meeting.updateMany({
-          where: { cycleId: id, status: { not: 'cancelled' }, deletedAt: null },
-          data: { status: 'cancelled', statusUpdatedAt: new Date(), statusUpdatedById: req.user?.userId ?? null },
-        });
-        if (cascade.count > 0) {
-          console.log(`[cycles.update] cascaded cancel to ${cascade.count} meetings of cycle ${id}`);
-        }
-      }
-      return updated;
+    const cycle = await prisma.cycle.update({
+      where: { id },
+      data: updateData,
+      include: {
+        course: { select: { id: true, name: true } },
+        branch: { select: { id: true, name: true } },
+        instructor: { select: { id: true, name: true } },
+      },
     });
+
+    if (cancellingNow) {
+      await cancelFutureMeetingsForCycle(id, { req, markCycleCancelled: true });
+    }
 
     await recalculateInstructorPaymentsForCycle(id);
 
@@ -914,8 +907,8 @@ cyclesRouter.post('/bulk-update', operationsManagerOrAdmin, async (req, res, nex
       updateData.isOnline = data.activityType === 'online';
     }
 
-    // If we're bulk-cancelling, identify cycles whose meetings need to be cascaded too.
-    // Invariant: cancelled cycle => every meeting is cancelled too.
+    // If we're bulk-cancelling, only future open meetings should be cancelled.
+    // Past/completed/cancelled meetings remain historical records.
     // Skip cycles already cancelled to avoid noisy zero-row updates and duplicate audit lines.
     const cancellingNow = data.status === 'cancelled';
     const cyclesNeedingCascade = cancellingNow
@@ -925,26 +918,18 @@ cyclesRouter.post('/bulk-update', operationsManagerOrAdmin, async (req, res, nex
         })).map(c => c.id)
       : [];
 
-    // Update all cycles + (optionally) their open meetings in one transaction.
-    const results = await prisma.$transaction(async (tx) => {
-      const cycles = await Promise.all(
-        ids.map(id =>
-          tx.cycle.update({
-            where: { id },
-            data: updateData,
-            select: { id: true, name: true, institutionalOrderId: true },
-          })
-        )
-      );
-      if (cyclesNeedingCascade.length > 0) {
-        const cascade = await tx.meeting.updateMany({
-          where: { cycleId: { in: cyclesNeedingCascade }, status: { not: 'cancelled' }, deletedAt: null },
-          data: { status: 'cancelled', statusUpdatedAt: new Date(), statusUpdatedById: req.user?.userId ?? null },
-        });
-        console.log(`[cycles.bulk-update] cascaded cancel to ${cascade.count} meetings across ${cyclesNeedingCascade.length} cycles`);
-      }
-      return cycles;
-    });
+    const results = await Promise.all(
+      ids.map(id =>
+        prisma.cycle.update({
+          where: { id },
+          data: updateData,
+          select: { id: true, name: true, institutionalOrderId: true },
+        })
+      )
+    );
+    for (const cycleId of cyclesNeedingCascade) {
+      await cancelFutureMeetingsForCycle(cycleId, { req, markCycleCancelled: true });
+    }
 
     if (data.status === 'completed') {
       const orderIds = [...new Set(

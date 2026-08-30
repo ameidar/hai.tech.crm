@@ -1,7 +1,7 @@
 import type { Request } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { logAudit } from '../utils/audit.js';
-import { sendEmail } from './notifications.js';
+import { sendEmail } from './email/sender.js';
 import { deleteMeeting as deleteZoomMeeting } from './zoom.js';
 import { googleMeetService } from './google-meet.js';
 
@@ -230,6 +230,10 @@ export async function notifyCancellationSubmitted(registrationId: string, reason
     .filter(Boolean);
 
   await Promise.all(recipients.map((to) =>
-    sendEmail(to, `בקשת ביטול ממתינה - ${registration.student.name} - ${courseName}`, html)
+    sendEmail({
+      to,
+      subject: `בקשת ביטול ממתינה - ${registration.student.name} - ${courseName}`,
+      html,
+    })
   ));
 }

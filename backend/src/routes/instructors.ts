@@ -19,16 +19,34 @@ instructorsRouter.get('/', async (req, res, next) => {
     const isActive = req.query.isActive === 'true' ? true : req.query.isActive === 'false' ? false : undefined;
     const kind = req.query.kind as string | undefined; // 'instructor' | 'operations'
 
-    const where = {
-      ...(search && {
+    const searchFilter = search
+      ? {
         OR: [
           { name: { contains: search, mode: 'insensitive' as const } },
           { phone: { contains: search } },
           { email: { contains: search, mode: 'insensitive' as const } },
         ],
-      }),
+      }
+      : undefined;
+    const kindFilter = kind
+      ? { kind }
+      : {
+        OR: [
+          { kind: 'instructor' },
+          {
+            kind: 'operations',
+            user: {
+              role: 'operations_control' as const,
+              isActive: true,
+            },
+          },
+        ],
+      };
+
+    const where = {
+      ...(searchFilter && { AND: [searchFilter, kindFilter] }),
+      ...(!searchFilter && kindFilter),
       ...(isActive !== undefined && { isActive }),
-      kind: kind || 'instructor', // exclude operations staff from the instructor list by default
     };
 
     const [instructors, total] = await Promise.all([

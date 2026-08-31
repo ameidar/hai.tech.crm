@@ -28,6 +28,11 @@
       "whatsapp_link": "https://wa.me/972533027763",
       "website": "https://hai.tech"
     },
+    "registration_links": {
+      "default": "https://hai.tech",
+      "beer_sheva_frontal_kivunim": "https://hai.tech/beer-sheva-courses",
+      "instructions": "כאשר לקוח מבקש קישור להרשמה או שואל איך נרשמים, יש לתת קישור מיד: ברירת מחדל https://hai.tech. אם מדובר בחוג פרונטלי בבאר שבע או בכיוונים באר שבע, יש לתת https://hai.tech/beer-sheva-courses."
+    },
     "unique_selling_points": [
       "לומדים מהבית בסביבה מוכרת",
       "לומדים מאנשי הייטק אמיתיים",
@@ -433,7 +438,7 @@
     },
     {
       "question": "כיצד ניתן להירשם לקורסים שלכם?",
-      "answer": "ניתן להירשם דרך האתר שלנו בקלות, פשוט בחרו את הקורס הרצוי ומלאו את הטופס המקוון."
+      "answer": "ניתן להירשם באתר דרך ההייטק: https://hai.tech. אם מדובר בחוג פרונטלי בבאר שבע או בכיוונים באר שבע, נרשמים כאן: https://hai.tech/beer-sheva-courses."
     }
   ],
   "testimonials": [

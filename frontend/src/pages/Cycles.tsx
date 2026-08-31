@@ -15,6 +15,8 @@ import type { Cycle, CycleType, CycleStatus, DayOfWeek, ActivityType, Instructor
 import { activityTypeHebrew } from '../types';
 import { exportMeetingsToExcel } from '../utils/meetingsExcel';
 
+const getRegisteredChildrenCount = (cycle: Cycle) => cycle._count?.registrations ?? cycle.registrations?.length ?? cycle.studentCount ?? 0;
+
 export default function Cycles() {
   const { user } = useAuth();
   const canManageCycles = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations_manager';
@@ -31,7 +33,7 @@ export default function Cycles() {
   const [showMeetingsExportModal, setShowMeetingsExportModal] = useState(false);
 
   // Column visibility
-  const COLUMN_KEYS = ['name', 'course', 'branch', 'instructor', 'startDate', 'dayOfWeek', 'type', 'pricePerStudent', 'meetingRevenue', 'progress', 'status', 'zoom'] as const;
+  const COLUMN_KEYS = ['name', 'course', 'branch', 'instructor', 'startDate', 'dayOfWeek', 'type', 'pricePerStudent', 'meetingRevenue', 'registeredChildren', 'progress', 'status', 'zoom'] as const;
   const COLUMN_LABELS: Record<string, string> = {
     name: 'שם המחזור',
     course: 'קורס',
@@ -42,6 +44,7 @@ export default function Cycles() {
     type: 'סוג',
     pricePerStudent: 'מחיר לתלמיד',
     meetingRevenue: 'מחיר לפגישה',
+    registeredChildren: 'ילדים רשומים',
     progress: 'התקדמות',
     status: 'סטטוס',
     zoom: 'זום',
@@ -192,6 +195,10 @@ export default function Cycles() {
         case 'meetingRevenue':
           aVal = Number(a.revenuePerMeeting ?? a.meetingRevenue) || 0;
           bVal = Number(b.revenuePerMeeting ?? b.meetingRevenue) || 0;
+          break;
+        case 'registeredChildren':
+          aVal = getRegisteredChildrenCount(a);
+          bVal = getRegisteredChildrenCount(b);
           break;
         case 'progress':
           aVal = a.totalMeetings > 0 ? a.completedMeetings / a.totalMeetings : 0;
@@ -601,7 +608,7 @@ export default function Cycles() {
         />
 
         {displayLoading ? (
-          <SkeletonTable rows={8} columns={11} />
+          <SkeletonTable rows={8} columns={12} />
         ) : displayCycles && displayCycles.length > 0 ? (
           <>
           {/* Mobile card view */}
@@ -752,6 +759,14 @@ export default function Cycles() {
                           {(cycle.revenuePerMeeting || cycle.meetingRevenue)
                             ? `₪${Number(cycle.revenuePerMeeting ?? cycle.meetingRevenue).toLocaleString()}`
                             : '-'}
+                        </td>
+                      )}
+                      {isColVisible('registeredChildren') && (
+                        <td className="text-gray-600">
+                          <div className="flex items-center gap-1.5">
+                            <Users size={14} className="text-gray-400" />
+                            <span className="tabular-nums">{getRegisteredChildrenCount(cycle).toLocaleString('he-IL')}</span>
+                          </div>
                         </td>
                       )}
                       {isColVisible('progress') && (

@@ -51,11 +51,12 @@ export default function Cycles() {
   };
 
   const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => {
+    const defaultVisibility = Object.fromEntries(COLUMN_KEYS.map(k => [k, true]));
     try {
       const saved = localStorage.getItem('cycles-column-visibility');
-      if (saved) return JSON.parse(saved);
+      if (saved) return { ...defaultVisibility, ...JSON.parse(saved) };
     } catch {}
-    return Object.fromEntries(COLUMN_KEYS.map(k => [k, true]));
+    return defaultVisibility;
   });
 
   useEffect(() => {

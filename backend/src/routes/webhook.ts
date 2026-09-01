@@ -613,6 +613,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       childAge,
       grade,
       interest,
+      cycleLabel,
       message,
     } = req.body;
     const cycleId = String(req.body.cycleId || req.body.cycle_id || req.body.selectedCycleId || '').trim();
@@ -721,6 +722,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
         childAge: childAge || null,
         grade: grade || null,
         cycleId,
+        cycleLabel: cycleLabel || null,
         interest: interest || null,
       });
 
@@ -759,6 +761,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
           email: customer.email,
           childName,
           cycleId,
+          cycleLabel,
           autoRegistration,
           interest,
           isDuplicate,
@@ -843,6 +846,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       childAge: childAge || null,
       grade: grade || null,
       cycleId,
+      cycleLabel: cycleLabel || null,
       interest: interest || null,
     });
 
@@ -887,6 +891,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
         email: customer.email,
         childName,
         cycleId,
+        cycleLabel,
         autoRegistration,
         interest,
         clientIp,

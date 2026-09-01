@@ -4,6 +4,7 @@ vi.mock('../../utils/prisma.js', () => ({
   prisma: {
     cycle: {
       findFirst: vi.fn(),
+      findMany: vi.fn(),
     },
     student: {
       findFirst: vi.fn(),
@@ -39,6 +40,7 @@ const baseInput = {
 describe('autoRegisterLeadToCycle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPrisma.cycle.findMany.mockResolvedValue([]);
   });
 
   it('creates an unpaid registration for a valid Omer form lead', async () => {
@@ -176,5 +178,159 @@ describe('autoRegisterLeadToCycle', () => {
       }),
       select: { id: true },
     });
+  });
+
+  it('falls back to the submitted cycle label when the hardcoded cycle id is stale', async () => {
+    mockPrisma.cycle.findFirst.mockResolvedValue(null);
+    mockPrisma.cycle.findMany.mockResolvedValue([
+      {
+        id: 'current-cycle-id',
+        name: 'עומר - סטארטאפ AI כיתות ה׳-ו׳',
+        status: 'active',
+        defaultRegistrationAmount: 3200,
+        dayOfWeek: 'thursday',
+        startTime: new Date('1970-01-01T17:30:00.000Z'),
+        course: { name: 'סטארטאפ AI' },
+        branch: { name: 'בית ספר דפנה עומר' },
+      },
+    ] as any);
+    mockPrisma.student.findFirst.mockResolvedValue(null);
+    mockPrisma.student.create.mockResolvedValue({ id: 'student-1' } as any);
+    mockPrisma.registration.findFirst.mockResolvedValue(null);
+    mockPrisma.registration.create.mockResolvedValue({ id: 'registration-1' } as any);
+
+    const result = await autoRegisterLeadToCycle({
+      ...baseInput,
+      cycleId: 'old-cycle-id',
+      cycleLabel: 'יום חמישי | 17:30 | סטארטאפ AI | כיתות ה׳',
+      interest: null,
+    });
+
+    expect(result).toEqual({
+      status: 'registered',
+      cycleId: 'current-cycle-id',
+      studentId: 'student-1',
+      registrationId: 'registration-1',
+    });
+    expect(mockPrisma.registration.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        cycleId: 'current-cycle-id',
+        status: 'registered',
+        paymentStatus: 'unpaid',
+        amount: 3200,
+      }),
+      select: { id: true },
+    });
+  });
+
+  it('does not guess when a submitted cycle label matches multiple active Omer cycles equally', async () => {
+    mockPrisma.cycle.findFirst.mockResolvedValue(null);
+    mockPrisma.cycle.findMany.mockResolvedValue([
+      {
+        id: 'cycle-a',
+        name: 'עומר - סטארטאפ AI א',
+        status: 'active',
+        defaultRegistrationAmount: 3200,
+        dayOfWeek: 'thursday',
+        startTime: new Date('1970-01-01T17:30:00.000Z'),
+        course: { name: 'סטארטאפ AI' },
+        branch: { name: 'עומר' },
+      },
+      {
+        id: 'cycle-b',
+        name: 'עומר - סטארטאפ AI ב',
+        status: 'active',
+        defaultRegistrationAmount: 3200,
+        dayOfWeek: 'thursday',
+        startTime: new Date('1970-01-01T17:30:00.000Z'),
+        course: { name: 'סטארטאפ AI' },
+        branch: { name: 'עומר' },
+      },
+    ] as any);
+
+    const result = await autoRegisterLeadToCycle({
+      ...baseInput,
+      cycleId: 'old-cycle-id',
+      cycleLabel: 'יום חמישי | 17:30 | סטארטאפ AI',
+    });
+
+    expect(result).toEqual({
+      status: 'ambiguous_cycle',
+      reason: 'cycle_label_ambiguous',
+      cycleId: 'old-cycle-id',
+    });
+    expect(mockPrisma.student.findFirst).not.toHaveBeenCalled();
+    expect(mockPrisma.registration.create).not.toHaveBeenCalled();
+  });
+
+  it('does not infer a weekday from grade text alone', async () => {
+    mockPrisma.cycle.findFirst.mockResolvedValue(null);
+    mockPrisma.cycle.findMany.mockResolvedValue([
+      {
+        id: 'cycle-a',
+        name: 'עומר - סטארטאפ AI כיתות ה׳-ו׳',
+        status: 'active',
+        defaultRegistrationAmount: 3200,
+        dayOfWeek: 'thursday',
+        startTime: new Date('1970-01-01T17:30:00.000Z'),
+        course: { name: 'סטארטאפ AI' },
+        branch: { name: 'עומר' },
+      },
+    ] as any);
+
+    const result = await autoRegisterLeadToCycle({
+      ...baseInput,
+      cycleId: 'old-cycle-id',
+      cycleLabel: 'סטארטאפ AI | כיתות ה׳',
+    });
+
+    expect(result).toEqual({
+      status: 'invalid_cycle',
+      reason: 'cycle_not_found',
+      cycleId: 'old-cycle-id',
+    });
+    expect(mockPrisma.student.findFirst).not.toHaveBeenCalled();
+    expect(mockPrisma.registration.create).not.toHaveBeenCalled();
+  });
+
+  it('does not match an unrelated Omer cycle just because day and time match', async () => {
+    mockPrisma.cycle.findFirst.mockResolvedValue(null);
+    mockPrisma.cycle.findMany.mockResolvedValue([
+      {
+        id: 'minecraft-cycle',
+        name: 'מיינקראפט - קבוצה 1 - עומר',
+        status: 'active',
+        defaultRegistrationAmount: null,
+        dayOfWeek: 'thursday',
+        startTime: new Date('1970-01-01T17:30:00.000Z'),
+        course: { name: 'קורס כללי' },
+        branch: { name: 'עומר פרונטלי' },
+      },
+      {
+        id: 'ai-cycle',
+        name: 'יזמות טכנולוגית ו-AI - עומר',
+        status: 'active',
+        defaultRegistrationAmount: null,
+        dayOfWeek: 'thursday',
+        startTime: new Date('1970-01-01T18:30:00.000Z'),
+        course: { name: 'קורס כללי' },
+        branch: { name: 'עומר פרונטלי' },
+      },
+    ] as any);
+
+    const result = await autoRegisterLeadToCycle({
+      ...baseInput,
+      cycleId: 'old-cycle-id',
+      cycleLabel: 'יום חמישי | 17:30 | סטארטאפ AI | כיתות ה׳',
+      interest: null,
+    });
+
+    expect(result).toEqual({
+      status: 'invalid_cycle',
+      reason: 'cycle_not_found',
+      cycleId: 'old-cycle-id',
+    });
+    expect(mockPrisma.student.findFirst).not.toHaveBeenCalled();
+    expect(mockPrisma.registration.create).not.toHaveBeenCalled();
   });
 });

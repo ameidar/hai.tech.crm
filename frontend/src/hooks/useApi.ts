@@ -1583,6 +1583,10 @@ export type TaskPayload = {
   priority?: TaskPriority;
   dueDate?: string | null;
   assigneeId?: string | null;
+  completionSummary?: string | null;
+  completionDetails?: string | null;
+  completionLink?: string | null;
+  requiresCompletionLink?: boolean;
 };
 
 const taskQueryString = (filters?: TaskFilters) => {

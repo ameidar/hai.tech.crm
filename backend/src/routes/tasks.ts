@@ -28,6 +28,10 @@ const createTaskSchema = z.object({
   priority: z.nativeEnum(TaskPriority).optional(),
   dueDate: z.string().datetime().optional().nullable(),
   assigneeId: z.string().uuid().optional().nullable(),
+  completionSummary: z.string().trim().optional().nullable(),
+  completionDetails: z.string().trim().optional().nullable(),
+  completionLink: z.string().trim().optional().nullable(),
+  requiresCompletionLink: z.boolean().optional(),
 });
 
 const updateTaskSchema = z.object({
@@ -37,6 +41,10 @@ const updateTaskSchema = z.object({
   priority: z.nativeEnum(TaskPriority).optional(),
   dueDate: z.string().datetime().optional().nullable(),
   assigneeId: z.string().uuid().optional().nullable(),
+  completionSummary: z.string().trim().optional().nullable(),
+  completionDetails: z.string().trim().optional().nullable(),
+  completionLink: z.string().trim().optional().nullable(),
+  requiresCompletionLink: z.boolean().optional(),
 });
 
 function canSeeAll(role: UserRole) {
@@ -62,6 +70,54 @@ async function assertActiveAssignee(assigneeId?: string | null) {
 function taskUrl(id: string) {
   const base = config.frontendUrl && config.frontendUrl !== '*' ? config.frontendUrl : 'https://crm.orma-ai.com';
   return `${base}/tasks?task=${id}`;
+}
+
+const completionLinkPattern = /(ליצור|יצירת|צור|פתח|פתיחת|להקים|הקמת).{0,40}(מחזור|מחזורים|פגישה|פגישות|זום|zoom)|(מחזור|מחזורים|פגישה|פגישות|זום|zoom).{0,40}(חדש|חדשה|יצירה|ליצור|פתיחה|פתח|הקמה|להקים)/i;
+
+function cleanOptionalText(value?: string | null) {
+  const trimmed = value?.trim();
+  return trimmed || null;
+}
+
+function isLinkLike(value: string) {
+  if (value.startsWith('/')) return true;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function requiresCompletionLink(task: {
+  title?: string | null;
+  description?: string | null;
+  requiresCompletionLink?: boolean | null;
+}) {
+  return !!task.requiresCompletionLink || completionLinkPattern.test(`${task.title || ''} ${task.description || ''}`);
+}
+
+function assertCompletionProof(data: {
+  title?: string | null;
+  description?: string | null;
+  requiresCompletionLink?: boolean | null;
+  completionSummary?: string | null;
+  completionDetails?: string | null;
+  completionLink?: string | null;
+}) {
+  if (!cleanOptionalText(data.completionSummary)) {
+    throw new AppError(400, 'אי אפשר לסמן משימה כהושלמה בלי לכתוב מה נעשה');
+  }
+  if (!cleanOptionalText(data.completionDetails)) {
+    throw new AppError(400, 'אי אפשר לסמן משימה כהושלמה בלי לכתוב איך זה נעשה');
+  }
+  const completionLink = cleanOptionalText(data.completionLink);
+  if (requiresCompletionLink(data) && !completionLink) {
+    throw new AppError(400, 'במשימה שדורשת יצירת מחזור או פגישה חובה לצרף לינק');
+  }
+  if (completionLink && !isLinkLike(completionLink)) {
+    throw new AppError(400, 'יש להזין לינק תקין להשלמת המשימה');
+  }
 }
 
 async function notifyAssignment(taskId: string, previousAssigneeId?: string | null) {
@@ -110,7 +166,16 @@ async function notifyCompletion(taskId: string) {
   });
   if (!task || task.createdById === task.completedById || !task.createdBy.email) return;
 
-  const message = `המשימה "${task.title}" הושלמה על ידי ${task.completedBy?.name || 'משתמש במערכת'}.\n${taskUrl(task.id)}`;
+  const proofLines = [
+    task.completionSummary ? `מה נעשה: ${task.completionSummary}` : null,
+    task.completionDetails ? `איך נעשה: ${task.completionDetails}` : null,
+    task.completionLink ? `לינק: ${task.completionLink}` : null,
+  ].filter(Boolean);
+  const message = [
+    `המשימה "${task.title}" הושלמה על ידי ${task.completedBy?.name || 'משתמש במערכת'}.`,
+    ...proofLines,
+    taskUrl(task.id),
+  ].join('\n');
   sendEmail({
     to: task.createdBy.email,
     subject: `משימה הושלמה: ${task.title}`,
@@ -118,6 +183,9 @@ async function notifyCompletion(taskId: string) {
     html: `<div dir="rtl" style="font-family: Arial, sans-serif; line-height: 1.6;">
       <h2>משימה הושלמה</h2>
       <p>המשימה <strong>${escapeHtml(task.title)}</strong> הושלמה על ידי ${escapeHtml(task.completedBy?.name || 'משתמש במערכת')}.</p>
+      ${task.completionSummary ? `<p><strong>מה נעשה:</strong> ${escapeHtml(task.completionSummary)}</p>` : ''}
+      ${task.completionDetails ? `<p><strong>איך נעשה:</strong> ${escapeHtml(task.completionDetails)}</p>` : ''}
+      ${task.completionLink ? `<p><strong>לינק:</strong> <a href="${escapeHtml(task.completionLink)}">${escapeHtml(task.completionLink)}</a></p>` : ''}
       <p><a href="${taskUrl(task.id)}">פתיחת המשימה ב-CRM</a></p>
     </div>`,
   }).catch((error) => {
@@ -232,6 +300,15 @@ tasksRouter.post('/', async (req, res, next) => {
   try {
     const data = createTaskSchema.parse(req.body);
     await assertActiveAssignee(data.assigneeId);
+    const completionPayload = {
+      title: data.title,
+      description: data.description,
+      requiresCompletionLink: data.requiresCompletionLink ?? requiresCompletionLink(data),
+      completionSummary: cleanOptionalText(data.completionSummary),
+      completionDetails: cleanOptionalText(data.completionDetails),
+      completionLink: cleanOptionalText(data.completionLink),
+    };
+    if (data.status === 'completed') assertCompletionProof(completionPayload);
 
     const task = await prisma.task.create({
       data: {
@@ -242,6 +319,10 @@ tasksRouter.post('/', async (req, res, next) => {
         dueDate: parseDate(data.dueDate),
         createdById: req.user!.userId,
         assigneeId: data.assigneeId || null,
+        requiresCompletionLink: completionPayload.requiresCompletionLink,
+        completionSummary: completionPayload.completionSummary,
+        completionDetails: completionPayload.completionDetails,
+        completionLink: completionPayload.completionLink,
         ...(data.status === 'completed' && {
           completedAt: new Date(),
           completedById: req.user!.userId,
@@ -275,6 +356,15 @@ tasksRouter.patch('/:id', async (req, res, next) => {
 
     const isCompleting = data.status === 'completed' && existing.status !== 'completed';
     const isReopening = data.status && data.status !== 'completed' && existing.status === 'completed';
+    const completionPayload = {
+      title: data.title ?? existing.title,
+      description: data.description ?? existing.description,
+      requiresCompletionLink: data.requiresCompletionLink ?? existing.requiresCompletionLink,
+      completionSummary: cleanOptionalText(data.completionSummary),
+      completionDetails: cleanOptionalText(data.completionDetails),
+      completionLink: cleanOptionalText(data.completionLink),
+    };
+    if (isCompleting) assertCompletionProof(completionPayload);
 
     const task = await prisma.task.update({
       where: { id: existing.id },
@@ -285,6 +375,10 @@ tasksRouter.patch('/:id', async (req, res, next) => {
         ...(data.priority !== undefined && { priority: data.priority }),
         ...(data.dueDate !== undefined && { dueDate: parseDate(data.dueDate) }),
         ...(data.assigneeId !== undefined && { assigneeId: data.assigneeId || null }),
+        ...(data.requiresCompletionLink !== undefined && { requiresCompletionLink: data.requiresCompletionLink }),
+        ...(data.completionSummary !== undefined && { completionSummary: cleanOptionalText(data.completionSummary) }),
+        ...(data.completionDetails !== undefined && { completionDetails: cleanOptionalText(data.completionDetails) }),
+        ...(data.completionLink !== undefined && { completionLink: cleanOptionalText(data.completionLink) }),
         ...(isCompleting && { completedAt: new Date(), completedById: req.user!.userId }),
         ...(isReopening && { completedAt: null, completedById: null }),
       },

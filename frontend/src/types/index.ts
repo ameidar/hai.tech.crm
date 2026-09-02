@@ -313,8 +313,8 @@ export interface Cycle {
   meetings?: Meeting[];
   registrations?: Registration[];
   _count?: {
-    meetings: number;
-    registrations: number;
+    meetings?: number;
+    registrations?: number;
   };
 }
 

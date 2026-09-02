@@ -164,6 +164,7 @@ meetingsRouter.get('/', async (req, res, next) => {
             include: {
               course: { select: { id: true, name: true } },
               branch: { select: { id: true, name: true } },
+              _count: { select: { registrations: true } },
             },
           },
           instructor: { select: { id: true, name: true, phone: true } },

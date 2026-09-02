@@ -59,6 +59,16 @@ const emptyForm = {
   priority: 'normal' as TaskPriority,
   dueDate: '',
   assigneeId: '',
+  completionSummary: '',
+  completionDetails: '',
+  completionLink: '',
+  requiresCompletionLink: false,
+};
+
+const emptyCompletionForm = {
+  completionSummary: '',
+  completionDetails: '',
+  completionLink: '',
 };
 
 function toDateInput(value?: string | null) {
@@ -73,6 +83,12 @@ function toApiDate(value: string) {
 
 function isOverdue(task: Task) {
   return !!task.dueDate && task.status !== 'completed' && new Date(task.dueDate) < new Date();
+}
+
+const completionLinkPattern = /(ליצור|יצירת|צור|פתח|פתיחת|להקים|הקמת).{0,40}(מחזור|מחזורים|פגישה|פגישות|זום|zoom)|(מחזור|מחזורים|פגישה|פגישות|זום|zoom).{0,40}(חדש|חדשה|יצירה|ליצור|פתיחה|פתח|הקמה|להקים)/i;
+
+function requiresCompletionLink(item: { title?: string | null; description?: string | null; requiresCompletionLink?: boolean | null }) {
+  return !!item.requiresCompletionLink || completionLinkPattern.test(`${item.title || ''} ${item.description || ''}`);
 }
 
 function newestFirst(a: Task, b: Task) {
@@ -114,6 +130,9 @@ function TaskCard({
           {task.description && (
             <p className="mt-1 text-sm text-gray-500 line-clamp-2 break-words">{task.description}</p>
           )}
+          {task.requiresCompletionLink && task.status !== 'completed' && (
+            <p className="mt-2 text-xs font-medium text-amber-700">דורש לינק למחזור/פגישה בסגירה</p>
+          )}
         </button>
         <button
           type="button"
@@ -152,6 +171,22 @@ function TaskCard({
           <span className="text-gray-500 shrink-0">מוקצה ל:</span>
           <span className="font-medium break-words min-w-0">{task.assignee?.name || 'ללא שיוך'}</span>
         </div>
+        {task.status === 'completed' && task.completionSummary && (
+          <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2 text-xs text-emerald-900">
+            <p className="font-semibold">מה נעשה</p>
+            <p className="mt-1 break-words">{task.completionSummary}</p>
+            {task.completionLink && (
+              <a
+                href={task.completionLink}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 inline-block text-emerald-700 underline"
+              >
+                פתיחת לינק
+              </a>
+            )}
+          </div>
+        )}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1 min-w-0">
             <button
@@ -208,6 +243,9 @@ export default function Tasks() {
   const [reassignStatus, setReassignStatus] = useState<TaskStatus>('waiting_info');
   const [reassignNote, setReassignNote] = useState('');
   const [reassignError, setReassignError] = useState('');
+  const [completionTask, setCompletionTask] = useState<Task | null>(null);
+  const [completionForm, setCompletionForm] = useState(emptyCompletionForm);
+  const [completionError, setCompletionError] = useState('');
 
   const { data: tasks = [], isLoading } = useTasks({
     search: search.trim() || undefined,
@@ -262,6 +300,10 @@ export default function Tasks() {
       priority: task.priority,
       dueDate: toDateInput(task.dueDate),
       assigneeId: task.assigneeId || '',
+      completionSummary: task.completionSummary || '',
+      completionDetails: task.completionDetails || '',
+      completionLink: task.completionLink || '',
+      requiresCompletionLink: task.requiresCompletionLink ?? requiresCompletionLink(task),
     });
     setFormError('');
     setNewTaskFiles([]);
@@ -302,11 +344,49 @@ export default function Tasks() {
     setReassignError('');
   };
 
+  const openCompletion = (task: Task) => {
+    setCompletionTask(task);
+    setCompletionForm({
+      completionSummary: task.completionSummary || '',
+      completionDetails: task.completionDetails || '',
+      completionLink: task.completionLink || '',
+    });
+    setCompletionError('');
+  };
+
+  const closeCompletion = () => {
+    setCompletionTask(null);
+    setCompletionForm(emptyCompletionForm);
+    setCompletionError('');
+  };
+
+  const validateCompletionProof = (
+    proof: typeof emptyCompletionForm,
+    needsLink: boolean,
+  ) => {
+    if (!proof.completionSummary.trim()) return 'יש לכתוב מה נעשה לפני השלמת המשימה';
+    if (!proof.completionDetails.trim()) return 'יש לכתוב איך זה נעשה לפני השלמת המשימה';
+    if (needsLink && !proof.completionLink.trim()) return 'במשימה שדורשת יצירת מחזור או פגישה חובה לצרף לינק';
+    return '';
+  };
+
   const submitForm = async (event: FormEvent) => {
     event.preventDefault();
     if (form.title.trim().length < 2) {
       setFormError('יש להזין כותרת משימה');
       return;
+    }
+    const requiresLink = requiresCompletionLink({
+      title: form.title,
+      description: form.description,
+      requiresCompletionLink: form.requiresCompletionLink,
+    });
+    if ((!editingTask || editingTask.status !== 'completed') && form.status === 'completed') {
+      const error = validateCompletionProof(form, requiresLink);
+      if (error) {
+        setFormError(error);
+        return;
+      }
     }
 
     const payload = {
@@ -316,6 +396,10 @@ export default function Tasks() {
       priority: form.priority,
       dueDate: toApiDate(form.dueDate),
       assigneeId: form.assigneeId || null,
+      requiresCompletionLink: requiresLink,
+      completionSummary: form.completionSummary.trim() || null,
+      completionDetails: form.completionDetails.trim() || null,
+      completionLink: form.completionLink.trim() || null,
     };
 
     try {
@@ -348,7 +432,38 @@ export default function Tasks() {
 
   const changeStatus = async (task: Task, status: TaskStatus) => {
     if (task.status === status) return;
+    if (status === 'completed') {
+      openCompletion(task);
+      return;
+    }
     await updateTask.mutateAsync({ id: task.id, data: { status } });
+  };
+
+  const submitCompletion = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!completionTask) return;
+    const needsLink = requiresCompletionLink(completionTask);
+    const error = validateCompletionProof(completionForm, needsLink);
+    if (error) {
+      setCompletionError(error);
+      return;
+    }
+    try {
+      await updateTask.mutateAsync({
+        id: completionTask.id,
+        data: {
+          status: 'completed',
+          completionSummary: completionForm.completionSummary.trim(),
+          completionDetails: completionForm.completionDetails.trim(),
+          completionLink: completionForm.completionLink.trim() || null,
+          requiresCompletionLink: needsLink,
+        },
+      });
+      closeCompletion();
+    } catch (error) {
+      const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setCompletionError(message || 'סימון המשימה כהושלמה נכשל');
+    }
   };
 
   const handleDrop = async (event: DragEvent<HTMLElement>, status: TaskStatus) => {
@@ -369,6 +484,10 @@ export default function Tasks() {
     if (!reassignTask) return;
     if (!reassignAssigneeId) {
       setReassignError('יש לבחור למי להעביר את המשימה');
+      return;
+    }
+    if (reassignStatus === 'completed') {
+      setReassignError('כדי לסמן כהושלם צריך להשתמש בסגירת משימה ולמלא מה נעשה ואיך נעשה');
       return;
     }
     try {
@@ -611,6 +730,20 @@ export default function Tasks() {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 min-h-28"
             />
           </div>
+          <label className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <input
+              type="checkbox"
+              checked={form.requiresCompletionLink}
+              onChange={(event) => setForm((prev) => ({ ...prev, requiresCompletionLink: event.target.checked }))}
+              className="mt-1 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+            />
+            <span>
+              <span className="block font-medium">דורש לינק למחזור/פגישה שנוצרו</span>
+              <span className="block text-xs text-amber-700">
+                אם המשימה כוללת יצירת מחזור, פגישה או Zoom, לא ניתן יהיה לסגור אותה בלי לינק.
+              </span>
+            </span>
+          </label>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">סטטוס</label>
@@ -657,6 +790,47 @@ export default function Tasks() {
               />
             </div>
           </div>
+
+          {form.status === 'completed' && (
+            <div className="border-t border-gray-200 pt-4 space-y-3">
+              <p className="text-sm font-medium text-gray-700">פירוט השלמה</p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">מה נעשה</label>
+                <textarea
+                  value={form.completionSummary}
+                  onChange={(event) => setForm((prev) => ({ ...prev, completionSummary: event.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 min-h-20"
+                  required={form.status === 'completed'}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">איך זה נעשה</label>
+                <textarea
+                  value={form.completionDetails}
+                  onChange={(event) => setForm((prev) => ({ ...prev, completionDetails: event.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 min-h-20"
+                  required={form.status === 'completed'}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  לינק למחזור/פגישה שנוצרו
+                </label>
+                <input
+                  type="url"
+                  value={form.completionLink}
+                  onChange={(event) => setForm((prev) => ({ ...prev, completionLink: event.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  placeholder="https://crm.orma-ai.com/..."
+                  required={requiresCompletionLink({
+                    title: form.title,
+                    description: form.description,
+                    requiresCompletionLink: form.requiresCompletionLink,
+                  })}
+                />
+              </div>
+            </div>
+          )}
 
           {editingTask && (
             <div className="border-t border-gray-200 pt-4">
@@ -725,6 +899,71 @@ export default function Tasks() {
                 : isUploadingNewTaskFiles
                   ? 'מעלה קבצים...'
                   : 'שמירה'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={!!completionTask}
+        onClose={closeCompletion}
+        title="סגירת משימה"
+        size="md"
+      >
+        <form onSubmit={submitCompletion} className="p-6 space-y-4">
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+            <p className="text-xs text-gray-500 mb-1">משימה</p>
+            <p className="font-semibold text-gray-900">{completionTask?.title}</p>
+            {completionTask && requiresCompletionLink(completionTask) && (
+              <p className="mt-2 text-xs font-medium text-amber-700">חובה לצרף לינק למחזור/פגישה שנוצרו</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">מה נעשה</label>
+            <textarea
+              value={completionForm.completionSummary}
+              onChange={(event) => setCompletionForm((prev) => ({ ...prev, completionSummary: event.target.value }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 min-h-24"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">איך זה נעשה</label>
+            <textarea
+              value={completionForm.completionDetails}
+              onChange={(event) => setCompletionForm((prev) => ({ ...prev, completionDetails: event.target.value }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 min-h-24"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">לינק למחזור/פגישה שנוצרו</label>
+            <input
+              type="url"
+              value={completionForm.completionLink}
+              onChange={(event) => setCompletionForm((prev) => ({ ...prev, completionLink: event.target.value }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2"
+              placeholder="https://crm.orma-ai.com/..."
+              required={!!completionTask && requiresCompletionLink(completionTask)}
+            />
+          </div>
+
+          {completionError && <p className="text-sm text-red-600">{completionError}</p>}
+
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <button type="button" onClick={closeCompletion} className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
+              ביטול
+            </button>
+            <button
+              type="submit"
+              disabled={updateTask.isPending}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700 disabled:opacity-50"
+            >
+              <CheckCircle2 size={16} />
+              {updateTask.isPending ? 'סוגר...' : 'סמן כהושלם'}
             </button>
           </div>
         </form>

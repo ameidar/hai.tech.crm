@@ -56,6 +56,10 @@ export interface Task {
   assigneeId?: string | null;
   completedAt?: string | null;
   completedById?: string | null;
+  completionSummary?: string | null;
+  completionDetails?: string | null;
+  completionLink?: string | null;
+  requiresCompletionLink: boolean;
   createdAt: string;
   updatedAt: string;
   createdBy?: TaskUser;

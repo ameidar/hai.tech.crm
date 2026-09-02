@@ -43,7 +43,10 @@ const WA_INBOUND_FORWARD_TIMEOUT_MS = parseInt(process.env.WA_INBOUND_FORWARD_TI
 // (or it's a brand-new conversation). Prevents alert spam during active back-and-forth.
 const WA_QUIET_WAKEUP_HOURS = parseFloat(process.env.WA_QUIET_WAKEUP_HOURS || '3');
 const WA_INBOUND_ALERT_GROUP_ID = process.env.WA_INBOUND_ALERT_GROUP_ID || '120363308669020817@g.us';
+const WA_AI_FAILURE_ALERT_COOLDOWN_MINUTES = parseInt(process.env.WA_AI_FAILURE_ALERT_COOLDOWN_MINUTES || '30', 10);
 const APP_URL = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
+
+let lastOpenAICreditAlertAt = 0;
 
 // Multi-number support: phoneNumberId → wabaId mapping
 const PHONE_WABA_MAP: Record<string, string> = {
@@ -275,6 +278,72 @@ async function maybeAlertQuietWakeup(
     console.error(`[WA] quiet-wakeup alert send failed: ${result.error}`);
   } else {
     console.log(`[WA] quiet-wakeup alert sent for conv ${conversationId} (prior=${prior?.createdAt?.toISOString() || 'none'})`);
+  }
+}
+
+function isOpenAICreditError(error: unknown): boolean {
+  const err = error as {
+    status?: number;
+    statusCode?: number;
+    code?: string;
+    message?: string;
+    error?: { code?: string; message?: string; type?: string };
+  };
+  const status = err?.status || err?.statusCode;
+  const code = `${err?.code || ''} ${err?.error?.code || ''}`.toLowerCase();
+  const message = `${err?.message || ''} ${err?.error?.message || ''}`.toLowerCase();
+
+  return status === 429 && (
+    code.includes('insufficient_quota') ||
+    message.includes('no credits remaining') ||
+    message.includes('billing') ||
+    message.includes('quota')
+  );
+}
+
+async function alertOpenAICreditIssue(params: {
+  conversationId: string;
+  phone: string;
+  displayName?: string | null;
+  inboundText?: string | null;
+  error: unknown;
+}): Promise<void> {
+  if (!WA_INBOUND_ALERT_GROUP_ID) return;
+
+  const now = Date.now();
+  const cooldownMs = Math.max(WA_AI_FAILURE_ALERT_COOLDOWN_MINUTES, 1) * 60 * 1000;
+  if (now - lastOpenAICreditAlertAt < cooldownMs) {
+    console.warn(`[WA] OpenAI credit alert throttled for conv ${params.conversationId}`);
+    return;
+  }
+  lastOpenAICreditAlertAt = now;
+
+  const link = `${APP_URL}/whatsapp?conv=${params.conversationId}`;
+  const snippet = (params.inboundText || '').trim();
+  const shortSnippet = snippet.length > 200 ? snippet.slice(0, 200) + '…' : snippet;
+  const errorMessage = ((params.error as { message?: string } | null)?.message || 'OpenAI 429 / no credits remaining')
+    .replace(/\s+/g, ' ')
+    .slice(0, 220);
+
+  const message = [
+    '🚨 תקלה קריטית בבוט הוואטסאפ',
+    '',
+    'הבוט קיבל הודעה מלקוח אבל לא הצליח לייצר תגובה אוטומטית כי OpenAI החזיר שאין קרדיטים/מכסה זמינה.',
+    '',
+    `לקוח: ${params.displayName || params.phone}`,
+    `טלפון: ${params.phone}`,
+    shortSnippet ? `הודעה: "${shortSnippet}"` : null,
+    `שיחה ב-CRM: ${link}`,
+    '',
+    `שגיאה: ${errorMessage}`,
+    'לטיפול בבילינג: https://platform.openai.com/settings/organization/billing/overview',
+  ].filter(Boolean).join('\n');
+
+  const result = await sendWhatsAppToChat(WA_INBOUND_ALERT_GROUP_ID, message);
+  if (!result.success) {
+    console.error(`[WA] OpenAI credit alert send failed: ${result.error}`);
+  } else {
+    console.log(`[WA] OpenAI credit alert sent for conv ${params.conversationId}`);
   }
 }
 
@@ -905,6 +974,17 @@ router.post('/webhook', async (req: Request, res: Response) => {
                 }
               } catch (e) {
                 console.error('[WA] AI reply error:', e);
+                if (isOpenAICreditError(e)) {
+                  alertOpenAICreditIssue({
+                    conversationId: conv.id,
+                    phone,
+                    displayName: contactName || conv.contactName,
+                    inboundText: text,
+                    error: e,
+                  }).catch((alertError) => {
+                    console.error('[WA] OpenAI credit alert failed:', alertError);
+                  });
+                }
               }
             });
             replyLocks.set(conv.id, currentLock);

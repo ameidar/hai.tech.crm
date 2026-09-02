@@ -34,6 +34,30 @@ function task(overrides: Record<string, any> = {}) {
   } as any;
 }
 
+function lead(overrides: Record<string, any> = {}) {
+  return {
+    id: overrides.id || 'lead-1',
+    customerId: overrides.customerId || 'customer-1',
+    customerName: overrides.customerName || 'אנה',
+    customerPhone: overrides.customerPhone || '972507227282',
+    customerEmail: overrides.customerEmail || 'annabad@assuta.co.il',
+    appointmentStatus: overrides.appointmentStatus || 'pending',
+    salesStatus: overrides.salesStatus || 'interested',
+    nextFollowUpAt: overrides.nextFollowUpAt ?? new Date('2026-07-22T08:00:00Z'),
+    assignedTo: overrides.assignedTo ?? { id: 'user-1', name: 'קים נוה', role: 'operations_control' },
+    customer: overrides.customer ?? { id: 'customer-1', name: 'אנה' },
+    activities: overrides.activities ?? [
+      {
+        type: 'manual_email_required',
+        result: 'manual_email_required',
+        note: 'נדרשת תשובה ידנית',
+        nextFollowUpAt: new Date('2026-07-21T12:00:00Z'),
+        createdAt: new Date('2026-07-21T12:00:00Z'),
+      },
+    ],
+  } as any;
+}
+
 function absence(overrides: Record<string, any> = {}) {
   return {
     id: overrides.id || 'absence-1',
@@ -143,6 +167,31 @@ describe('operations control alert rules', () => {
 
     expect(alerts[0]).toMatchObject({ priority: 'urgent', type: 'overdue_task', taskId: 'task-1' });
     expect(alerts[1]).toMatchObject({ priority: 'high', type: 'overdue_task', taskId: 'task-2' });
+  });
+
+  it('creates a high alert for a lead that requires a manual email response', () => {
+    const alerts = __operationsControlTestUtils.buildLeadFollowUpAlerts(
+      [lead()],
+      { detectedAt, now: new Date('2026-07-21T12:00:00Z') },
+    );
+
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({
+      priority: 'high',
+      type: 'lead_follow_up',
+      entityType: 'lead',
+      entityUrl: '/lead-appointments?id=lead-1',
+      contactUrl: '/customers/customer-1',
+    });
+  });
+
+  it('does not alert future follow-up leads unless a manual response is required', () => {
+    const alerts = __operationsControlTestUtils.buildLeadFollowUpAlerts(
+      [lead({ activities: [] })],
+      { detectedAt, now: new Date('2026-07-21T12:00:00Z') },
+    );
+
+    expect(alerts).toHaveLength(0);
   });
 
   it('creates urgent low-profit alerts for negative completed meetings', () => {

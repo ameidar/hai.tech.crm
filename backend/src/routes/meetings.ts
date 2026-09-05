@@ -253,7 +253,7 @@ meetingsRouter.get('/:id', async (req, res, next) => {
 // Create exceptional/ad-hoc meeting for a cycle
 meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
   try {
-    const { cycleId, instructorId, scheduledDate, startTime, endTime, withZoom, activityType, topic, notes } = req.body;
+    const { cycleId, instructorId, scheduledDate, startTime, endTime, withZoom, activityType, topic, notes, recallBotEnabled } = req.body;
 
     if (!cycleId || !instructorId || !scheduledDate || !startTime || !endTime) {
       throw new AppError(400, 'Missing required fields: cycleId, instructorId, scheduledDate, startTime, endTime');
@@ -329,6 +329,7 @@ meetingsRouter.post('/', managerOrAdmin, async (req, res, next) => {
         activityType: activityType || cycle.activityType || 'frontal',
         topic,
         notes,
+        recallBotEnabled: recallBotEnabled ?? cycle.recallBotEnabled ?? false,
         revenue,
         instructorPayment,
         profit,

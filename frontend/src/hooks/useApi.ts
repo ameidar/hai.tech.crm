@@ -711,6 +711,7 @@ export interface CreateMeetingData {
   endTime: string;
   withZoom?: boolean;
   activityType?: string;
+  recallBotEnabled?: boolean;
   topic?: string;
   notes?: string;
 }
@@ -1173,6 +1174,40 @@ export const useDeleteZoomMeeting = () => {
       queryClient.invalidateQueries({ queryKey: ['zoom-meeting', cycleId] });
       queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
       queryClient.invalidateQueries({ queryKey: ['cycle-meetings', cycleId] });
+    },
+  });
+};
+
+interface ScheduleRecallBotsResponse {
+  success: boolean;
+  scheduled: Array<{ meetingId: string; botId: string; joinAt?: string }>;
+  skipped: Array<{ meetingId: string; reason: string }>;
+}
+
+export const useScheduleCycleRecallBots = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (cycleId: string) =>
+      mutateData<ScheduleRecallBotsResponse, undefined>(`/lesson-ai/cycles/${cycleId}/recall-bots`, 'post'),
+    onSuccess: (_, cycleId) => {
+      queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings', cycleId] });
+    },
+  });
+};
+
+export const useScheduleMeetingRecallBot = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (meetingId: string) =>
+      mutateData<{ success: boolean; botId: string; joinAt?: string; status?: string }, undefined>(
+        `/lesson-ai/meetings/${meetingId}/recall-bot`,
+        'post'
+      ),
+    onSuccess: (_, meetingId) => {
+      queryClient.invalidateQueries({ queryKey: ['meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['meeting', meetingId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
     },
   });
 };

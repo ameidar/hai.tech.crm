@@ -689,6 +689,7 @@ model Cycle {
   studentCount         Int?         @map("student_count")
   maxStudents          Int?         @map("max_students")
   sendParentReminders  Boolean      @default(true) @map("send_parent_reminders")
+  recallBotEnabled     Boolean      @default(false) @map("recall_bot_enabled")
   isOnline             Boolean      @default(false) @map("is_online")
   activityType         ActivityType @default(frontal) @map("activity_type")
   location             String? // city/location where the cycle takes place — required for frontal cycles, irrelevant for online/private. Used as the location in the instructor salary report.
@@ -802,6 +803,16 @@ model Meeting {
   zoomRecordingUrl      String?       @map("zoom_recording_url")
   zoomRecordingPassword String?       @map("zoom_recording_password")
   lessonTranscript      String?       @map("lesson_transcript")
+  recallBotEnabled      Boolean       @default(false) @map("recall_bot_enabled")
+  recallBotId           String?       @map("recall_bot_id")
+  recallBotStatus       String?       @map("recall_bot_status")
+  recallRecordingId     String?       @map("recall_recording_id")
+  recallRecordingUrl    String?       @map("recall_recording_url")
+  recallTranscriptUrl   String?       @map("recall_transcript_url")
+  lessonSummary         String?       @map("lesson_summary")
+  lessonReportStatus    String?       @map("lesson_report_status")
+  lessonReportGeneratedAt DateTime?   @map("lesson_report_generated_at")
+  lessonReportError     String?       @map("lesson_report_error")
   rescheduledToId       String?       @map("rescheduled_to_id")
   createdAt             DateTime      @default(now()) @map("created_at")
   updatedAt             DateTime      @updatedAt @map("updated_at")
@@ -819,6 +830,8 @@ model Meeting {
   changeRequests        MeetingChangeRequest[]
   billingPeriodMeetings BillingPeriodMeeting[]
 
+  @@index([recallBotId])
+  @@index([lessonReportStatus])
   @@map("meetings")
 }
 

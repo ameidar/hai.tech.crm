@@ -90,6 +90,7 @@ async function generateMeetingsForCycle(cycleId: string, fromDate?: Date, target
         startTime: cycle.startTime,
         endTime: cycle.endTime,
         status: 'scheduled' as const,
+        recallBotEnabled: cycle.recallBotEnabled,
       });
     }
     
@@ -322,6 +323,7 @@ cyclesRouter.post('/', managerOrAdmin, async (req, res, next) => {
       studentCount: data.studentCount,
       maxStudents: data.maxStudents,
       sendParentReminders: data.sendParentReminders,
+      recallBotEnabled: data.recallBotEnabled ?? false,
       isOnline: data.activityType === 'online',
       activityType: data.activityType,
       location: data.location,
@@ -447,6 +449,21 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
       return updated;
     });
 
+    if (data.recallBotEnabled !== undefined) {
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      await prisma.meeting.updateMany({
+        where: {
+          cycleId: id,
+          status: 'scheduled',
+          deletedAt: null,
+          recallBotId: null,
+          scheduledDate: { gte: today },
+        },
+        data: { recallBotEnabled: data.recallBotEnabled },
+      });
+    }
+
     await recalculateInstructorPaymentsForCycle(id);
 
     // Audit log for cycle update
@@ -465,6 +482,7 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
       pricePerStudent: Number(existingCycle.pricePerStudent),
       studentCount: existingCycle.studentCount,
       activityType: existingCycle.activityType,
+      recallBotEnabled: existingCycle.recallBotEnabled,
     };
     const newRecord = {
       name: cycle.name,
@@ -481,6 +499,7 @@ cyclesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
       pricePerStudent: Number(cycle.pricePerStudent),
       studentCount: cycle.studentCount,
       activityType: cycle.activityType,
+      recallBotEnabled: cycle.recallBotEnabled,
     };
     await logUpdateAudit({
       entity: 'Cycle',
@@ -780,6 +799,7 @@ cyclesRouter.post('/bulk-update', managerOrAdmin, async (req, res, next) => {
     if (data.pricePerStudent !== undefined) updateData.pricePerStudent = data.pricePerStudent;
     if (data.studentCount !== undefined) updateData.studentCount = data.studentCount;
     if (data.sendParentReminders !== undefined) updateData.sendParentReminders = data.sendParentReminders;
+    if (data.recallBotEnabled !== undefined) updateData.recallBotEnabled = data.recallBotEnabled;
     if (data.activityType !== undefined) {
       updateData.activityType = data.activityType;
       updateData.isOnline = data.activityType === 'online';

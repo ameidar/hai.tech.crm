@@ -130,6 +130,7 @@ export class MeetingsRepository {
         activityType: data.activityType,
         topic: data.topic,
         notes: data.notes,
+        recallBotEnabled: data.recallBotEnabled,
       },
       include: {
         cycle: {

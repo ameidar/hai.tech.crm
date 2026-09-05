@@ -90,6 +90,7 @@ export const createCycleSchema = z.object({
   studentCount: z.number().int().nonnegative().optional(),
   maxStudents: z.number().int().positive().optional(),
   sendParentReminders: z.boolean().optional().default(true),
+  recallBotEnabled: z.boolean().optional().default(false),
   activityType: activityTypeEnum.optional().default('frontal'),
   location: z.string().trim().optional().nullable(),
   zoomHostId: z.string().optional(),
@@ -140,6 +141,7 @@ export const updateCycleSchema = z.object({
   studentCount: z.number().int().nonnegative().optional().nullable(),
   maxStudents: z.number().int().positive().optional().nullable(),
   sendParentReminders: z.boolean().optional(),
+  recallBotEnabled: z.boolean().optional(),
   activityType: activityTypeEnum.optional(),
   location: z.string().trim().optional().nullable(),
   status: cycleStatusEnum.optional(),
@@ -189,6 +191,7 @@ export const bulkUpdateCyclesSchema = z.object({
     pricePerStudent: z.number().nonnegative().optional(),
     studentCount: z.number().int().nonnegative().optional(),
     sendParentReminders: z.boolean().optional(),
+    recallBotEnabled: z.boolean().optional(),
     activityType: activityTypeEnum.optional(),
   }),
 });

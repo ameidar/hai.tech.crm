@@ -45,6 +45,7 @@ export const createMeetingSchema = z.object({
   nature: meetingNatureEnum.optional(),
   topic: z.string().optional(),
   notes: z.string().optional(),
+  recallBotEnabled: z.boolean().optional(),
   withZoom: z.boolean().optional().default(false),
 });
 
@@ -73,6 +74,7 @@ export const updateMeetingSchema = z.object({
   zoomRecordingUrl: z.string().url().optional().nullable(),
   zoomRecordingPassword: z.string().optional().nullable(),
   lessonTranscript: z.string().optional().nullable(),
+  recallBotEnabled: z.boolean().optional(),
 });
 
 /**

@@ -900,6 +900,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     studentCount: 0,
     maxStudents: 15,
     sendParentReminders: true,
+    recallBotEnabled: false,
     isOnline: false,
     activityType: 'frontal' as ActivityType,
     location: '',
@@ -1274,6 +1275,23 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
             <span className="text-sm text-gray-700">שלח תזכורות להורים</span>
           </label>
         </div>
+
+        {(formData.activityType === 'online' || formData.activityType === 'private_lesson') && (
+          <div className="mt-4">
+            <label className="flex items-start gap-3 cursor-pointer rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+              <input
+                type="checkbox"
+                checked={formData.recallBotEnabled}
+                onChange={(e) => setFormData({ ...formData, recallBotEnabled: e.target.checked })}
+                className="mt-1 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span>
+                <span className="block text-sm font-medium text-emerald-900">הפעל Recall bot למחזור</span>
+                <span className="block text-xs text-emerald-800 mt-1">רק לפגישות Google Meet.</span>
+              </span>
+            </label>
+          </div>
+        )}
       </div>
 
       <div className="flex justify-end gap-3 pt-4 border-t">
@@ -1328,6 +1346,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     studentCount: cycle.studentCount || 0,
     maxStudents: cycle.maxStudents || 15,
     sendParentReminders: cycle.sendParentReminders,
+    recallBotEnabled: !!cycle.recallBotEnabled,
     isOnline: cycle.isOnline,
     activityType: cycle.activityType || 'frontal',
     location: cycle.location || '',
@@ -1395,6 +1414,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
       studentCount: formData.type === 'institutional_per_child' && studentCountValue > 0 ? studentCountValue : undefined,
       maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
       sendParentReminders: formData.sendParentReminders,
+      recallBotEnabled: formData.recallBotEnabled,
       isOnline: formData.isOnline,
       activityType: formData.activityType,
       location: formData.location.trim() || null,
@@ -1690,6 +1710,23 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
             <span className="text-sm text-gray-700">שלח תזכורות להורים</span>
           </label>
         </div>
+
+        {(formData.activityType === 'online' || formData.activityType === 'private_lesson') && (
+          <div className="mt-4">
+            <label className="flex items-start gap-3 cursor-pointer rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+              <input
+                type="checkbox"
+                checked={formData.recallBotEnabled}
+                onChange={(e) => setFormData({ ...formData, recallBotEnabled: e.target.checked })}
+                className="mt-1 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span>
+                <span className="block text-sm font-medium text-emerald-900">הפעל Recall bot למחזור</span>
+                <span className="block text-xs text-emerald-800 mt-1">רק לפגישות Google Meet.</span>
+              </span>
+            </label>
+          </div>
+        )}
       </div>
 
       <div className="flex justify-end gap-3 pt-4 border-t">

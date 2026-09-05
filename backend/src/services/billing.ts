@@ -259,7 +259,8 @@ async function assertNoOverlap(
  * If a draft already exists with the exact same range, its lines are replaced with
  * fresh computed data — except lines whose admin has flagged `descriptionCustomized`,
  * whose text is preserved (only quantity/unitPrice/total refresh).
- * If a non-draft period exists at the same range, refuses to regenerate.
+ * If a cancelled period exists at the same range, it is revived as a draft and
+ * regenerated in-place. Binding tax documents/payments still block regeneration.
  */
 export async function generateBillingPeriod(
   institutionalOrderId: string,
@@ -274,15 +275,15 @@ export async function generateBillingPeriod(
     where: { institutionalOrderId_monthStart_monthEnd: { institutionalOrderId, monthStart: start, monthEnd: end } },
     include: { lines: true },
   });
-  const canReviveCancelledDraft = Boolean(
-    existing &&
-    existing.status === 'cancelled' &&
-    !existing.issuedAt &&
-    !existing.morningDocNumber &&
-    !existing.morningDocId
-  );
-  if (existing && existing.status !== 'draft' && !canReviveCancelledDraft) {
+  const canReviveCancelled = Boolean(existing && existing.status === 'cancelled');
+  if (existing && existing.status !== 'draft' && !canReviveCancelled) {
     throw new Error(`Billing period already ${existing.status} — cannot regenerate`);
+  }
+  if (canReviveCancelled && (existing!.taxInvoiceNumber || existing!.taxInvoiceId)) {
+    throw new Error('Billing period has a binding tax document — cannot regenerate');
+  }
+  if (canReviveCancelled && Number(existing!.paidAmount) > 0) {
+    throw new Error('Billing period has payments — cannot regenerate');
   }
 
   await assertNoOverlap(institutionalOrderId, start, end, existing?.id);
@@ -309,7 +310,16 @@ export async function generateBillingPeriod(
         totalAmount,
         generatedAt: new Date(),
         generatedById,
+        morningDocId: null,
+        morningDocNumber: null,
+        morningDocUrl: null,
+        morningDocType: null,
         morningDraftId: null,
+        morningClientName: null,
+        proformaSource: null,
+        proformaSnapshot: Prisma.JsonNull,
+        issuedAt: null,
+        issuedById: null,
         sentAt: null,
         sentChannel: null,
         sentToEmail: null,

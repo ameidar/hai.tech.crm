@@ -212,7 +212,7 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
 
       const cycle = meeting.cycle as any;
       if (toNumber(cycle?.meetingRevenue) > 0) return toNumber(cycle.meetingRevenue);
-      if (toNumber(cycle?.pricePerStudent) > 0 && (cycle?.studentCount ?? 0) > 0) {
+      if (cycle?.type === 'institutional_per_child' && toNumber(cycle?.pricePerStudent) > 0 && (cycle?.studentCount ?? 0) > 0) {
         return toNumber(cycle.pricePerStudent) * (cycle.studentCount ?? 0);
       }
       return 0;
@@ -424,7 +424,7 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
         if (estRevenue === 0) {
           if (toNumber(cycle.meetingRevenue) > 0) {
             estRevenue = toNumber(cycle.meetingRevenue);
-          } else if (toNumber(cycle.pricePerStudent) > 0 && (cycle.studentCount ?? 0) > 0) {
+          } else if (cycle.type === 'institutional_per_child' && toNumber(cycle.pricePerStudent) > 0 && (cycle.studentCount ?? 0) > 0) {
             estRevenue = toNumber(cycle.pricePerStudent) * (cycle.studentCount ?? 0);
           } else {
             estRevenue = cycleAvgRevenue.get(meeting.cycleId) ?? globalAvgRevenue;
@@ -537,7 +537,7 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
           if (toNumber(cycle.meetingRevenue) > 0) {
             // Cycle has a fixed revenue per meeting
             estimatedRevenue = toNumber(cycle.meetingRevenue);
-          } else if (toNumber(cycle.pricePerStudent) > 0 && (cycle.studentCount ?? 0) > 0) {
+          } else if (cycle.type === 'institutional_per_child' && toNumber(cycle.pricePerStudent) > 0 && (cycle.studentCount ?? 0) > 0) {
             // Revenue = price per student × number of students
             estimatedRevenue = toNumber(cycle.pricePerStudent) * (cycle.studentCount ?? 0);
           } else {

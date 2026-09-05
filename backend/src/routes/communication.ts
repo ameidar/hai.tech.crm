@@ -2,13 +2,13 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../middleware/auth.js';
 import { logAudit } from '../utils/audit.js';
+import { prisma } from '../utils/prisma.js';
+import { broadcastWaSSE } from '../services/wa-events.js';
+import { sendGreenApiMessage } from '../services/green-api-client.js';
 import nodemailer from 'nodemailer';
 
 const router = Router();
 
-// Environment variables
-const GREEN_API_INSTANCE_ID = process.env.GREEN_API_INSTANCE_ID;
-const GREEN_API_TOKEN = process.env.GREEN_API_TOKEN;
 const GMAIL_USER = process.env.GMAIL_USER || 'info@hai.tech';
 const GMAIL_PASS = process.env.GMAIL_PASS;
 
@@ -46,38 +46,123 @@ function formatPhoneForWhatsApp(phone: string): string {
   return cleaned + '@c.us';
 }
 
+function normalizeWhatsAppPhone(phone: string): string | null {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 9) return null;
+  if (digits.startsWith('972')) return digits;
+  if (digits.startsWith('0')) return `972${digits.slice(1)}`;
+  return digits;
+}
+
+async function saveGreenOutboundMessage(params: {
+  phone: string;
+  message: string;
+  greenMessageId?: string | null;
+  customerId?: string;
+  customerName?: string;
+}) {
+  const normalizedPhone = normalizeWhatsAppPhone(params.phone);
+  if (!normalizedPhone) return null;
+
+  const waMessageId = params.greenMessageId ? `green:${params.greenMessageId}` : undefined;
+  if (waMessageId) {
+    const existing = await prisma.waMessage.findUnique({
+      where: { waMessageId },
+      select: { id: true },
+    });
+    if (existing) return existing;
+  }
+
+  let customerName = params.customerName;
+  if (!customerName && params.customerId) {
+    const customer = await prisma.customer.findFirst({
+      where: { id: params.customerId, deletedAt: null },
+      select: { name: true },
+    });
+    customerName = customer?.name || undefined;
+  }
+
+  const now = new Date();
+  let conversation = await prisma.waConversation.findFirst({
+    where: { phone: normalizedPhone },
+    orderBy: { lastMessageAt: 'desc' },
+  });
+
+  if (!conversation) {
+    conversation = await prisma.waConversation.create({
+      data: {
+        phone: normalizedPhone,
+        contactName: customerName || normalizedPhone,
+        status: 'open',
+        unreadCount: 0,
+        lastMessageAt: now,
+        lastMessagePreview: params.message.slice(0, 100),
+        businessPhone: 'Green API',
+        phoneNumberId: null,
+        aiEnabled: false,
+      },
+    });
+  }
+
+  const waMessage = await prisma.waMessage.create({
+    data: {
+      conversationId: conversation.id,
+      direction: 'outbound',
+      content: params.message,
+      waMessageId,
+      status: 'sent',
+      isAiGenerated: false,
+    },
+  });
+
+  await prisma.waConversation.update({
+    where: { id: conversation.id },
+    data: {
+      lastMessageAt: now,
+      lastMessagePreview: params.message.slice(0, 100),
+      contactName: customerName || conversation.contactName || normalizedPhone,
+      businessPhone: conversation.businessPhone || 'Green API',
+      aiEnabled: false,
+      updatedAt: now,
+    },
+  });
+
+  broadcastWaSSE('new_message', {
+    conversationId: conversation.id,
+    message: waMessage,
+    phone: normalizedPhone,
+    contactName: customerName || conversation.contactName || normalizedPhone,
+    provider: 'green',
+  });
+
+  return waMessage;
+}
+
 // Send WhatsApp message via Green API
 router.post('/whatsapp', authenticate, async (req: Request, res: Response) => {
   try {
     const { phone, message, customerId, customerName } = whatsAppSchema.parse(req.body);
 
-    if (!GREEN_API_INSTANCE_ID || !GREEN_API_TOKEN) {
-      return res.status(500).json({ 
-        error: 'Green API not configured',
-        details: 'GREEN_API_INSTANCE_ID and GREEN_API_TOKEN must be set'
-      });
-    }
-
     const chatId = formatPhoneForWhatsApp(phone);
-    const url = `https://api.green-api.com/waInstance${GREEN_API_INSTANCE_ID}/sendMessage/${GREEN_API_TOKEN}`;
+    const result = await sendGreenApiMessage(chatId, message);
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chatId, message }),
-    });
-
-    const data = await response.json() as { idMessage?: string; [key: string]: any };
-
-    if (!response.ok) {
-      console.error('Green API error:', data);
-      return res.status(response.status).json({ 
+    if (!result.success) {
+      console.error('Green API error:', result.error);
+      return res.status(502).json({
         error: 'Failed to send WhatsApp message',
-        details: data
+        details: result.error
       });
     }
 
-    console.log(`WhatsApp message sent to ${phone}:`, data);
+    console.log(`WhatsApp message sent to ${phone} via ${result.instanceId || 'unknown'}: ${result.messageId}`);
+
+    await saveGreenOutboundMessage({
+      phone,
+      message,
+      greenMessageId: result.messageId,
+      customerId,
+      customerName,
+    });
 
     // Log to audit
     await logAudit({
@@ -85,12 +170,12 @@ router.post('/whatsapp', authenticate, async (req: Request, res: Response) => {
       userName: (req as any).user?.name || (req as any).user?.email,
       action: 'CREATE',
       entity: 'communication_whatsapp',
-      entityId: customerId || data.idMessage || 'unknown',
+      entityId: customerId || result.messageId || 'unknown',
       newValue: { phone, message, chatId, customerId, customerName },
       req,
     });
 
-    res.json({ success: true, messageId: data.idMessage });
+    res.json({ success: true, messageId: result.messageId, greenInstanceId: result.instanceId });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Validation error', details: error.errors });

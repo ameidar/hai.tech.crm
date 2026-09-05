@@ -2,11 +2,13 @@ import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
-import { meetingRevenueFromRegistrations, revenueRegistrationCount, roundMoney } from '../utils/revenue.js';
+import { meetingRevenueForMeeting } from '../utils/revenue.js';
 import {
   calculateInstructorPayment,
   recalculateDailyInstructorPaymentsForMeeting,
 } from '../services/instructor-payment.js';
+import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
+import { checkAndSendMeetingReportQualityAlert } from '../services/meeting-report-quality-alert.js';
 import crypto from 'crypto';
 
 const MEETING_TOKEN_SECRET = process.env.MEETING_TOKEN_SECRET || 'haitech-meeting-status-2026';
@@ -116,17 +118,7 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
     if (status === 'completed') {
       const cycleData = existingMeeting.cycle;
       
-      // Calculate revenue
-      let revenue = 0;
-      if (cycleData.type === 'private') {
-        revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
-      } else if (cycleData.type === 'institutional_per_child') {
-        const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-        const studentCount = cycleData.studentCount || revenueRegistrationCount(cycleData.registrations);
-        revenue = roundMoney(pricePerStudent * studentCount);
-      } else if (cycleData.type === 'institutional_fixed') {
-        revenue = Number(cycleData.meetingRevenue || 0);
-      }
+      const revenue = meetingRevenueForMeeting(cycleData, existingMeeting);
 
       const instructorPayment = calculateInstructorPayment(cycleData, existingMeeting.instructor, existingMeeting);
 
@@ -145,6 +137,7 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
     });
     await recalculateDailyInstructorPaymentsForMeeting(existingMeeting);
     await recalculateDailyInstructorPaymentsForMeeting(meeting);
+    await checkAndSendNegativeProfitAlert(meetingId, 'public-meeting-status');
 
     // Sync cycle progress from actual DB counts after meeting update
     if (willStatusChange) {
@@ -192,6 +185,10 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
           });
         }
       }
+    }
+
+    if (status === 'completed') {
+      await checkAndSendMeetingReportQualityAlert(meetingId, 'public-meeting-status');
     }
 
     res.json({ success: true, meeting });

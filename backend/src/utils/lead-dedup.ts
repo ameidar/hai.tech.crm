@@ -29,7 +29,12 @@ export interface LeadAppointmentInput {
   interest?: string | null;
   source: string;
   appointmentStatus?: string;
+  appointmentDate?: Date | null;
+  appointmentTime?: string | null;
   appointmentNotes?: string | null;
+  salesStatus?: string | null;
+  assignedToId?: string | null;
+  nextFollowUpAt?: Date | null;
   callSummary?: string | null;
   callStatus?: string | null;
   vapiCallId?: string | null;
@@ -52,7 +57,7 @@ export interface LeadAppointmentResult {
 /**
  * Find an existing open LeadAppointment by phone, or create a new one.
  *
- * "Open" = appointmentStatus is NOT 'done' / 'cancelled' / 'rejected'
+ * "Open" = appointmentStatus is NOT 'completed' / 'done' / 'cancelled' / 'rejected'
  * Window = DEDUP_DAYS days
  */
 export async function findOrCreateLeadAppointment(
@@ -71,10 +76,11 @@ export async function findOrCreateLeadAppointment(
 
   // Find existing open lead with same phone in the dedup window
   // Note: deleted_at column may not exist in all deployments — omit it from WHERE
-  const existing = await prisma.$queryRaw<{ id: string; source: string; appointment_status: string; appointment_notes: string | null }[]>`
-    SELECT id, source, appointment_status, appointment_notes
+  const existing = await prisma.$queryRaw<{ id: string; source: string; appointment_status: string; appointment_notes: string | null; sales_status: string | null }[]>`
+    SELECT id, source, appointment_status, appointment_notes, sales_status
     FROM lead_appointments
-    WHERE appointment_status NOT IN ('done', 'cancelled', 'rejected')
+    WHERE appointment_status NOT IN ('completed', 'done', 'cancelled', 'rejected')
+      AND COALESCE(sales_status, 'new') NOT IN ('converted', 'not_relevant')
       AND created_at >= ${windowStart}
       AND RIGHT(REPLACE(REPLACE(REPLACE(customer_phone, '+', ''), '-', ''), ' ', ''), 9) = ${phoneLast9}
     ORDER BY created_at DESC
@@ -103,9 +109,26 @@ export async function findOrCreateLeadAppointment(
         appointment_notes = ${updatedNotes},
         customer_id       = COALESCE(customer_id, ${customerId ?? null}),
         customer_email    = COALESCE(customer_email, ${customerEmail ?? null}),
+        assigned_to_id    = COALESCE(assigned_to_id, ${input.assignedToId ?? null}),
+        sales_status      = CASE
+                              WHEN sales_status IS NULL OR sales_status IN ('new', 'no_answer')
+                              THEN 'follow_up'
+                              ELSE sales_status
+                            END,
+        next_follow_up_at = COALESCE(next_follow_up_at, NOW()),
         updated_at        = NOW()
       WHERE id = ${found.id}
     `;
+
+    await prisma.leadActivity.create({
+      data: {
+        leadAppointmentId: found.id,
+        type: 'inbound',
+        result: 'duplicate_inquiry',
+        note: `פנייה חוזרת ממקור ${source}${appointmentNotes ? `: ${appointmentNotes}` : ''}${callSummary ? ` | סיכום: ${callSummary}` : ''}`,
+        nextFollowUpAt: new Date(),
+      },
+    });
 
     console.log(`[lead-dedup] Merged duplicate lead — existing ${found.id} (${found.source}) + new source ${source} for phone ...${phoneLast9}`);
 
@@ -121,9 +144,7 @@ export async function findOrCreateLeadAppointment(
 
 function buildData(input: LeadAppointmentInput) {
   return {
-    customer: input.customerId
-      ? { connect: { id: input.customerId } }
-      : undefined,
+    customerId:         input.customerId ?? null,
     customerName:      input.customerName,
     customerPhone:     input.customerPhone,
     customerEmail:     input.customerEmail ?? null,
@@ -131,7 +152,12 @@ function buildData(input: LeadAppointmentInput) {
     interest:          input.interest ?? null,
     source:            input.source,
     appointmentStatus: input.appointmentStatus ?? 'pending',
+    appointmentDate:   input.appointmentDate ?? null,
+    appointmentTime:   input.appointmentTime ?? null,
     appointmentNotes:  input.appointmentNotes ?? null,
+    salesStatus:       input.salesStatus ?? 'new',
+    assignedToId:      input.assignedToId ?? null,
+    nextFollowUpAt:    input.nextFollowUpAt ?? null,
     callSummary:       input.callSummary ?? null,
     callStatus:        input.callStatus ?? null,
     vapiCallId:        input.vapiCallId ?? null,

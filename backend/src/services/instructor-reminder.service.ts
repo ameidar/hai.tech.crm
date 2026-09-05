@@ -8,6 +8,7 @@
 import { prisma } from '../utils/prisma.js';
 import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
+import { reminderEligibleMeetingWhereForDate } from './reminder-eligibility.js';
 
 interface DailyMeeting {
   id: string;
@@ -87,20 +88,12 @@ export function verifyMeetingMagicLink(token: string): {
 export async function getDailyMeetingsForInstructors(
   date: Date = new Date()
 ): Promise<InstructorDailySummary[]> {
-  const dateStr = date.toISOString().split('T')[0];
-  const nextDay = new Date(date);
-  nextDay.setDate(nextDay.getDate() + 1);
+  const dateStr = new Intl.DateTimeFormat('sv', { timeZone: 'Asia/Jerusalem' }).format(date);
+  const meetingDate = new Date(`${dateStr}T00:00:00.000Z`);
   
   // Get all meetings for today with instructor info
   const meetings = await prisma.meeting.findMany({
-    where: {
-      scheduledDate: {
-        gte: new Date(dateStr),
-        lt: nextDay,
-      },
-      status: 'scheduled',
-      deletedAt: null,
-    },
+    where: reminderEligibleMeetingWhereForDate(meetingDate),
     include: {
       instructor: true,
       cycle: {

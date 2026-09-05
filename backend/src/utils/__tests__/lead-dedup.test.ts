@@ -11,12 +11,16 @@ const mockCreate = vi.fn();
 const mockFindUnique = vi.fn();
 const mockExecuteRaw = vi.fn();
 const mockQueryRaw = vi.fn();
+const mockCreateActivity = vi.fn();
 
 vi.mock('../prisma.js', () => ({
   prisma: {
     leadAppointment: {
       create: mockCreate,
       findUnique: mockFindUnique,
+    },
+    leadActivity: {
+      create: mockCreateActivity,
     },
     $queryRaw: mockQueryRaw,
     $executeRaw: mockExecuteRaw,
@@ -63,6 +67,14 @@ describe('findOrCreateLeadAppointment', () => {
     expect(result.isDuplicate).toBe(true);
     expect(mockCreate).not.toHaveBeenCalled();
     expect(mockExecuteRaw).toHaveBeenCalledOnce();
+    expect(mockCreateActivity).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        leadAppointmentId: 'lead-1',
+        type: 'inbound',
+        result: 'duplicate_inquiry',
+        note: expect.stringContaining('פנייה חוזרת ממקור whatsapp'),
+      }),
+    });
     expect(result.lead.id).toBe('lead-1');
   });
 
@@ -86,6 +98,7 @@ describe('findOrCreateLeadAppointment', () => {
     const r2 = await findOrCreateLeadAppointment({ ...baseLead, source: 'pesach-camp' });
     expect(r2.isDuplicate).toBe(true);
     expect(mockCreate).toHaveBeenCalledOnce(); // only one create total
+    expect(mockCreateActivity).toHaveBeenCalledOnce();
   });
 
   it('creates new lead when phone is missing', async () => {
@@ -102,8 +115,8 @@ describe('findOrCreateLeadAppointment', () => {
     expect(mockQueryRaw).not.toHaveBeenCalled(); // skip dedup when no phone
   });
 
-  it('does not dedup when existing lead is closed (done)', async () => {
-    // The SQL query filters out done/cancelled, so returns empty
+  it('does not dedup when existing lead is closed (completed/done)', async () => {
+    // The SQL query filters out completed/done/cancelled, so returns empty
     mockQueryRaw.mockResolvedValueOnce([]);
     mockCreate.mockResolvedValueOnce({ id: 'lead-3', source: 'website', appointmentStatus: 'pending' });
 

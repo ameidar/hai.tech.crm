@@ -47,6 +47,7 @@ export const createMeetingSchema = z.object({
   notes: z.string().optional(),
   recallBotEnabled: z.boolean().optional(),
   withZoom: z.boolean().optional().default(false),
+  videoProvider: z.enum(['zoom', 'google_meet']).optional().default('zoom'),
 });
 
 /**
@@ -65,6 +66,7 @@ export const updateMeetingSchema = z.object({
   revenue: z.number().nonnegative().optional(),
   instructorPayment: z.number().nonnegative().optional(),
   profit: z.number().optional(),
+  videoProvider: z.enum(['zoom', 'google_meet']).optional(),
   zoomMeetingId: z.string().optional().nullable(),
   zoomJoinUrl: z.string().url().optional().nullable(),
   zoomStartUrl: z.string().url().optional().nullable(),
@@ -73,6 +75,8 @@ export const updateMeetingSchema = z.object({
   zoomHostEmail: z.string().email().optional().nullable(),
   zoomRecordingUrl: z.string().url().optional().nullable(),
   zoomRecordingPassword: z.string().optional().nullable(),
+  googleMeetSpaceName: z.string().optional().nullable(),
+  googleCalendarEventId: z.string().optional().nullable(),
   lessonTranscript: z.string().optional().nullable(),
   recallBotEnabled: z.boolean().optional(),
 });

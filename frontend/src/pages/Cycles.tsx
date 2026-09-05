@@ -9,12 +9,17 @@ import Modal from '../components/ui/Modal';
 import SearchableSelect from '../components/ui/SearchableSelect';
 import MeetingsExportModal from '../components/MeetingsExportModal';
 import ViewSelector from '../components/ViewSelector';
+import { useAuth } from '../context/AuthContext';
 import { cycleStatusHebrew, cycleTypeHebrew, dayOfWeekHebrew } from '../types';
 import type { Cycle, CycleType, CycleStatus, DayOfWeek, ActivityType, InstructorPaymentMode } from '../types';
 import { activityTypeHebrew } from '../types';
 import { exportMeetingsToExcel } from '../utils/meetingsExcel';
 
+const getRegisteredChildrenCount = (cycle: Cycle) => cycle._count?.registrations ?? cycle.registrations?.length ?? cycle.studentCount ?? 0;
+
 export default function Cycles() {
+  const { user } = useAuth();
+  const canManageCycles = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations_manager';
   const [searchParams, setSearchParams] = useSearchParams();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingCycle, setEditingCycle] = useState<Cycle | null>(null);
@@ -28,7 +33,7 @@ export default function Cycles() {
   const [showMeetingsExportModal, setShowMeetingsExportModal] = useState(false);
 
   // Column visibility
-  const COLUMN_KEYS = ['name', 'course', 'branch', 'instructor', 'startDate', 'dayOfWeek', 'type', 'pricePerStudent', 'meetingRevenue', 'progress', 'status', 'zoom'] as const;
+  const COLUMN_KEYS = ['name', 'course', 'branch', 'instructor', 'startDate', 'dayOfWeek', 'type', 'pricePerStudent', 'meetingRevenue', 'registeredChildren', 'progress', 'status', 'zoom'] as const;
   const COLUMN_LABELS: Record<string, string> = {
     name: 'שם המחזור',
     course: 'קורס',
@@ -39,17 +44,19 @@ export default function Cycles() {
     type: 'סוג',
     pricePerStudent: 'מחיר לתלמיד',
     meetingRevenue: 'מחיר לפגישה',
+    registeredChildren: 'ילדים רשומים',
     progress: 'התקדמות',
     status: 'סטטוס',
     zoom: 'זום',
   };
 
   const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => {
+    const defaultVisibility = Object.fromEntries(COLUMN_KEYS.map(k => [k, true]));
     try {
       const saved = localStorage.getItem('cycles-column-visibility');
-      if (saved) return JSON.parse(saved);
+      if (saved) return { ...defaultVisibility, ...JSON.parse(saved) };
     } catch {}
-    return Object.fromEntries(COLUMN_KEYS.map(k => [k, true]));
+    return defaultVisibility;
   });
 
   useEffect(() => {
@@ -175,8 +182,8 @@ export default function Cycles() {
           break;
         case 'dayOfWeek':
           const dayOrder = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
-          aVal = dayOrder[a.dayOfWeek] ?? 0;
-          bVal = dayOrder[b.dayOfWeek] ?? 0;
+          aVal = `${dayOrder[a.dayOfWeek] ?? 0}-${a.startTime || ''}`;
+          bVal = `${dayOrder[b.dayOfWeek] ?? 0}-${b.startTime || ''}`;
           break;
         case 'type':
           aVal = a.type || '';
@@ -190,6 +197,10 @@ export default function Cycles() {
           aVal = Number(a.revenuePerMeeting ?? a.meetingRevenue) || 0;
           bVal = Number(b.revenuePerMeeting ?? b.meetingRevenue) || 0;
           break;
+        case 'registeredChildren':
+          aVal = getRegisteredChildrenCount(a);
+          bVal = getRegisteredChildrenCount(b);
+          break;
         case 'progress':
           aVal = a.totalMeetings > 0 ? a.completedMeetings / a.totalMeetings : 0;
           bVal = b.totalMeetings > 0 ? b.completedMeetings / b.totalMeetings : 0;
@@ -197,6 +208,10 @@ export default function Cycles() {
         case 'status':
           aVal = a.status || '';
           bVal = b.status || '';
+          break;
+        case 'zoom':
+          aVal = a.zoomJoinUrl ? 1 : 0;
+          bVal = b.zoomJoinUrl ? 1 : 0;
           break;
         default:
           return 0;
@@ -213,12 +228,14 @@ export default function Cycles() {
 
   // Toggle sort
   const handleSort = (field: string) => {
+    const newParams = new URLSearchParams(searchParams);
     if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+      newParams.set('dir', sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
-      setSortField(field);
-      setSortDirection('asc');
+      newParams.set('sort', field);
+      newParams.set('dir', 'asc');
     }
+    setSearchParams(newParams, { replace: true });
   };
 
   // Selection helpers
@@ -349,18 +366,22 @@ export default function Cycles() {
         subtitle={`${displayCycles?.length || 0} מחזורים`}
         actions={
           <div className="flex gap-2">
-            <button
-              onClick={() => syncAllCycles.mutateAsync(undefined).then(r => alert(`✅ סונכרנו ${(r as any).synced} מחזורים`))}
-              disabled={syncAllCycles.isPending}
-              className="btn btn-secondary flex items-center gap-1"
-              title="סנכרן התקדמות כל המחזורים"
-            >
-              {syncAllCycles.isPending ? '⏳' : '🔄'} סנכרן הכל
-            </button>
-            <button onClick={() => setShowAddModal(true)} className="btn btn-primary" data-testid="add-cycle-btn">
-              <Plus size={18} />
-              מחזור חדש
-            </button>
+            {canManageCycles && (
+              <>
+                <button
+                  onClick={() => syncAllCycles.mutateAsync(undefined).then(r => alert(`✅ סונכרנו ${(r as any).synced} מחזורים`))}
+                  disabled={syncAllCycles.isPending}
+                  className="btn btn-secondary flex items-center gap-1"
+                  title="סנכרן התקדמות כל המחזורים"
+                >
+                  {syncAllCycles.isPending ? '⏳' : '🔄'} סנכרן הכל
+                </button>
+                <button onClick={() => setShowAddModal(true)} className="btn btn-primary" data-testid="add-cycle-btn">
+                  <Plus size={18} />
+                  מחזור חדש
+                </button>
+              </>
+            )}
           </div>
         }
       />
@@ -531,31 +552,35 @@ export default function Cycles() {
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowBulkEditModal(true)}
-                className="btn btn-primary flex items-center gap-2"
-              >
-                <Edit size={16} />
-                עריכה גורפת
-              </button>
-              <button
-                onClick={async () => {
-                  if (confirm(`האם ליצור פגישות ל-${selectedCycles.size} מחזורים?`)) {
-                    try {
-                      const result = await bulkGenerateMeetings.mutateAsync(Array.from(selectedCycles));
-                      alert(result.message);
-                      setSelectedCycles(new Set());
-                    } catch (error: any) {
-                      alert(error.message || 'שגיאה ביצירת פגישות');
-                    }
-                  }
-                }}
-                disabled={bulkGenerateMeetings.isPending}
-                className="btn btn-success flex items-center gap-2"
-              >
-                <Calendar size={16} />
-                {bulkGenerateMeetings.isPending ? 'יוצר...' : 'צור פגישות'}
-              </button>
+              {canManageCycles && (
+                <>
+                  <button
+                    onClick={() => setShowBulkEditModal(true)}
+                    className="btn btn-primary flex items-center gap-2"
+                  >
+                    <Edit size={16} />
+                    עריכה גורפת
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (confirm(`האם ליצור פגישות ל-${selectedCycles.size} מחזורים?`)) {
+                        try {
+                          const result = await bulkGenerateMeetings.mutateAsync(Array.from(selectedCycles));
+                          alert(result.message);
+                          setSelectedCycles(new Set());
+                        } catch (error: any) {
+                          alert(error.message || 'שגיאה ביצירת פגישות');
+                        }
+                      }
+                    }}
+                    disabled={bulkGenerateMeetings.isPending}
+                    className="btn btn-success flex items-center gap-2"
+                  >
+                    <Calendar size={16} />
+                    {bulkGenerateMeetings.isPending ? 'יוצר...' : 'צור פגישות'}
+                  </button>
+                </>
+              )}
               <button
                 onClick={() => setShowMeetingsExportModal(true)}
                 disabled={isExportingMeetings}
@@ -584,7 +609,7 @@ export default function Cycles() {
         />
 
         {displayLoading ? (
-          <SkeletonTable rows={8} columns={11} />
+          <SkeletonTable rows={8} columns={12} />
         ) : displayCycles && displayCycles.length > 0 ? (
           <>
           {/* Mobile card view */}
@@ -645,7 +670,7 @@ export default function Cycles() {
                         </div>
                       </th>
                     ))}
-                    <th>פעולות</th>
+                    {canManageCycles && <th>פעולות</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -725,7 +750,9 @@ export default function Cycles() {
                       )}
                       {isColVisible('pricePerStudent') && (
                         <td className="text-gray-600">
-                          {cycle.pricePerStudent ? `₪${Number(cycle.pricePerStudent).toLocaleString()}` : '-'}
+                          {cycle.pricePerStudent || cycle.defaultRegistrationAmount
+                            ? `₪${Number(cycle.pricePerStudent || cycle.defaultRegistrationAmount).toLocaleString()}`
+                            : '-'}
                         </td>
                       )}
                       {isColVisible('meetingRevenue') && (
@@ -733,6 +760,14 @@ export default function Cycles() {
                           {(cycle.revenuePerMeeting || cycle.meetingRevenue)
                             ? `₪${Number(cycle.revenuePerMeeting ?? cycle.meetingRevenue).toLocaleString()}`
                             : '-'}
+                        </td>
+                      )}
+                      {isColVisible('registeredChildren') && (
+                        <td className="text-gray-600">
+                          <div className="flex items-center gap-1.5">
+                            <Users size={14} className="text-gray-400" />
+                            <span className="tabular-nums">{getRegisteredChildrenCount(cycle).toLocaleString('he-IL')}</span>
+                          </div>
                         </td>
                       )}
                       {isColVisible('progress') && (
@@ -769,24 +804,26 @@ export default function Cycles() {
                           ) : <span className="text-gray-400">-</span>}
                         </td>
                       )}
-                      <td>
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => setEditingCycle(cycle)}
-                            className="icon-btn icon-btn-primary"
-                            title="עריכה"
-                          >
-                            <Edit size={16} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteCycle(cycle.id, cycle.name)}
-                            className="icon-btn icon-btn-danger"
-                            title="מחיקה"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </td>
+                      {canManageCycles && (
+                        <td>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => setEditingCycle(cycle)}
+                              className="icon-btn icon-btn-primary"
+                              title="עריכה"
+                            >
+                              <Edit size={16} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteCycle(cycle.id, cycle.name)}
+                              className="icon-btn icon-btn-danger"
+                              title="מחיקה"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -893,12 +930,14 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     durationMinutes: 90,
     totalMeetings: 12,
     pricePerStudent: 0,
+    defaultRegistrationAmount: 0,
     meetingRevenue: 0,
     includesVat: false,
     instructorPaymentMode: 'hourly' as InstructorPaymentMode,
     instructorDailyRate: 0,
     studentCount: 0,
     maxStudents: 15,
+    minimumStudentsThreshold: 0,
     sendParentReminders: true,
     recallBotEnabled: false,
     isOnline: false,
@@ -935,9 +974,11 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     }
     
     const priceValue = Number(formData.pricePerStudent);
+    const defaultRegistrationAmountValue = Number(formData.defaultRegistrationAmount);
     let meetingRevenueValue = Number(formData.meetingRevenue);
     const studentCountValue = Number(formData.studentCount);
     const maxStudentsValue = Number(formData.maxStudents);
+    const minimumStudentsThresholdValue = Number(formData.minimumStudentsThreshold);
     
     // Amounts entered here are always before VAT. VAT is not HaiTech revenue.
     
@@ -952,12 +993,14 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
       durationMinutes,
       totalMeetings: Number(formData.totalMeetings),
       institutionalOrderId: isInstitutionalType ? formData.institutionalOrderId : undefined,
-      pricePerStudent: (formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && priceValue > 0 ? priceValue : undefined,
+      pricePerStudent: formData.type === 'institutional_per_child' && priceValue > 0 ? priceValue : undefined,
+      defaultRegistrationAmount: defaultRegistrationAmountValue > 0 ? defaultRegistrationAmountValue : null,
       meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'trial_private') && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
       instructorPaymentMode: formData.instructorPaymentMode,
       instructorDailyRate: formData.instructorPaymentMode === 'daily' ? Number(formData.instructorDailyRate) : null,
       studentCount: formData.type === 'institutional_per_child' && studentCountValue > 0 ? studentCountValue : undefined,
       maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
+      minimumStudentsThreshold: minimumStudentsThresholdValue > 0 ? minimumStudentsThresholdValue : null,
     };
     if (formData.type === 'institutional_fixed') {
       submitData.revenueIncludesVat = false;
@@ -1030,6 +1073,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
           >
             <option value="private">פרטי</option>
             <option value="trial_private">שיעור ניסיון פרטי</option>
+            <option value="group">קבוצתי</option>
             <option value="institutional_per_child">מוסדי (פר ילד)</option>
             <option value="institutional_fixed">מוסדי (סכום קבוע)</option>
           </select>
@@ -1177,13 +1221,24 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
             />
           </div>
 
+          <div>
+            <label className="form-label">סף מינימום ילדים למעקב</label>
+            <input
+              type="number"
+              value={formData.minimumStudentsThreshold}
+              onChange={(e) => setFormData({ ...formData, minimumStudentsThreshold: Number(e.target.value) })}
+              className="form-input"
+              min="0"
+            />
+          </div>
+
           <div className="col-span-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
             כל המחירים וההכנסות במחזור הם ללא מע״מ. המע״מ מתווסף בנפרד ואינו חלק מההכנסה.
           </div>
 
-          {(formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && (
+          {formData.type === 'institutional_per_child' && (
             <div>
-              <label className="form-label">מחיר לתלמיד לפני מע״מ {formData.type === 'institutional_per_child' ? '(למפגש)' : ''}</label>
+              <label className="form-label">מחיר לתלמיד למפגש לפני מע״מ</label>
               <div className="relative">
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
                 <input
@@ -1197,6 +1252,21 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
               </div>
             </div>
           )}
+
+          <div>
+            <label className="form-label">סכום הרשמה ברירת מחדל</label>
+            <div className="relative">
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+              <input
+                type="number"
+                value={formData.defaultRegistrationAmount}
+                onChange={(e) => setFormData({ ...formData, defaultRegistrationAmount: Number(e.target.value) })}
+                className="form-input pr-8"
+                min="0"
+                step="0.01"
+              />
+            </div>
+          </div>
 
           {formData.type === 'institutional_per_child' && (
             <div>
@@ -1339,12 +1409,14 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     endTime: formatTimeForInput(cycle.endTime),
     totalMeetings: cycle.totalMeetings,
     pricePerStudent: cycle.pricePerStudent || 0,
+    defaultRegistrationAmount: cycle.defaultRegistrationAmount || 0,
     meetingRevenue: cycle.meetingRevenue || 0,
     includesVat: false,
     instructorPaymentMode: (cycle.instructorPaymentMode || 'hourly') as InstructorPaymentMode,
     instructorDailyRate: cycle.instructorDailyRate || 0,
     studentCount: cycle.studentCount || 0,
     maxStudents: cycle.maxStudents || 15,
+    minimumStudentsThreshold: cycle.minimumStudentsThreshold || 0,
     sendParentReminders: cycle.sendParentReminders,
     recallBotEnabled: !!cycle.recallBotEnabled,
     isOnline: cycle.isOnline,
@@ -1381,9 +1453,11 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     }
     
     const priceValue = Number(formData.pricePerStudent);
+    const defaultRegistrationAmountValue = Number(formData.defaultRegistrationAmount);
     let meetingRevenueValue = Number(formData.meetingRevenue);
     const studentCountValue = Number(formData.studentCount);
     const maxStudentsValue = Number(formData.maxStudents);
+    const minimumStudentsThresholdValue = Number(formData.minimumStudentsThreshold);
     
     // Amounts entered here are always before VAT. VAT is not HaiTech revenue.
     
@@ -1406,13 +1480,15 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
       endTime: formData.endTime,
       durationMinutes,
       totalMeetings: Number(formData.totalMeetings),
-      pricePerStudent: (formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && priceValue > 0 ? priceValue : undefined,
+      pricePerStudent: formData.type === 'institutional_per_child' && priceValue > 0 ? priceValue : null,
+      defaultRegistrationAmount: defaultRegistrationAmountValue > 0 ? defaultRegistrationAmountValue : null,
       meetingRevenue: (formData.type === 'institutional_fixed' || formData.type === 'trial_private') && meetingRevenueValue > 0 ? meetingRevenueValue : undefined,
       revenueIncludesVat: formData.type === 'institutional_fixed' ? false : undefined,
       instructorPaymentMode: formData.instructorPaymentMode,
       instructorDailyRate: formData.instructorPaymentMode === 'daily' ? Number(formData.instructorDailyRate) : null,
       studentCount: formData.type === 'institutional_per_child' && studentCountValue > 0 ? studentCountValue : undefined,
       maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
+      minimumStudentsThreshold: minimumStudentsThresholdValue > 0 ? minimumStudentsThresholdValue : null,
       sendParentReminders: formData.sendParentReminders,
       recallBotEnabled: formData.recallBotEnabled,
       isOnline: formData.isOnline,
@@ -1480,6 +1556,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
           >
             <option value="private">פרטי</option>
             <option value="trial_private">שיעור ניסיון פרטי</option>
+            <option value="group">קבוצתי</option>
             <option value="institutional_per_child">מוסדי (פר ילד)</option>
             <option value="institutional_fixed">מוסדי (סכום קבוע)</option>
           </select>
@@ -1612,13 +1689,24 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
             />
           </div>
 
+          <div>
+            <label className="form-label">סף מינימום ילדים למעקב</label>
+            <input
+              type="number"
+              value={formData.minimumStudentsThreshold}
+              onChange={(e) => setFormData({ ...formData, minimumStudentsThreshold: Number(e.target.value) })}
+              className="form-input"
+              min="0"
+            />
+          </div>
+
           <div className="col-span-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
             כל המחירים וההכנסות במחזור הם ללא מע״מ. המע״מ מתווסף בנפרד ואינו חלק מההכנסה.
           </div>
 
-          {(formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'institutional_per_child') && (
+          {formData.type === 'institutional_per_child' && (
             <div>
-              <label className="form-label">מחיר לתלמיד לפני מע״מ {formData.type === 'institutional_per_child' ? '(למפגש)' : ''}</label>
+              <label className="form-label">מחיר לתלמיד למפגש לפני מע״מ</label>
               <div className="relative">
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
                 <input
@@ -1632,6 +1720,21 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
               </div>
             </div>
           )}
+
+          <div>
+            <label className="form-label">סכום הרשמה ברירת מחדל</label>
+            <div className="relative">
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+              <input
+                type="number"
+                value={formData.defaultRegistrationAmount}
+                onChange={(e) => setFormData({ ...formData, defaultRegistrationAmount: Number(e.target.value) })}
+                className="form-input pr-8"
+                min="0"
+                step="0.01"
+              />
+            </div>
+          </div>
 
           {formData.type === 'institutional_per_child' && (
             <div>
@@ -1760,6 +1863,7 @@ function BulkEditForm({ selectedCount, instructors, courses, branches, onSubmit,
     branchId?: string;
     meetingRevenue?: number;
     pricePerStudent?: number;
+    defaultRegistrationAmount?: number;
     studentCount?: number;
     sendParentReminders?: boolean;
     activityType?: ActivityType;
@@ -1807,6 +1911,9 @@ function BulkEditForm({ selectedCount, instructors, courses, branches, onSubmit,
     }
     if (enabledFields.has('pricePerStudent') && formData.pricePerStudent !== undefined) {
       dataToSubmit.pricePerStudent = formData.pricePerStudent;
+    }
+    if (enabledFields.has('defaultRegistrationAmount') && formData.defaultRegistrationAmount !== undefined) {
+      dataToSubmit.defaultRegistrationAmount = formData.defaultRegistrationAmount;
     }
     if (enabledFields.has('studentCount') && formData.studentCount !== undefined) {
       dataToSubmit.studentCount = formData.studentCount;
@@ -1954,7 +2061,7 @@ function BulkEditForm({ selectedCount, instructors, courses, branches, onSubmit,
             className="mt-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
           />
           <div className="flex-1">
-            <label className="form-label">מחיר לתלמיד (פרטי / מוסדי פר ילד)</label>
+            <label className="form-label">מחיר לתלמיד למפגש (מוסדי פר ילד)</label>
             <div className="relative">
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
               <input
@@ -1965,6 +2072,31 @@ function BulkEditForm({ selectedCount, instructors, courses, branches, onSubmit,
                 min="0"
                 step="0.01"
                 disabled={!enabledFields.has('pricePerStudent')}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Default Registration Amount */}
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={enabledFields.has('defaultRegistrationAmount')}
+            onChange={() => toggleField('defaultRegistrationAmount')}
+            className="mt-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1">
+            <label className="form-label">סכום הרשמה ברירת מחדל</label>
+            <div className="relative">
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">₪</span>
+              <input
+                type="number"
+                value={formData.defaultRegistrationAmount || ''}
+                onChange={(e) => setFormData({ ...formData, defaultRegistrationAmount: Number(e.target.value) })}
+                className="form-input pr-8"
+                min="0"
+                step="0.01"
+                disabled={!enabledFields.has('defaultRegistrationAmount')}
               />
             </div>
           </div>

@@ -1,5 +1,10 @@
 import nodemailer from 'nodemailer';
 import { config } from '../config.js';
+import { sendGreenApiMessage } from './green-api-client.js';
+import {
+  sendWhatsAppCloudTemplate,
+  templateText,
+} from './whatsapp-cloud-templates.js';
 
 // Gmail SMTP transporter
 const emailTransporter = nodemailer.createTransport({
@@ -9,9 +14,6 @@ const emailTransporter = nodemailer.createTransport({
     pass: config.gmailAppPassword,
   },
 });
-
-// WhatsApp via Green API
-const greenApiBaseUrl = `https://api.green-api.com/waInstance${config.greenApiInstanceId}`;
 
 // Format phone number for WhatsApp
 // Accepts phone number OR pre-formatted chatId (e.g. "120363353459332838@g.us")
@@ -37,28 +39,15 @@ function formatPhoneForWhatsApp(phone: string): string {
 
 // Send WhatsApp message
 export async function sendWhatsAppMessage(phone: string, message: string): Promise<boolean> {
-  if (!config.greenApiInstanceId || !config.greenApiToken) {
-    console.log('[NOTIFICATION] WhatsApp not configured, skipping');
-    return false;
-  }
-
   try {
     const chatId = formatPhoneForWhatsApp(phone);
-    const response = await fetch(
-      `${greenApiBaseUrl}/sendMessage/${config.greenApiToken}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatId, message }),
-      }
-    );
-
-    if (!response.ok) {
-      console.error('[NOTIFICATION] WhatsApp send failed:', await response.text());
+    const result = await sendGreenApiMessage(chatId, message);
+    if (!result.success) {
+      console.error('[NOTIFICATION] WhatsApp send failed:', result.error);
       return false;
     }
 
-    console.log('[NOTIFICATION] WhatsApp sent to:', phone);
+    console.log(`[NOTIFICATION] WhatsApp sent to ${phone} via ${result.instanceId || 'unknown'}`);
     return true;
   } catch (error) {
     console.error('[NOTIFICATION] WhatsApp error:', error);
@@ -95,10 +84,13 @@ export async function sendEmail(
 
 // Recipients for new-lead notifications
 const ADMIN_PHONE = '0528746137'; // Ami's phone
+const KIM_PHONE = '0543354550'; // Kim's phone
 const SALES_GROUP_CHAT_ID = '120363308669020817@g.us'; // Sales team WhatsApp group
+const LEAD_WHATSAPP_FAILURE_ALERT_EMAIL = process.env.LEAD_WHATSAPP_FAILURE_ALERT_EMAIL || 'info@hai.tech';
+const DEFAULT_LEAD_ADMIN_TEMPLATE = 'lead_admin_new_lead';
+const DEFAULT_LEAD_ADMIN_TEMPLATE_RECIPIENTS = `${ADMIN_PHONE},${KIM_PHONE}`;
 
-// Notify admin about new lead
-export async function notifyAdminNewLead(lead: {
+type LeadAdminNotification = {
   name: string;
   phone?: string | null;
   email?: string | null;
@@ -107,7 +99,136 @@ export async function notifyAdminNewLead(lead: {
   source?: string;
   customerId?: string | null;
   leadAppointmentId?: string | null;
-}): Promise<void> {
+};
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildLeadWhatsAppFailureEmail(
+  lead: LeadAdminNotification,
+  leadLink: string,
+  failedRecipients: string[]
+): string {
+  const rows: Array<[string, string]> = [
+    ['שם', lead.name],
+    ['טלפון', lead.phone || 'לא צוין'],
+    ['מייל', lead.email || 'לא צוין'],
+    ['ילד/ה', lead.childName || 'לא צוין'],
+    ['תחום עניין', lead.interest || 'לא צוין'],
+    ['מקור', lead.source || 'website'],
+    ['יומן ליד', leadLink],
+    ['נמעני WhatsApp שנכשלו', failedRecipients.join(', ')],
+  ];
+
+  return `
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="UTF-8">
+</head>
+<body style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
+  <h2 style="color: #b91c1c;">התראת CRM: שליחת WhatsApp לליד חדש נכשלה</h2>
+  <p>נוצר ליד חדש, אבל התראת ה-WhatsApp הפנימית לא נשלחה לכל הנמענים.</p>
+  <table style="border-collapse: collapse; width: 100%; max-width: 720px;">
+    ${rows.map(([label, value]) => `
+      <tr>
+        <td style="border: 1px solid #e5e7eb; padding: 8px; font-weight: bold; width: 180px;">${escapeHtml(label)}</td>
+        <td style="border: 1px solid #e5e7eb; padding: 8px;">${escapeHtml(value)}</td>
+      </tr>
+    `).join('')}
+  </table>
+  <p style="margin-top: 18px;">מומלץ לבדוק את חיבור Green API ולחזור לליד ידנית במידת הצורך.</p>
+</body>
+</html>`;
+}
+
+async function sendLeadWhatsAppFailureAlert(
+  lead: LeadAdminNotification,
+  leadLink: string,
+  failedRecipients: string[]
+): Promise<void> {
+  if (failedRecipients.length === 0) return;
+
+  const html = buildLeadWhatsAppFailureEmail(lead, leadLink, failedRecipients);
+  const subject = `התראת CRM: WhatsApp לליד חדש לא נשלח - ${lead.name}`;
+  const sent = await sendEmail(LEAD_WHATSAPP_FAILURE_ALERT_EMAIL, subject, html);
+
+  if (!sent) {
+    console.error('[NOTIFICATION] Failed to send lead WhatsApp failure alert email');
+  }
+}
+
+function leadAdminTemplateRecipients(): string[] {
+  const raw = process.env.LEAD_ADMIN_WA_TEMPLATE_RECIPIENTS || DEFAULT_LEAD_ADMIN_TEMPLATE_RECIPIENTS;
+  return raw
+    .split(',')
+    .map(phone => phone.trim())
+    .filter(Boolean);
+}
+
+export function buildLeadAdminTemplateVariables(lead: LeadAdminNotification, leadLink: string): string[] {
+  return [
+    templateText(lead.name, 'לא צוין'),
+    templateText(lead.phone, 'לא צוין'),
+    templateText(lead.email, 'לא צוין'),
+    templateText(lead.childName, 'לא צוין'),
+    templateText(lead.interest, 'לא צוין'),
+    templateText(lead.source, 'website'),
+    templateText(leadLink, 'https://crm.orma-ai.com/lead-appointments'),
+  ];
+}
+
+export function buildLeadAdminTemplatePreview(lead: LeadAdminNotification, leadLink: string): string {
+  return [
+    `[תבנית: ${process.env.LEAD_ADMIN_WA_TEMPLATE_NAME || DEFAULT_LEAD_ADMIN_TEMPLATE}] ליד חדש נכנס ל-CRM`,
+    `שם: ${lead.name || 'לא צוין'}`,
+    `טלפון: ${lead.phone || 'לא צוין'}`,
+    `מייל: ${lead.email || 'לא צוין'}`,
+    `ילד/ה: ${lead.childName || 'לא צוין'}`,
+    `תחום עניין: ${lead.interest || 'לא צוין'}`,
+    `מקור: ${lead.source || 'website'}`,
+    `לינק: ${leadLink}`,
+  ].join('\n');
+}
+
+async function sendLeadAdminTemplateNotifications(lead: LeadAdminNotification, leadLink: string): Promise<void> {
+  if (process.env.LEAD_ADMIN_WA_TEMPLATE_ENABLED !== 'true') return;
+
+  const templateName = process.env.LEAD_ADMIN_WA_TEMPLATE_NAME || DEFAULT_LEAD_ADMIN_TEMPLATE;
+  const recipients = leadAdminTemplateRecipients();
+  if (recipients.length === 0) {
+    console.warn('[NOTIFICATION] Lead admin WhatsApp template enabled but no recipients configured');
+    return;
+  }
+
+  const bodyParameters = buildLeadAdminTemplateVariables(lead, leadLink);
+  const preview = buildLeadAdminTemplatePreview(lead, leadLink);
+
+  await Promise.all(recipients.map(async (phone) => {
+    const result = await sendWhatsAppCloudTemplate({
+      phone,
+      contactName: phone === ADMIN_PHONE ? 'עמי מידר' : phone === KIM_PHONE ? 'קים נווה' : undefined,
+      templateName,
+      bodyParameters,
+      preview,
+      phoneNumberId: process.env.LEAD_ADMIN_WA_PHONE_NUMBER_ID || process.env.WA_REMINDER_PHONE_NUMBER_ID || process.env.WA_PHONE_NUMBER_ID,
+      businessPhone: process.env.LEAD_ADMIN_WA_BUSINESS_PHONE || process.env.WA_REMINDER_BUSINESS_PHONE,
+    });
+
+    if (!result.success) {
+      console.error(`[NOTIFICATION] Lead admin WhatsApp template failed for ${phone}:`, result.error);
+    }
+  }));
+}
+
+// Notify admin about new lead
+export async function notifyAdminNewLead(lead: LeadAdminNotification): Promise<void> {
   const baseUrl = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
   const leadLink = lead.leadAppointmentId
     ? `${baseUrl}/lead-appointments?id=${lead.leadAppointmentId}`
@@ -124,10 +245,38 @@ ${lead.interest ? `🎓 *תחום עניין:* ${lead.interest}` : ''}
 
 🔗 פתח ביומן הלידים: ${leadLink}`;
 
-  await Promise.all([
-    sendWhatsAppMessage(ADMIN_PHONE, message),
-    sendWhatsAppMessage(SALES_GROUP_CHAT_ID, message),
-  ]);
+  const tasks: Promise<unknown>[] = [
+    sendLeadAdminTemplateNotifications(lead, leadLink),
+  ];
+
+  const failedRecipients: string[] = [];
+
+  if (process.env.LEAD_ADMIN_GREEN_FALLBACK_ENABLED !== 'false') {
+    const recipients = [
+      { label: 'עמי', phone: ADMIN_PHONE },
+      { label: 'קים', phone: KIM_PHONE },
+      { label: 'קבוצת המכירות', phone: SALES_GROUP_CHAT_ID },
+    ];
+
+    const greenResults = await Promise.all(recipients.map(async recipient => {
+      try {
+        const success = await sendWhatsAppMessage(recipient.phone, message);
+        return { ...recipient, success };
+      } catch (error) {
+        console.error(`[NOTIFICATION] WhatsApp send threw for ${recipient.label}:`, error);
+        return { ...recipient, success: false };
+      }
+    }));
+
+    failedRecipients.push(
+      ...greenResults
+        .filter(result => !result.success)
+        .map(result => `${result.label} (${result.phone})`)
+    );
+  }
+
+  await Promise.all(tasks);
+  await sendLeadWhatsAppFailureAlert(lead, leadLink, failedRecipients);
 }
 
 // Welcome lead notification

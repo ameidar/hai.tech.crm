@@ -37,6 +37,9 @@ import { initCancellationScheduler } from './services/cancellation-scheduler.js'
 import { initBillingScheduler } from './services/billing-scheduler.js';
 import { initProformaAlertScheduler } from './services/proforma-alerts.js';
 import { initTaskReminderScheduler } from './services/task-reminders.js';
+import { initWooBackupSyncScheduler } from './services/woo-sync-scheduler.js';
+import { initGoogleMeetArtifactsScheduler } from './services/google-meet-artifacts-scheduler.js';
+import { reconcileOmerRegistrationPayment } from './services/omer-payment-reconciliation.js';
 import { forecastRouter } from './routes/forecast.js';
 import { quotesRouter } from './routes/quotes.js';
 import { publicQuoteRouter } from './routes/public-quote.js';
@@ -56,11 +59,12 @@ import { meetingRequestsRouter } from './routes/meeting-requests.js';
 import { filesRouter } from './routes/files.js';
 import { systemUsersRouter } from './routes/system-users.js';
 import { tasksRouter } from './routes/tasks.js';
+import { operationsControlRouter } from './routes/operations-control.js';
 import waRouter from './routes/whatsapp.js';
 import { messengerRouter } from './routes/messenger.js';
 import { instagramRouter } from './routes/instagram.js';
 import { paymentsRouter } from './routes/payments.js';
-import { ensureMorningClientId, paymentLinksRouter } from './routes/payment-links.js';
+import { paymentLinksRouter } from './routes/payment-links.js';
 import { campaignsRouter } from './routes/campaigns.js';
 import { campaignLeadsRouter } from './routes/campaign-leads.js';
 import { facebookLeadsRouter } from './routes/facebook-leads.js';
@@ -69,7 +73,6 @@ import linkedinRouter from './routes/linkedin.js';
 import socialRouter from './routes/social.js';
 import { googleAdsRouter } from './routes/google-ads.js';
 import { devReadOnly } from './middleware/devReadOnly.js';
-import { createPaymentForm } from './services/morning/payment-forms.js';
 
 // API v1 Router
 import { apiV1Router } from './api/v1/index.js';
@@ -238,6 +241,7 @@ app.use('/api/payments', paymentsRouter); // WooCommerce payment links
 app.use('/api/payment-links', paymentLinksRouter); // Morning hosted payment forms
 app.use('/api/system-users', systemUsersRouter); // System users management (admin/manager)
 app.use('/api/tasks', tasksRouter); // Internal task board
+app.use('/api/operations-control', operationsControlRouter); // Daily operations control tower
 app.use('/api/upsell-leads', upsellLeadsRouter); // Upsell leads from completed cycles
 app.use('/api/reports', reportsRouter); // Instructor activity reports
 app.use('/api/work-hours', workHoursRouter); // Operations staff self-reported work hours
@@ -333,6 +337,8 @@ async function recordPaidPaymentLink(code: string) {
     },
   });
 
+  await reconcileOmerRegistrationPayment(payment.id);
+
   return { link, payment, customer, created: createdCustomer, duplicate: false };
 }
 
@@ -360,7 +366,6 @@ app.get('/pl/:code', async (req, res, next) => {
     const amountStr = amountNum.toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const paymentsStr = link.maxPayments > 1 ? `עד ${link.maxPayments} תשלומים` : 'תשלום אחד';
     const docStr = docTypeLabel[link.documentType] || `מסמך ${link.documentType}`;
-    const checkoutUrl = escapeHtml(link.morningUrl);
     const installmentOptions = Array.from({ length: Math.max(1, Math.min(36, link.maxPayments)) }, (_, i) => i + 1);
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -451,6 +456,8 @@ app.get('/pl/:code', async (req, res, next) => {
     font-weight: 600;
     transition: transform 0.15s ease, box-shadow 0.15s ease;
     box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+    border: 0;
+    cursor: pointer;
   }
   .cta:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45); }
   .secure {
@@ -502,14 +509,15 @@ app.get('/pl/:code', async (req, res, next) => {
       </div>
     </div>
 
-    ${link.maxPayments > 1 ? `
     <form class="installments" method="post" action="/pl/${escapeHtml(code)}/pay">
+    ${link.maxPayments > 1 ? `
       <p class="installments-label">בחר/י מספר תשלומים — עד ${link.maxPayments}</p>
       <div class="installment-grid">
         ${installmentOptions.map(n => `<button class="installment-option" type="submit" name="payments" value="${n}">${n === 1 ? 'תשלום אחד' : `${n} תשלומים`}</button>`).join('')}
-      </div>
-    </form>` : `
-    <a class="cta" href="${checkoutUrl}">המשך לתשלום מאובטח ←</a>`}
+      </div>` : `
+      <input type="hidden" name="payments" value="1" />
+      <button class="cta" type="submit">המשך לתשלום מאובטח ←</button>`}
+    </form>
     <div class="secure">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
       סליקה מאובטחת באמצעות Meshulam
@@ -533,31 +541,7 @@ app.post('/pl/:code/pay', async (req, res, next) => {
       return res.status(400).send('Invalid payment count');
     }
 
-    let morningClientId: string | undefined;
-    if (link.customerId) {
-      const resolved = await ensureMorningClientId(link.customerId);
-      if (resolved) morningClientId = resolved;
-    }
-
-    const result = await createPaymentForm({
-      description: link.description,
-      amount: Number(link.amount),
-      maxPayments: payments,
-      vatType: link.vatType as 0 | 1 | 2,
-      type: link.documentType,
-      client: {
-        id: morningClientId,
-        name: link.clientName,
-        emails: link.clientEmail ? [link.clientEmail] : undefined,
-        phone: link.clientPhone || undefined,
-        taxId: link.clientTaxId || undefined,
-      },
-      notifyUrl: `${(req.headers['x-forwarded-proto'] as string) || req.protocol}://${req.get('host')}/api/morning-webhook?paymentLinkCode=${encodeURIComponent(link.code)}`,
-      successUrl: `${(req.headers['x-forwarded-proto'] as string) || req.protocol}://${req.get('host')}/pl/${encodeURIComponent(link.code)}/success`,
-      failureUrl: `${(req.headers['x-forwarded-proto'] as string) || req.protocol}://${req.get('host')}/pl/${encodeURIComponent(link.code)}?failed=1`,
-    });
-
-    return res.redirect(302, result.url);
+    return res.redirect(302, link.morningUrl);
   } catch (e) { next(e); }
 });
 
@@ -657,6 +641,8 @@ const start = async () => {
       initBillingScheduler();
       initProformaAlertScheduler();
       initTaskReminderScheduler();
+      initWooBackupSyncScheduler();
+      initGoogleMeetArtifactsScheduler();
     }
 
     app.listen(config.port, () => {

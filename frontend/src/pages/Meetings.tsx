@@ -16,6 +16,7 @@ import {
   Columns,
   Plus,
   Trash2,
+  Users,
 } from 'lucide-react';
 import { useMeetings, useMeeting, useRecalculateMeeting, useViewData, useBulkUpdateMeetingStatus, useUpdateMeeting, useBulkUpdateMeetings, useBulkRecalculateMeetings, useBranches, useInstructors, useDeleteMeeting, useCreateMeeting, useCycles } from '../hooks/useApi';
 import type { CreateMeetingData } from '../hooks/useApi';
@@ -33,9 +34,12 @@ import PendingMeetingRequests from '../components/PendingMeetingRequests';
 import { meetingStatusHebrew } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
+const getMeetingRegisteredChildrenCount = (meeting: Meeting) =>
+  meeting.cycle?._count?.registrations ?? meeting.cycle?.registrations?.length ?? meeting.cycle?.studentCount ?? 0;
+
 export default function Meetings() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations' || user?.role === 'operations_manager';
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null);
@@ -132,14 +136,14 @@ export default function Meetings() {
   const hasActiveFilters = statusFilter || branchFilter || instructorFilter;
   
   // Column visibility (localStorage persisted)
-  const ALL_COLUMN_KEYS = ['scheduledDate', 'startTime', 'cycle.name', 'cycle.course.name', 'cycle.branch.name', 'instructor.name', 'status', 'revenue', 'instructorPayment', 'profit', 'attendance', 'activityType', 'topic', 'notes', 'zoomLink', 'zoomHostKey', 'duration', 'meetingNumber'];
+  const ALL_COLUMN_KEYS = ['scheduledDate', 'startTime', 'cycle.name', 'cycle.course.name', 'cycle.branch.name', 'registeredChildren', 'instructor.name', 'status', 'revenue', 'instructorPayment', 'profit', 'attendance', 'activityType', 'topic', 'notes', 'zoomLink', 'zoomHostKey', 'duration', 'meetingNumber'];
   const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => {
     try {
       const saved = localStorage.getItem('meetings-column-visibility');
       if (saved) return JSON.parse(saved);
     } catch {}
     // Default: show core columns only
-    return Object.fromEntries(ALL_COLUMN_KEYS.map(k => [k, ['scheduledDate', 'startTime', 'cycle.name', 'cycle.course.name', 'cycle.branch.name', 'instructor.name', 'status', 'revenue', 'instructorPayment', 'profit'].includes(k)]));
+    return Object.fromEntries(ALL_COLUMN_KEYS.map(k => [k, ['scheduledDate', 'startTime', 'cycle.name', 'cycle.course.name', 'cycle.branch.name', 'registeredChildren', 'instructor.name', 'status', 'revenue', 'instructorPayment', 'profit'].includes(k)]));
   });
 
   useEffect(() => {
@@ -174,6 +178,15 @@ export default function Meetings() {
     'cycle.branch.name': {
       label: 'סניף',
       render: (m) => m.cycle?.branch?.name || '-'
+    },
+    registeredChildren: {
+      label: 'ילדים',
+      render: (m) => (
+        <span className="inline-flex items-center gap-1 text-sm text-gray-700">
+          <Users size={14} className="text-gray-400" />
+          {getMeetingRegisteredChildrenCount(m)}
+        </span>
+      )
     },
     'instructor.name': {
       label: 'מדריך',
@@ -591,7 +604,7 @@ export default function Meetings() {
     ? {
         total: displayMeetings.length,
         completed: displayMeetings.filter((m) => m.status === 'completed').length,
-        pending: displayMeetings.filter((m) => m.status === 'scheduled').length,
+        pending: displayMeetings.filter((m) => m.status === 'scheduled' || m.status === 'pending_cancellation' || m.status === 'pending_postponement').length,
         cancelled: displayMeetings.filter((m) => m.status === 'cancelled').length,
       }
     : null;
@@ -614,8 +627,7 @@ export default function Meetings() {
       />
 
       <div className="flex-1 p-6 overflow-auto">
-        {/* Pending requests banner - Admin only */}
-        {isAdmin && <PendingMeetingRequests />}
+        {isAdmin && <PendingMeetingRequests showRiskSummary={false} />}
 
         {/* Bulk Actions Bar - Admin only */}
         {someSelected && isAdmin && (
@@ -753,6 +765,8 @@ export default function Meetings() {
                         <option value="completed">התקיימה</option>
                         <option value="cancelled">בוטלה</option>
                         <option value="postponed">נדחתה</option>
+                        <option value="pending_cancellation">בקשת ביטול</option>
+                        <option value="pending_postponement">בקשת דחייה</option>
                       </select>
                     </div>
                     <div>
@@ -888,7 +902,7 @@ export default function Meetings() {
                     )}
                   </div>
                   <p className="text-sm text-blue-600 font-medium">{meeting.cycle?.name || '-'}</p>
-                  <div className="flex items-center justify-between mt-1">
+                  <div className="flex items-center justify-between gap-3 mt-1">
                     {meeting.instructor ? (
                       <Link
                         to={`/instructors?search=${encodeURIComponent(meeting.instructor.name)}`}
@@ -898,6 +912,12 @@ export default function Meetings() {
                         {meeting.instructor.name}
                       </Link>
                     ) : <span className="text-sm text-gray-600">-</span>}
+                    <span className="inline-flex items-center gap-1 text-xs text-gray-600 shrink-0">
+                      <Users size={13} className="text-gray-400" />
+                      {getMeetingRegisteredChildrenCount(meeting)} ילדים
+                    </span>
+                  </div>
+                  <div className="mt-1 min-h-[1rem]">
                     {meeting.status === 'completed' && (
                       <span className="text-xs text-green-600">₪{(meeting.revenue || 0).toLocaleString()}</span>
                     )}

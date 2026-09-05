@@ -19,6 +19,7 @@ import type {
   TaskStatus,
   TaskUser,
   User,
+  InternalZoomMeeting,
 } from '../types';
 
 // Pagination metadata
@@ -678,13 +679,14 @@ export const useDeleteRegistration = () => {
 };
 
 // ==================== Meetings ====================
-export const useMeetings = (params?: { date?: string; from?: string; to?: string; instructorId?: string; branchId?: string; status?: string; limit?: number }) => {
+export const useMeetings = (params?: { date?: string; from?: string; to?: string; instructorId?: string; branchId?: string; cycleId?: string; status?: string; limit?: number }) => {
   const searchParams = new URLSearchParams();
   if (params?.date) searchParams.append('date', params.date);
   if (params?.from) searchParams.append('from', params.from);
   if (params?.to) searchParams.append('to', params.to);
   if (params?.instructorId) searchParams.append('instructorId', params.instructorId);
   if (params?.branchId) searchParams.append('branchId', params.branchId);
+  if (params?.cycleId) searchParams.append('cycleId', params.cycleId);
   if (params?.status) searchParams.append('status', params.status);
   if (params?.limit) searchParams.append('limit', String(params.limit));
   const queryString = searchParams.toString() ? `?${searchParams.toString()}` : '';
@@ -706,10 +708,12 @@ export const useMeeting = (id: string | undefined) => {
 export interface CreateMeetingData {
   cycleId: string;
   instructorId: string;
+  registrationId?: string;
   scheduledDate: string;
   startTime: string;
   endTime: string;
   withZoom?: boolean;
+  videoProvider?: 'zoom' | 'google_meet';
   activityType?: string;
   recallBotEnabled?: boolean;
   topic?: string;
@@ -1014,6 +1018,7 @@ export interface WaMessage {
   conversationId: string;
   direction: 'inbound' | 'outbound';
   content: string;
+  waMessageId?: string | null;
   status: string;
   isAiGenerated: boolean;
   createdAt: string;
@@ -1119,11 +1124,14 @@ interface ZoomMeeting {
   hasMeeting: boolean;
   canCreate?: boolean;
   meetingExists?: boolean;
+  videoProvider?: 'zoom' | 'google_meet';
   zoomMeetingId?: string;
   zoomJoinUrl?: string;
   zoomHostKey?: string;
   zoomPassword?: string;
   zoomHostEmail?: string;
+  googleMeetSpaceName?: string | null;
+  googleCalendarEventId?: string | null;
 }
 
 interface ZoomCreateResponse {
@@ -1131,6 +1139,7 @@ interface ZoomCreateResponse {
   cycle: {
     id: string;
     name: string;
+    videoProvider?: 'zoom' | 'google_meet';
     zoomMeetingId: string;
     zoomJoinUrl: string;
     zoomHostKey: string | null;
@@ -1155,9 +1164,17 @@ export const useZoomMeeting = (cycleId: string) => {
 export const useCreateZoomMeeting = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (cycleId: string) =>
-      mutateData<ZoomCreateResponse, undefined>(`/zoom/cycles/${cycleId}/meeting`, 'post'),
-    onSuccess: (_, cycleId) => {
+    mutationFn: (input: string | { cycleId: string; videoProvider?: 'zoom' | 'google_meet' }) => {
+      const cycleId = typeof input === 'string' ? input : input.cycleId;
+      const videoProvider = typeof input === 'string' ? 'zoom' : input.videoProvider || 'zoom';
+      return mutateData<ZoomCreateResponse, { videoProvider: 'zoom' | 'google_meet' }>(
+        `/zoom/cycles/${cycleId}/meeting`,
+        'post',
+        { videoProvider }
+      );
+    },
+    onSuccess: (_, input) => {
+      const cycleId = typeof input === 'string' ? input : input.cycleId;
       queryClient.invalidateQueries({ queryKey: ['zoom-meeting', cycleId] });
       queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
       queryClient.invalidateQueries({ queryKey: ['cycle-meetings', cycleId] });
@@ -1174,6 +1191,60 @@ export const useDeleteZoomMeeting = () => {
       queryClient.invalidateQueries({ queryKey: ['zoom-meeting', cycleId] });
       queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
       queryClient.invalidateQueries({ queryKey: ['cycle-meetings', cycleId] });
+    },
+  });
+};
+
+export interface InternalZoomRequestPayload {
+  title: string;
+  requesterName: string;
+  date: string;
+  startTime: string;
+  durationMinutes: number;
+  videoProvider?: 'zoom' | 'google_meet';
+  notes?: string;
+}
+
+export interface InternalZoomCreateResponse {
+  success: boolean;
+  meeting: InternalZoomMeeting;
+  hostUser: {
+    id: string;
+    email: string;
+    name: string;
+  };
+}
+
+export const useInternalZoomMeetings = (params?: { from?: string; to?: string }) => {
+  const queryParams = new URLSearchParams();
+  if (params?.from) queryParams.set('from', params.from);
+  if (params?.to) queryParams.set('to', params.to);
+  const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+
+  return useQuery({
+    queryKey: ['internal-zoom-meetings', params?.from || '', params?.to || ''],
+    queryFn: () => fetchData<InternalZoomMeeting[]>(`/zoom/internal-meetings${queryString}`),
+    refetchInterval: 30000,
+  });
+};
+
+export const useCreateInternalZoomMeeting = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: InternalZoomRequestPayload) =>
+      mutateData<InternalZoomCreateResponse, InternalZoomRequestPayload>('/zoom/internal-meetings', 'post', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['internal-zoom-meetings'] });
+    },
+  });
+};
+
+export const useCancelInternalZoomMeeting = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/zoom/internal-meetings/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['internal-zoom-meetings'] });
     },
   });
 };
@@ -1423,6 +1494,7 @@ export interface MeetingChangeRequest {
   status: 'pending' | 'approved' | 'rejected';
   reviewedBy: string | null;
   reviewedAt: string | null;
+  reviewNotes: string | null;
   createdAt: string;
   updatedAt: string;
   meeting?: Meeting;
@@ -1487,7 +1559,7 @@ export const useSystemUsers = () => {
 export const useCreateSystemUser = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { email: string; name: string; phone?: string; role: 'admin' | 'manager' | 'sales' | 'operations'; password?: string; hourlyRate?: number | null; city?: string | null; bankName?: string | null; bankBranch?: string | null; accountNumber?: string | null }) =>
+    mutationFn: (data: { email: string; name: string; phone?: string; role: 'admin' | 'manager' | 'sales' | 'operations' | 'operations_control' | 'operations_manager'; password?: string; hourlyRate?: number | null; city?: string | null; bankName?: string | null; bankBranch?: string | null; accountNumber?: string | null }) =>
       mutateData<User & { inviteUrl: string }, typeof data>('/system-users', 'post', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['system-users'] });
@@ -1498,7 +1570,7 @@ export const useCreateSystemUser = () => {
 export const useUpdateSystemUser = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { name?: string; phone?: string; role?: 'admin' | 'manager' | 'sales' | 'operations'; isActive?: boolean; hourlyRate?: number | null; city?: string | null; bankName?: string | null; bankBranch?: string | null; accountNumber?: string | null } }) =>
+    mutationFn: ({ id, data }: { id: string; data: { name?: string; phone?: string; role?: 'admin' | 'manager' | 'sales' | 'operations' | 'operations_control' | 'operations_manager'; isActive?: boolean; hourlyRate?: number | null; city?: string | null; bankName?: string | null; bankBranch?: string | null; accountNumber?: string | null } }) =>
       mutateData<User, typeof data>(`/system-users/${id}`, 'put', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['system-users'] });
@@ -1546,6 +1618,10 @@ export type TaskPayload = {
   priority?: TaskPriority;
   dueDate?: string | null;
   assigneeId?: string | null;
+  completionSummary?: string | null;
+  completionDetails?: string | null;
+  completionLink?: string | null;
+  requiresCompletionLink?: boolean;
 };
 
 const taskQueryString = (filters?: TaskFilters) => {
@@ -1622,6 +1698,20 @@ export interface FileAttachment {
   uploadedBy?: { id: string; name: string } | null;
 }
 
+export const uploadFileAttachment = async (
+  entityType: string,
+  entityId: string,
+  { file, label }: { file: File; label?: string }
+) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (label) formData.append('label', label);
+  const res = await api.post<FileAttachment>(`/files/${entityType}/${entityId}`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return res.data;
+};
+
 export const useFileAttachments = (entityType: string, entityId: string | undefined) => {
   return useQuery({
     queryKey: ['files', entityType, entityId],
@@ -1633,15 +1723,7 @@ export const useFileAttachments = (entityType: string, entityId: string | undefi
 export const useUploadFile = (entityType: string, entityId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ file, label }: { file: File; label?: string }) => {
-      const formData = new FormData();
-      formData.append('file', file);
-      if (label) formData.append('label', label);
-      const res = await api.post<FileAttachment>(`/files/${entityType}/${entityId}`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      return res.data;
-    },
+    mutationFn: (payload: { file: File; label?: string }) => uploadFileAttachment(entityType, entityId, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['files', entityType, entityId] });
     },

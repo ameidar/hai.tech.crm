@@ -2,19 +2,20 @@
 export type CourseCategory = 'programming' | 'ai' | 'robotics' | 'printing_3d';
 export type BranchType = 'school' | 'community_center' | 'frontal' | 'online';
 export type OrderStatus = 'draft' | 'active' | 'completed' | 'cancelled';
-export type CycleType = 'private' | 'trial_private' | 'institutional_per_child' | 'institutional_fixed';
+export type CycleType = 'private' | 'trial_private' | 'group' | 'institutional_per_child' | 'institutional_fixed';
 export type CycleStatus = 'active' | 'completed' | 'cancelled' | 'frozen' | 'retainer';
 export type DayOfWeek = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday';
 export type MeetingStatus = 'scheduled' | 'completed' | 'cancelled' | 'postponed' | 'pending_cancellation' | 'pending_postponement';
 export type MeetingNature = 'regular' | 'no_revenue';
-export type RegistrationStatus = 'registered' | 'active' | 'completed' | 'pending_cancellation' | 'cancelled';
+export type RegistrationStatus = 'registered' | 'active' | 'completed' | 'pending_cancellation' | 'cancelled' | 'trial';
 export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
 export type PaymentMethod = 'credit' | 'transfer' | 'cash' | 'standing_order' | 'institutional';
 export type AttendanceStatus = 'present' | 'absent' | 'late';
-export type UserRole = 'admin' | 'manager' | 'instructor' | 'sales' | 'operations';
+export type UserRole = 'admin' | 'manager' | 'instructor' | 'sales' | 'operations' | 'operations_control' | 'operations_manager';
 export type ActivityType = 'online' | 'frontal' | 'private_lesson';
 export type TaskStatus = 'new' | 'in_progress' | 'waiting_info' | 'completed';
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
+export type VideoMeetingProvider = 'zoom' | 'google_meet';
 
 // Entities
 export interface User {
@@ -55,11 +56,44 @@ export interface Task {
   assigneeId?: string | null;
   completedAt?: string | null;
   completedById?: string | null;
+  completionSummary?: string | null;
+  completionDetails?: string | null;
+  completionLink?: string | null;
+  requiresCompletionLink: boolean;
   createdAt: string;
   updatedAt: string;
   createdBy?: TaskUser;
   assignee?: TaskUser | null;
   completedBy?: TaskUser | null;
+}
+
+export interface InternalZoomMeeting {
+  id: string;
+  title: string;
+  requesterName: string;
+  requestedById?: string | null;
+  startAt: string;
+  endAt: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  durationMinutes: number;
+  zoomHostId?: string | null;
+  zoomHostEmail?: string | null;
+  zoomMeetingId?: string | null;
+  zoomJoinUrl?: string | null;
+  zoomStartUrl?: string | null;
+  zoomPassword?: string | null;
+  zoomHostKey?: string | null;
+  videoProvider?: VideoMeetingProvider;
+  googleMeetSpaceName?: string | null;
+  googleCalendarEventId?: string | null;
+  status: 'scheduled' | 'cancelled';
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  cancelledAt?: string | null;
+  cancelledById?: string | null;
 }
 
 export interface Customer {
@@ -247,14 +281,16 @@ export interface Cycle {
   endTime: string;
   durationMinutes: number;
   totalMeetings: number;
-  pricePerStudent?: number;
-  meetingRevenue?: number;
+  pricePerStudent?: number | null;
+  defaultRegistrationAmount?: number | null;
+  meetingRevenue?: number | null;
   revenuePerMeeting?: number;
   revenueIncludesVat?: boolean | null;
   instructorPaymentMode?: InstructorPaymentMode;
   instructorDailyRate?: number | null;
   studentCount?: number;
   maxStudents?: number;
+  minimumStudentsThreshold?: number | null;
   sendParentReminders: boolean;
   recallBotEnabled?: boolean;
   isOnline: boolean;
@@ -265,6 +301,9 @@ export interface Cycle {
   zoomPassword?: string;
   zoomHostKey?: string;
   zoomHostEmail?: string;
+  videoProvider?: VideoMeetingProvider;
+  googleMeetSpaceName?: string | null;
+  googleCalendarEventId?: string | null;
   completedMeetings: number;
   remainingMeetings: number;
   status: CycleStatus;
@@ -279,8 +318,8 @@ export interface Cycle {
   meetings?: Meeting[];
   registrations?: Registration[];
   _count?: {
-    meetings: number;
-    registrations: number;
+    meetings?: number;
+    registrations?: number;
   };
 }
 
@@ -288,6 +327,7 @@ export interface Meeting {
   id: string;
   cycleId: string;
   instructorId: string;
+  registrationId?: string | null;
   scheduledDate: string;
   startTime: string;
   endTime: string;
@@ -316,6 +356,9 @@ export interface Meeting {
   zoomPassword?: string;
   zoomHostKey?: string;
   zoomHostEmail?: string;
+  videoProvider?: VideoMeetingProvider;
+  googleMeetSpaceName?: string | null;
+  googleCalendarEventId?: string | null;
   zoomRecordingUrl?: string;
   zoomRecordingPassword?: string;
   lessonTranscript?: string;
@@ -333,6 +376,7 @@ export interface Meeting {
   createdAt: string;
   cycle?: Cycle;
   instructor?: Instructor;
+  registration?: Registration | null;
   attendance?: Attendance[];
   _count?: {
     attendance: number;
@@ -435,6 +479,7 @@ export const cycleStatusHebrew: Record<CycleStatus, string> = {
 export const cycleTypeHebrew: Record<CycleType, string> = {
   private: 'פרטי',
   trial_private: 'שיעור ניסיון פרטי',
+  group: 'קבוצתי',
   institutional_per_child: 'מוסדי (פר ילד)',
   institutional_fixed: 'מוסדי (סכום קבוע)',
 };

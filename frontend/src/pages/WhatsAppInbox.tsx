@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp, ChevronRight, Search, PenSquare, Plus, CheckCircle, AlertCircle, CreditCard, Settings, Save } from 'lucide-react';
 import WaSendModal from '../components/WaSendModal';
@@ -121,6 +121,23 @@ function formatPhone(phone: string) {
   return phone.replace(/^972/, '0').replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3');
 }
 
+function looksLikeEmail(value?: string | null) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((value || '').trim());
+}
+
+function looksLikePhoneNumber(value?: string | null) {
+  const clean = (value || '').trim();
+  return clean.replace(/\D/g, '').length >= 7 && !/[A-Za-zא-ת]/.test(clean);
+}
+
+function getConversationDisplayName(conv: WaConversation) {
+  if (conv.contactName && !looksLikeEmail(conv.contactName) && !looksLikePhoneNumber(conv.contactName)) return conv.contactName;
+  if (conv.leadName && !looksLikeEmail(conv.leadName) && !looksLikePhoneNumber(conv.leadName)) return conv.leadName;
+  if (conv.leadEmail) return conv.leadEmail;
+  if (conv.contactName && looksLikeEmail(conv.contactName)) return conv.contactName;
+  return formatPhone(conv.phone);
+}
+
 // ─── Message status icon ──────────────────────────────────────────────────────
 function StatusIcon({ status }: { status: string }) {
   if (status === 'read') return <CheckCheck size={14} className="text-blue-400" />;
@@ -129,14 +146,19 @@ function StatusIcon({ status }: { status: string }) {
   return <Clock size={14} className="text-gray-300" />;
 }
 
+function isGreenMessage(messageId?: string | null): boolean {
+  return !!messageId?.startsWith('green:');
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function WhatsAppInbox() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations' || user?.role === 'operations_manager';
   const [conversations, setConversations] = useState<WaConversation[]>([]);
   const [selected, setSelected] = useState<WaConversation | null>(null);
   const [messages, setMessages] = useState<WaMessage[]>([]);
+  const [channelFilter, setChannelFilter] = useState<'all' | 'meta' | 'green'>('all');
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -480,11 +502,11 @@ export default function WhatsAppInbox() {
   // Auto-select conversation from URL param (?conv=<id>)
   useEffect(() => {
     const convId = searchParams.get('conv');
-    if (convId && conversations.length > 0) {
+    if (convId && selected?.id !== convId && conversations.length > 0) {
       const target = conversations.find(c => c.id === convId);
       if (target) setSelected(target);
     }
-  }, [searchParams, conversations]);
+  }, [searchParams, conversations, selected?.id]);
 
   // Load active phones for multi-number support
   useEffect(() => {
@@ -494,22 +516,41 @@ export default function WhatsAppInbox() {
     }).catch(() => {});
   }, []);
 
+  const selectedConversationId = selected?.id;
+
   useEffect(() => {
-    if (selected) {
+    if (selectedConversationId) {
       // New conversation opened — always jump to the newest message.
       shouldAutoScrollRef.current = true;
-      loadMessages(selected.id);
+      loadMessages(selectedConversationId);
     }
-  }, [selected, loadMessages]);
+  }, [selectedConversationId, loadMessages]);
 
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (container && shouldAutoScrollRef.current) container.scrollTop = container.scrollHeight;
   }, [messages]);
 
+  const updateConversationParam = useCallback((convId: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (convId) {
+      next.set('conv', convId);
+    } else {
+      next.delete('conv');
+    }
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   const selectConversation = (conv: WaConversation) => {
     setSelected(conv);
+    updateConversationParam(conv.id);
     setMessages([]);
+    setChannelFilter('all');
+  };
+
+  const clearSelectedConversation = () => {
+    setSelected(null);
+    updateConversationParam(null);
   };
 
   const sendMessage = async () => {
@@ -665,6 +706,13 @@ export default function WhatsAppInbox() {
   };
 
   const totalUnread = conversations.reduce((s, c) => s + c.unreadCount, 0);
+  const metaMessages = useMemo(() => messages.filter(m => !isGreenMessage(m.waMessageId)), [messages]);
+  const greenMessages = useMemo(() => messages.filter(m => isGreenMessage(m.waMessageId)), [messages]);
+  const visibleMessages = channelFilter === 'green'
+    ? greenMessages
+    : channelFilter === 'meta'
+      ? metaMessages
+      : messages;
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-gray-50 overflow-hidden" dir="rtl">
@@ -965,7 +1013,7 @@ export default function WhatsAppInbox() {
                       <div className="flex items-center gap-3 mt-2 flex-wrap">
                         <span className="text-xs text-gray-400">{new Date(r.createdAt).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' })}</span>
                         <button
-                          onClick={() => { setViewMode('inbox'); const conv = conversations.find(c => c.id === r.conversationId); if (conv) setSelected(conv); }}
+                          onClick={() => { setViewMode('inbox'); const conv = conversations.find(c => c.id === r.conversationId); if (conv) selectConversation(conv); }}
                           className="text-xs text-blue-600 hover:underline"
                         >פתח שיחה →</button>
                       </div>
@@ -1330,7 +1378,7 @@ export default function WhatsAppInbox() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                       <span className="font-medium text-sm text-gray-800 truncate">
-                        {conv.contactName || conv.leadName || formatPhone(conv.phone)}
+                        {getConversationDisplayName(conv)}
                       </span>
                       {conv.aiEnabled && (
                         <Bot size={12} className="text-purple-400 flex-shrink-0" />
@@ -1369,7 +1417,7 @@ export default function WhatsAppInbox() {
           <div className="bg-white border-b border-gray-200 px-3 md:px-4 py-3 flex items-center justify-between gap-2 flex-shrink-0">
             <div className="flex items-center gap-2 md:gap-3 min-w-0">
               <button
-                onClick={() => setSelected(null)}
+                onClick={clearSelectedConversation}
                 className="md:hidden p-2 -mr-2 hover:bg-gray-100 rounded-full text-gray-500 flex-shrink-0"
                 aria-label="חזרה לרשימת השיחות"
               >
@@ -1380,7 +1428,7 @@ export default function WhatsAppInbox() {
               </div>
               <div className="min-w-0">
                 <p className="font-semibold text-gray-800 truncate">
-                  {selected.contactName || selected.leadName || formatPhone(selected.phone)}
+                  {getConversationDisplayName(selected)}
                 </p>
                 <p className="text-xs text-gray-500 truncate">
                   {selected.phone}
@@ -1427,6 +1475,35 @@ export default function WhatsAppInbox() {
             </div>
           )}
 
+          {/* Channel filter */}
+          <div className="bg-white border-b border-gray-200 px-3 md:px-4 py-2 flex items-center gap-2 overflow-x-auto flex-shrink-0">
+            <span className="text-xs font-medium text-gray-500 flex-shrink-0">ערוץ:</span>
+            <button
+              onClick={() => setChannelFilter('all')}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
+                channelFilter === 'all' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              כל ההודעות ({messages.length})
+            </button>
+            <button
+              onClick={() => setChannelFilter('meta')}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
+                channelFilter === 'meta' ? 'bg-green-600 text-white' : 'bg-green-50 text-green-700 hover:bg-green-100'
+              }`}
+            >
+              רשמי Meta ({metaMessages.length})
+            </button>
+            <button
+              onClick={() => setChannelFilter('green')}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
+                channelFilter === 'green' ? 'bg-emerald-800 text-white' : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+              }`}
+            >
+              Green רגיל ({greenMessages.length})
+            </button>
+          </div>
+
           {/* Messages */}
           <div
             ref={messagesContainerRef}
@@ -1437,23 +1514,39 @@ export default function WhatsAppInbox() {
             }}
             className="flex-1 min-h-0 overflow-y-auto p-3 md:p-4 space-y-2"
           >
-            {messages.length === 0 && (
-              <div className="text-center text-gray-400 text-sm mt-8">טוען הודעות...</div>
+            {visibleMessages.length === 0 && (
+              <div className="text-center text-gray-400 text-sm mt-8">
+                {messages.length === 0 ? 'טוען הודעות...' : 'אין הודעות בערוץ הזה'}
+              </div>
             )}
-            {messages.map(msg => (
+            {visibleMessages.map(msg => {
+              const isGreen = isGreenMessage(msg.waMessageId);
+              return (
               <div
                 key={msg.id}
                 className={`flex ${msg.direction === 'outbound' ? 'justify-start' : 'justify-end'}`}
               >
                 <div
                   className={`max-w-[85%] md:max-w-[70%] px-3 py-2 rounded-2xl text-sm shadow-sm ${
-                    msg.direction === 'outbound'
-                      ? msg.isAiGenerated
-                        ? 'bg-purple-100 text-purple-900 rounded-br-sm'
-                        : 'bg-green-500 text-white rounded-br-sm'
-                      : 'bg-white text-gray-800 rounded-bl-sm border border-gray-100'
+                    isGreen
+                      ? msg.direction === 'outbound'
+                        ? 'bg-emerald-700 text-white rounded-br-sm border border-emerald-800'
+                        : 'bg-white text-gray-900 rounded-bl-sm border-2 border-emerald-300'
+                      : msg.direction === 'outbound'
+                        ? msg.isAiGenerated
+                          ? 'bg-purple-100 text-purple-900 rounded-br-sm'
+                          : 'bg-green-500 text-white rounded-br-sm'
+                        : 'bg-white text-gray-800 rounded-bl-sm border border-gray-100'
                   }`}
                 >
+                  {isGreen && (
+                    <div className={`flex items-center gap-1 mb-1 text-xs font-semibold ${
+                      msg.direction === 'outbound' ? 'text-emerald-50' : 'text-emerald-700'
+                    }`}>
+                      <MessageCircle size={11} />
+                      WhatsApp Green
+                    </div>
+                  )}
                   {msg.isAiGenerated && (
                     <div className="flex items-center gap-1 mb-1 text-purple-500 text-xs">
                       <Bot size={10} /> AI
@@ -1461,19 +1554,30 @@ export default function WhatsAppInbox() {
                   )}
                   <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                   <div className={`flex items-center justify-end gap-1 mt-1 ${
-                    msg.direction === 'outbound' && !msg.isAiGenerated ? 'text-green-100' : 'text-gray-400'
+                    isGreen && msg.direction === 'outbound'
+                      ? 'text-emerald-50'
+                      : msg.direction === 'outbound' && !msg.isAiGenerated
+                        ? 'text-green-100'
+                        : 'text-gray-400'
                   }`}>
                     <span className="text-xs">{formatTime(msg.createdAt)}</span>
                     {msg.direction === 'outbound' && <StatusIcon status={msg.status} />}
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
             <div ref={messagesEndRef} />
           </div>
 
           {/* Input */}
           <div className="bg-white border-t border-gray-200 p-3">
+            {channelFilter === 'green' ? (
+              <div className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+                מוצגות כאן הודעות Green בלבד. שליחה בערוץ הרשמי נמצאת במסנן “רשמי Meta”.
+              </div>
+            ) : (
+              <>
             {selected.aiEnabled && (
               <p className="text-xs text-purple-500 mb-2 flex items-center gap-1">
                 <Bot size={12} /> AI מגיב אוטומטית — שלח הודעה ידנית לדרוס
@@ -1517,6 +1621,8 @@ export default function WhatsAppInbox() {
                 <Send size={18} />
               </button>
             </div>
+              </>
+            )}
           </div>
 
           {/* Template Modal */}

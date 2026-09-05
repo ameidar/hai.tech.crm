@@ -39,7 +39,7 @@ function monthToDate(m: string): Date {
   return new Date(Date.UTC(y, mm - 1, 1));
 }
 
-billingRouter.get('/', async (req, res, next) => {
+billingRouter.get('/', managerOrAdmin, async (req, res, next) => {
   try {
     const status = req.query.status as string | undefined;
     const paymentStatus = req.query.paymentStatus as string | undefined;
@@ -102,7 +102,7 @@ billingRouter.get('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-billingRouter.get('/:id', async (req, res, next) => {
+billingRouter.get('/:id', managerOrAdmin, async (req, res, next) => {
   try {
     const period = await prisma.billingPeriod.findUnique({
       where: { id: req.params.id },
@@ -690,7 +690,7 @@ billingRouter.post('/:id/link-external-receipt', managerOrAdmin, async (req, res
 });
 
 // List the receipts (Morning type 400) issued against this period's 305 tax invoice.
-billingRouter.get('/:id/receipts', async (req, res, next) => {
+billingRouter.get('/:id/receipts', managerOrAdmin, async (req, res, next) => {
   try {
     const receipts = await prisma.billingPayment.findMany({
       where: { billingPeriodId: req.params.id, morningReceiptId: { not: null } },
@@ -791,7 +791,7 @@ billingRouter.post('/:id/link-external-proforma', managerOrAdmin, async (req, re
 });
 
 // Drift: meetings completed in this institution+month that aren't in the issued snapshot.
-billingRouter.get('/:id/drift', async (req, res, next) => {
+billingRouter.get('/:id/drift', managerOrAdmin, async (req, res, next) => {
   try {
     const drift = await detectDrift(req.params.id);
     res.json(drift);

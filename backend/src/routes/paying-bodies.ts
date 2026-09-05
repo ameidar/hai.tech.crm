@@ -46,8 +46,9 @@ export const updateSchema = z.object({
 export const isComplete = (b: { name?: string | null; taxId?: string | null; contactName?: string | null; email?: string | null }) =>
   !!(b.name && b.taxId && b.contactName && b.email);
 
-// List paying bodies — optional `q` filters by name or taxId (substring).
-payingBodiesRouter.get('/', async (req, res, next) => {
+// List paying bodies — financial counterparty data, admin/manager only.
+// Optional `q` filters by name or taxId (substring).
+payingBodiesRouter.get('/', managerOrAdmin, async (req, res, next) => {
   try {
     const { page, limit } = paginationSchema.parse(req.query);
     const q = (req.query.q as string | undefined)?.trim();
@@ -177,7 +178,7 @@ payingBodiesRouter.post('/:id/morning/sync', managerOrAdmin, async (req, res, ne
 });
 
 // Get one
-payingBodiesRouter.get('/:id', async (req, res, next) => {
+payingBodiesRouter.get('/:id', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
     const body = await prisma.payingBody.findUnique({

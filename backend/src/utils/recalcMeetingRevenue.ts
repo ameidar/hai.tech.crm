@@ -1,5 +1,6 @@
 import { prisma } from './prisma.js';
 import { meetingRevenueFromRegistrations, roundMoney } from './revenue.js';
+import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
 
 /**
  * After a registration change (e.g. cancellation), recalculate revenue + profit
@@ -29,10 +30,8 @@ export async function recalcMeetingRevenue(cycleId: string): Promise<void> {
     // pricePerStudent × active students
     const activeCount = cycle.registrations.length;
     newRevenue = roundMoney(Number(cycle.pricePerStudent || 0) * activeCount);
-  } else if (cycle.type === 'private' || cycle.type === 'trial_private') {
-    if (cycle.pricePerStudent && Number(cycle.pricePerStudent) > 0) {
-      newRevenue = roundMoney(Number(cycle.pricePerStudent) * cycle.registrations.length);
-    } else if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
+  } else if (cycle.type === 'private' || cycle.type === 'trial_private' || cycle.type === 'group') {
+    if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
       newRevenue = Number(cycle.meetingRevenue);
     } else {
       // sum of active registration amounts / totalMeetings (net of VAT for private)
@@ -77,6 +76,7 @@ export async function recalcMeetingRevenue(cycleId: string): Promise<void> {
       where: { id: m.id },
       data: { revenue: newRevenue, profit: newProfit },
     });
+    await checkAndSendNegativeProfitAlert(m.id, 'meeting-revenue-recalc');
   }
 
   console.log(`[recalcMeetingRevenue] cycle ${cycleId}: ${futureMeetings.length} meetings updated → revenue=${newRevenue}`);

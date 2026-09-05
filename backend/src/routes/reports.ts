@@ -9,7 +9,7 @@ import { sendInstructorMonthlyReportEmail } from '../services/email/instructorRe
 
 export const reportsRouter = Router();
 
-// All routes require auth + admin/manager (operations managers have full access too)
+// All routes require auth + finance/reporting roles.
 reportsRouter.use(authenticate);
 reportsRouter.use(authorize('admin', 'manager', 'operations'));
 

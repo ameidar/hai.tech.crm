@@ -22,6 +22,30 @@ function salaryForMonth(emp: typeof GLOBAL_MONTHLY_SALARIES[number], month: stri
   return emp.monthOverrides?.[month] ?? emp.amount;
 }
 
+function localDateString(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function dateLikeToMonthKey(raw: any): string | null {
+  if (typeof raw === 'string') {
+    const match = raw.match(/^(\d{4})-(\d{2})/);
+    if (match) return `${match[1]}-${match[2]}`;
+  }
+
+  let d: Date;
+  if (typeof raw === 'number') {
+    // Unix timestamp: Morning uses seconds
+    d = new Date(raw < 1e12 ? raw * 1000 : raw);
+  } else if (raw instanceof Date) {
+    d = raw;
+  } else if (typeof raw === 'string') {
+    d = new Date(raw);
+  } else return null;
+
+  if (isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
 function snapshotGross(snapshot: Prisma.JsonValue | null | undefined): number | null {
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null;
   const gross = Number(snapshot.grossTotal);
@@ -162,8 +186,8 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       fromDate = new Date(now.getFullYear(), now.getMonth() - months + 1, 1);
       toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
     }
-    const fromDateStr = fromDate.toISOString().split('T')[0];
-    const toDateStr = toDate.toISOString().split('T')[0];
+    const fromDateStr = localDateString(fromDate);
+    const toDateStr = localDateString(toDate);
 
     // Income = binding tax invoices (305 + 320) minus credit notes (330).
     // Exclude type 300 (proforma — not real income) and type 400 (would double-count with 305).
@@ -196,7 +220,7 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
     // have a document date earlier than its reporting period.
     const expFromDate = new Date(fromDate);
     expFromDate.setMonth(expFromDate.getMonth() - 12);
-    const expFromStr = expFromDate.toISOString().split('T')[0];
+    const expFromStr = localDateString(expFromDate);
 
     let allExpenses: any[] = [];
     try {
@@ -278,22 +302,10 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       if (entry) entry.instructorPayments += computeInstructorPayment(m);
     }
 
-    function docDateToKey(raw: any): string | null {
-      let d: Date;
-      if (typeof raw === 'number') {
-        // Unix timestamp: Morning uses seconds
-        d = new Date(raw < 1e12 ? raw * 1000 : raw);
-      } else if (typeof raw === 'string') {
-        d = new Date(raw);
-      } else return null;
-      if (isNaN(d.getTime())) return null;
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    }
-
     // Use amountExcludeVat — net income/expense without VAT, matches Morning's
     // "הכנסות לא כולל מע״מ" report and the standard accountant view.
     for (const item of allIncome) {
-      const key = docDateToKey(item.documentDate ?? item.date);
+      const key = dateLikeToMonthKey(item.documentDate ?? item.date);
       const entry = key ? monthMap.get(key) : null;
       if (entry) {
         entry.income += morningDocumentIncomeAmount(item);
@@ -303,7 +315,7 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
 
     // Subtract credit notes from income (refunds/cancellations)
     for (const item of allCreditNotes) {
-      const key = docDateToKey(item.documentDate ?? item.date);
+      const key = dateLikeToMonthKey(item.documentDate ?? item.date);
       const entry = key ? monthMap.get(key) : null;
       if (entry) {
         entry.income -= morningDocumentIncomeAmount(item);
@@ -316,7 +328,7 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
     // original currency. amountExcludeVat is in the document's own currency, so
     // summing it across mixed currencies (ILS/USD/EUR) produces wrong totals.
     for (const item of allExpenses) {
-      const key = docDateToKey(item.reportingDate ?? item.date);
+      const key = dateLikeToMonthKey(item.reportingDate ?? item.date);
       const entry = key ? monthMap.get(key) : null;
       if (entry) {
         entry.morningExpenses += Number(item.deductibleAmount ?? 0);
@@ -374,8 +386,8 @@ morningRouter.get('/financials/details', managerOrAdmin, async (req, res, next) 
     const monthN = Number(monthStr);
     const monthStart = new Date(yearN, monthN - 1, 1);
     const monthEnd = new Date(yearN, monthN, 0);
-    const fromStr = monthStart.toISOString().split('T')[0];
-    const toStr = monthEnd.toISOString().split('T')[0];
+    const fromStr = localDateString(monthStart);
+    const toStr = localDateString(monthEnd);
 
     async function fetchAllDocs(type: number[]): Promise<any[]> {
       const all: any[] = [];
@@ -397,13 +409,13 @@ morningRouter.get('/financials/details', managerOrAdmin, async (req, res, next) 
       const inc = (await fetchAllDocs([305, 320, 400])).filter((d: any) => d.status !== 2);
       const credits = (await fetchAllDocs([330])).filter((d: any) => d.status !== 2);
       const items = [
-        ...inc.map((d: any) => ({
+        ...inc.filter((d: any) => dateLikeToMonthKey(d.documentDate ?? d.date) === month).map((d: any) => ({
           date: d.documentDate, type: d.type, number: String(d.number ?? ''),
           name: d.client?.name ?? '—',
           amount: Math.round(morningDocumentIncomeAmount(d)),
           url: d.url?.he ?? d.url?.origin ?? null,
         })),
-        ...credits.map((d: any) => ({
+        ...credits.filter((d: any) => dateLikeToMonthKey(d.documentDate ?? d.date) === month).map((d: any) => ({
           date: d.documentDate, type: d.type, number: String(d.number ?? ''),
           name: `${d.client?.name ?? '—'} (זיכוי)`,
           amount: -Math.round(morningDocumentIncomeAmount(d)),
@@ -415,7 +427,7 @@ morningRouter.get('/financials/details', managerOrAdmin, async (req, res, next) 
 
     if (category === 'morningExpenses') {
       // Search 12 months wider then filter by reportingDate.
-      const wider = new Date(yearN - 1, monthN - 1, 1).toISOString().split('T')[0];
+      const wider = localDateString(new Date(yearN - 1, monthN - 1, 1));
       const all: any[] = [];
       let page = 1;
       while (true) {
@@ -429,7 +441,7 @@ morningRouter.get('/financials/details', managerOrAdmin, async (req, res, next) 
         if (page > 20) break;
       }
       const items = all
-        .filter((e: any) => String(e.reportingDate ?? e.date).startsWith(month))
+        .filter((e: any) => dateLikeToMonthKey(e.reportingDate ?? e.date) === month)
         .map((e: any) => ({
           date: e.date,
           reportingDate: e.reportingDate,

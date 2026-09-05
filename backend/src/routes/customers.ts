@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma.js';
-import { authenticate, managerOrAdmin, salesOrAbove } from '../middleware/auth.js';
+import { authenticate, cycleRosterOrAdmin, operationsManagerOrAdmin, salesOrAbove } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createCustomerSchema, updateCustomerSchema, createStudentSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
 import { logAudit } from '../utils/audit.js';
@@ -66,7 +66,7 @@ customersRouter.get('/lookup', salesOrAbove, async (req, res, next) => {
 });
 
 // List customers — admin/manager only (sales users must not access the customer object)
-customersRouter.get('/', managerOrAdmin, async (req, res, next) => {
+customersRouter.get('/', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const { page, limit } = paginationSchema.parse(req.query);
     const search = req.query.search as string | undefined;
@@ -186,7 +186,7 @@ customersRouter.get('/', managerOrAdmin, async (req, res, next) => {
 });
 
 // Get customer by ID — admin/manager only (sales users must not access the customer object)
-customersRouter.get('/:id', managerOrAdmin, async (req, res, next) => {
+customersRouter.get('/:id', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
@@ -221,7 +221,7 @@ customersRouter.get('/:id', managerOrAdmin, async (req, res, next) => {
 });
 
 // Create customer
-customersRouter.post('/', managerOrAdmin, async (req, res, next) => {
+customersRouter.post('/', cycleRosterOrAdmin, async (req, res, next) => {
   try {
     const data = createCustomerSchema.parse(req.body);
 
@@ -289,7 +289,7 @@ customersRouter.post('/', managerOrAdmin, async (req, res, next) => {
 });
 
 // Update customer
-customersRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
+customersRouter.put('/:id', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
     const data = updateCustomerSchema.parse(req.body);
@@ -347,7 +347,7 @@ customersRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
 });
 
 // Delete customer
-customersRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
+customersRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
@@ -377,7 +377,7 @@ customersRouter.delete('/:id', managerOrAdmin, async (req, res, next) => {
 });
 
 // Count of related records for a customer — used by the merge dialog to show what will move.
-customersRouter.get('/:id/relation-counts', managerOrAdmin, async (req, res, next) => {
+customersRouter.get('/:id/relation-counts', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = customerIdSchema.parse(req.params.id);
     const customer = await prisma.customer.findUnique({ where: { id } });
@@ -398,7 +398,7 @@ customersRouter.get('/:id/relation-counts', managerOrAdmin, async (req, res, nex
 //  - Scalar fields: the kept customer wins; any field it's missing is filled from the source.
 //    `overrides` lets the caller force a specific value per field (e.g. keep the source's name).
 //  - The source customer is hard-deleted once everything is moved off it.
-customersRouter.post('/:id/merge', managerOrAdmin, async (req, res, next) => {
+customersRouter.post('/:id/merge', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const keepId = customerIdSchema.parse(req.params.id);
     const { sourceId, overrides } = mergeSchema.parse(req.body);
@@ -484,7 +484,7 @@ customersRouter.post('/:id/merge', managerOrAdmin, async (req, res, next) => {
 });
 
 // Get customer's students
-customersRouter.get('/:id/students', managerOrAdmin, async (req, res, next) => {
+customersRouter.get('/:id/students', operationsManagerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
 
@@ -512,7 +512,7 @@ customersRouter.get('/:id/students', managerOrAdmin, async (req, res, next) => {
 });
 
 // Create student for customer
-customersRouter.post('/:id/students', managerOrAdmin, async (req, res, next) => {
+customersRouter.post('/:id/students', cycleRosterOrAdmin, async (req, res, next) => {
   try {
     const customerId = uuidSchema.parse(req.params.id);
     

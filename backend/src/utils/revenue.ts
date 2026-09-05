@@ -2,7 +2,7 @@
  * Revenue helpers — central place to compute meeting revenue from a cycle's
  * registrations, applying the right VAT treatment.
  *
- * B2C cycles (`private` / `trial_private`) are billed gross (the price the
+ * B2C cycles (`private` / `trial_private` / `group`) are billed gross (the price the
  * parent pays includes 18% VAT). Our actual revenue is the net amount, so
  * we strip VAT before dividing by totalMeetings. Institutional cycles are
  * already net.
@@ -18,7 +18,7 @@ export function roundMoney(amount: number): number {
   return Math.round((Number(amount) + Number.EPSILON) * 100) / 100;
 }
 
-const PRIVATE_TYPES = new Set(['private', 'trial_private']);
+const PRIVATE_TYPES = new Set(['private', 'trial_private', 'group']);
 const REVENUE_REGISTRATION_STATUSES = new Set(['registered', 'active', 'completed']);
 
 export function isVatInclusive(cycleType: string | null | undefined): boolean {
@@ -43,6 +43,19 @@ type RegistrationLike = {
   amount?: number | string | { toString(): string } | null;
   status?: string | null;
   deletedAt?: Date | string | null;
+};
+
+type CycleRevenueLike = {
+  type?: string | null;
+  meetingRevenue?: number | string | { toString(): string } | null;
+  pricePerStudent?: number | string | { toString(): string } | null;
+  studentCount?: number | null;
+  totalMeetings?: number | null;
+  registrations?: RegistrationLike[] | null;
+};
+
+type MeetingRevenueLike = {
+  nature?: string | null;
 };
 
 export function isRevenueRegistration(registration: RegistrationLike): boolean {
@@ -76,4 +89,41 @@ export function meetingRevenueFromRegistrations(
   );
   const net = netAmount(gross, cycleType);
   return roundMoney(net / totalMeetings);
+}
+
+export function meetingRevenueForCycle(cycle: CycleRevenueLike): number {
+  const type = String(cycle.type || '');
+  const registrations = revenueRegistrations(cycle.registrations ?? []);
+
+  if (type === 'institutional_fixed') {
+    return Number(cycle.meetingRevenue || 0);
+  }
+
+  if (type === 'institutional_per_child') {
+    const pricePerStudent = Number(cycle.pricePerStudent || 0);
+    const studentCount = cycle.studentCount || registrations.length;
+    return roundMoney(pricePerStudent * studentCount);
+  }
+
+  if (PRIVATE_TYPES.has(type)) {
+    if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
+      return Number(cycle.meetingRevenue);
+    }
+
+    return meetingRevenueFromRegistrations(
+      registrations,
+      Number(cycle.totalMeetings) || 0,
+      type,
+    );
+  }
+
+  return 0;
+}
+
+export function meetingRevenueForMeeting(
+  cycle: CycleRevenueLike,
+  meeting: MeetingRevenueLike | null | undefined,
+): number {
+  if (meeting?.nature === 'no_revenue') return 0;
+  return meetingRevenueForCycle(cycle);
 }

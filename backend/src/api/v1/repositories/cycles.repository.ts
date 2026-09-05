@@ -77,7 +77,7 @@ export class CyclesRepository {
           branch: { select: { id: true, name: true, type: true } },
           instructor: { select: { id: true, name: true } },
           institutionalOrder: { select: { id: true, orderNumber: true } },
-          _count: { select: { registrations: true, meetings: true } },
+          _count: { select: { registrations: { where: { deletedAt: null } }, meetings: true } },
         },
         orderBy,
         skip: offset,
@@ -100,7 +100,7 @@ export class CyclesRepository {
         branch: true,
         instructor: true,
         institutionalOrder: true,
-        _count: { select: { registrations: true, meetings: true } },
+        _count: { select: { registrations: { where: { deletedAt: null } }, meetings: true } },
       },
     });
   }
@@ -164,6 +164,7 @@ export class CyclesRepository {
         totalMeetings: data.totalMeetings,
         remainingMeetings: data.totalMeetings,
         pricePerStudent: data.pricePerStudent,
+        defaultRegistrationAmount: data.defaultRegistrationAmount,
         meetingRevenue: data.meetingRevenue,
         instructorPaymentMode: data.instructorPaymentMode ?? 'hourly',
         instructorDailyRate: data.instructorPaymentMode === 'daily' ? data.instructorDailyRate : null,
@@ -181,7 +182,7 @@ export class CyclesRepository {
         course: { select: { id: true, name: true } },
         branch: { select: { id: true, name: true } },
         instructor: { select: { id: true, name: true } },
-        _count: { select: { registrations: true, meetings: true } },
+        _count: { select: { registrations: { where: { deletedAt: null } }, meetings: true } },
       },
     });
   }
@@ -215,7 +216,7 @@ export class CyclesRepository {
         course: { select: { id: true, name: true } },
         branch: { select: { id: true, name: true } },
         instructor: { select: { id: true, name: true } },
-        _count: { select: { registrations: true, meetings: true } },
+        _count: { select: { registrations: { where: { deletedAt: null } }, meetings: true } },
       },
     });
   }

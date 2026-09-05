@@ -13,6 +13,7 @@ import {
 } from '../validators/cycles.js';
 import { fetchHolidays, dayNameToNumber } from '../../../utils/holidays.js';
 import { recalculateInstructorPaymentsForCycle } from '../../../services/instructor-payment.js';
+import { resolveRegistrationAmount } from '../../../utils/registration-amount.js';
 
 /**
  * Cycles Service - Business logic layer
@@ -208,7 +209,10 @@ export class CyclesService {
       throw new ConflictError('Student is already registered for this cycle');
     }
 
-    const registration = await this.repository.addRegistration(cycleId, data);
+    const registration = await this.repository.addRegistration(cycleId, {
+      ...data,
+      amount: resolveRegistrationAmount(data.amount, cycle) ?? undefined,
+    });
 
     // Audit log
     if (req) {
@@ -450,6 +454,7 @@ export class CyclesService {
         remainingMeetings: original.totalMeetings,
         completedMeetings: 0,
         pricePerStudent: original.pricePerStudent,
+        defaultRegistrationAmount: original.defaultRegistrationAmount,
         meetingRevenue: original.meetingRevenue,
         studentCount: original.studentCount,
         maxStudents: original.maxStudents,

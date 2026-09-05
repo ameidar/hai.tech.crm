@@ -1527,6 +1527,53 @@ export default function CycleDetail() {
                       </a>
                     </div>
                   )}
+
+                  {/* Recall AI Report */}
+                  {(viewingMeeting.recallBotId || viewingMeeting.lessonSummary || viewingMeeting.recallRecordingUrl) && (
+                    <div className="col-span-2 p-4 bg-emerald-50 rounded-lg">
+                      <h4 className="text-sm font-medium text-emerald-800 mb-2 flex items-center gap-2">
+                        <FileText size={16} />
+                        דוח AI מהשיעור
+                      </h4>
+                      <div className="space-y-3 text-sm text-gray-700">
+                        {viewingMeeting.lessonReportStatus && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-600">סטטוס דוח</span>
+                            <span className="font-medium">{viewingMeeting.lessonReportStatus}</span>
+                          </div>
+                        )}
+                        {viewingMeeting.lessonReportGeneratedAt && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-600">נוצר בתאריך</span>
+                            <span className="font-medium">
+                              {new Date(viewingMeeting.lessonReportGeneratedAt).toLocaleString('he-IL')}
+                            </span>
+                          </div>
+                        )}
+                        {viewingMeeting.recallRecordingUrl && (
+                          <a
+                            href={viewingMeeting.recallRecordingUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-secondary text-sm py-1 inline-flex"
+                          >
+                            <ExternalLink size={14} />
+                            צפייה בהקלטת Recall
+                          </a>
+                        )}
+                        {viewingMeeting.lessonSummary && (
+                          <div className="whitespace-pre-wrap leading-relaxed">
+                            {viewingMeeting.lessonSummary}
+                          </div>
+                        )}
+                        {viewingMeeting.lessonReportError && (
+                          <div className="text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                            {viewingMeeting.lessonReportError}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   
                   {/* Lesson Transcript */}
                   {viewingMeeting.lessonTranscript && (

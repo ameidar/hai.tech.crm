@@ -318,6 +318,15 @@ export interface Meeting {
   zoomRecordingUrl?: string;
   zoomRecordingPassword?: string;
   lessonTranscript?: string;
+  recallBotId?: string | null;
+  recallBotStatus?: string | null;
+  recallRecordingId?: string | null;
+  recallRecordingUrl?: string | null;
+  recallTranscriptUrl?: string | null;
+  lessonSummary?: string | null;
+  lessonReportStatus?: string | null;
+  lessonReportGeneratedAt?: string | null;
+  lessonReportError?: string | null;
   rescheduledToId?: string;
   createdAt: string;
   cycle?: Cycle;

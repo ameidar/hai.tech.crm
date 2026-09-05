@@ -802,6 +802,15 @@ model Meeting {
   zoomRecordingUrl      String?       @map("zoom_recording_url")
   zoomRecordingPassword String?       @map("zoom_recording_password")
   lessonTranscript      String?       @map("lesson_transcript")
+  recallBotId           String?       @map("recall_bot_id")
+  recallBotStatus       String?       @map("recall_bot_status")
+  recallRecordingId     String?       @map("recall_recording_id")
+  recallRecordingUrl    String?       @map("recall_recording_url")
+  recallTranscriptUrl   String?       @map("recall_transcript_url")
+  lessonSummary         String?       @map("lesson_summary")
+  lessonReportStatus    String?       @map("lesson_report_status")
+  lessonReportGeneratedAt DateTime?   @map("lesson_report_generated_at")
+  lessonReportError     String?       @map("lesson_report_error")
   rescheduledToId       String?       @map("rescheduled_to_id")
   createdAt             DateTime      @default(now()) @map("created_at")
   updatedAt             DateTime      @updatedAt @map("updated_at")
@@ -819,6 +828,8 @@ model Meeting {
   changeRequests        MeetingChangeRequest[]
   billingPeriodMeetings BillingPeriodMeeting[]
 
+  @@index([recallBotId])
+  @@index([lessonReportStatus])
   @@map("meetings")
 }
 

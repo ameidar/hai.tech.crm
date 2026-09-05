@@ -53,6 +53,8 @@ import {
   useZoomMeeting,
   useCreateZoomMeeting,
   useDeleteZoomMeeting,
+  useScheduleCycleRecallBots,
+  useScheduleMeetingRecallBot,
   useGenerateMeetings,
   useSyncCycleProgress,
   useCreateMeeting,
@@ -359,6 +361,8 @@ export default function CycleDetail() {
   const { data: zoomMeeting, isLoading: zoomLoading } = useZoomMeeting(id!);
   const createZoomMeeting = useCreateZoomMeeting();
   const deleteZoomMeeting = useDeleteZoomMeeting();
+  const scheduleCycleRecallBots = useScheduleCycleRecallBots();
+  const scheduleMeetingRecallBot = useScheduleMeetingRecallBot();
   const [selectedVideoProvider, setSelectedVideoProvider] = useState<'zoom' | 'google_meet'>('google_meet');
   const generateMeetings = useGenerateMeetings();
   const syncCycleProgress = useSyncCycleProgress();
@@ -423,6 +427,40 @@ export default function CycleDetail() {
     }
   };
 
+  const handleScheduleRecallBots = async () => {
+    if (!cycle) return;
+    const googleMeetCount = (meetings || []).filter((meeting) =>
+      meeting.status === 'scheduled' &&
+      !meeting.recallBotId &&
+      !!meeting.zoomJoinUrl &&
+      meeting.zoomJoinUrl.includes('meet.google.com')
+    ).length;
+
+    if (googleMeetCount === 0) {
+      alert('לא נמצאו פגישות Google Meet עתידיות בלי Recall bot במחזור הזה');
+      return;
+    }
+
+    try {
+      await updateCycle.mutateAsync({ id: cycle.id, data: { recallBotEnabled: true } as any });
+      const result = await scheduleCycleRecallBots.mutateAsync(cycle.id);
+      alert(`Recall הופעל למחזור. נוצרו ${result.scheduled.length} בוטים, דולגו ${result.skipped.length}.`);
+    } catch (error: any) {
+      console.error('Failed to schedule Recall bots:', error);
+      alert(error.response?.data?.error || 'שגיאה בהפעלת Recall למחזור');
+    }
+  };
+
+  const handleDisableCycleRecall = async () => {
+    if (!cycle) return;
+    try {
+      await updateCycle.mutateAsync({ id: cycle.id, data: { recallBotEnabled: false } as any });
+    } catch (error: any) {
+      console.error('Failed to disable Recall:', error);
+      alert(error.response?.data?.error || 'שגיאה בכיבוי Recall למחזור');
+    }
+  };
+
   const handleSyncProgress = async () => {
     try {
       const result = await syncCycleProgress.mutateAsync(id!);
@@ -451,6 +489,7 @@ export default function CycleDetail() {
     withZoom: boolean;
     videoProvider?: 'zoom' | 'google_meet';
     activityType?: string;
+    recallBotEnabled?: boolean;
     topic?: string;
     notes?: string;
   }) => {
@@ -480,6 +519,9 @@ export default function CycleDetail() {
   const handleUpdateCycle = async (data: Partial<Cycle>) => {
     try {
       await updateCycle.mutateAsync({ id: id!, data });
+      if (data.recallBotEnabled === true) {
+        await scheduleCycleRecallBots.mutateAsync(id!);
+      }
       setShowEditCycleModal(false);
     } catch (error) {
       console.error('Failed to update cycle:', error);
@@ -705,12 +747,15 @@ export default function CycleDetail() {
     return [studentName, customerName, phone].filter(Boolean).join(' | ');
   };
 
-  const handleUpdateMeetingData = async (meetingId: string, data: { status?: MeetingStatus; nature?: MeetingNature; instructorId?: string; registrationId?: string | null; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; activityType?: ActivityType; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => {
+  const handleUpdateMeetingData = async (meetingId: string, data: { status?: MeetingStatus; nature?: MeetingNature; instructorId?: string; registrationId?: string | null; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; activityType?: ActivityType; recallBotEnabled?: boolean; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => {
     try {
       await updateMeeting.mutateAsync({
         id: meetingId,
         data: data as any,
       });
+      if (data.recallBotEnabled === true) {
+        await scheduleMeetingRecallBot.mutateAsync(meetingId);
+      }
       setSelectedMeeting(null);
     } catch (error) {
       console.error('Failed to update meeting:', error);
@@ -1145,6 +1190,60 @@ export default function CycleDetail() {
                       </button>
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {(cycle.activityType === 'online' || cycle.activityType === 'private_lesson' || cycle.type === 'private' || cycle.type === 'trial_private') && (
+              <div className="card" data-testid="recall-section">
+                <div className="card-header flex items-center gap-2">
+                  <FileText size={18} className="text-emerald-600" />
+                  <h2 className="font-semibold">Recall AI</h2>
+                </div>
+                <div className="card-body space-y-3">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!cycle.recallBotEnabled}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          handleScheduleRecallBots();
+                        } else {
+                          handleDisableCycleRecall();
+                        }
+                      }}
+                      disabled={updateCycle.isPending || scheduleCycleRecallBots.isPending}
+                      className="mt-1 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span>
+                      <span className="block text-sm font-medium text-gray-800">
+                        הפעל סיכום AI לשיעורי Google Meet במחזור
+                      </span>
+                      <span className="block text-xs text-gray-500 mt-1">
+                        מיועד רק לקישורי meet.google.com. סימון יזמן בוטים לפגישות עתידיות במחזור שעדיין אין להן בוט.
+                      </span>
+                    </span>
+                  </label>
+                  <div className="grid grid-cols-3 gap-3 text-center text-sm">
+                    <div className="p-3 bg-emerald-50 rounded-lg">
+                      <p className="font-semibold text-emerald-700">
+                        {(meetings || []).filter((meeting) => !!meeting.recallBotId).length}
+                      </p>
+                      <p className="text-xs text-gray-500">בוטים קיימים</p>
+                    </div>
+                    <div className="p-3 bg-blue-50 rounded-lg">
+                      <p className="font-semibold text-blue-700">
+                        {(meetings || []).filter((meeting) => meeting.lessonReportStatus === 'ready').length}
+                      </p>
+                      <p className="text-xs text-gray-500">דוחות מוכנים</p>
+                    </div>
+                    <div className="p-3 bg-gray-50 rounded-lg">
+                      <p className="font-semibold text-gray-700">
+                        {(meetings || []).filter((meeting) => meeting.zoomJoinUrl?.includes('meet.google.com') && !meeting.recallBotId).length}
+                      </p>
+                      <p className="text-xs text-gray-500">Google Meet ללא בוט</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -1590,6 +1689,53 @@ export default function CycleDetail() {
                         <ExternalLink size={14} />
                         צפה בהקלטה
                       </a>
+                    </div>
+                  )}
+
+                  {/* Recall AI Report */}
+                  {(viewingMeeting.recallBotId || viewingMeeting.lessonSummary || viewingMeeting.recallRecordingUrl) && (
+                    <div className="col-span-2 p-4 bg-emerald-50 rounded-lg">
+                      <h4 className="text-sm font-medium text-emerald-800 mb-2 flex items-center gap-2">
+                        <FileText size={16} />
+                        דוח AI מהשיעור
+                      </h4>
+                      <div className="space-y-3 text-sm text-gray-700">
+                        {viewingMeeting.lessonReportStatus && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-600">סטטוס דוח</span>
+                            <span className="font-medium">{viewingMeeting.lessonReportStatus}</span>
+                          </div>
+                        )}
+                        {viewingMeeting.lessonReportGeneratedAt && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-600">נוצר בתאריך</span>
+                            <span className="font-medium">
+                              {new Date(viewingMeeting.lessonReportGeneratedAt).toLocaleString('he-IL')}
+                            </span>
+                          </div>
+                        )}
+                        {viewingMeeting.recallRecordingUrl && (
+                          <a
+                            href={viewingMeeting.recallRecordingUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-secondary text-sm py-1 inline-flex"
+                          >
+                            <ExternalLink size={14} />
+                            צפייה בהקלטת Recall
+                          </a>
+                        )}
+                        {viewingMeeting.lessonSummary && (
+                          <div className="whitespace-pre-wrap leading-relaxed">
+                            {viewingMeeting.lessonSummary}
+                          </div>
+                        )}
+                        {viewingMeeting.lessonReportError && (
+                          <div className="text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                            {viewingMeeting.lessonReportError}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                   
@@ -2374,7 +2520,7 @@ interface MeetingUpdateFormProps {
   registrations: Registration[];
   defaultInstructorId?: string;
   defaultActivityType?: ActivityType;
-  onUpdate: (data: { status?: MeetingStatus; nature?: MeetingNature; instructorId?: string; registrationId?: string | null; activityType?: ActivityType; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => void;
+  onUpdate: (data: { status?: MeetingStatus; nature?: MeetingNature; instructorId?: string; registrationId?: string | null; activityType?: ActivityType; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; recallBotEnabled?: boolean; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => void;
   onCancel: () => void;
   isLoading?: boolean;
   isAdmin?: boolean;
@@ -2406,6 +2552,7 @@ function MeetingUpdateForm({ meeting, instructors, cycleType, registrations, def
   const [activityType, setActivityType] = useState<ActivityType>(meeting.activityType || defaultActivityType || 'frontal');
   const [topic, setTopic] = useState(meeting.topic || '');
   const [notes, setNotes] = useState(meeting.notes || '');
+  const [recallBotEnabled, setRecallBotEnabled] = useState(!!meeting.recallBotEnabled);
   const [scheduledDate, setScheduledDate] = useState(formatDateForInput(meeting.scheduledDate));
   const [startTime, setStartTime] = useState(formatTimeForInput(meeting.startTime));
   const [endTime, setEndTime] = useState(formatTimeForInput(meeting.endTime));
@@ -2443,6 +2590,7 @@ function MeetingUpdateForm({ meeting, instructors, cycleType, registrations, def
       activityType: activityType !== (meeting.activityType || defaultActivityType) ? activityType : undefined,
       topic: topic || undefined,
       notes: notes || undefined,
+      recallBotEnabled: recallBotEnabled !== !!meeting.recallBotEnabled ? recallBotEnabled : undefined,
       scheduledDate: scheduledDate !== originalDate ? scheduledDate : undefined,
       startTime: startTime !== originalStart ? startTime : undefined,
       endTime: endTime !== originalEnd ? endTime : undefined,
@@ -2638,6 +2786,24 @@ function MeetingUpdateForm({ meeting, instructors, cycleType, registrations, def
           placeholder="הערות נוספות..."
         />
       </div>
+
+      <label className="flex items-start gap-3 cursor-pointer rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+        <input
+          type="checkbox"
+          checked={recallBotEnabled}
+          onChange={(e) => setRecallBotEnabled(e.target.checked)}
+          disabled={!!meeting.recallBotId}
+          className="mt-1 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 disabled:opacity-50"
+        />
+        <span>
+          <span className="block text-sm font-medium text-emerald-900">
+            הפעל Recall bot לפגישה
+          </span>
+          <span className="block text-xs text-emerald-800 mt-1">
+            מיועד רק לפגישת Google Meet. אם כבר הוזמן בוט, לא ניתן לכבות אותו מהטופס.
+          </span>
+        </span>
+      </label>
 
       {/* Zoom Fields - Admin only */}
       {isAdmin && (
@@ -2922,6 +3088,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     minimumStudentsThreshold: cycle.minimumStudentsThreshold || 0,
     activityType: cycle.activityType || 'frontal',
     location: cycle.location || '',
+    recallBotEnabled: !!cycle.recallBotEnabled,
   });
 
   const [regenerateMeetings, setRegenerateMeetings] = useState(false);
@@ -3005,6 +3172,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
       minimumStudentsThreshold: Number(formData.minimumStudentsThreshold) > 0 ? Number(formData.minimumStudentsThreshold) : null,
       activityType: formData.activityType as ActivityType,
       location: formData.location.trim() || null,
+      recallBotEnabled: formData.recallBotEnabled,
       institutionalOrderId: formData.institutionalOrderId || null,
       regenerateMeetings: shouldRegenerate,
     } as any);
@@ -3344,6 +3512,27 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
             />
           </div>
         )}
+
+        {(formData.activityType === 'online' || formData.activityType === 'private_lesson') && (
+          <div className="col-span-2">
+            <label className="flex items-start gap-3 cursor-pointer rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+              <input
+                type="checkbox"
+                checked={formData.recallBotEnabled}
+                onChange={(e) => setFormData({ ...formData, recallBotEnabled: e.target.checked })}
+                className="mt-1 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span>
+                <span className="block text-sm font-medium text-emerald-900">
+                  הפעל Recall bot למחזור
+                </span>
+                <span className="block text-xs text-emerald-800 mt-1">
+                  מיועד רק לפגישות Google Meet. סימון במחזור מסמן גם פגישות עתידיות בלי בוט.
+                </span>
+              </span>
+            </label>
+          </div>
+        )}
       </div>
 
       <div className="flex justify-end gap-3 pt-4 border-t">
@@ -3372,6 +3561,7 @@ interface CreateMeetingFormProps {
     withZoom: boolean;
     videoProvider?: 'zoom' | 'google_meet';
     activityType?: string;
+    recallBotEnabled?: boolean;
     topic?: string;
     notes?: string;
   }) => void;
@@ -3389,6 +3579,7 @@ function CreateMeetingForm({ cycle, instructors, registrations, onSubmit, onCanc
     withZoom: cycle.activityType === 'online',
     videoProvider: 'google_meet' as 'zoom' | 'google_meet',
     activityType: (cycle.activityType || 'frontal') as string,
+    recallBotEnabled: !!cycle.recallBotEnabled,
     topic: '',
     notes: '',
   });
@@ -3518,6 +3709,27 @@ function CreateMeetingForm({ cycle, instructors, registrations, onSubmit, onCanc
               <option value="google_meet">Google Meet</option>
               <option value="zoom">Zoom</option>
             </select>
+          </div>
+        )}
+
+        {formData.withZoom && formData.videoProvider === 'google_meet' && (
+          <div className="col-span-2">
+            <label className="flex items-start gap-3 cursor-pointer rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+              <input
+                type="checkbox"
+                checked={formData.recallBotEnabled}
+                onChange={(e) => setFormData({ ...formData, recallBotEnabled: e.target.checked })}
+                className="mt-1 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span>
+                <span className="block text-sm font-medium text-emerald-900">
+                  הפעל Recall bot לפגישה
+                </span>
+                <span className="block text-xs text-emerald-800 mt-1">
+                  רלוונטי רק אם לפגישה יהיה קישור Google Meet.
+                </span>
+              </span>
+            </label>
           </div>
         )}
 

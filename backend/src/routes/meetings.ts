@@ -295,7 +295,19 @@ meetingsRouter.get('/:id', async (req, res, next) => {
 // Create exceptional/ad-hoc meeting for a cycle
 meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
   try {
-    const { cycleId, instructorId, registrationId, scheduledDate, startTime, endTime, withZoom, activityType, topic, notes } = req.body;
+    const {
+      cycleId,
+      instructorId,
+      registrationId,
+      scheduledDate,
+      startTime,
+      endTime,
+      withZoom,
+      activityType,
+      topic,
+      notes,
+      recallBotEnabled,
+    } = req.body;
     const videoProvider = req.body.videoProvider === 'google_meet' ? 'google_meet' : 'zoom';
 
     if (!cycleId || !instructorId || !scheduledDate || !startTime || !endTime) {
@@ -380,6 +392,7 @@ meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
         activityType: activityType || cycle.activityType || 'frontal',
         topic,
         notes,
+        recallBotEnabled: recallBotEnabled ?? cycle.recallBotEnabled ?? false,
         revenue,
         instructorPayment,
         profit,

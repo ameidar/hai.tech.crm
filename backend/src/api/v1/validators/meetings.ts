@@ -45,6 +45,7 @@ export const createMeetingSchema = z.object({
   nature: meetingNatureEnum.optional(),
   topic: z.string().optional(),
   notes: z.string().optional(),
+  recallBotEnabled: z.boolean().optional(),
   withZoom: z.boolean().optional().default(false),
   videoProvider: z.enum(['zoom', 'google_meet']).optional().default('zoom'),
 });
@@ -77,6 +78,7 @@ export const updateMeetingSchema = z.object({
   googleMeetSpaceName: z.string().optional().nullable(),
   googleCalendarEventId: z.string().optional().nullable(),
   lessonTranscript: z.string().optional().nullable(),
+  recallBotEnabled: z.boolean().optional(),
 });
 
 /**

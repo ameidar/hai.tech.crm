@@ -539,6 +539,7 @@ export class CyclesService {
     if (data.pricePerStudent !== undefined) updateData.pricePerStudent = data.pricePerStudent;
     if (data.studentCount !== undefined) updateData.studentCount = data.studentCount;
     if (data.sendParentReminders !== undefined) updateData.sendParentReminders = data.sendParentReminders;
+    if (data.recallBotEnabled !== undefined) updateData.recallBotEnabled = data.recallBotEnabled;
     if (data.activityType !== undefined) {
       updateData.activityType = data.activityType;
       updateData.isOnline = data.activityType === 'online';

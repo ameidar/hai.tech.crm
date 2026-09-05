@@ -292,6 +292,7 @@ export interface Cycle {
   maxStudents?: number;
   minimumStudentsThreshold?: number | null;
   sendParentReminders: boolean;
+  recallBotEnabled?: boolean;
   isOnline: boolean;
   activityType: ActivityType;
   location?: string | null;
@@ -361,6 +362,16 @@ export interface Meeting {
   zoomRecordingUrl?: string;
   zoomRecordingPassword?: string;
   lessonTranscript?: string;
+  recallBotEnabled?: boolean;
+  recallBotId?: string | null;
+  recallBotStatus?: string | null;
+  recallRecordingId?: string | null;
+  recallRecordingUrl?: string | null;
+  recallTranscriptUrl?: string | null;
+  lessonSummary?: string | null;
+  lessonReportStatus?: string | null;
+  lessonReportGeneratedAt?: string | null;
+  lessonReportError?: string | null;
   rescheduledToId?: string;
   createdAt: string;
   cycle?: Cycle;

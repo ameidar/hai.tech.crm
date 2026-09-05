@@ -171,6 +171,7 @@ export class CyclesRepository {
         studentCount: data.studentCount,
         maxStudents: data.maxStudents,
         sendParentReminders: data.sendParentReminders,
+        recallBotEnabled: data.recallBotEnabled,
         isOnline: data.activityType === 'online',
         activityType: data.activityType,
         location: data.location,

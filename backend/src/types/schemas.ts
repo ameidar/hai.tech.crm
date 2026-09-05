@@ -156,6 +156,7 @@ const cycleBaseSchema = z.object({
   maxStudents: z.number().int().nonnegative().optional().nullable(),
   minimumStudentsThreshold: z.number().int().nonnegative().optional().nullable(),
   sendParentReminders: z.boolean().default(true),
+  recallBotEnabled: z.boolean().optional().default(false),
   isOnline: z.boolean().default(false),
   activityType: z.enum(['online', 'frontal', 'private_lesson']).default('frontal'),
   location: z.string().trim().optional().nullable(),
@@ -242,6 +243,7 @@ export const createMeetingSchema = z.object({
   activityType: z.enum(['online', 'frontal', 'private_lesson']).optional().nullable(),
   topic: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  recallBotEnabled: z.boolean().optional(),
   registrationId: z.string().min(1).optional().nullable(),
   videoProvider: videoMeetingProviderEnum.optional().default('zoom'),
   zoomMeetingId: z.string().optional().nullable(),
@@ -318,6 +320,7 @@ export const bulkUpdateCyclesSchema = z.object({
     studentCount: z.number().int().positive().optional().nullable(),
     minimumStudentsThreshold: z.number().int().nonnegative().optional().nullable(),
     sendParentReminders: z.boolean().optional(),
+    recallBotEnabled: z.boolean().optional(),
     activityType: z.enum(['online', 'frontal', 'private_lesson']).optional(),
   }).refine(
     (data) => Object.keys(data).some(k => data[k as keyof typeof data] !== undefined),

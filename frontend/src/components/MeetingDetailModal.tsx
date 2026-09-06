@@ -336,7 +336,7 @@ export default function MeetingDetailModal({
                   <>
                     <p>• סוג: מוסדי (פר ילד)</p>
                     <p>• מחיר למפגש לילד: {formatCurrency(meeting.cycle.pricePerStudent)}</p>
-                    <p>• מספר תלמידים: {meeting.cycle.studentCount || '-'}</p>
+                    <p>• מספר תלמידים: {meeting.cycle.registrations?.length ?? meeting.cycle.studentCount ?? '-'}</p>
                   </>
                 )}
                 {meeting.cycle.type === 'institutional_fixed' && (

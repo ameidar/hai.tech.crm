@@ -936,7 +936,7 @@ export default function CycleDetail() {
                       <span className="font-semibold text-green-600">
                         {cycle.type === 'institutional_fixed' 
                           ? `₪${Number(cycle.meetingRevenue || 0).toLocaleString()}`
-                          : `₪${Number(cycle.pricePerStudent || 0).toLocaleString()} × ${cycle.studentCount || registrations?.length || 0} תלמידים`
+                          : `₪${Number(cycle.pricePerStudent || 0).toLocaleString()} × ${registrations?.length ?? cycle.studentCount ?? 0} תלמידים`
                         }
                       </span>
                     </div>

@@ -23,6 +23,17 @@ function toNumber(val: Decimal | number | null | undefined): number {
   return Number(val);
 }
 
+function institutionalStudentCount(cycle: any): number {
+  if (typeof cycle?._count?.registrations === 'number') return cycle._count.registrations;
+  if (Array.isArray(cycle?.registrations)) {
+    return cycle.registrations.filter((registration: any) =>
+      !registration.deletedAt
+      && !['cancelled', 'pending_cancellation'].includes(String(registration.status || 'registered'))
+    ).length;
+  }
+  return toNumber(cycle?.studentCount);
+}
+
 // Helper: Get month key (YYYY-MM)
 function getMonthKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -131,6 +142,16 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
             isOnline: true,
             type: true,
             durationMinutes: true,
+            _count: {
+              select: {
+                registrations: {
+                  where: {
+                    deletedAt: null,
+                    status: { notIn: ['cancelled', 'pending_cancellation'] },
+                  },
+                },
+              },
+            },
           },
         },
         instructor: {
@@ -212,8 +233,9 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
 
       const cycle = meeting.cycle as any;
       if (toNumber(cycle?.meetingRevenue) > 0) return toNumber(cycle.meetingRevenue);
-      if (cycle?.type === 'institutional_per_child' && toNumber(cycle?.pricePerStudent) > 0 && (cycle?.studentCount ?? 0) > 0) {
-        return toNumber(cycle.pricePerStudent) * (cycle.studentCount ?? 0);
+      const studentCount = institutionalStudentCount(cycle);
+      if (cycle?.type === 'institutional_per_child' && toNumber(cycle?.pricePerStudent) > 0 && studentCount > 0) {
+        return toNumber(cycle.pricePerStudent) * studentCount;
       }
       return 0;
     }
@@ -396,7 +418,19 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
       },
       include: {
         cycle: {
-          include: { expenses: true },
+          include: {
+            expenses: true,
+            _count: {
+              select: {
+                registrations: {
+                  where: {
+                    deletedAt: null,
+                    status: { notIn: ['cancelled', 'pending_cancellation'] },
+                  },
+                },
+              },
+            },
+          },
         },
         instructor: {
           select: {
@@ -424,10 +458,13 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
         if (estRevenue === 0) {
           if (toNumber(cycle.meetingRevenue) > 0) {
             estRevenue = toNumber(cycle.meetingRevenue);
-          } else if (cycle.type === 'institutional_per_child' && toNumber(cycle.pricePerStudent) > 0 && (cycle.studentCount ?? 0) > 0) {
-            estRevenue = toNumber(cycle.pricePerStudent) * (cycle.studentCount ?? 0);
           } else {
-            estRevenue = cycleAvgRevenue.get(meeting.cycleId) ?? globalAvgRevenue;
+            const studentCount = institutionalStudentCount(cycle);
+            if (cycle.type === 'institutional_per_child' && toNumber(cycle.pricePerStudent) > 0 && studentCount > 0) {
+              estRevenue = toNumber(cycle.pricePerStudent) * studentCount;
+            } else {
+              estRevenue = cycleAvgRevenue.get(meeting.cycleId) ?? globalAvgRevenue;
+            }
           }
         }
 
@@ -486,6 +523,16 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
         cycle: {
           include: {
             expenses: true,
+            _count: {
+              select: {
+                registrations: {
+                  where: {
+                    deletedAt: null,
+                    status: { notIn: ['cancelled', 'pending_cancellation'] },
+                  },
+                },
+              },
+            },
           },
         },
         instructor: {
@@ -537,12 +584,15 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
           if (toNumber(cycle.meetingRevenue) > 0) {
             // Cycle has a fixed revenue per meeting
             estimatedRevenue = toNumber(cycle.meetingRevenue);
-          } else if (cycle.type === 'institutional_per_child' && toNumber(cycle.pricePerStudent) > 0 && (cycle.studentCount ?? 0) > 0) {
-            // Revenue = price per student × number of students
-            estimatedRevenue = toNumber(cycle.pricePerStudent) * (cycle.studentCount ?? 0);
           } else {
-            // Last resort: historical cycle avg
-            estimatedRevenue = cycleAvgRevenue.get(meeting.cycleId) ?? globalAvgRevenue;
+            const studentCount = institutionalStudentCount(cycle);
+            // Revenue = price per student × number of students
+            if (cycle.type === 'institutional_per_child' && toNumber(cycle.pricePerStudent) > 0 && studentCount > 0) {
+              estimatedRevenue = toNumber(cycle.pricePerStudent) * studentCount;
+            } else {
+              // Last resort: historical cycle avg
+              estimatedRevenue = cycleAvgRevenue.get(meeting.cycleId) ?? globalAvgRevenue;
+            }
           }
         }
 

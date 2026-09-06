@@ -918,12 +918,38 @@ model Meeting {
   expenses              MeetingExpense[]
   changeRequests        MeetingChangeRequest[]
   billingPeriodMeetings BillingPeriodMeeting[]
+  lessonQuiz            LessonQuiz?
 
   @@index([recallBotId])
   @@index([lessonReportStatus])
   @@index([negativeProfitAlertSentAt])
   @@index([registrationId])
   @@map("meetings")
+}
+
+model LessonQuiz {
+  id                      String    @id @default(uuid())
+  meetingId               String    @unique @map("meeting_id")
+  token                   String    @unique
+  status                  String    @default("ready")
+  questions               Json
+  answers                 Json?
+  score                   Int?
+  totalQuestions          Int       @map("total_questions")
+  submittedAt             DateTime? @map("submitted_at")
+  instructorEmailSnapshot String?   @map("instructor_email_snapshot")
+  studentNameSnapshot     String?   @map("student_name_snapshot")
+  emailSentAt             DateTime? @map("email_sent_at")
+  emailError              String?   @map("email_error")
+  generationError         String?   @map("generation_error")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([submittedAt])
+  @@map("lesson_quizzes")
 }
 
 model Attendance {

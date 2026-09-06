@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { prisma } from '../utils/prisma.js';
+import { generateLessonQuizForMeeting } from './lesson-quiz.js';
 
 const DEFAULT_REGION = 'ap-northeast-1';
 const DEFAULT_BOT_NAME = 'HaiTech Lesson Bot';
@@ -363,6 +364,10 @@ export async function processRecallBot(botId: string) {
         lessonReportGeneratedAt: new Date(),
         lessonReportError: null,
       },
+    });
+
+    generateLessonQuizForMeeting(updatedMeeting.id).catch((error) => {
+      console.error('[LessonQuiz] Failed to generate quiz for Recall meeting:', error);
     });
 
     return { meeting: updatedMeeting, bot, processed: true };

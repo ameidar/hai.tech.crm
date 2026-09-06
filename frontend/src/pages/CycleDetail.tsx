@@ -55,6 +55,8 @@ import {
   useDeleteZoomMeeting,
   useScheduleCycleRecallBots,
   useScheduleMeetingRecallBot,
+  useMeetingLessonQuiz,
+  useGenerateMeetingLessonQuiz,
   useGenerateMeetings,
   useSyncCycleProgress,
   useCreateMeeting,
@@ -363,6 +365,8 @@ export default function CycleDetail() {
   const deleteZoomMeeting = useDeleteZoomMeeting();
   const scheduleCycleRecallBots = useScheduleCycleRecallBots();
   const scheduleMeetingRecallBot = useScheduleMeetingRecallBot();
+  const { data: lessonQuiz, isLoading: lessonQuizLoading } = useMeetingLessonQuiz(viewingMeeting?.id);
+  const generateLessonQuiz = useGenerateMeetingLessonQuiz();
   const [selectedVideoProvider, setSelectedVideoProvider] = useState<'zoom' | 'google_meet'>('google_meet');
   const generateMeetings = useGenerateMeetings();
   const syncCycleProgress = useSyncCycleProgress();
@@ -405,6 +409,17 @@ export default function CycleDetail() {
     navigator.clipboard.writeText(text);
     setCopiedField(field);
     setTimeout(() => setCopiedField(null), 2000);
+  };
+
+  const handleGenerateLessonQuiz = async () => {
+    if (!viewingMeeting) return;
+    try {
+      await generateLessonQuiz.mutateAsync(viewingMeeting.id);
+      alert('החידון נוצר בהצלחה');
+    } catch (error: any) {
+      console.error('Failed to generate lesson quiz:', error);
+      alert(error.response?.data?.error || 'שגיאה ביצירת החידון');
+    }
   };
 
   const handleCreateZoomMeeting = async () => {
@@ -1728,6 +1743,67 @@ export default function CycleDetail() {
                         {viewingMeeting.lessonSummary && (
                           <div className="whitespace-pre-wrap leading-relaxed">
                             {viewingMeeting.lessonSummary}
+                          </div>
+                        )}
+                        {viewingMeeting.lessonReportStatus === 'ready' && (
+                          <div className="border border-emerald-200 bg-white rounded-lg p-3 space-y-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <div className="font-medium text-emerald-900">חידון לתלמיד</div>
+                                <div className="text-xs text-gray-500">
+                                  {lessonQuizLoading
+                                    ? 'טוען...'
+                                    : lessonQuiz
+                                      ? `${lessonQuiz.totalQuestions} שאלות · ${lessonQuiz.status === 'submitted' ? 'הוגש' : 'מוכן'}`
+                                      : 'עדיין לא נוצר'}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={handleGenerateLessonQuiz}
+                                disabled={generateLessonQuiz.isPending}
+                                className="btn btn-secondary text-sm py-1"
+                              >
+                                <RefreshCcw size={14} className={generateLessonQuiz.isPending ? 'animate-spin' : ''} />
+                                {lessonQuiz ? 'צור מחדש' : 'צור חידון'}
+                              </button>
+                            </div>
+                            {lessonQuiz?.url && (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <a
+                                  href={lessonQuiz.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="btn btn-secondary text-sm py-1 inline-flex"
+                                >
+                                  <ExternalLink size={14} />
+                                  פתח חידון
+                                </a>
+                                <button
+                                  type="button"
+                                  onClick={() => copyToClipboard(lessonQuiz.url, 'lessonQuizUrl')}
+                                  className={`btn btn-secondary text-sm py-1 ${copiedField === 'lessonQuizUrl' ? 'bg-green-100 text-green-600' : ''}`}
+                                >
+                                  {copiedField === 'lessonQuizUrl' ? <CheckCircle size={14} /> : <Copy size={14} />}
+                                  {copiedField === 'lessonQuizUrl' ? 'הועתק!' : 'העתק לינק'}
+                                </button>
+                                {lessonQuiz.score !== null && lessonQuiz.score !== undefined && (
+                                  <span className="text-sm text-gray-600">
+                                    ציון: {lessonQuiz.score}/{lessonQuiz.totalQuestions}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {lessonQuiz?.generationError && (
+                              <div className="text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                                {lessonQuiz.generationError}
+                              </div>
+                            )}
+                            {lessonQuiz?.emailError && (
+                              <div className="text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                                {lessonQuiz.emailError}
+                              </div>
+                            )}
                           </div>
                         )}
                         {viewingMeeting.lessonReportError && (

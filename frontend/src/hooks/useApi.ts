@@ -10,6 +10,7 @@ import type {
   PayingBodyMorningCompare,
   PayingBodySyncDirection,
   Instructor,
+  LessonQuiz,
   Cycle,
   Meeting,
   Registration,
@@ -1277,6 +1278,34 @@ export const useScheduleMeetingRecallBot = () => {
       ),
     onSuccess: (_, meetingId) => {
       queryClient.invalidateQueries({ queryKey: ['meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['meeting', meetingId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
+    },
+  });
+};
+
+export const useMeetingLessonQuiz = (meetingId?: string | null) => {
+  return useQuery({
+    queryKey: ['meeting-lesson-quiz', meetingId],
+    queryFn: async () => {
+      const response = await api.get<{ data: LessonQuiz | null }>(`/lesson-ai/meetings/${meetingId}/quiz`);
+      return response.data.data;
+    },
+    enabled: !!meetingId,
+  });
+};
+
+export const useGenerateMeetingLessonQuiz = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (meetingId: string) => {
+      const response = await api.post<{ success: boolean; data: LessonQuiz | null }>(
+        `/lesson-ai/meetings/${meetingId}/quiz`
+      );
+      return response.data.data;
+    },
+    onSuccess: (_, meetingId) => {
+      queryClient.invalidateQueries({ queryKey: ['meeting-lesson-quiz', meetingId] });
       queryClient.invalidateQueries({ queryKey: ['meeting', meetingId] });
       queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
     },

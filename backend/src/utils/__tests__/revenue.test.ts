@@ -77,6 +77,31 @@ describe('revenue helpers', () => {
     })).toBe(169.32);
   });
 
+  it('uses live registrations before stale studentCount for institutional per-child cycles', () => {
+    expect(meetingRevenueForCycle({
+      type: 'institutional_per_child',
+      pricePerStudent: 55,
+      studentCount: 1,
+      registrations: [
+        { status: 'active' },
+        { status: 'active' },
+        { status: 'registered' },
+        { status: 'active' },
+        { status: 'active' },
+        { status: 'active' },
+        { status: 'registered' },
+      ],
+    })).toBe(385);
+  });
+
+  it('falls back to studentCount for institutional per-child cycles without registration data', () => {
+    expect(meetingRevenueForCycle({
+      type: 'institutional_per_child',
+      pricePerStudent: 55,
+      studentCount: 7,
+    })).toBe(385);
+  });
+
   it('does not use pricePerStudent for private cycle revenue', () => {
     expect(meetingRevenueForCycle({
       type: 'private',

@@ -93,6 +93,7 @@ export function meetingRevenueFromRegistrations(
 
 export function meetingRevenueForCycle(cycle: CycleRevenueLike): number {
   const type = String(cycle.type || '');
+  const hasRegistrationList = Array.isArray(cycle.registrations);
   const registrations = revenueRegistrations(cycle.registrations ?? []);
 
   if (type === 'institutional_fixed') {
@@ -101,7 +102,9 @@ export function meetingRevenueForCycle(cycle: CycleRevenueLike): number {
 
   if (type === 'institutional_per_child') {
     const pricePerStudent = Number(cycle.pricePerStudent || 0);
-    const studentCount = cycle.studentCount || registrations.length;
+    const studentCount = hasRegistrationList
+      ? registrations.length
+      : Number(cycle.studentCount || 0);
     return roundMoney(pricePerStudent * studentCount);
   }
 

@@ -28,7 +28,7 @@ function computeRevenuePerMeeting(cycle: any): number {
     return Number(cycle.meetingRevenue || 0);
   }
   if (cycle.type === 'institutional_per_child') {
-    const count = cycle.studentCount || (cycle.registrations?.length ?? cycle._count?.registrations ?? 0);
+    const count = cycle.registrations?.length ?? cycle._count?.registrations ?? cycle.studentCount ?? 0;
     return roundMoney(Number(cycle.pricePerStudent || 0) * count);
   }
   if (cycle.type === 'private' || cycle.type === 'trial_private' || cycle.type === 'group') {

@@ -372,6 +372,7 @@ export interface Meeting {
   lessonReportStatus?: string | null;
   lessonReportGeneratedAt?: string | null;
   lessonReportError?: string | null;
+  lessonQuiz?: LessonQuiz | null;
   rescheduledToId?: string;
   createdAt: string;
   cycle?: Cycle;
@@ -381,6 +382,33 @@ export interface Meeting {
   _count?: {
     attendance: number;
   };
+}
+
+export interface LessonQuizQuestion {
+  id: string;
+  question: string;
+  options: string[];
+  correctIndex?: number;
+  explanation?: string;
+}
+
+export interface LessonQuiz {
+  id: string;
+  meetingId: string;
+  token: string;
+  url: string;
+  status: string;
+  questions: LessonQuizQuestion[];
+  score?: number | null;
+  totalQuestions: number;
+  submittedAt?: string | null;
+  instructorEmailSnapshot?: string | null;
+  studentNameSnapshot?: string | null;
+  emailSentAt?: string | null;
+  emailError?: string | null;
+  generationError?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Registration {

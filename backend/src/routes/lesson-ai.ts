@@ -8,6 +8,12 @@ import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { generateLessonPlan } from '../services/lesson-ai.service.js';
+import {
+  generateLessonQuizForMeeting,
+  getMeetingQuiz,
+  getPublicLessonQuiz,
+  submitLessonQuiz,
+} from '../services/lesson-quiz.js';
 import { processRecallBot, scheduleRecallBotForMeeting, scheduleRecallBotsForCycle } from '../services/recall-ai.js';
 import { z } from 'zod';
 
@@ -29,6 +35,10 @@ const recallWebhookSchema = z.object({
   bot_id: z.string().optional(),
   bot: z.object({ id: z.string().optional() }).optional(),
   data: z.object({ bot_id: z.string().optional(), bot: z.object({ id: z.string().optional() }).optional() }).optional(),
+});
+
+const submitQuizSchema = z.object({
+  answers: z.record(z.number().int().min(0).max(3)),
 });
 
 // POST /api/lesson-ai/recall-webhook - Recall webhook receiver.
@@ -53,6 +63,37 @@ lessonAiRouter.post('/recall-webhook', async (req, res, next) => {
 
     res.json({ success: true, accepted: true, botId });
   } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/lesson-ai/quiz/:token - public child quiz page data
+lessonAiRouter.get('/quiz/:token', async (req, res, next) => {
+  try {
+    const token = z.string().min(16).parse(req.params.token);
+    const quiz = await getPublicLessonQuiz(token);
+    if (!quiz) return res.status(404).json({ error: 'החידון לא נמצא' });
+    res.json({ data: quiz });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/lesson-ai/quiz/:token/submit - submit public child quiz answers
+lessonAiRouter.post('/quiz/:token/submit', async (req, res, next) => {
+  try {
+    const token = z.string().min(16).parse(req.params.token);
+    const body = submitQuizSchema.parse(req.body || {});
+    const result = await submitLessonQuiz(token, body.answers);
+    res.json({
+      success: true,
+      score: result.score,
+      totalQuestions: result.totalQuestions,
+      questions: result.questions,
+    });
+  } catch (error: any) {
+    if (error.message === 'Quiz not found') return res.status(404).json({ error: 'החידון לא נמצא' });
+    if (error.message === 'Quiz already submitted') return res.status(409).json({ error: 'החידון כבר הוגש' });
     next(error);
   }
 });
@@ -181,6 +222,29 @@ lessonAiRouter.get('/meetings/:meetingId/report', managerOrAdmin, async (req, re
     });
     if (!meeting) return res.status(404).json({ error: 'פגישה לא נמצאה' });
     res.json({ data: meeting });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/lesson-ai/meetings/:meetingId/quiz - read lesson quiz status/link for a meeting
+lessonAiRouter.get('/meetings/:meetingId/quiz', managerOrAdmin, async (req, res, next) => {
+  try {
+    const meetingId = z.string().uuid().parse(req.params.meetingId);
+    const quiz = await getMeetingQuiz(meetingId);
+    res.json({ data: quiz });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/lesson-ai/meetings/:meetingId/quiz - generate or regenerate a lesson quiz
+lessonAiRouter.post('/meetings/:meetingId/quiz', managerOrAdmin, async (req, res, next) => {
+  try {
+    const meetingId = z.string().uuid().parse(req.params.meetingId);
+    const quiz = await generateLessonQuizForMeeting(meetingId);
+    const data = await getMeetingQuiz(quiz.meetingId);
+    res.json({ success: true, data });
   } catch (error) {
     next(error);
   }

@@ -1312,6 +1312,23 @@ export const useGenerateMeetingLessonQuiz = () => {
   });
 };
 
+export const useSendMeetingLessonQuizToParent = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (meetingId: string) => {
+      const response = await api.post<{ success: boolean; data: LessonQuiz | null; messageId?: string }>(
+        `/lesson-ai/meetings/${meetingId}/quiz/send-parent`
+      );
+      return response.data;
+    },
+    onSuccess: (_, meetingId) => {
+      queryClient.invalidateQueries({ queryKey: ['meeting-lesson-quiz', meetingId] });
+      queryClient.invalidateQueries({ queryKey: ['meeting', meetingId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
+    },
+  });
+};
+
 // ==================== Messaging ====================
 
 export const useMessageTemplates = () => {

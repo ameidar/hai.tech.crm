@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeQuestions } from '../lesson-quiz.js';
+import { buildParentQuizMessage, normalizeQuestions } from '../lesson-quiz.js';
 
 describe('normalizeQuestions', () => {
   it('accepts numeric question ids returned by the model', () => {
@@ -28,5 +28,21 @@ describe('normalizeQuestions', () => {
     ]);
 
     expect(questions.map((question) => question.id)).toEqual(['1', '2', '3']);
+  });
+
+  it('builds a parent-facing WhatsApp message with the quiz link', () => {
+    const message = buildParentQuizMessage({
+      parentName: 'יערה',
+      studentName: 'מורי',
+      instructorName: 'ניר',
+      cycleName: 'שיעורי ניסיון פרטיים - גנרי',
+      url: 'https://crm.orma-ai.com/lesson-quiz/token',
+    });
+
+    expect(message).toContain('שלום יערה');
+    expect(message).toContain('למורי');
+    expect(message).toContain('עם ניר');
+    expect(message).toContain('https://crm.orma-ai.com/lesson-quiz/token');
+    expect(message).toContain('המדריך יקבל את התשובות והציון');
   });
 });

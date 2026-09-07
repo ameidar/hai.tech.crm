@@ -12,9 +12,11 @@ import {
   generateLessonQuizForMeeting,
   getMeetingQuiz,
   getPublicLessonQuiz,
+  sendLessonQuizToParent,
   submitLessonQuiz,
 } from '../services/lesson-quiz.js';
 import { processRecallBot, scheduleRecallBotForMeeting, scheduleRecallBotsForCycle } from '../services/recall-ai.js';
+import { logAudit } from '../utils/audit.js';
 import { z } from 'zod';
 
 export const lessonAiRouter = Router();
@@ -85,6 +87,19 @@ lessonAiRouter.post('/quiz/:token/submit', async (req, res, next) => {
     const token = z.string().min(16).parse(req.params.token);
     const body = submitQuizSchema.parse(req.body || {});
     const result = await submitLessonQuiz(token, body.answers);
+    await logAudit({
+      action: 'UPDATE',
+      entity: 'lesson_quiz',
+      entityId: result.id,
+      newValue: {
+        meetingId: result.meetingId,
+        status: 'submitted',
+        score: result.score,
+        totalQuestions: result.totalQuestions,
+        submittedAt: result.submittedAt,
+      },
+      req,
+    });
     res.json({
       success: true,
       score: result.score,
@@ -246,6 +261,34 @@ lessonAiRouter.post('/meetings/:meetingId/quiz', managerOrAdmin, async (req, res
     const data = await getMeetingQuiz(quiz.meetingId);
     res.json({ success: true, data });
   } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/lesson-ai/meetings/:meetingId/quiz/send-parent - send the quiz link to the parent via WhatsApp
+lessonAiRouter.post('/meetings/:meetingId/quiz/send-parent', managerOrAdmin, async (req, res, next) => {
+  try {
+    const meetingId = z.string().uuid().parse(req.params.meetingId);
+    const result = await sendLessonQuizToParent(meetingId);
+    await logAudit({
+      userId: (req as any).user?.id,
+      userName: (req as any).user?.name || (req as any).user?.email,
+      action: 'CREATE',
+      entity: 'lesson_quiz_parent_whatsapp',
+      entityId: result.quiz.id,
+      newValue: {
+        meetingId,
+        phone: result.phone,
+        messageId: result.messageId,
+        messagePreview: result.message.slice(0, 200),
+      },
+      req,
+    });
+    const data = await getMeetingQuiz(meetingId);
+    res.json({ success: true, data, messageId: result.messageId });
+  } catch (error: any) {
+    if (error.message === 'Quiz not found') return res.status(404).json({ error: 'החידון לא נמצא' });
+    if (error.message === 'Parent phone is missing') return res.status(400).json({ error: 'אין טלפון הורה לשליחת החידון' });
     next(error);
   }
 });

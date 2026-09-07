@@ -406,6 +406,13 @@ export interface LessonQuiz {
   studentNameSnapshot?: string | null;
   emailSentAt?: string | null;
   emailError?: string | null;
+  parentSentAt?: string | null;
+  parentSentToPhone?: string | null;
+  parentMessageId?: string | null;
+  parentSendError?: string | null;
+  parentName?: string | null;
+  parentPhone?: string | null;
+  parentMessagePreview?: string | null;
   generationError?: string | null;
   createdAt: string;
   updatedAt: string;

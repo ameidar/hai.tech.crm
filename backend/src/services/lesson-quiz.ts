@@ -4,6 +4,8 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma.js';
 import { queueEmail, EmailPriority } from './email/queue.js';
+import { sendGreenApiMessage } from './green-api-client.js';
+import { broadcastWaSSE } from './wa-events.js';
 
 const PUBLIC_BASE_URL = () => process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
 
@@ -75,8 +77,44 @@ function quizUrl(token: string) {
   return `${PUBLIC_BASE_URL()}/lesson-quiz/${token}`;
 }
 
+function normalizeWhatsAppPhone(phone: string | null | undefined): string | null {
+  const digits = (phone || '').replace(/\D/g, '');
+  if (digits.length < 9) return null;
+  if (digits.startsWith('972')) return digits;
+  if (digits.startsWith('0')) return `972${digits.slice(1)}`;
+  return `972${digits}`;
+}
+
+function formatPhoneForGreenApi(phone: string) {
+  return `${phone}@c.us`;
+}
+
 function questionsFromJson(value: Prisma.JsonValue): QuizQuestion[] {
   return normalizeQuestions(value);
+}
+
+export function buildParentQuizMessage(params: {
+  parentName?: string | null;
+  studentName?: string | null;
+  instructorName?: string | null;
+  cycleName?: string | null;
+  url: string;
+}) {
+  const parentName = params.parentName?.trim();
+  const studentName = params.studentName?.trim() || 'הילד/ה';
+  const greeting = parentName ? `שלום ${parentName},` : 'שלום,';
+  const instructorLine = params.instructorName ? ` עם ${params.instructorName}` : '';
+  const cycleLine = params.cycleName ? ` (${params.cycleName})` : '';
+
+  return [
+    greeting,
+    `הכנו ל${studentName} חידון קצר אחרי השיעור${instructorLine}${cycleLine}, כדי לבדוק שהחומר הובן בצורה טובה.`,
+    'החידון אמריקאי וקצר, וייקח כמה דקות לענות עליו:',
+    params.url,
+    '',
+    'אחרי השליחה המדריך יקבל את התשובות והציון ויוכל לדעת אם צריך לחזק משהו בשיעור הבא.',
+    'דרך ההייטק',
+  ].join('\n');
 }
 
 async function generateQuestions(params: {
@@ -161,6 +199,10 @@ export async function generateLessonQuizForMeeting(meetingId: string) {
         totalQuestions: questions.length,
         instructorEmailSnapshot: meeting.instructor?.email || null,
         studentNameSnapshot: meeting.registration?.student?.name || null,
+        parentSentAt: null,
+        parentSentToPhone: null,
+        parentMessageId: null,
+        parentSendError: null,
         generationError: null,
       },
       update: {
@@ -175,6 +217,10 @@ export async function generateLessonQuizForMeeting(meetingId: string) {
         studentNameSnapshot: meeting.registration?.student?.name || null,
         emailSentAt: null,
         emailError: null,
+        parentSentAt: null,
+        parentSentToPhone: null,
+        parentMessageId: null,
+        parentSendError: null,
         generationError: null,
       },
     });
@@ -189,6 +235,10 @@ export async function generateLessonQuizForMeeting(meetingId: string) {
         totalQuestions: 0,
         instructorEmailSnapshot: meeting.instructor?.email || null,
         studentNameSnapshot: meeting.registration?.student?.name || null,
+        parentSentAt: null,
+        parentSentToPhone: null,
+        parentMessageId: null,
+        parentSendError: null,
         generationError: error.message || 'Quiz generation failed',
       },
       update: {
@@ -201,12 +251,36 @@ export async function generateLessonQuizForMeeting(meetingId: string) {
 }
 
 export async function getMeetingQuiz(meetingId: string) {
-  const quiz = await prisma.lessonQuiz.findUnique({ where: { meetingId } });
+  const quiz = await prisma.lessonQuiz.findUnique({
+    where: { meetingId },
+    include: {
+      meeting: {
+        include: {
+          cycle: true,
+          instructor: true,
+          registration: { include: { student: { include: { customer: true } } } },
+        },
+      },
+    },
+  });
   if (!quiz) return null;
+  const parentPhone = normalizeWhatsAppPhone(quiz.meeting.registration?.student?.customer?.phone);
+  const url = quizUrl(quiz.token);
   return {
     ...quiz,
-    url: quizUrl(quiz.token),
+    url,
     questions: questionsFromJson(quiz.questions),
+    parentName: quiz.meeting.registration?.student?.customer?.name || null,
+    parentPhone,
+    parentMessagePreview: parentPhone
+      ? buildParentQuizMessage({
+          parentName: quiz.meeting.registration?.student?.customer?.name,
+          studentName: quiz.studentNameSnapshot || quiz.meeting.registration?.student?.name,
+          instructorName: quiz.meeting.instructor?.name,
+          cycleName: quiz.meeting.cycle?.name,
+          url,
+        })
+      : null,
   };
 }
 
@@ -332,6 +406,145 @@ export async function submitLessonQuiz(token: string, answers: Record<string, nu
     totalQuestions: questions.length,
     questions,
   };
+}
+
+export async function sendLessonQuizToParent(meetingId: string) {
+  const quiz = await prisma.lessonQuiz.findUnique({
+    where: { meetingId },
+    include: {
+      meeting: {
+        include: {
+          cycle: true,
+          instructor: true,
+          registration: { include: { student: { include: { customer: true } } } },
+        },
+      },
+    },
+  });
+
+  if (!quiz || quiz.status === 'failed') throw new Error('Quiz not found');
+
+  const parent = quiz.meeting.registration?.student?.customer;
+  const phone = normalizeWhatsAppPhone(parent?.phone);
+  if (!phone) throw new Error('Parent phone is missing');
+
+  const url = quizUrl(quiz.token);
+  const message = buildParentQuizMessage({
+    parentName: parent?.name,
+    studentName: quiz.studentNameSnapshot || quiz.meeting.registration?.student?.name,
+    instructorName: quiz.meeting.instructor?.name,
+    cycleName: quiz.meeting.cycle?.name,
+    url,
+  });
+
+  const result = await sendGreenApiMessage(formatPhoneForGreenApi(phone), message);
+  if (!result.success) {
+    await prisma.lessonQuiz.update({
+      where: { id: quiz.id },
+      data: {
+        parentSentToPhone: phone,
+        parentSendError: result.error || 'Failed to send quiz to parent',
+      },
+    });
+    throw new Error(result.error || 'Failed to send quiz to parent');
+  }
+
+  const now = new Date();
+  await saveParentQuizWhatsAppMessage({
+    phone,
+    parentName: parent?.name,
+    message,
+    greenMessageId: result.messageId,
+  });
+
+  const updated = await prisma.lessonQuiz.update({
+    where: { id: quiz.id },
+    data: {
+      parentSentAt: now,
+      parentSentToPhone: phone,
+      parentMessageId: result.messageId || null,
+      parentSendError: null,
+    },
+  });
+
+  return {
+    quiz: updated,
+    phone,
+    message,
+    messageId: result.messageId,
+  };
+}
+
+async function saveParentQuizWhatsAppMessage(params: {
+  phone: string;
+  parentName?: string | null;
+  message: string;
+  greenMessageId?: string | null;
+}) {
+  const now = new Date();
+  const waMessageId = params.greenMessageId ? `green:${params.greenMessageId}` : undefined;
+
+  if (waMessageId) {
+    const existing = await prisma.waMessage.findUnique({
+      where: { waMessageId },
+      select: { id: true },
+    });
+    if (existing) return existing;
+  }
+
+  let conversation = await prisma.waConversation.findFirst({
+    where: { phone: params.phone },
+    orderBy: { lastMessageAt: 'desc' },
+  });
+
+  if (!conversation) {
+    conversation = await prisma.waConversation.create({
+      data: {
+        phone: params.phone,
+        contactName: params.parentName || params.phone,
+        status: 'open',
+        unreadCount: 0,
+        lastMessageAt: now,
+        lastMessagePreview: params.message.slice(0, 100),
+        businessPhone: 'Green API',
+        phoneNumberId: null,
+        aiEnabled: false,
+      },
+    });
+  }
+
+  const waMessage = await prisma.waMessage.create({
+    data: {
+      conversationId: conversation.id,
+      direction: 'outbound',
+      content: params.message,
+      waMessageId,
+      status: 'sent',
+      isAiGenerated: false,
+    },
+  });
+
+  await prisma.waConversation.update({
+    where: { id: conversation.id },
+    data: {
+      lastMessageAt: now,
+      lastMessagePreview: params.message.slice(0, 100),
+      contactName: params.parentName || conversation.contactName || params.phone,
+      businessPhone: conversation.businessPhone || 'Green API',
+      aiEnabled: false,
+      updatedAt: now,
+    },
+  });
+
+  broadcastWaSSE('new_message', {
+    conversationId: conversation.id,
+    message: waMessage,
+    phone: params.phone,
+    contactName: params.parentName || conversation.contactName || params.phone,
+    provider: 'green',
+  });
+
+  return waMessage;
 }
 
 function buildInstructorEmail(params: {

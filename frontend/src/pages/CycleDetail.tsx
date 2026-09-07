@@ -31,6 +31,7 @@ import {
   CalendarX,
   FileText,
   Download,
+  MessageCircle,
 } from 'lucide-react';
 import MeetingExpenses from '../components/MeetingExpenses';
 import MeetingsExportModal from '../components/MeetingsExportModal';
@@ -57,6 +58,7 @@ import {
   useScheduleMeetingRecallBot,
   useMeetingLessonQuiz,
   useGenerateMeetingLessonQuiz,
+  useSendMeetingLessonQuizToParent,
   useGenerateMeetings,
   useSyncCycleProgress,
   useCreateMeeting,
@@ -367,6 +369,7 @@ export default function CycleDetail() {
   const scheduleMeetingRecallBot = useScheduleMeetingRecallBot();
   const { data: lessonQuiz, isLoading: lessonQuizLoading } = useMeetingLessonQuiz(viewingMeeting?.id);
   const generateLessonQuiz = useGenerateMeetingLessonQuiz();
+  const sendLessonQuizToParent = useSendMeetingLessonQuizToParent();
   const [selectedVideoProvider, setSelectedVideoProvider] = useState<'zoom' | 'google_meet'>('google_meet');
   const generateMeetings = useGenerateMeetings();
   const syncCycleProgress = useSyncCycleProgress();
@@ -419,6 +422,26 @@ export default function CycleDetail() {
     } catch (error: any) {
       console.error('Failed to generate lesson quiz:', error);
       alert(error.response?.data?.error || 'שגיאה ביצירת החידון');
+    }
+  };
+
+  const handleSendLessonQuizToParent = async () => {
+    if (!viewingMeeting || !lessonQuiz?.url) return;
+    const message = lessonQuiz.parentMessagePreview;
+    const target = lessonQuiz.parentName || lessonQuiz.parentPhone || 'ההורה';
+    const confirmed = window.confirm(
+      message
+        ? `לשלוח ל${target} ב-WhatsApp את ההודעה הבאה?\n\n${message}`
+        : `לשלוח ל${target} ב-WhatsApp את לינק החידון?`
+    );
+    if (!confirmed) return;
+
+    try {
+      await sendLessonQuizToParent.mutateAsync(viewingMeeting.id);
+      alert('החידון נשלח להורה בהצלחה');
+    } catch (error: any) {
+      console.error('Failed to send lesson quiz to parent:', error);
+      alert(error.response?.data?.error || 'שגיאה בשליחת החידון להורה');
     }
   };
 
@@ -1787,6 +1810,16 @@ export default function CycleDetail() {
                                   {copiedField === 'lessonQuizUrl' ? <CheckCircle size={14} /> : <Copy size={14} />}
                                   {copiedField === 'lessonQuizUrl' ? 'הועתק!' : 'העתק לינק'}
                                 </button>
+                                <button
+                                  type="button"
+                                  onClick={handleSendLessonQuizToParent}
+                                  disabled={sendLessonQuizToParent.isPending || !lessonQuiz.parentPhone}
+                                  className="btn btn-primary text-sm py-1"
+                                  title={lessonQuiz.parentPhone ? 'שלח חידון להורה בוואטסאפ' : 'אין טלפון הורה לשליחה'}
+                                >
+                                  <MessageCircle size={14} className={sendLessonQuizToParent.isPending ? 'animate-pulse' : ''} />
+                                  {sendLessonQuizToParent.isPending ? 'שולח...' : 'שלח להורה'}
+                                </button>
                                 {lessonQuiz.score !== null && lessonQuiz.score !== undefined && (
                                   <span className="text-sm text-gray-600">
                                     ציון: {lessonQuiz.score}/{lessonQuiz.totalQuestions}
@@ -1794,9 +1827,28 @@ export default function CycleDetail() {
                                 )}
                               </div>
                             )}
+                            {lessonQuiz?.submittedAt && (
+                              <div className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded p-2">
+                                הוגש ב-{new Date(lessonQuiz.submittedAt).toLocaleString('he-IL')}
+                                {lessonQuiz.score !== null && lessonQuiz.score !== undefined
+                                  ? ` · ציון ${lessonQuiz.score}/${lessonQuiz.totalQuestions}`
+                                  : ''}
+                              </div>
+                            )}
+                            {lessonQuiz?.parentSentAt && (
+                              <div className="text-sm text-green-800 bg-green-50 border border-green-200 rounded p-2">
+                                נשלח להורה ב-{new Date(lessonQuiz.parentSentAt).toLocaleString('he-IL')}
+                                {lessonQuiz.parentSentToPhone ? ` · ${lessonQuiz.parentSentToPhone}` : ''}
+                              </div>
+                            )}
                             {lessonQuiz?.generationError && (
                               <div className="text-red-700 bg-red-50 border border-red-200 rounded p-2">
                                 {lessonQuiz.generationError}
+                              </div>
+                            )}
+                            {lessonQuiz?.parentSendError && (
+                              <div className="text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                                {lessonQuiz.parentSendError}
                               </div>
                             )}
                             {lessonQuiz?.emailError && (

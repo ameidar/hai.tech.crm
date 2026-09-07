@@ -8,7 +8,11 @@ import { queueEmail, EmailPriority } from './email/queue.js';
 const PUBLIC_BASE_URL = () => process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
 
 const quizQuestionSchema = z.object({
-  id: z.string().min(1),
+  id: z.preprocess((value) => {
+    if (typeof value === 'number') return value.toString();
+    if (typeof value === 'string') return value.trim();
+    return value;
+  }, z.string().min(1)),
   question: z.string().min(8),
   options: z.array(z.string().min(1)).length(4),
   correctIndex: z.number().int().min(0).max(3),
@@ -46,7 +50,7 @@ function extractJsonArray(content: string) {
   return raw.slice(start, end + 1);
 }
 
-function normalizeQuestions(value: unknown): QuizQuestion[] {
+export function normalizeQuestions(value: unknown): QuizQuestion[] {
   const questions = quizQuestionsSchema.parse(value);
   return questions.map((question, index) => ({
     ...question,

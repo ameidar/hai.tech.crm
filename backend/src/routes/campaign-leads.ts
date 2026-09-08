@@ -5,6 +5,7 @@ import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
 import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
 import { autoRegisterLeadToCycle } from '../services/lead-cycle-registration.js';
 import { createWooPaymentLink } from '../services/woo-payment-link.js';
+import { extractLeadAttribution } from '../utils/lead-attribution.js';
 
 export const campaignLeadsRouter = Router();
 
@@ -201,6 +202,7 @@ campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunc
     };
     const children = normalizeChildren(req.body);
     const primaryChild = children[0] ?? {};
+    const attribution = extractLeadAttribution(req.body);
 
     if (!name || !phone) {
       res.status(400).json({ error: 'שם וטלפון הם שדות חובה' });
@@ -230,6 +232,7 @@ campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunc
         child.childAge ? `גיל ${child.childAge}` : null,
         child.grade ? `כיתה ${child.grade}` : null,
       ].filter(Boolean).join(' / ')).join('; ')}` : null,
+      attribution.note,
     ].filter(Boolean).join(' | ') || 'ליד מקמפיין';
 
     // Find or create customer + add to communication history
@@ -253,8 +256,12 @@ campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunc
       interest,
       source: leadSource,
       appointmentNotes: leadNotes,
-      campaignId: campaign?.id ?? null,
-      campaignName: campaign?.name ?? null,
+      campaignId: campaign?.id ?? attribution.campaignId ?? null,
+      campaignName: attribution.campaignName ?? campaign?.name ?? null,
+      adId: attribution.adId ?? null,
+      adName: attribution.adName ?? null,
+      adsetName: attribution.adsetName ?? null,
+      formId: attribution.formId ?? null,
     });
 
     const registrations = customerId

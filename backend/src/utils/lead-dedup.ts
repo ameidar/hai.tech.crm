@@ -110,6 +110,12 @@ export async function findOrCreateLeadAppointment(
         customer_id       = COALESCE(customer_id, ${customerId ?? null}),
         customer_email    = COALESCE(customer_email, ${customerEmail ?? null}),
         assigned_to_id    = COALESCE(assigned_to_id, ${input.assignedToId ?? null}),
+        campaign_id       = COALESCE(campaign_id, ${input.campaignId ?? null}),
+        campaign_name     = COALESCE(campaign_name, ${input.campaignName ?? null}),
+        ad_id             = COALESCE(ad_id, ${input.adId ?? null}),
+        ad_name           = COALESCE(ad_name, ${input.adName ?? null}),
+        adset_name        = COALESCE(adset_name, ${input.adsetName ?? null}),
+        form_id           = COALESCE(form_id, ${input.formId ?? null}),
         sales_status      = CASE
                               WHEN sales_status IS NULL OR sales_status IN ('new', 'no_answer')
                               THEN 'follow_up'

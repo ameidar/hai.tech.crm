@@ -150,6 +150,12 @@ describe('campaign leads public API', () => {
         childName: 'ילד בדיקה',
         childAge: '10',
         grade: 'ה',
+        utm_source: 'facebook',
+        utm_medium: 'paid_social',
+        utm_campaign: 'Roblox Online 04/10',
+        utm_content: 'existing-post',
+        utm_term: 'parents-28-50',
+        ad_id: '120250355118240297',
       });
 
     expect(res.status).toBe(201);
@@ -174,8 +180,12 @@ describe('campaign leads public API', () => {
     }));
     expect(mockFindOrCreateLeadAppointment).toHaveBeenCalledWith(expect.objectContaining({
       campaignId: 'roblox-group-20261004',
-      campaignName: 'רובלוקס מתחילים גילאי 10-13',
+      campaignName: 'Roblox Online 04/10',
       childName: 'ילד בדיקה',
+      adId: '120250355118240297',
+      adName: 'existing-post',
+      adsetName: 'parents-28-50',
+      appointmentNotes: expect.stringContaining('utm_source=facebook'),
     }));
     expect(mockAutoRegisterLeadToCycle).toHaveBeenCalledWith(expect.objectContaining({
       source: 'campaign:roblox-group-20261004',

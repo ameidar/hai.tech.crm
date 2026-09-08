@@ -1,5 +1,17 @@
 import { prisma } from './prisma.js';
 
+export const INTERNAL_OPERATIONS_CYCLE_NAME = 'ניהול ותפעול';
+
+async function countOpenOperationalMeetings(cycleId: string): Promise<number> {
+  return prisma.meeting.count({
+    where: {
+      cycleId,
+      deletedAt: null,
+      status: { in: ['scheduled', 'pending_cancellation', 'pending_postponement'] },
+    },
+  });
+}
+
 /**
  * Sync cycle progress (completedMeetings + remainingMeetings) from actual DB meetings.
  * Always counts from source-of-truth, so no drift over time.
@@ -11,7 +23,7 @@ export async function syncCycleProgress(cycleId: string): Promise<{
 }> {
   const cycle = await prisma.cycle.findUnique({
     where: { id: cycleId },
-    select: { totalMeetings: true, status: true },
+    select: { name: true, totalMeetings: true, status: true },
   });
   if (!cycle) throw new Error(`Cycle ${cycleId} not found`);
 
@@ -19,9 +31,13 @@ export async function syncCycleProgress(cycleId: string): Promise<{
     where: { cycleId, status: 'completed' },
   });
 
-  const remainingMeetings = cycle.status === 'completed'
+  let remainingMeetings = cycle.status === 'completed'
     ? 0
     : Math.max(0, cycle.totalMeetings - completedMeetings);
+
+  if (cycle.name === INTERNAL_OPERATIONS_CYCLE_NAME && cycle.status === 'active') {
+    remainingMeetings = await countOpenOperationalMeetings(cycleId);
+  }
 
   await prisma.cycle.update({
     where: { id: cycleId },
@@ -56,4 +72,23 @@ export async function syncCycleEndDate(cycleId: string): Promise<Date | null> {
     data: { endDate: lastMeeting.scheduledDate },
   });
   return lastMeeting.scheduledDate;
+}
+
+export async function hasOpenOperationalMeetings(cycleId: string): Promise<boolean> {
+  const openMeetings = await countOpenOperationalMeetings(cycleId);
+
+  return openMeetings > 0;
+}
+
+export async function shouldAutoCompleteCycle(cycleId: string): Promise<boolean> {
+  const cycle = await prisma.cycle.findUnique({
+    where: { id: cycleId },
+    select: { name: true },
+  });
+
+  if (cycle?.name === INTERNAL_OPERATIONS_CYCLE_NAME) {
+    return false;
+  }
+
+  return true;
 }

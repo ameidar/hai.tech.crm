@@ -78,6 +78,36 @@ describe('findOrCreateLeadAppointment', () => {
     expect(result.lead.id).toBe('lead-1');
   });
 
+  it('fills missing attribution fields when merging into an existing lead', async () => {
+    mockQueryRaw.mockResolvedValueOnce([
+      { id: 'lead-1', source: 'website', appointment_status: 'pending', appointment_notes: null },
+    ]);
+    mockExecuteRaw.mockResolvedValueOnce(undefined);
+    mockFindUnique.mockResolvedValueOnce({
+      id: 'lead-1',
+      source: 'website',
+      appointmentStatus: 'pending',
+      campaignId: '120250355091530297',
+    });
+
+    await findOrCreateLeadAppointment({
+      ...baseLead,
+      source: 'hero-form-roblox',
+      campaignId: '120250355091530297',
+      campaignName: 'Roblox Online 04/10',
+      adId: '120250355118240297',
+      adName: 'Existing post',
+      adsetName: 'Parents IL 28-50',
+    });
+
+    const sql = Array.from(mockExecuteRaw.mock.calls[0][0]).join('');
+    expect(sql).toContain('campaign_id');
+    expect(sql).toContain('campaign_name');
+    expect(sql).toContain('ad_id');
+    expect(sql).toContain('ad_name');
+    expect(sql).toContain('adset_name');
+  });
+
   it('deduplicates across different sources (WhatsApp + form)', async () => {
     // Simulate: first call = WhatsApp, second call = pesach-camp same phone
     mockQueryRaw

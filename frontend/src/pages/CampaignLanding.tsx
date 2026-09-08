@@ -61,6 +61,8 @@ interface SubmitResult {
   }>;
 }
 
+type AttributionParams = Record<string, string>;
+
 const COURSES = [
   'רובלוקס',
   'מיינקראפט',
@@ -78,6 +80,30 @@ function emptyChild(): ChildForm {
     childAge: '',
     grade: '',
   };
+}
+
+function getAttributionParams(): AttributionParams {
+  const params = new URLSearchParams(window.location.search);
+  const allowed = [
+    'utm_source',
+    'utm_medium',
+    'utm_campaign',
+    'utm_content',
+    'utm_term',
+    'utm_id',
+    'fbclid',
+    'campaign_name',
+    'ad_id',
+    'ad_name',
+    'adset_name',
+    'form_id',
+  ];
+
+  return allowed.reduce<AttributionParams>((acc, key) => {
+    const value = params.get(key)?.trim();
+    if (value) acc[key] = value;
+    return acc;
+  }, {});
 }
 
 function formatDate(value?: string): string {
@@ -122,6 +148,7 @@ export default function CampaignLanding() {
   const [submitted, setSubmitted] = useState(false);
   const [submitResult, setSubmitResult] = useState<SubmitResult | null>(null);
   const [error, setError] = useState('');
+  const attributionParams = useMemo(() => getAttributionParams(), []);
 
   useEffect(() => {
     let active = true;
@@ -197,6 +224,7 @@ export default function CampaignLanding() {
         email: form.email,
         interest: form.interest || cycle?.courseName,
         children,
+        ...attributionParams,
       });
       setSubmitResult(res.data);
       setSubmitted(true);

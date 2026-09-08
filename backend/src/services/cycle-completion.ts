@@ -2,6 +2,7 @@ import { prisma } from '../utils/prisma.js';
 import { sendEmail } from './email/sender.js';
 import { checkAndSendInstitutionalOrderCompletionAlert } from './institutional-order-completion-alert.js';
 import { getOperationsEmailRecipients } from './operations-notifications.js';
+import { INTERNAL_OPERATIONS_CYCLE_NAME } from '../utils/cycle-sync.js';
 
 /**
  * Cycle Completion Service
@@ -32,6 +33,11 @@ export async function handleCycleCompletion(cycleId: string): Promise<void> {
 
     if (!cycle) {
       console.error(`Cycle ${cycleId} not found`);
+      return;
+    }
+
+    if (cycle.name === INTERNAL_OPERATIONS_CYCLE_NAME) {
+      console.log(`  ⏭️ Internal operations cycle stays active`);
       return;
     }
 

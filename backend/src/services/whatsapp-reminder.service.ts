@@ -8,7 +8,7 @@
 
 import { prisma } from '../utils/prisma.js';
 import { meetingRevenueForMeeting } from '../utils/revenue.js';
-import { syncCycleProgress } from '../utils/cycle-sync.js';
+import { shouldAutoCompleteCycle, syncCycleProgress } from '../utils/cycle-sync.js';
 import { handleCycleCompletion } from './cycle-completion.js';
 import { generateMeetingMagicLink } from './instructor-reminder.service.js';
 import { reminderEligibleMeetingWhereForDate } from './reminder-eligibility.js';
@@ -611,7 +611,11 @@ async function recalculateCompletedMeetingFinancials(meetingId: string): Promise
   await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
   await checkAndSendNegativeProfitAlert(meetingId, 'whatsapp-status-reply');
 
-  if (remainingMeetings <= 0 && !['completed', 'cancelled'].includes(cycleData.status)) {
+  if (
+    remainingMeetings <= 0 &&
+    !['completed', 'cancelled'].includes(cycleData.status) &&
+    await shouldAutoCompleteCycle(meeting.cycleId)
+  ) {
     await handleCycleCompletion(meeting.cycleId);
   }
 

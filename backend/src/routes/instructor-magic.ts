@@ -18,7 +18,7 @@ import { sendWhatsAppMessage } from '../services/notifications.js';
 import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
 import { meetingRevenueForMeeting } from '../utils/revenue.js';
-import { syncCycleProgress } from '../utils/cycle-sync.js';
+import { shouldAutoCompleteCycle, syncCycleProgress } from '../utils/cycle-sync.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
 import { checkAndSendMeetingReportQualityAlert } from '../services/meeting-report-quality-alert.js';
@@ -310,7 +310,12 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
           // Sync counters from actual meetings. If this instructor report completed the
           // last required meeting, trigger the same cycle-completion flow as admin updates.
           const { remainingMeetings } = await syncCycleProgress(meeting.cycleId);
-          if (meeting.status !== 'completed' && remainingMeetings <= 0 && !['completed', 'cancelled'].includes(cycleData.status)) {
+          if (
+            meeting.status !== 'completed' &&
+            remainingMeetings <= 0 &&
+            !['completed', 'cancelled'].includes(cycleData.status) &&
+            await shouldAutoCompleteCycle(meeting.cycleId)
+          ) {
             await handleCycleCompletion(meeting.cycleId);
           }
         }

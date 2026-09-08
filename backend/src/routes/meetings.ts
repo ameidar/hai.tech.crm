@@ -8,7 +8,7 @@ import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { zoomService, getIsraelOffset } from '../services/zoom.js';
 import { googleMeetService } from '../services/google-meet.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
-import { syncCycleProgress, syncCycleEndDate } from '../utils/cycle-sync.js';
+import { shouldAutoCompleteCycle, syncCycleProgress, syncCycleEndDate } from '../utils/cycle-sync.js';
 import { meetingRevenueFromRegistrations, revenueRegistrationCount, roundMoney } from '../utils/revenue.js';
 import { assertCyclePeriodNotLocked, assertMeetingNotInIssuedPeriod } from '../services/billing-lock.js';
 import {
@@ -741,7 +741,7 @@ meetingsRouter.put('/:id', async (req, res, next) => {
       console.log(`[CycleSync] cycleId=${existingMeeting.cycleId} remaining=${remainingMeetings}`);
 
       // Trigger cycle completion if all meetings done
-      if (statusChangedToCompleted && remainingMeetings <= 0) {
+      if (statusChangedToCompleted && remainingMeetings <= 0 && await shouldAutoCompleteCycle(existingMeeting.cycleId)) {
         handleCycleCompletion(existingMeeting.cycleId).catch(err =>
           console.error('Cycle completion error:', err)
         );
@@ -1363,7 +1363,7 @@ meetingsRouter.post('/bulk-update-status', operationsManagerOrAdmin, async (req,
             });
 
             // Trigger cycle completion if no remaining meetings
-            if (newRemaining <= 0) {
+            if (newRemaining <= 0 && await shouldAutoCompleteCycle(existingMeeting.cycleId)) {
               handleCycleCompletion(existingMeeting.cycleId).catch(err =>
                 console.error('Cycle completion error:', err)
               );

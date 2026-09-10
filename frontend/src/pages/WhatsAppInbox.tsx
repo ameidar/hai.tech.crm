@@ -69,6 +69,7 @@ interface WaConversation {
   aiEnabled: boolean;
   businessPhone?: string;
   phoneNumberId?: string;
+  conversationType?: 'customer' | 'instructor';
   createdAt: string;
 }
 
@@ -165,6 +166,7 @@ export default function WhatsAppInbox() {
   const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations' || user?.role === 'operations_manager';
   const [conversations, setConversations] = useState<WaConversation[]>([]);
   const [conversationSearch, setConversationSearch] = useState('');
+  const [conversationTypeFilter, setConversationTypeFilter] = useState<'customer' | 'instructor'>('customer');
   const [selected, setSelected] = useState<WaConversation | null>(null);
   const [messages, setMessages] = useState<WaMessage[]>([]);
   const [channelFilter, setChannelFilter] = useState<'all' | 'meta' | 'green'>('all');
@@ -715,12 +717,24 @@ export default function WhatsAppInbox() {
   };
 
   const totalUnread = conversations.reduce((s, c) => s + c.unreadCount, 0);
+  const conversationTypeCounts = useMemo(() => {
+    return conversations.reduce((counts, conv) => {
+      const type = conv.conversationType === 'instructor' ? 'instructor' : 'customer';
+      counts[type] += 1;
+      return counts;
+    }, { customer: 0, instructor: 0 });
+  }, [conversations]);
+
   const filteredConversations = useMemo(() => {
     const query = normalizeSearch(conversationSearch);
     const digits = normalizeDigits(conversationSearch);
-    if (!query && !digits) return conversations;
+    const typeFiltered = conversations.filter(conv => {
+      const type = conv.conversationType === 'instructor' ? 'instructor' : 'customer';
+      return type === conversationTypeFilter;
+    });
+    if (!query && !digits) return typeFiltered;
 
-    return conversations.filter(conv => {
+    return typeFiltered.filter(conv => {
       const textFields = [
         getConversationDisplayName(conv),
         conv.contactName,
@@ -732,15 +746,13 @@ export default function WhatsAppInbox() {
       ].map(normalizeSearch);
       const digitFields = [
         conv.phone,
-        conv.businessPhone,
         formatPhone(conv.phone),
-        conv.businessPhone ? formatPhone(conv.businessPhone.replace('+', '')) : '',
       ].map(normalizeDigits);
 
       return textFields.some(field => field.includes(query)) ||
         Boolean(digits && digitFields.some(field => field.includes(digits)));
     });
-  }, [conversations, conversationSearch]);
+  }, [conversations, conversationSearch, conversationTypeFilter]);
   const metaMessages = useMemo(() => messages.filter(m => !isGreenMessage(m.waMessageId)), [messages]);
   const greenMessages = useMemo(() => messages.filter(m => isGreenMessage(m.waMessageId)), [messages]);
   const visibleMessages = channelFilter === 'green'
@@ -1401,6 +1413,30 @@ export default function WhatsAppInbox() {
               className="w-full border border-gray-200 rounded-xl pr-9 pl-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
             />
           </div>
+          <div className="grid grid-cols-2 gap-1 mt-2 bg-gray-100 rounded-lg p-1">
+            <button
+              type="button"
+              onClick={() => setConversationTypeFilter('customer')}
+              className={`px-2 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                conversationTypeFilter === 'customer'
+                  ? 'bg-white text-green-700 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              לקוחות ({conversationTypeCounts.customer})
+            </button>
+            <button
+              type="button"
+              onClick={() => setConversationTypeFilter('instructor')}
+              className={`px-2 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                conversationTypeFilter === 'instructor'
+                  ? 'bg-white text-green-700 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              מדריכים/תזכורות ({conversationTypeCounts.instructor})
+            </button>
+          </div>
         </div>
 
         {/* List */}
@@ -1436,11 +1472,9 @@ export default function WhatsAppInbox() {
                         <Bot size={12} className="text-purple-400 flex-shrink-0" />
                       )}
                     </div>
-                    {conv.businessPhone && (
-                      <p className="text-xs text-green-600 font-mono mt-0.5">
-                        → {formatPhone(conv.businessPhone.replace('+', ''))}
-                      </p>
-                    )}
+                    <p className="text-xs text-gray-400 font-mono mt-0.5" dir="ltr">
+                      {formatPhone(conv.phone)}
+                    </p>
                     <p className="text-xs text-gray-500 truncate mt-0.5">
                       {conv.lastMessagePreview || 'שיחה חדשה'}
                     </p>

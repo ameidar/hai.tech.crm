@@ -152,6 +152,7 @@ const ACTIVE_PHONES: { phoneNumberId: string; businessPhone: string; label: stri
   { phoneNumberId: process.env.WA_PHONE_NUMBER_ID || '', businessPhone: '+972533027763', label: 'Bot Hai.tech (+972 53 302 7763)' },
   ...(process.env.WA_PHONE_NUMBER_ID_2 ? [{ phoneNumberId: process.env.WA_PHONE_NUMBER_ID_2, businessPhone: '+972533009742', label: 'Bot Hai.Tech (+972 53 300 9742)' }] : []),
 ];
+const LEAD_BUSINESS_PHONE = '+972533009742';
 
 function normalizeConversationPhone(phone: string | null | undefined): string | null {
   const digits = (phone || '').replace(/\D/g, '');
@@ -1413,8 +1414,9 @@ router.get('/phones', authenticate, (_req: Request, res: Response) => {
 router.get('/conversations', authenticate, async (_req: Request, res: Response) => {
   try {
     const instructorPhones = await getInstructorConversationPhones();
+    const instructorPhoneSet = new Set(instructorPhones);
+
     const conversations = await prisma.waConversation.findMany({
-      where: instructorPhones.length > 0 ? { phone: { notIn: instructorPhones } } : undefined,
       orderBy: [
         { lastMessageAt: { sort: 'desc', nulls: 'last' } },
         { updatedAt: 'desc' },
@@ -1425,19 +1427,26 @@ router.get('/conversations', authenticate, async (_req: Request, res: Response) 
     });
 
     const displayConversations = await Promise.all(conversations.map(async (conv) => {
-      if (isUsablePersonName(conv.contactName)) return conv;
+      const isLeadBusinessPhone = conv.businessPhone === LEAD_BUSINESS_PHONE ||
+        Boolean(process.env.WA_PHONE_NUMBER_ID_2 && conv.phoneNumberId === process.env.WA_PHONE_NUMBER_ID_2);
+      const conversationType = instructorPhoneSet.has(conv.phone) && !isLeadBusinessPhone
+        ? 'instructor'
+        : 'customer';
+
+      if (isUsablePersonName(conv.contactName)) return { ...conv, conversationType };
 
       const leadName = cleanContactValue(conv.leadName);
       if (isUsablePersonName(leadName)) {
-        return { ...conv, contactName: leadName };
+        return { ...conv, contactName: leadName, conversationType };
       }
 
       if (conv.leadEmail) {
-        return { ...conv, contactName: conv.leadEmail };
+        return { ...conv, contactName: conv.leadEmail, conversationType };
       }
 
       return {
         ...conv,
+        conversationType,
         contactName: await resolveWhatsAppContactName(conv.phone, undefined, conv.contactName),
       };
     }));

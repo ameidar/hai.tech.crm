@@ -28,7 +28,8 @@ type AlertType =
   | 'student_absence_risk'
   | 'instructor_change_risk'
   | 'cycle_churn_risk'
-  | 'low_enrollment';
+  | 'low_enrollment'
+  | 'lead_follow_up';
 type FreshnessStatus = 'fresh' | 'stale' | 'error';
 
 interface OperationsAlert {
@@ -36,7 +37,7 @@ interface OperationsAlert {
   priority: AlertPriority;
   type: AlertType;
   title: string;
-  entityType: 'meeting' | 'cycle' | 'task' | 'instructor';
+  entityType: 'meeting' | 'cycle' | 'task' | 'instructor' | 'lead';
   entityId: string;
   entityUrl: string;
   clientName: string | null;
@@ -136,6 +137,7 @@ const typeLabels: Record<AlertType, string> = {
   instructor_change_risk: 'ביטולי/דחיות מדריך',
   cycle_churn_risk: 'סיכון נטישה',
   low_enrollment: 'מתחת לסף מינימום',
+  lead_follow_up: 'לידים למעקב',
 };
 
 const statusLabels: Record<string, string> = {

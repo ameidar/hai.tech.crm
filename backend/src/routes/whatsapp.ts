@@ -1415,7 +1415,10 @@ router.get('/conversations', authenticate, async (_req: Request, res: Response) 
     const instructorPhones = await getInstructorConversationPhones();
     const conversations = await prisma.waConversation.findMany({
       where: instructorPhones.length > 0 ? { phone: { notIn: instructorPhones } } : undefined,
-      orderBy: { lastMessageAt: 'desc' },
+      orderBy: [
+        { lastMessageAt: { sort: 'desc', nulls: 'last' } },
+        { updatedAt: 'desc' },
+      ],
       include: {
         _count: { select: { messages: true } }
       }
@@ -1546,7 +1549,10 @@ router.get('/customer/:customerId', authenticate, async (req: Request, res: Resp
 
     const conversation = await prisma.waConversation.findFirst({
       where: { phone: normalizedPhone },
-      orderBy: { lastMessageAt: 'desc' },
+      orderBy: [
+        { lastMessageAt: { sort: 'desc', nulls: 'last' } },
+        { updatedAt: 'desc' },
+      ],
     });
 
     if (!conversation) {

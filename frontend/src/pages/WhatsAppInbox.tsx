@@ -138,6 +138,14 @@ function getConversationDisplayName(conv: WaConversation) {
   return formatPhone(conv.phone);
 }
 
+function normalizeSearch(value?: string | null) {
+  return (value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function normalizeDigits(value?: string | null) {
+  return (value || '').replace(/\D/g, '');
+}
+
 // ─── Message status icon ──────────────────────────────────────────────────────
 function StatusIcon({ status }: { status: string }) {
   if (status === 'read') return <CheckCheck size={14} className="text-blue-400" />;
@@ -156,6 +164,7 @@ export default function WhatsAppInbox() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations' || user?.role === 'operations_manager';
   const [conversations, setConversations] = useState<WaConversation[]>([]);
+  const [conversationSearch, setConversationSearch] = useState('');
   const [selected, setSelected] = useState<WaConversation | null>(null);
   const [messages, setMessages] = useState<WaMessage[]>([]);
   const [channelFilter, setChannelFilter] = useState<'all' | 'meta' | 'green'>('all');
@@ -706,6 +715,32 @@ export default function WhatsAppInbox() {
   };
 
   const totalUnread = conversations.reduce((s, c) => s + c.unreadCount, 0);
+  const filteredConversations = useMemo(() => {
+    const query = normalizeSearch(conversationSearch);
+    const digits = normalizeDigits(conversationSearch);
+    if (!query && !digits) return conversations;
+
+    return conversations.filter(conv => {
+      const textFields = [
+        getConversationDisplayName(conv),
+        conv.contactName,
+        conv.leadName,
+        conv.leadEmail,
+        conv.childName,
+        conv.summary,
+        conv.lastMessagePreview,
+      ].map(normalizeSearch);
+      const digitFields = [
+        conv.phone,
+        conv.businessPhone,
+        formatPhone(conv.phone),
+        conv.businessPhone ? formatPhone(conv.businessPhone.replace('+', '')) : '',
+      ].map(normalizeDigits);
+
+      return textFields.some(field => field.includes(query)) ||
+        Boolean(digits && digitFields.some(field => field.includes(digits)));
+    });
+  }, [conversations, conversationSearch]);
   const metaMessages = useMemo(() => messages.filter(m => !isGreenMessage(m.waMessageId)), [messages]);
   const greenMessages = useMemo(() => messages.filter(m => isGreenMessage(m.waMessageId)), [messages]);
   const visibleMessages = channelFilter === 'green'
@@ -1355,6 +1390,18 @@ export default function WhatsAppInbox() {
             </button>
           </div>
         </div>
+        <div className="p-3 border-b border-gray-100">
+          <div className="relative">
+            <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="search"
+              value={conversationSearch}
+              onChange={e => setConversationSearch(e.target.value)}
+              placeholder="חיפוש לפי שם או טלפון..."
+              className="w-full border border-gray-200 rounded-xl pr-9 pl-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+            />
+          </div>
+        </div>
 
         {/* List */}
         <div className="flex-1 overflow-y-auto">
@@ -1365,8 +1412,13 @@ export default function WhatsAppInbox() {
               <MessageCircle size={32} />
               <p className="text-sm">אין שיחות עדיין</p>
             </div>
+          ) : filteredConversations.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 text-gray-400 gap-2 px-4 text-center">
+              <Search size={28} />
+              <p className="text-sm">לא נמצאו שיחות לפי החיפוש</p>
+            </div>
           ) : (
-            conversations.map(conv => (
+            filteredConversations.map(conv => (
               <button
                 key={conv.id}
                 onClick={() => selectConversation(conv)}

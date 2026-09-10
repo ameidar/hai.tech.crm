@@ -95,6 +95,59 @@ async function findCrmCustomerNameForWhatsAppPhone(phone?: string | null): Promi
   return cleanContactValue(customer?.name);
 }
 
+async function findCrmProfileForWhatsAppPhone(
+  phone: string,
+  conversationType: 'customer' | 'instructor',
+): Promise<{ profileType: 'customer' | 'instructor'; profileId: string; profileName: string; profileUrl: string } | null> {
+  const last9 = digitsOnly(phone).slice(-9);
+  if (!last9) return null;
+
+  const [customer, instructor] = await Promise.all([
+    prisma.customer.findFirst({
+      where: {
+        deletedAt: null,
+        phone: { endsWith: last9 },
+      },
+      select: { id: true, name: true },
+    }),
+    prisma.instructor.findFirst({
+      where: {
+        phone: { endsWith: last9 },
+      },
+      select: { id: true, name: true, phone: true },
+    }),
+  ]);
+
+  if (conversationType === 'instructor' && instructor) {
+    return {
+      profileType: 'instructor',
+      profileId: instructor.id,
+      profileName: instructor.name,
+      profileUrl: `/instructors?status=all&search=${encodeURIComponent(instructor.phone || instructor.name)}`,
+    };
+  }
+
+  if (customer) {
+    return {
+      profileType: 'customer',
+      profileId: customer.id,
+      profileName: customer.name,
+      profileUrl: `/customers/${customer.id}`,
+    };
+  }
+
+  if (instructor) {
+    return {
+      profileType: 'instructor',
+      profileId: instructor.id,
+      profileName: instructor.name,
+      profileUrl: `/instructors?status=all&search=${encodeURIComponent(instructor.phone || instructor.name)}`,
+    };
+  }
+
+  return null;
+}
+
 async function resolveWhatsAppContactName(phone: string, metaName?: string | null, currentName?: string | null): Promise<string> {
   const crmName = await findCrmCustomerNameForWhatsAppPhone(phone);
   if (isUsablePersonName(crmName)) return crmName;
@@ -1432,21 +1485,23 @@ router.get('/conversations', authenticate, async (_req: Request, res: Response) 
       const conversationType = instructorPhoneSet.has(conv.phone) && !isLeadBusinessPhone
         ? 'instructor'
         : 'customer';
+      const crmProfile = await findCrmProfileForWhatsAppPhone(conv.phone, conversationType);
 
-      if (isUsablePersonName(conv.contactName)) return { ...conv, conversationType };
+      if (isUsablePersonName(conv.contactName)) return { ...conv, conversationType, crmProfile };
 
       const leadName = cleanContactValue(conv.leadName);
       if (isUsablePersonName(leadName)) {
-        return { ...conv, contactName: leadName, conversationType };
+        return { ...conv, contactName: leadName, conversationType, crmProfile };
       }
 
       if (conv.leadEmail) {
-        return { ...conv, contactName: conv.leadEmail, conversationType };
+        return { ...conv, contactName: conv.leadEmail, conversationType, crmProfile };
       }
 
       return {
         ...conv,
         conversationType,
+        crmProfile,
         contactName: await resolveWhatsAppContactName(conv.phone, undefined, conv.contactName),
       };
     }));

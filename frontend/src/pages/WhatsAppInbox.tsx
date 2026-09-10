@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp, ChevronRight, Search, PenSquare, Plus, CheckCircle, AlertCircle, CreditCard, Settings, Save } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp, ChevronRight, Search, PenSquare, Plus, CheckCircle, AlertCircle, CreditCard, Settings, Save, ExternalLink } from 'lucide-react';
 import WaSendModal from '../components/WaSendModal';
 import WooPayModal from '../components/WooPayModal';
 import { useAuth } from '../context/AuthContext';
@@ -70,6 +70,12 @@ interface WaConversation {
   businessPhone?: string;
   phoneNumberId?: string;
   conversationType?: 'customer' | 'instructor';
+  crmProfile?: {
+    profileType: 'customer' | 'instructor';
+    profileId: string;
+    profileName: string;
+    profileUrl: string;
+  } | null;
   createdAt: string;
 }
 
@@ -1523,6 +1529,18 @@ export default function WhatsAppInbox() {
                   )}
                 </p>
               </div>
+              {selected.crmProfile && (
+                <Link
+                  to={selected.crmProfile.profileUrl}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full text-xs font-medium transition-colors flex-shrink-0"
+                  title={selected.crmProfile.profileName}
+                >
+                  <ExternalLink size={13} />
+                  <span className="hidden sm:inline">
+                    {selected.crmProfile.profileType === 'customer' ? 'פתח לקוח' : 'פתח מדריך'}
+                  </span>
+                </Link>
+              )}
             </div>
             <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
               {/* AI toggle */}

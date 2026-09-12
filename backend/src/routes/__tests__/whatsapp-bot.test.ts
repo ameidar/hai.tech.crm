@@ -186,9 +186,25 @@ interface MockMessage {
 function buildChatMessages(
   systemPrompt: string,
   knowledgeBase: any,
-  conv: { phone: string; contactName?: string; childName?: string; summary?: string },
+  conv: {
+    phone: string;
+    contactName?: string;
+    childName?: string;
+    summary?: string;
+    referralHeadline?: string;
+    referralBody?: string;
+    referralSourceType?: string;
+    referralSourceUrl?: string;
+  },
   messages: MockMessage[]
 ) {
+  const referralParts = [
+    conv.referralHeadline ? `כותרת מודעה: ${conv.referralHeadline}` : null,
+    conv.referralBody ? `טקסט מודעה: ${conv.referralBody}` : null,
+    conv.referralSourceType ? `סוג מקור: ${conv.referralSourceType}` : null,
+    conv.referralSourceUrl ? `קישור מקור: ${conv.referralSourceUrl}` : null,
+  ].filter(Boolean);
+
   const fullSystemPrompt = `${systemPrompt}
 
 ---
@@ -201,6 +217,7 @@ ${JSON.stringify(knowledgeBase, null, 2)}
 ${conv.contactName ? `שם: ${conv.contactName}` : ''}
 ${conv.childName ? `שם הילד: ${conv.childName}` : ''}
 ${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}
+${referralParts.length > 0 ? `הקשר ממודעת Meta/WhatsApp:\n${referralParts.join('\n')}` : ''}
 `;
 
   const chatMessages: any[] = [{ role: 'system', content: fullSystemPrompt }];
@@ -259,6 +276,20 @@ describe('Chat Message Building', () => {
   it('should include summary when available', () => {
     const msgs = buildChatMessages(prompt, kb, { phone: '+972501234567', summary: 'מעוניין בקורס סקראצ׳' }, []);
     expect(msgs[0].content).toContain('סיכום קודם: מעוניין בקורס סקראצ׳');
+  });
+
+  it('should include Meta WhatsApp ad referral context when available', () => {
+    const msgs = buildChatMessages(prompt, kb, {
+      phone: '+972501234567',
+      referralHeadline: 'חוגי גיימינג ותכנות לילדים',
+      referralBody: 'הילדים אוהבים גיימינג? שלחו וואטסאפ ונמצא את הקבוצה המתאימה.',
+      referralSourceType: 'ad',
+      referralSourceUrl: 'https://www.facebook.com/ads/example',
+    }, []);
+
+    expect(msgs[0].content).toContain('הקשר ממודעת Meta/WhatsApp');
+    expect(msgs[0].content).toContain('חוגי גיימינג ותכנות לילדים');
+    expect(msgs[0].content).toContain('הילדים אוהבים גיימינג');
   });
 
   it('should map inbound messages to user role', () => {

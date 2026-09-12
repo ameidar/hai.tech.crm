@@ -435,6 +435,38 @@ function buildHumanEscalationReply(userText: string | null | undefined): string 
   return 'אני מבין/ה, זה באמת מתסכל.\nאני מעביר/ה את זה לנציג אנושי לבדיקה — אין צורך לפנות שוב לוואטסאפ, זה כבר הערוץ הנכון.\n\nכדי שנאתר את החשבון מהר: מה המייל שאיתו נרשמת לקורס?';
 }
 
+function extractReferralContext(msg: any) {
+  const referral = msg?.referral;
+  if (!referral || typeof referral !== 'object') return null;
+
+  return {
+    referralSourceId: referral.source_id ? String(referral.source_id) : undefined,
+    referralSourceType: referral.source_type ? String(referral.source_type) : undefined,
+    referralHeadline: referral.headline ? String(referral.headline) : undefined,
+    referralBody: referral.body ? String(referral.body) : undefined,
+    referralSourceUrl: referral.source_url ? String(referral.source_url) : undefined,
+    referralClickId: referral.ctwa_clid ? String(referral.ctwa_clid) : undefined,
+  };
+}
+
+function buildReferralPromptContext(conv: any): string {
+  const parts = [
+    conv.referralHeadline ? `כותרת מודעה: ${conv.referralHeadline}` : null,
+    conv.referralBody ? `טקסט מודעה: ${conv.referralBody}` : null,
+    conv.referralSourceType ? `סוג מקור: ${conv.referralSourceType}` : null,
+    conv.referralSourceUrl ? `קישור מקור: ${conv.referralSourceUrl}` : null,
+  ].filter(Boolean);
+
+  if (parts.length === 0) return '';
+
+  return `
+הקשר ממודעת Meta/WhatsApp:
+${parts.join('\n')}
+
+אם הלקוח שואל "על זה", "אפשר פרטים?", "מידע נוסף" או פנייה כללית דומה, התייחס למודעה הזו כהקשר המרכזי. אל תשאל "על איזה נושא?" כתשובה ראשונה; תן תקציר רלוונטי ואז שאל שאלה אחת שמקדמת התאמה.
+`;
+}
+
 // ============================================================
 // AI Response generation (mirrors bot logic)
 // ============================================================
@@ -463,6 +495,7 @@ ${JSON.stringify(knowledgeBase, null, 2)}
 ${conv.contactName ? `שם: ${conv.contactName}` : ''}
 ${conv.childName ? `שם הילד: ${conv.childName}` : ''}
 ${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}
+${buildReferralPromptContext(conv)}
 
 ---
 ## כלל אנטי-לופ (חובה!)
@@ -866,6 +899,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           const text = msg.text?.body || '';
           const waMessageId = msg.id;
           const rawContactName = value.contacts?.[0]?.profile?.name;
+          const referralContext = extractReferralContext(msg);
 
           // Dedup
           const existing = await prisma.waMessage.findUnique({ where: { waMessageId } });
@@ -884,14 +918,18 @@ router.post('/webhook', async (req: Request, res: Response) => {
                 phone,
                 contactName: await resolveWhatsAppContactName(phone, rawContactName),
                 businessPhone,
-                phoneNumberId: bizPhoneNumberId
+                phoneNumberId: bizPhoneNumberId,
+                ...(referralContext || {})
               }
             });
             isNewConversation = true;
-          } else if (!conv.businessPhone && businessPhone) {
+          } else if ((!conv.businessPhone && businessPhone) || referralContext) {
             conv = await prisma.waConversation.update({
               where: { id: conv.id },
-              data: { businessPhone, phoneNumberId: bizPhoneNumberId }
+              data: {
+                ...(!conv.businessPhone && businessPhone ? { businessPhone, phoneNumberId: bizPhoneNumberId } : {}),
+                ...(referralContext || {})
+              }
             });
           }
 
@@ -915,9 +953,16 @@ router.post('/webhook', async (req: Request, res: Response) => {
                 customerName: contactName || phone,
                 customerPhone: phone,
                 source: 'whatsapp',
-                appointmentNotes: isNew
-                  ? `ליד חדש מוואטסאפ. לשיחה: ${waLink}`
-                  : `לקוח קיים פנה שוב בוואטסאפ. לשיחה: ${waLink}`,
+                adId: referralContext?.referralSourceId,
+                adName: referralContext?.referralHeadline,
+                appointmentNotes: [
+                  isNew
+                    ? `ליד חדש מוואטסאפ. לשיחה: ${waLink}`
+                    : `לקוח קיים פנה שוב בוואטסאפ. לשיחה: ${waLink}`,
+                  referralContext?.referralHeadline ? `כותרת מודעה: ${referralContext.referralHeadline}` : null,
+                  referralContext?.referralBody ? `טקסט מודעה: ${referralContext.referralBody}` : null,
+                  referralContext?.referralSourceUrl ? `קישור מקור: ${referralContext.referralSourceUrl}` : null,
+                ].filter(Boolean).join('\n'),
                 appointmentStatus: 'pending',
               });
               console.log(`[WA] Lead upserted for ${isNew ? 'new' : 'existing'} customer ${phone}`);

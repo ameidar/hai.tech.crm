@@ -25,6 +25,8 @@ import {
   buildParentOnlineReminderTemplateVariables,
   buildParentReminderPreview,
   buildParentReminderTemplateVariables,
+  getParentReminderVideoLink,
+  isParentReminderOnline,
   sendParentWhatsAppReminder,
 } from '../parent-whatsapp-reminders.js';
 
@@ -58,7 +60,7 @@ describe('parent WhatsApp reminders', () => {
       '15:00',
       'אונליין',
       'נועה',
-      'קישור לזום: https://zoom.example/j/123',
+      'קישור לשיעור אונליין (Zoom או Google Meet): https://zoom.example/j/123',
     ]);
   });
 
@@ -91,8 +93,36 @@ describe('parent WhatsApp reminders', () => {
       'השעה תעודכן בהמשך',
       'אונליין',
       'צוות HaiTech',
-      'לשיעור פרונטלי, אין צורך בקישור זום',
+      'לשיעור פרונטלי, אין צורך בקישור אונליין',
     ]);
+  });
+
+  it('treats online branches with meeting links as online parent reminders', () => {
+    const meeting = {
+      zoomJoinUrl: 'https://meet.google.com/nrr-qqpd-joc',
+      cycle: {
+        isOnline: false,
+        zoomJoinUrl: null,
+        branch: { type: 'online' },
+      },
+    };
+
+    expect(isParentReminderOnline(meeting)).toBe(true);
+    expect(getParentReminderVideoLink(meeting)).toBe('https://meet.google.com/nrr-qqpd-joc');
+  });
+
+  it('uses a cycle-level video link when the meeting link is empty', () => {
+    const meeting = {
+      zoomJoinUrl: null,
+      cycle: {
+        isOnline: false,
+        zoomJoinUrl: 'https://zoom.example/j/cycle',
+        branch: { type: 'frontal' },
+      },
+    };
+
+    expect(isParentReminderOnline(meeting)).toBe(true);
+    expect(getParentReminderVideoLink(meeting)).toBe('https://zoom.example/j/cycle');
   });
 
   it('is disabled by default', async () => {

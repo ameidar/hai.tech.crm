@@ -22,7 +22,11 @@ import {
   formatZoomHostConflictAlert,
 } from '../zoom-conflicts.js';
 import { sendTomorrowMeetingCheckReport } from '../meeting-check-report.js';
-import { sendParentWhatsAppReminder } from '../parent-whatsapp-reminders.js';
+import {
+  getParentReminderVideoLink,
+  isParentReminderOnline,
+  sendParentWhatsAppReminder,
+} from '../parent-whatsapp-reminders.js';
 import { sendWhatsAppCloudTemplate, templateText } from '../whatsapp-cloud-templates.js';
 import { getOperationsEmailRecipients } from '../operations-notifications.js';
 
@@ -172,7 +176,8 @@ const sendParentReminders = async () => {
         const parent = student.customer;
         if (!parent) continue;
 
-        const isOnline = !meeting.cycle.branch;
+        const videoLink = getParentReminderVideoLink(meeting);
+        const isOnline = isParentReminderOnline(meeting);
         
         const data: ParentReminderData = {
           parentName: parent.name,
@@ -183,7 +188,7 @@ const sendParentReminders = async () => {
           location: meeting.cycle.branch?.name || 'אונליין',
           instructorName: meeting.cycle.instructor?.name || 'צוות HaiTech',
           isOnline,
-          zoomLink: isOnline ? meeting.zoomJoinUrl || undefined : undefined,
+          zoomLink: videoLink,
         };
 
         if (parent.email) {

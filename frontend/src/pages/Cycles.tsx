@@ -30,6 +30,7 @@ export default function Cycles() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showColumnPicker, setShowColumnPicker] = useState(false);
   const [isExportingMeetings, setIsExportingMeetings] = useState(false);
+  const [isExportingCycles, setIsExportingCycles] = useState(false);
   const [showMeetingsExportModal, setShowMeetingsExportModal] = useState(false);
 
   // Column visibility
@@ -303,6 +304,44 @@ export default function Cycles() {
     }
   };
 
+  const handleExportCycles = async () => {
+    setIsExportingCycles(true);
+    try {
+      const params = new URLSearchParams();
+      if (statusFilter) params.set('status', statusFilter);
+      if (instructorFilter) params.set('instructorId', instructorFilter);
+      if (branchFilter) params.set('branchId', branchFilter);
+      if (courseFilter) params.set('courseId', courseFilter);
+      if (dayFilter) params.set('dayOfWeek', dayFilter);
+      if (startFromFilter) params.set('startDateFrom', startFromFilter);
+      if (startToFilter) params.set('startDateTo', startToFilter);
+      if (debouncedSearch) params.set('search', debouncedSearch);
+      if (sortField) params.set('sort', sortField);
+      if (sortDirection) params.set('dir', sortDirection);
+
+      const response = await api.get(`/cycles/export?${params.toString()}`, {
+        responseType: 'blob',
+      });
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const today = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `מחזורים_${today}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to export cycles:', error);
+      alert('שגיאה בייצוא המחזורים לאקסל');
+    } finally {
+      setIsExportingCycles(false);
+    }
+  };
+
   const clearFilters = () => {
     setStatusFilter('');
     setInstructorFilter('');
@@ -455,6 +494,17 @@ export default function Cycles() {
                 </>
               )}
             </div>
+
+            <button
+              onClick={handleExportCycles}
+              disabled={isExportingCycles || displayLoading}
+              className="btn btn-secondary flex items-center gap-1 min-h-[44px]"
+              title="ייצוא תצוגת המחזורים לאקסל"
+            >
+              <Download size={16} />
+              <span className="hidden md:inline">{isExportingCycles ? 'מייצא...' : 'ייצא לאקסל'}</span>
+              <span className="md:hidden">ייצא</span>
+            </button>
           </div>
 
           {/* Collapsible filters - hidden on mobile by default */}

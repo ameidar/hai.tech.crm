@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import ExcelJS from 'exceljs';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, cycleRosterOrAdmin, operationsManagerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -20,6 +21,165 @@ import { cancelFutureMeetingsForCycle } from '../services/cancellations.js';
 export const cyclesRouter = Router();
 
 cyclesRouter.use(authenticate);
+
+const DAY_OF_WEEK_HEBREW: Record<string, string> = {
+  sunday: 'ראשון',
+  monday: 'שני',
+  tuesday: 'שלישי',
+  wednesday: 'רביעי',
+  thursday: 'חמישי',
+  friday: 'שישי',
+  saturday: 'שבת',
+};
+
+const CYCLE_TYPE_HEBREW: Record<string, string> = {
+  private: 'פרטי',
+  trial_private: 'ניסיון פרטי',
+  group: 'קבוצתי',
+  institutional_per_child: 'מוסדי לפי ילד',
+  institutional_fixed: 'מוסדי קבוע',
+};
+
+const CYCLE_STATUS_HEBREW: Record<string, string> = {
+  active: 'פעיל',
+  completed: 'הושלם',
+  cancelled: 'בוטל',
+  frozen: 'מוקפא',
+  retainer: 'ריטיינר',
+};
+
+function parseCycleStartDateFilter(startDateFrom?: string, startDateTo?: string) {
+  const startDateFilter: { gte?: Date; lte?: Date } = {};
+  if (startDateFrom && /^\d{4}-\d{2}-\d{2}$/.test(startDateFrom)) {
+    startDateFilter.gte = new Date(`${startDateFrom}T00:00:00.000Z`);
+  }
+  if (startDateTo && /^\d{4}-\d{2}-\d{2}$/.test(startDateTo)) {
+    startDateFilter.lte = new Date(`${startDateTo}T00:00:00.000Z`);
+  }
+  return startDateFilter;
+}
+
+async function getEffectiveInstructorId(req: any, requestedInstructorId?: string) {
+  if (req.user?.role !== 'instructor') return requestedInstructorId;
+
+  const instructor = await prisma.instructor.findUnique({
+    where: { userId: req.user.userId },
+    select: { id: true },
+  });
+  return instructor?.id ?? requestedInstructorId;
+}
+
+function buildCycleWhere(params: {
+  status?: string;
+  type?: string;
+  branchId?: string;
+  instructorId?: string;
+  courseId?: string;
+  dayOfWeek?: string;
+  search?: string;
+  startDateFrom?: string;
+  startDateTo?: string;
+}) {
+  const startDateFilter = parseCycleStartDateFilter(params.startDateFrom, params.startDateTo);
+  return {
+    deletedAt: null,
+    ...(params.status && { status: params.status as any }),
+    ...(params.type && { type: params.type as any }),
+    ...(params.branchId && { branchId: params.branchId }),
+    ...(params.instructorId && { instructorId: params.instructorId }),
+    ...(params.courseId && { courseId: params.courseId }),
+    ...(params.dayOfWeek && { dayOfWeek: params.dayOfWeek as any }),
+    ...(params.search && {
+      OR: [
+        { name: { contains: params.search, mode: 'insensitive' as const } },
+        { location: { contains: params.search, mode: 'insensitive' as const } },
+      ],
+    }),
+    ...((startDateFilter.gte || startDateFilter.lte) && { startDate: startDateFilter }),
+  };
+}
+
+function formatDateForExcel(date?: Date | string | null) {
+  if (!date) return '';
+  return new Date(date).toLocaleDateString('he-IL', { timeZone: 'UTC' });
+}
+
+function formatTimeForExcel(time?: Date | string | null) {
+  if (!time) return '';
+  if (time instanceof Date) {
+    const hours = time.getUTCHours().toString().padStart(2, '0');
+    const minutes = time.getUTCMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+  }
+  if (time.includes('T')) {
+    const date = new Date(time);
+    const hours = date.getUTCHours().toString().padStart(2, '0');
+    const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+  }
+  return time.substring(0, 5);
+}
+
+function sanitizeExportFileName(name: string) {
+  return name.replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, '_').slice(0, 120);
+}
+
+function sortExportCycles(cycles: any[], sortField: string, sortDirection: 'asc' | 'desc') {
+  const dayOrder: Record<string, number> = {
+    sunday: 0,
+    monday: 1,
+    tuesday: 2,
+    wednesday: 3,
+    thursday: 4,
+    friday: 5,
+    saturday: 6,
+  };
+
+  const valueFor = (cycle: any) => {
+    switch (sortField) {
+      case 'name':
+        return cycle.name || '';
+      case 'course':
+        return cycle.course?.name || '';
+      case 'branch':
+        return cycle.branch?.name || '';
+      case 'instructor':
+        return cycle.instructor?.name || '';
+      case 'startDate':
+        return new Date(cycle.startDate).getTime();
+      case 'dayOfWeek':
+        return `${dayOrder[cycle.dayOfWeek] ?? 0}-${formatTimeForExcel(cycle.startTime)}`;
+      case 'type':
+        return cycle.type || '';
+      case 'pricePerStudent':
+        return Number(cycle.pricePerStudent || cycle.defaultRegistrationAmount || 0);
+      case 'meetingRevenue':
+        return Number(cycle.revenuePerMeeting ?? cycle.meetingRevenue ?? 0);
+      case 'registeredChildren':
+        return cycle._count?.registrations ?? cycle.registrations?.length ?? cycle.studentCount ?? 0;
+      case 'progress':
+        return cycle.totalMeetings > 0 ? cycle.completedMeetings / cycle.totalMeetings : 0;
+      case 'status':
+        return cycle.status || '';
+      case 'zoom':
+        return cycle.zoomJoinUrl ? 1 : 0;
+      default:
+        return new Date(cycle.startDate).getTime();
+    }
+  };
+
+  return [...cycles].sort((a, b) => {
+    const aValue = valueFor(a);
+    const bValue = valueFor(b);
+    let comparison = 0;
+    if (typeof aValue === 'string' || typeof bValue === 'string') {
+      comparison = String(aValue).localeCompare(String(bValue), 'he');
+    } else {
+      comparison = Number(aValue) - Number(bValue);
+    }
+    return sortDirection === 'asc' ? comparison : -comparison;
+  });
+}
 
 // Helper: compute expected revenue per meeting for any cycle type
 function computeRevenuePerMeeting(cycle: any): number {
@@ -307,6 +467,139 @@ cyclesRouter.get('/', async (req, res, next) => {
         hasPrev: page > 1,
       },
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Export cycles view to Excel
+cyclesRouter.get('/export', async (req, res, next) => {
+  try {
+    const status = req.query.status as string | undefined;
+    const type = req.query.type as string | undefined;
+    const branchId = req.query.branchId as string | undefined;
+    const instructorId = await getEffectiveInstructorId(req, req.query.instructorId as string | undefined);
+    const courseId = req.query.courseId as string | undefined;
+    const dayOfWeek = req.query.dayOfWeek as string | undefined;
+    const search = req.query.search as string | undefined;
+    const startDateFrom = req.query.startDateFrom as string | undefined;
+    const startDateTo = req.query.startDateTo as string | undefined;
+    const sortField = (req.query.sort as string | undefined) || 'name';
+    const sortDirection = req.query.dir === 'desc' ? 'desc' : 'asc';
+
+    const where = buildCycleWhere({
+      status,
+      type,
+      branchId,
+      instructorId,
+      courseId,
+      dayOfWeek,
+      search,
+      startDateFrom,
+      startDateTo,
+    });
+
+    const cycles = await prisma.cycle.findMany({
+      where,
+      include: {
+        course: { select: { id: true, name: true, category: true } },
+        branch: { select: { id: true, name: true, type: true } },
+        instructor: { select: { id: true, name: true } },
+        institutionalOrder: { select: { id: true, orderNumber: true, orderName: true } },
+        _count: { select: { registrations: { where: { deletedAt: null } }, meetings: true } },
+        registrations: {
+          where: { deletedAt: null, status: { notIn: ['cancelled', 'pending_cancellation'] } },
+          select: { amount: true },
+        },
+      },
+      orderBy: { startDate: 'desc' },
+    });
+
+    const exportRows = sortExportCycles(
+      cycles.map(cycle => ({ ...cycle, revenuePerMeeting: computeRevenuePerMeeting(cycle) })),
+      sortField,
+      sortDirection
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'HaiTech CRM';
+    workbook.created = new Date();
+    const worksheet = workbook.addWorksheet('מחזורים', {
+      views: [{ rightToLeft: true, state: 'frozen', ySplit: 1 }],
+      pageSetup: { orientation: 'landscape', fitToPage: true },
+    });
+
+    worksheet.columns = [
+      { header: 'שם המחזור', key: 'name', width: 34 },
+      { header: 'קורס', key: 'course', width: 28 },
+      { header: 'סניף', key: 'branch', width: 24 },
+      { header: 'מדריך', key: 'instructor', width: 20 },
+      { header: 'תאריך התחלה', key: 'startDate', width: 14 },
+      { header: 'תאריך סיום', key: 'endDate', width: 14 },
+      { header: 'יום', key: 'day', width: 10 },
+      { header: 'שעה', key: 'time', width: 15 },
+      { header: 'סוג', key: 'type', width: 18 },
+      { header: 'פעילות', key: 'activityType', width: 14 },
+      { header: 'מחיר לתלמיד', key: 'pricePerStudent', width: 15 },
+      { header: 'מחיר לפגישה', key: 'meetingRevenue', width: 15 },
+      { header: 'ילדים רשומים', key: 'registeredChildren', width: 14 },
+      { header: 'מפגשים', key: 'meetings', width: 12 },
+      { header: 'התקדמות', key: 'progress', width: 13 },
+      { header: 'סטטוס', key: 'status', width: 12 },
+      { header: 'הזמנה מוסדית', key: 'institutionalOrder', width: 28 },
+      { header: 'זום/גוגל מיט', key: 'videoLink', width: 14 },
+      { header: 'מיקום', key: 'location', width: 18 },
+    ];
+
+    worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E79' } };
+    worksheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
+
+    for (const cycle of exportRows) {
+      const registeredChildren = cycle._count?.registrations ?? cycle.registrations?.length ?? cycle.studentCount ?? 0;
+      const completedMeetings = Number(cycle.completedMeetings) || 0;
+      const totalMeetings = Number(cycle.totalMeetings) || 0;
+      worksheet.addRow({
+        name: cycle.name,
+        course: cycle.course?.name || '',
+        branch: cycle.branch?.name || '',
+        instructor: cycle.instructor?.name || '',
+        startDate: formatDateForExcel(cycle.startDate),
+        endDate: formatDateForExcel(cycle.endDate),
+        day: DAY_OF_WEEK_HEBREW[cycle.dayOfWeek] || cycle.dayOfWeek,
+        time: `${formatTimeForExcel(cycle.startTime)}-${formatTimeForExcel(cycle.endTime)}`,
+        type: CYCLE_TYPE_HEBREW[cycle.type] || cycle.type,
+        activityType: cycle.activityType === 'online' ? 'אונליין' : cycle.activityType === 'private_lesson' ? 'פרטי' : 'פרונטלי',
+        pricePerStudent: cycle.pricePerStudent || cycle.defaultRegistrationAmount ? Number(cycle.pricePerStudent || cycle.defaultRegistrationAmount) : null,
+        meetingRevenue: cycle.revenuePerMeeting || cycle.meetingRevenue ? Number(cycle.revenuePerMeeting ?? cycle.meetingRevenue) : null,
+        registeredChildren,
+        meetings: `${completedMeetings}/${totalMeetings}`,
+        progress: totalMeetings > 0 ? completedMeetings / totalMeetings : 0,
+        status: CYCLE_STATUS_HEBREW[cycle.status] || cycle.status,
+        institutionalOrder: cycle.institutionalOrder?.orderName || cycle.institutionalOrder?.orderNumber || '',
+        videoLink: cycle.zoomJoinUrl || cycle.googleCalendarEventId || cycle.googleMeetSpaceName ? 'יש קישור' : '',
+        location: cycle.location || '',
+      });
+    }
+
+    worksheet.eachRow((row, rowNumber) => {
+      row.alignment = { vertical: 'middle', horizontal: rowNumber === 1 ? 'center' : 'right', wrapText: true };
+    });
+    worksheet.getColumn('pricePerStudent').numFmt = '#,##0';
+    worksheet.getColumn('meetingRevenue').numFmt = '#,##0';
+    worksheet.getColumn('registeredChildren').numFmt = '#,##0';
+    worksheet.getColumn('progress').numFmt = '0%';
+    worksheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: worksheet.columnCount },
+    };
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const filename = sanitizeExportFileName(`מחזורים_${dateStamp}.xlsx`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.send(Buffer.from(buffer));
   } catch (error) {
     next(error);
   }

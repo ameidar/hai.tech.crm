@@ -3,7 +3,7 @@ import { sendWhatsApp } from './messaging.js';
 import { getOperationsWhatsAppRecipients } from './operations-notifications.js';
 
 const TZ = 'Asia/Jerusalem';
-const ACTIVE_REGISTRATION_STATUS = 'active';
+const ACTIVE_REGISTRATION_STATUSES = new Set(['active', 'registered']);
 const PAID_STATUS = 'paid';
 const VIDEO_ACTIVITY_TYPES = new Set(['online', 'private_lesson']);
 const VIDEO_CYCLE_TYPES = new Set(['private', 'trial_private', 'group']);
@@ -104,6 +104,10 @@ function addSection(lines: string[], title: string, items: string[], issueCounte
   lines.push('');
 }
 
+function isActiveRegistration(registration: MeetingCheckRegistration): boolean {
+  return ACTIVE_REGISTRATION_STATUSES.has(registration.status);
+}
+
 function findPairConflicts<T extends string | null>(
   meetings: MeetingCheckMeeting[],
   keyFn: (meeting: MeetingCheckMeeting) => T,
@@ -162,7 +166,7 @@ export function buildMeetingCheckReport(dateLabel: string, meetingsInput: Meetin
     '🟡 *אין רישומים פעילים:*',
     meetings
       .filter((meeting) => meeting.status === 'scheduled')
-      .filter((meeting) => !meeting.cycle.registrations.some((registration) => registration.status === ACTIVE_REGISTRATION_STATUS))
+      .filter((meeting) => !meeting.cycle.registrations.some(isActiveRegistration))
       .map((meeting) => meetingLine(meeting)),
     issueCounter
   );
@@ -170,7 +174,7 @@ export function buildMeetingCheckReport(dateLabel: string, meetingsInput: Meetin
   const unpaid = meetings
     .filter((meeting) => meeting.status === 'scheduled')
     .filter((meeting) => meeting.cycle.registrations.some((registration) =>
-      registration.status === ACTIVE_REGISTRATION_STATUS && registration.paymentStatus !== PAID_STATUS
+      isActiveRegistration(registration) && registration.paymentStatus !== PAID_STATUS
     ));
   const unpaidLines = unpaid.slice(0, 15).map((meeting) => meetingLine(meeting));
   if (unpaid.length > 15) unpaidLines.push(`...ועוד ${unpaid.length - 15}`);

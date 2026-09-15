@@ -205,6 +205,20 @@ function buildChatMessages(
     conv.referralSourceUrl ? `קישור מקור: ${conv.referralSourceUrl}` : null,
   ].filter(Boolean);
 
+  const referralContext = referralParts.length > 0
+    ? `הקשר ממודעת Meta/WhatsApp:\n${referralParts.join('\n')}
+
+אם הלקוח שואל "על זה", "אפשר פרטים?", "מידע נוסף", "אני מעוניין/ת", "מעוניין בפרטים" או פנייה כללית דומה — התייחס למודעה הזו כהקשר המרכזי. אל תשאל "על איזה נושא?" כתשובה ראשונה.
+
+תגובה ראשונה אחרי גילוי עניין ממודעה חייבת להיות קצרה:
+1. להסביר במשפט אחד שדרך ההייטק מציעה חוגי טכנולוגיה לילדים ונוער: תכנות, גיימינג יוצר, רובלוקס/מיינקראפט ובינה מלאכותית, בהתאם לגיל ולעניין.
+2. אם המודעה מזכירה נושא ספציפי, להזכיר אותו בקצרה בלי להמציא פרטים שלא נמצאים ב-Knowledge Base.
+3. להציע שנציג מדרך ההייטק יחזור בהקדם להתאמה והרשמה.
+4. לשאול רק שאלה אחת בסוף, למשל: "תרצה/י שנציג יחזור אליך בהקדם?"
+
+אל תיכנס ללופ של שאלות התאמה לפני שהצעת חזרת נציג.`
+    : '';
+
   const fullSystemPrompt = `${systemPrompt}
 
 ---
@@ -217,7 +231,7 @@ ${JSON.stringify(knowledgeBase, null, 2)}
 ${conv.contactName ? `שם: ${conv.contactName}` : ''}
 ${conv.childName ? `שם הילד: ${conv.childName}` : ''}
 ${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}
-${referralParts.length > 0 ? `הקשר ממודעת Meta/WhatsApp:\n${referralParts.join('\n')}` : ''}
+${referralContext}
 `;
 
   const chatMessages: any[] = [{ role: 'system', content: fullSystemPrompt }];
@@ -290,6 +304,23 @@ describe('Chat Message Building', () => {
     expect(msgs[0].content).toContain('הקשר ממודעת Meta/WhatsApp');
     expect(msgs[0].content).toContain('חוגי גיימינג ותכנות לילדים');
     expect(msgs[0].content).toContain('הילדים אוהבים גיימינג');
+  });
+
+  it('should instruct ad-interest replies to explain the offer and offer a representative callback', () => {
+    const msgs = buildChatMessages(prompt, kb, {
+      phone: '+972501234567',
+      referralHeadline: 'הילד אוהב Roblox או Minecraft?',
+      referralBody: 'שלחו וואטסאפ ונמצא את הקבוצה המתאימה.',
+      referralSourceType: 'ad',
+    }, [
+      { direction: 'inbound', content: 'אני מעוניינת בפרטים', createdAt: new Date() },
+    ]);
+
+    expect(msgs[0].content).toContain('אל תשאל "על איזה נושא?" כתשובה ראשונה');
+    expect(msgs[0].content).toContain('דרך ההייטק מציעה חוגי טכנולוגיה לילדים ונוער');
+    expect(msgs[0].content).toContain('להציע שנציג מדרך ההייטק יחזור בהקדם');
+    expect(msgs[0].content).toContain('אל תיכנס ללופ של שאלות התאמה');
+    expect(msgs[msgs.length - 1].content).toBe('אני מעוניינת בפרטים');
   });
 
   it('should map inbound messages to user role', () => {

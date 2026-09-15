@@ -119,6 +119,40 @@ describe('buildMeetingCheckReport', () => {
     expect(report.issueCount).toBe(0);
   });
 
+  it('treats registered registrations as active for meeting checks', () => {
+    const report = buildMeetingCheckReport('2026-07-12', [
+      meeting({
+        id: 'registered-paid',
+        cycle: {
+          name: 'שיעורים פרטיים דניאל- עם ניר',
+          type: 'private',
+          activityType: 'private_lesson',
+          isOnline: false,
+          registrations: [{ status: 'registered', paymentStatus: 'paid' }],
+        },
+      }),
+    ]);
+
+    expect(report.issueCount).toBe(0);
+    expect(report.message).not.toContain('🟡 *אין רישומים פעילים:*');
+  });
+
+  it('reports unpaid registered registrations', () => {
+    const report = buildMeetingCheckReport('2026-07-12', [
+      meeting({
+        id: 'registered-unpaid',
+        cycle: {
+          name: 'רישום ללא תשלום',
+          registrations: [{ status: 'registered', paymentStatus: 'unpaid' }],
+        },
+      }),
+    ]);
+
+    expect(report.message).not.toContain('🟡 *אין רישומים פעילים:*');
+    expect(report.message).toContain('🟠 *לא שולם');
+    expect(report.message).toContain('רישום ללא תשלום');
+  });
+
   it('returns an all-clear message when no issues are found', () => {
     const report = buildMeetingCheckReport('2026-07-12', [
       meeting({ id: 'ok', startTime: time(10), endTime: time(11), instructorId: 'i1' }),

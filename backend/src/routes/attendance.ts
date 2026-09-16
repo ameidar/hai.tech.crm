@@ -4,12 +4,19 @@ import { authenticate } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { z } from 'zod';
 import { logAudit } from '../utils/audit.js';
+import { handleInstitutionalAbsenceAlert } from '../services/institutional-absence-alerts.js';
 
 export const attendanceRouter = Router();
 
 attendanceRouter.use(authenticate);
 
 const uuidSchema = z.string().uuid();
+
+function queueInstitutionalAbsenceAlert(attendanceId: string): void {
+  handleInstitutionalAbsenceAlert(attendanceId).catch((error) => {
+    console.error(`[InstitutionalAbsenceAlert] failed after attendance save ${attendanceId}:`, error);
+  });
+}
 
 // Get attendance for a meeting (with registered students pre-populated)
 attendanceRouter.get('/meeting/:meetingId', async (req, res, next) => {
@@ -210,6 +217,7 @@ attendanceRouter.post('/meeting/:meetingId', async (req, res, next) => {
           recordedAt: new Date(),
         },
       });
+      queueInstitutionalAbsenceAlert(attendance.id);
       return res.json(attendance);
     }
 
@@ -236,6 +244,7 @@ attendanceRouter.post('/meeting/:meetingId', async (req, res, next) => {
           recordedAt: new Date(),
         },
       });
+      queueInstitutionalAbsenceAlert(attendance.id);
       return res.json(attendance);
     }
 
@@ -254,6 +263,7 @@ attendanceRouter.post('/meeting/:meetingId', async (req, res, next) => {
             recordedById: userId,
           },
         });
+        queueInstitutionalAbsenceAlert(updated.id);
         return res.json(updated);
       }
 
@@ -267,6 +277,7 @@ attendanceRouter.post('/meeting/:meetingId', async (req, res, next) => {
           recordedById: userId,
         },
       });
+      queueInstitutionalAbsenceAlert(created.id);
       return res.status(201).json(created);
     }
 
@@ -385,6 +396,10 @@ attendanceRouter.put('/meeting/:meetingId/bulk', async (req, res, next) => {
         return null;
       })
     );
+
+    for (const item of results.filter(Boolean)) {
+      queueInstitutionalAbsenceAlert(item!.id);
+    }
 
     res.json({ updated: results.filter(Boolean).length });
   } catch (error) {

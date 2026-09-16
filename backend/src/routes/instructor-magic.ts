@@ -22,11 +22,18 @@ import { shouldAutoCompleteCycle, syncCycleProgress } from '../utils/cycle-sync.
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
 import { checkAndSendMeetingReportQualityAlert } from '../services/meeting-report-quality-alert.js';
+import { handleInstitutionalAbsenceAlert } from '../services/institutional-absence-alerts.js';
 
 // WhatsApp group for pending meeting requests (postponements, cancellations)
 const ADMIN_PHONE = '120363353459332838@g.us';
 
 const router = Router();
+
+function queueInstitutionalAbsenceAlert(attendanceId: string): void {
+  handleInstitutionalAbsenceAlert(attendanceId).catch((error) => {
+    console.error(`[InstitutionalAbsenceAlert] failed after instructor magic save ${attendanceId}:`, error);
+  });
+}
 
 /**
  * GET /api/instructor-magic/verify/:meetingId/:token
@@ -251,7 +258,7 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
       for (const record of attendance) {
         if (!record.registrationId || !record.status) continue;
         
-        await prisma.attendance.upsert({
+        const savedAttendance = await prisma.attendance.upsert({
           where: {
             meetingId_registrationId: {
               meetingId,
@@ -269,6 +276,7 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
             status: record.status,
           }
         });
+        queueInstitutionalAbsenceAlert(savedAttendance.id);
       }
     }
 

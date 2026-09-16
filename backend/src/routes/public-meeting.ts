@@ -9,11 +9,18 @@ import {
 } from '../services/instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
 import { checkAndSendMeetingReportQualityAlert } from '../services/meeting-report-quality-alert.js';
+import { handleInstitutionalAbsenceAlert } from '../services/institutional-absence-alerts.js';
 import crypto from 'crypto';
 
 const MEETING_TOKEN_SECRET = process.env.MEETING_TOKEN_SECRET || 'haitech-meeting-status-2026';
 
 export const publicMeetingRouter = Router();
+
+function queueInstitutionalAbsenceAlert(attendanceId: string): void {
+  handleInstitutionalAbsenceAlert(attendanceId).catch((error) => {
+    console.error(`[InstitutionalAbsenceAlert] failed after public meeting save ${attendanceId}:`, error);
+  });
+}
 
 // Generate token for a meeting (used internally)
 export function generateMeetingToken(meetingId: string): string {
@@ -164,7 +171,7 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
 
       for (const att of attendance) {
         if (att.registrationId && att.status) {
-          await prisma.attendance.upsert({
+          const savedAttendance = await prisma.attendance.upsert({
             where: {
               meetingId_registrationId: {
                 meetingId,
@@ -183,6 +190,7 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
               notes: att.notes || null,
             },
           });
+          queueInstitutionalAbsenceAlert(savedAttendance.id);
         }
       }
     }

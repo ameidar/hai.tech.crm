@@ -29,6 +29,7 @@ import {
 } from '../parent-whatsapp-reminders.js';
 import { sendWhatsAppCloudTemplate, templateText } from '../whatsapp-cloud-templates.js';
 import { getOperationsEmailRecipients } from '../operations-notifications.js';
+import { sendPendingInstitutionalAttendanceAlerts } from '../institutional-absence-alerts.js';
 
 // Management email list (configure via env or database)
 const MANAGEMENT_EMAILS = getOperationsEmailRecipients(process.env.MANAGEMENT_EMAILS);
@@ -588,6 +589,7 @@ const schedules = {
   monthlyInstructorReport:  '0 8 1 * *',    // 08:00 on 1st of every month
   cyclesNearCompletion:     '0 9 * * *',    // 09:00 daily — cycles with 1 meeting left
   meetingCheckReport:       process.env.MEETINGS_CHECK_REPORT_CRON || '0 20 * * *',
+  institutionalAbsenceAlerts: process.env.INSTITUTIONAL_ABSENCE_ALERT_CRON || '*/15 * * * *',
 };
 
 // Scheduled tasks
@@ -631,6 +633,18 @@ export const initEmailScheduler = () => {
   }, { timezone: 'Asia/Jerusalem' });
   scheduledTasks.push(preMeetingTask);
   console.log('   ✓ Pre-meeting WhatsApp reminders: every 15 min');
+
+  if (process.env.INSTITUTIONAL_ABSENCE_ALERTS_ENABLED !== 'false') {
+    const institutionalAbsenceTask = cron.schedule(schedules.institutionalAbsenceAlerts, () => {
+      sendPendingInstitutionalAttendanceAlerts().catch((err: any) =>
+        console.error('[InstitutionalAbsenceAlert] Cron failed:', err)
+      );
+    }, { timezone: 'Asia/Jerusalem' });
+    scheduledTasks.push(institutionalAbsenceTask);
+    console.log(`   ✓ Institutional absence alerts: ${schedules.institutionalAbsenceAlerts} Asia/Jerusalem → WhatsApp`);
+  } else {
+    console.log('   - Institutional absence alerts disabled; set INSTITUTIONAL_ABSENCE_ALERTS_ENABLED=false to keep it disabled');
+  }
 
   // Schedule evening status check (22:00) — WhatsApp poll to instructors
   const eveningStatusTask = cron.schedule('0 22 * * *', () => {
@@ -689,3 +703,4 @@ export const triggerEveningStatusCheck = () => sendEveningStatusCheck();
 export const triggerMonthlyInstructorReport = () => sendMonthlyInstructorReport();
 export const triggerCyclesNearCompletion = () => checkCyclesNearCompletion();
 export const triggerMeetingCheckReport = () => sendTomorrowMeetingCheckReport();
+export const triggerInstitutionalAbsenceAlerts = () => sendPendingInstitutionalAttendanceAlerts();

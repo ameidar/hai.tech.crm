@@ -20,12 +20,19 @@ import {
   calculateInstructorPayment,
   recalculateDailyInstructorPaymentsForMeeting,
 } from '../../../services/instructor-payment.js';
+import { handleInstitutionalAbsenceAlert } from '../../../services/institutional-absence-alerts.js';
 
 /**
  * Meetings Service - Business logic layer
  */
 export class MeetingsService {
   constructor(private repository: MeetingsRepository) {}
+
+  private queueInstitutionalAbsenceAlert(attendanceId: string): void {
+    handleInstitutionalAbsenceAlert(attendanceId).catch((error) => {
+      console.error(`[InstitutionalAbsenceAlert] failed after v1 meeting attendance save ${attendanceId}:`, error);
+    });
+  }
 
   /**
    * List all meetings with pagination and filters
@@ -683,6 +690,7 @@ export class MeetingsService {
           },
         });
         results.push(updated);
+        this.queueInstitutionalAbsenceAlert(updated.id);
       } else {
         // Create new
         const created = await prisma.attendance.create({
@@ -698,6 +706,7 @@ export class MeetingsService {
           },
         });
         results.push(created);
+        this.queueInstitutionalAbsenceAlert(created.id);
       }
     }
 

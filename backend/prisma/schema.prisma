@@ -875,6 +875,7 @@ model Meeting {
   instructorPayment         Decimal       @default(0) @map("instructor_payment") @db.Decimal(10, 2)
   profit                    Decimal       @default(0) @db.Decimal(10, 2)
   negativeProfitAlertSentAt DateTime?     @map("negative_profit_alert_sent_at")
+  institutionalAttendanceMissingAlertSentAt DateTime? @map("institutional_attendance_missing_alert_sent_at")
   activityType              ActivityType? @map("activity_type")
   topic                     String?
   notes                     String?
@@ -923,6 +924,7 @@ model Meeting {
   @@index([recallBotId])
   @@index([lessonReportStatus])
   @@index([negativeProfitAlertSentAt])
+  @@index([institutionalAttendanceMissingAlertSentAt])
   @@index([registrationId])
   @@map("meetings")
 }
@@ -967,6 +969,7 @@ model Attendance {
   notes          String?
   recordedAt     DateTime         @default(now()) @map("recorded_at")
   recordedById   String?          @map("recorded_by")
+  institutionalAbsenceAlertSentAt DateTime? @map("institutional_absence_alert_sent_at")
 
   // Relations
   meeting      Meeting       @relation(fields: [meetingId], references: [id], onDelete: Cascade)
@@ -976,6 +979,7 @@ model Attendance {
 
   @@unique([meetingId, registrationId])
   @@unique([meetingId, studentId])
+  @@index([institutionalAbsenceAlertSentAt])
   @@map("attendance")
 }
 

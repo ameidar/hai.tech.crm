@@ -3,6 +3,7 @@ import { attendanceRepository, AttendanceRepository } from '../repositories/atte
 import { logAudit } from '../../../utils/audit.js';
 import { prisma } from '../../../utils/prisma.js';
 import { Request } from 'express';
+import { handleInstitutionalAbsenceAlert } from '../../../services/institutional-absence-alerts.js';
 import {
   AttendanceQuery,
   CreateAttendanceInput,
@@ -15,6 +16,12 @@ import {
  */
 export class AttendanceService {
   constructor(private repository: AttendanceRepository) {}
+
+  private queueInstitutionalAbsenceAlert(attendanceId: string): void {
+    handleInstitutionalAbsenceAlert(attendanceId).catch((error) => {
+      console.error(`[InstitutionalAbsenceAlert] failed after v1 attendance save ${attendanceId}:`, error);
+    });
+  }
 
   /**
    * List all attendance records with pagination and filters
@@ -86,6 +93,7 @@ export class AttendanceService {
     }
 
     const attendance = await this.repository.create(data, req?.user?.userId);
+    this.queueInstitutionalAbsenceAlert(attendance.id);
 
     // Audit log
     if (req) {
@@ -118,6 +126,7 @@ export class AttendanceService {
     }
 
     const attendance = await this.repository.update(id, data);
+    this.queueInstitutionalAbsenceAlert(attendance.id);
 
     // Audit log
     if (req) {
@@ -182,6 +191,10 @@ export class AttendanceService {
       data.records,
       req?.user?.userId
     );
+
+    for (const attendance of results) {
+      this.queueInstitutionalAbsenceAlert(attendance.id);
+    }
 
     // Audit log
     if (req) {

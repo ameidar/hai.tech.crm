@@ -172,7 +172,7 @@ attendanceRouter.get('/meeting/:meetingId', async (req, res, next) => {
 // Record/update attendance for a student
 const recordAttendanceSchema = z.object({
   registrationId: z.string().uuid().optional(),
-  studentId: z.string().uuid().optional(),
+  studentId: z.string().min(1).optional(),
   guestName: z.string().optional(),
   status: z.enum(['present', 'absent', 'late']),
   isTrial: z.boolean().optional(),
@@ -292,7 +292,7 @@ const bulkAttendanceSchema = z.object({
   attendance: z.array(
     z.object({
       registrationId: z.string().uuid().optional(),
-      studentId: z.string().uuid().optional(),
+      studentId: z.string().min(1).optional(),
       guestName: z.string().optional(),
       status: z.enum(['present', 'absent', 'late']),
       isTrial: z.boolean().optional(),

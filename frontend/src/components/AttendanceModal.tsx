@@ -44,7 +44,7 @@ export default function AttendanceModal({
         meetingId,
         data: {
           registrationId: record.registrationId || undefined,
-          studentId: record.studentId || undefined,
+          studentId: record.registrationId ? undefined : record.studentId || undefined,
           status,
           isTrial: record.isTrial,
         },

@@ -17,7 +17,7 @@ export const attendanceQuerySchema = paginationSchema
   .merge(sortingSchema)
   .extend({
     meetingId: uuidSchema.optional(),
-    studentId: uuidSchema.optional(),
+    studentId: z.string().min(1).optional(),
     registrationId: uuidSchema.optional(),
     status: attendanceStatusEnum.optional(),
     isTrial: z
@@ -34,7 +34,7 @@ export const attendanceQuerySchema = paginationSchema
 export const createAttendanceSchema = z.object({
   meetingId: uuidSchema,
   registrationId: uuidSchema.optional(),
-  studentId: uuidSchema.optional(),
+  studentId: z.string().min(1).optional(),
   guestName: z.string().optional(),
   status: attendanceStatusEnum,
   isTrial: z.boolean().optional().default(false),
@@ -60,7 +60,7 @@ export const updateAttendanceSchema = z.object({
  */
 export const bulkAttendanceRecordSchema = z.object({
   registrationId: uuidSchema.optional(),
-  studentId: uuidSchema.optional(),
+  studentId: z.string().min(1).optional(),
   guestName: z.string().optional(),
   status: attendanceStatusEnum,
   isTrial: z.boolean().optional().default(false),

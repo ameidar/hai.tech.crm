@@ -363,12 +363,20 @@ model Customer {
   @@map("customers")
 }
 
+enum StudentGender {
+  unknown
+  female
+  male
+  other
+}
+
 model Student {
   id         String    @id @default(uuid())
   customerId String    @map("customer_id")
   name       String
   birthDate  DateTime? @map("birth_date") @db.Date
   age        Int?
+  gender     StudentGender @default(unknown)
   grade      String?
   notes      String?
   createdAt  DateTime  @default(now()) @map("created_at")

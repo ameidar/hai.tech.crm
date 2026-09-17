@@ -7,6 +7,8 @@ import {
   nonEmptyStringSchema 
 } from './common.js';
 
+const studentGenderSchema = z.enum(['unknown', 'female', 'male', 'other']);
+
 /**
  * Customer query parameters
  */
@@ -51,6 +53,7 @@ export const updateCustomerSchema = z.object({
 export const createStudentForCustomerSchema = z.object({
   name: nonEmptyStringSchema,
   birthDate: z.string().optional().transform((val) => val ? new Date(val) : undefined),
+  gender: studentGenderSchema.optional(),
   grade: z.string().optional(),
   notes: z.string().optional(),
 });

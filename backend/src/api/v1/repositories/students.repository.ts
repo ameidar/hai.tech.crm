@@ -10,7 +10,7 @@ export class StudentsRepository {
    * Find all students with pagination and filters
    */
   async findAll(query: StudentQuery) {
-    const { limit, offset, search, customerId, grade, sortBy, sortOrder } = query;
+    const { limit, offset, search, customerId, grade, gender, sortBy, sortOrder } = query;
 
     // Build where clause
     const where: Prisma.StudentWhereInput = {
@@ -20,6 +20,7 @@ export class StudentsRepository {
       }),
       ...(customerId && { customerId }),
       ...(grade && { grade }),
+      ...(gender && { gender }),
     };
 
     // Build orderBy
@@ -83,6 +84,7 @@ export class StudentsRepository {
         customerId: data.customerId,
         name: data.name,
         birthDate: data.birthDate,
+        gender: data.gender ?? 'unknown',
         grade: data.grade,
         notes: data.notes,
       },

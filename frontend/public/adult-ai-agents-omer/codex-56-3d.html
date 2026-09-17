@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Codex 5.6 - AI Agents Course Motion Graphic</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      overflow: hidden;
+      background: #06172b;
+      color: #eef8ff;
+      font-family: Arial, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+    body {
+      height: 100vh;
+      background:
+        radial-gradient(circle at 18% 18%, rgba(42,174,155,0.22), transparent 28%),
+        radial-gradient(circle at 82% 34%, rgba(240,107,47,0.18), transparent 30%),
+        linear-gradient(135deg, #06172b 0%, #0d2d4e 52%, #05111f 100%);
+    }
+    #stage {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .hud {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      display: grid;
+      grid-template-columns: minmax(320px, 620px) 1fr;
+      align-items: center;
+      padding: 54px 64px;
+      z-index: 2;
+    }
+    .copy {
+      max-width: 620px;
+      align-self: end;
+      margin-bottom: 26px;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 900;
+      color: #baf7ec;
+      margin-bottom: 18px;
+      text-shadow: 0 0 22px rgba(42,174,155,0.5);
+    }
+    .mark {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      background: #ffffff;
+      color: #173f75;
+      font-weight: 900;
+      box-shadow: 0 0 30px rgba(255,255,255,0.26);
+    }
+    h1 {
+      margin: 0;
+      font-size: 64px;
+      line-height: 1.02;
+      color: #ffffff;
+      text-wrap: balance;
+      max-width: 620px;
+    }
+    .accent { color: #f6a04e; }
+    .sub {
+      margin: 20px 0 0;
+      font-size: 22px;
+      line-height: 1.45;
+      color: #d5ebf5;
+      max-width: 570px;
+    }
+    .meta {
+      position: fixed;
+      left: 44px;
+      right: 44px;
+      bottom: 34px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 2px;
+      z-index: 3;
+      pointer-events: none;
+      border-top: 2px solid rgba(255,255,255,0.18);
+      border-bottom: 2px solid rgba(255,255,255,0.18);
+      background: rgba(4,18,35,0.46);
+      backdrop-filter: blur(12px);
+    }
+    .meta div {
+      min-height: 74px;
+      padding: 12px 18px;
+      border-left: 2px solid rgba(255,255,255,0.18);
+      display: grid;
+      align-content: center;
+      gap: 4px;
+    }
+    .meta div:last-child { border-left: 0; }
+    .meta strong {
+      color: #ffffff;
+      font-size: 18px;
+    }
+    .meta span {
+      color: #9fd9e4;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .badge {
+      position: fixed;
+      top: 34px;
+      left: 44px;
+      z-index: 4;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #06172b;
+      background: #baf7ec;
+      padding: 10px 14px;
+      font-weight: 900;
+      box-shadow: 0 0 32px rgba(42,174,155,0.35);
+    }
+    .pulse {
+      width: 10px;
+      height: 10px;
+      background: #f06b2f;
+      border-radius: 50%;
+      animation: pulse 1.2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(0.9); opacity: 0.72; }
+      50% { transform: scale(1.45); opacity: 1; }
+    }
+    @media (max-width: 760px) {
+      .hud {
+        grid-template-columns: 1fr;
+        padding: 26px 22px 150px;
+        align-items: end;
+      }
+      .copy { margin: 0; }
+      h1 { font-size: 40px; }
+      .sub { font-size: 17px; max-width: 92%; }
+      .badge { top: 18px; left: 18px; }
+      .meta {
+        left: 14px;
+        right: 14px;
+        bottom: 14px;
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .meta div {
+        min-height: 60px;
+        padding: 8px 10px;
+      }
+      .meta strong { font-size: 14px; }
+      .meta span { font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="stage" aria-label="סצנה תלת מימדית מונפשת של סוכני AI, אוטומציות, אתרים ואפליקציות"></canvas>
+
+  <div class="badge"><span class="pulse"></span> Codex 5.6 Motion System</div>
+
+  <main class="hud">
+    <section class="copy">
+      <div class="brand"><span class="mark">היי</span> דרך ההייטק | עומר</div>
+      <h1>בונים <span class="accent">סוכני AI</span> שהופכים רעיון למערכת עובדת</h1>
+      <p class="sub">קורס פרונטלי לבעלי עסקים: סוכן, אוטומציה, דף נחיתה ואפליקציה פנימית - הכל נבנה בפועל, מול העיניים.</p>
+    </section>
+  </main>
+
+  <aside class="meta" aria-label="תוצרי הקורס">
+    <div><strong>סוכן AI</strong><span>מענה, תכנון וביצוע משימות</span></div>
+    <div><strong>אוטומציות</strong><span>טפסים, מיילים, CRM והתראות</span></div>
+    <div><strong>אתרים</strong><span>דפי נחיתה ומערכות תוכן</span></div>
+    <div><strong>אפליקציות</strong><span>כלים פנימיים לעסק</span></div>
+  </aside>
+
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.160.1/build/three.module.js';
+
+    const canvas = document.getElementById('stage');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x06172b, 12, 36);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 3.2, 12);
+
+    const root = new THREE.Group();
+    scene.add(root);
+
+    const ambient = new THREE.AmbientLight(0x8fdde1, 1.2);
+    scene.add(ambient);
+
+    const key = new THREE.PointLight(0x2aae9b, 4.8, 36);
+    key.position.set(-5, 6, 7);
+    scene.add(key);
+
+    const warm = new THREE.PointLight(0xf06b2f, 3.2, 26);
+    warm.position.set(5, 2, 6);
+    scene.add(warm);
+
+    const white = new THREE.PointLight(0xffffff, 2.4, 18);
+    white.position.set(0, 5, 5);
+    scene.add(white);
+
+    const navy = new THREE.MeshStandardMaterial({ color: 0x163e72, metalness: 0.45, roughness: 0.22, emissive: 0x06172b, emissiveIntensity: 0.3 });
+    const teal = new THREE.MeshStandardMaterial({ color: 0x2aae9b, metalness: 0.35, roughness: 0.18, emissive: 0x124d49, emissiveIntensity: 0.55 });
+    const orange = new THREE.MeshStandardMaterial({ color: 0xf06b2f, metalness: 0.32, roughness: 0.2, emissive: 0x5d210a, emissiveIntensity: 0.5 });
+    const glass = new THREE.MeshPhysicalMaterial({ color: 0xffffff, transmission: 0.4, opacity: 0.5, transparent: true, metalness: 0.15, roughness: 0.08, thickness: 0.6 });
+
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(1.65, 2), glass);
+    core.position.set(-2.2, 0.2, 0);
+    root.add(core);
+
+    const inner = new THREE.Mesh(new THREE.OctahedronGeometry(0.9, 1), teal);
+    core.add(inner);
+
+    const ringGroup = new THREE.Group();
+    core.add(ringGroup);
+    const ringMaterials = [teal, orange, navy];
+    for (let i = 0; i < 3; i += 1) {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(2.25 + i * 0.18, 0.018, 10, 140),
+        ringMaterials[i]
+      );
+      ring.rotation.x = Math.PI / 2 + i * 0.55;
+      ring.rotation.y = i * 0.7;
+      ringGroup.add(ring);
+    }
+
+    const nodeGroup = new THREE.Group();
+    root.add(nodeGroup);
+    const nodeLabels = [
+      { name: 'Agent', color: teal, angle: 0 },
+      { name: 'CRM', color: navy, angle: Math.PI / 2 },
+      { name: 'Web', color: orange, angle: Math.PI },
+      { name: 'App', color: teal, angle: Math.PI * 1.5 }
+    ];
+
+    function makeNode(item) {
+      const group = new THREE.Group();
+      const block = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.72, 0.16), item.color);
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.08, 0.22), glass);
+      cap.position.y = 0.48;
+      group.add(block, cap);
+      const orbit = 4.0;
+      group.position.set(-2.2 + Math.cos(item.angle) * orbit, 0.2 + Math.sin(item.angle) * 1.4, Math.sin(item.angle) * orbit * 0.45);
+      group.userData = { baseAngle: item.angle, orbit };
+      return group;
+    }
+    nodeLabels.forEach(item => nodeGroup.add(makeNode(item)));
+
+    const curveMaterial = new THREE.LineBasicMaterial({ color: 0x8ff4e6, transparent: true, opacity: 0.6 });
+    const curves = [];
+    for (const node of nodeGroup.children) {
+      const points = [];
+      for (let i = 0; i <= 36; i += 1) {
+        const t = i / 36;
+        const p = new THREE.Vector3().lerpVectors(node.position, core.position, t);
+        p.y += Math.sin(t * Math.PI) * 0.72;
+        points.push(p);
+      }
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), curveMaterial);
+      root.add(line);
+      curves.push(line);
+    }
+
+    const codeGroup = new THREE.Group();
+    root.add(codeGroup);
+    for (let i = 0; i < 44; i += 1) {
+      const w = 0.24 + Math.random() * 0.65;
+      const h = 0.025 + Math.random() * 0.025;
+      const mat = Math.random() > 0.62 ? orange : teal;
+      const dash = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.018), mat);
+      dash.position.set((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 5.6, -2.8 - Math.random() * 5.5);
+      dash.rotation.z = (Math.random() - 0.5) * 0.22;
+      dash.userData = { speed: 0.015 + Math.random() * 0.028 };
+      codeGroup.add(dash);
+    }
+
+    const particleCount = 620;
+    const positions = new Float32Array(particleCount * 3);
+    for (let i = 0; i < particleCount; i += 1) {
+      const radius = 4 + Math.random() * 10;
+      const theta = Math.random() * Math.PI * 2;
+      positions[i * 3] = Math.cos(theta) * radius;
+      positions[i * 3 + 1] = (Math.random() - 0.5) * 8;
+      positions[i * 3 + 2] = Math.sin(theta) * radius - 4;
+    }
+    const particleGeo = new THREE.BufferGeometry();
+    particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const particles = new THREE.Points(
+      particleGeo,
+      new THREE.PointsMaterial({ color: 0x8ff4e6, size: 0.035, transparent: true, opacity: 0.78 })
+    );
+    scene.add(particles);
+
+    const grid = new THREE.GridHelper(22, 28, 0x2aae9b, 0x1b4268);
+    grid.position.y = -2.25;
+    grid.position.z = -3.5;
+    grid.material.opacity = 0.28;
+    grid.material.transparent = true;
+    scene.add(grid);
+
+    function resize() {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      renderer.setSize(width, height);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      if (width < 760) {
+        camera.position.set(0, 2.5, 14);
+        root.position.set(-0.8, 0.4, 0);
+        root.scale.setScalar(0.78);
+      } else {
+        camera.position.set(0, 3.2, 12);
+        root.position.set(0, 0, 0);
+        root.scale.setScalar(1);
+      }
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    const clock = new THREE.Clock();
+    function animate() {
+      const t = clock.getElapsedTime();
+      root.rotation.y = Math.sin(t * 0.22) * 0.08;
+      core.rotation.y += 0.009;
+      core.rotation.x = Math.sin(t * 0.7) * 0.12;
+      inner.rotation.y -= 0.02;
+      inner.rotation.z += 0.014;
+      ringGroup.rotation.z += 0.008;
+      particles.rotation.y += 0.0009;
+      grid.position.z = -3.5 + Math.sin(t * 0.7) * 0.15;
+
+      nodeGroup.children.forEach((node, idx) => {
+        const base = node.userData.baseAngle + t * 0.26;
+        node.position.x = -2.2 + Math.cos(base) * node.userData.orbit;
+        node.position.y = 0.2 + Math.sin(base * 1.4 + idx) * 1.28;
+        node.position.z = Math.sin(base) * node.userData.orbit * 0.46;
+        node.rotation.y = -base + Math.PI / 2;
+        node.rotation.x = Math.sin(t + idx) * 0.08;
+      });
+
+      codeGroup.children.forEach(dash => {
+        dash.position.x -= dash.userData.speed;
+        dash.material.opacity = 0.6 + Math.sin(t * 2 + dash.position.x) * 0.25;
+        if (dash.position.x < -7) {
+          dash.position.x = 7;
+          dash.position.y = (Math.random() - 0.5) * 5.6;
+        }
+      });
+
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+    animate();
+  </script>
+</body>
+</html>

@@ -78,8 +78,9 @@ import {
   cycleTypeHebrew,
   dayOfWeekHebrew,
   meetingStatusHebrew,
+  studentGenderHebrew,
 } from '../types';
-import type { Meeting, MeetingStatus, MeetingNature, Registration, RegistrationStatus, PaymentStatus, PaymentMethod, ActivityType, Cycle, Course, Branch, Instructor, CycleStatus, CycleType, DayOfWeek, InstructorPaymentMode } from '../types';
+import type { Meeting, MeetingStatus, MeetingNature, Registration, RegistrationStatus, PaymentStatus, PaymentMethod, ActivityType, Cycle, Course, Branch, Instructor, CycleStatus, CycleType, DayOfWeek, InstructorPaymentMode, StudentGender } from '../types';
 import { paymentStatusHebrew, activityTypeHebrew, meetingNatureHebrew } from '../types';
 import { exportCycleMeetingsToExcel } from '../utils/meetingsExcel';
 
@@ -106,6 +107,7 @@ function AddStudentModal({
   const [newCustomerPhone, setNewCustomerPhone] = useState('');
   const [newCustomerEmail, setNewCustomerEmail] = useState('');
   const [newStudentName, setNewStudentName] = useState('');
+  const [newStudentGender, setNewStudentGender] = useState<StudentGender>('unknown');
   const [newStudentGrade, setNewStudentGrade] = useState('');
   const [creating, setCreating] = useState(false);
 
@@ -162,6 +164,7 @@ function AddStudentModal({
       // Create student under customer
       const student = await api.post(`/customers/${customerId}/students`, {
         name: newStudentName,
+        gender: newStudentGender,
         grade: newStudentGrade || undefined,
       });
       // Add to cycle
@@ -172,6 +175,7 @@ function AddStudentModal({
       setNewCustomerPhone('');
       setNewCustomerEmail('');
       setNewStudentName('');
+      setNewStudentGender('unknown');
       setNewStudentGrade('');
     } catch (err: any) {
       alert(err?.response?.data?.message || 'שגיאה ביצירת תלמיד');
@@ -215,7 +219,7 @@ function AddStudentModal({
                   >
                     <p className="font-medium">{student.name}</p>
                     <p className="text-sm text-gray-500">
-                      {student.customer?.name} • {student.grade || 'לא צוין כיתה'}
+                      {student.customer?.name} • {studentGenderHebrew[student.gender ?? 'unknown']} • {student.grade || 'לא צוין כיתה'}
                     </p>
                   </button>
                 ))}
@@ -304,6 +308,18 @@ function AddStudentModal({
                   placeholder="לדוגמא: ד׳"
                 />
               </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">מגדר</label>
+              <select
+                value={newStudentGender}
+                onChange={(e) => setNewStudentGender(e.target.value as StudentGender)}
+                className="w-full p-2 border rounded-lg text-right"
+              >
+                {Object.entries(studentGenderHebrew).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
             </div>
 
             <div className="mt-4 pt-4 border-t flex justify-between items-center">

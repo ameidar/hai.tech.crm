@@ -205,6 +205,7 @@ export class CustomersRepository {
       data: {
         name: data.name,
         birthDate: data.birthDate,
+        gender: data.gender ?? 'unknown',
         grade: data.grade,
         notes: data.notes,
         customerId,

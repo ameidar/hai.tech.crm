@@ -47,10 +47,13 @@ export const createCustomerSchema = z.object({
 export const updateCustomerSchema = createCustomerSchema.partial();
 
 // Student schemas
+export const studentGenderSchema = z.enum(['unknown', 'female', 'male', 'other']);
+
 export const createStudentSchema = z.object({
   customerId: z.string().min(1, 'Customer ID is required'),
   name: z.string().min(2, 'Name must be at least 2 characters'),
   birthDate: z.string().optional().nullable(),
+  gender: studentGenderSchema.default('unknown'),
   grade: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
 });

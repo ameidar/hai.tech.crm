@@ -16,6 +16,14 @@ export type ActivityType = 'online' | 'frontal' | 'private_lesson';
 export type TaskStatus = 'new' | 'in_progress' | 'waiting_info' | 'completed';
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type VideoMeetingProvider = 'zoom' | 'google_meet';
+export type StudentGender = 'unknown' | 'female' | 'male' | 'other';
+
+export const studentGenderHebrew: Record<StudentGender, string> = {
+  unknown: 'לא צוין',
+  female: 'בת',
+  male: 'בן',
+  other: 'אחר',
+};
 
 // Entities
 export interface User {
@@ -122,6 +130,7 @@ export interface Student {
   customerId: string;
   name: string;
   birthDate?: string;
+  gender?: StudentGender;
   grade?: string;
   notes?: string;
   customer?: Customer;

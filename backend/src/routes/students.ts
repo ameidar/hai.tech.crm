@@ -129,6 +129,7 @@ studentsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
         customerId: data.customerId,
         name: data.name,
         birthDate: data.birthDate ? new Date(data.birthDate) : null,
+        gender: data.gender ?? 'unknown',
         grade: data.grade,
         notes: data.notes,
       },
@@ -137,7 +138,7 @@ studentsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
       },
     });
 
-    await logAudit({ action: 'CREATE', entity: 'Student', entityId: student.id, newValue: { name: student.name, customerId: student.customerId, grade: student.grade }, req });
+    await logAudit({ action: 'CREATE', entity: 'Student', entityId: student.id, newValue: { name: student.name, customerId: student.customerId, gender: student.gender, grade: student.grade }, req });
 
     res.status(201).json(student);
   } catch (error) {

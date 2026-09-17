@@ -12,7 +12,8 @@ import EmptyState from '../components/ui/EmptyState';
 import WooPayModal from '../components/WooPayModal';
 import CustomerWhatsAppPanel from '../components/CustomerWhatsAppPanel';
 import MergeCustomerModal from '../components/MergeCustomerModal';
-import type { Customer, Student, Cycle, PaymentStatus, PaymentMethod } from '../types';
+import type { Customer, Student, Cycle, PaymentStatus, PaymentMethod, StudentGender } from '../types';
+import { studentGenderHebrew } from '../types';
 
 type ApiValidationDetail = {
   field?: string;
@@ -399,6 +400,7 @@ export default function CustomerDetail() {
                     <tr>
                       <th>שם</th>
                       <th>תאריך לידה</th>
+                      <th>מגדר</th>
                       <th>כיתה</th>
                       <th>מחזור</th>
                       <th>הערות</th>
@@ -414,6 +416,7 @@ export default function CustomerDetail() {
                             ? new Date(student.birthDate).toLocaleDateString('he-IL')
                             : '-'}
                         </td>
+                        <td>{studentGenderHebrew[student.gender ?? 'unknown']}</td>
                         <td>{student.grade || '-'}</td>
                         <td>
                           {student.registrations && student.registrations.length > 0 ? (
@@ -621,6 +624,7 @@ function StudentForm({ cycles, onSubmit, onCancel, isLoading, onCycleCreated }: 
   const [formData, setFormData] = useState({
     name: '',
     birthDate: '',
+    gender: 'unknown' as StudentGender,
     grade: '',
     notes: '',
   });
@@ -715,6 +719,19 @@ function StudentForm({ cycles, onSubmit, onCancel, isLoading, onCycleCreated }: 
               placeholder="לדוגמה: ה'"
             />
           </div>
+        </div>
+
+        <div>
+          <label className="form-label">מגדר</label>
+          <select
+            value={formData.gender}
+            onChange={(e) => setFormData({ ...formData, gender: e.target.value as StudentGender })}
+            className="form-input"
+          >
+            {Object.entries(studentGenderHebrew).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
         </div>
 
         <div>
@@ -1103,6 +1120,7 @@ function StudentEditForm({ student, cycles, onSubmit, onCancel, isLoading, onCyc
   const [formData, setFormData] = useState({
     name: student.name,
     birthDate: student.birthDate ? student.birthDate.split('T')[0] : '',
+    gender: student.gender || 'unknown' as StudentGender,
     grade: student.grade || '',
     notes: student.notes || '',
   });
@@ -1199,6 +1217,19 @@ function StudentEditForm({ student, cycles, onSubmit, onCancel, isLoading, onCyc
               placeholder="לדוגמה: ה'"
             />
           </div>
+        </div>
+
+        <div>
+          <label className="form-label">מגדר</label>
+          <select
+            value={formData.gender}
+            onChange={(e) => setFormData({ ...formData, gender: e.target.value as StudentGender })}
+            className="form-input"
+          >
+            {Object.entries(studentGenderHebrew).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
         </div>
 
         <div>

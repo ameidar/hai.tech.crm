@@ -4,7 +4,7 @@
 
 - דף נחיתה: https://crm.orma-ai.com/adult-ai-agents-omer/index.html
 - קישור תשלום: https://crm.orma-ai.com/pl/3rchu
-- תמונה: https://crm.orma-ai.com/adult-ai-agents-omer/sharp-creative.png
+- תמונה: https://crm.orma-ai.com/adult-ai-agents-omer/creative-business.png
 - מזהה קמפיין CRM: `adult-ai-agents-omer-20261025`
 - מזהה מחזור CRM: `ac669672-39af-4204-a2ca-61691b4a7f61`
 

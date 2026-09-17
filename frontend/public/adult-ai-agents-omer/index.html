@@ -11,221 +11,236 @@
     body {
       margin: 0;
       font-family: Arial, "Segoe UI", sans-serif;
-      background: #f6f8fb;
-      color: #152033;
+      background: #f4f7fa;
+      color: #12263d;
       line-height: 1.65;
     }
     a { color: inherit; }
     .page {
       min-height: 100vh;
       background:
-        radial-gradient(circle at 15% 20%, rgba(42, 174, 155, 0.16), transparent 28rem),
-        linear-gradient(180deg, #ffffff 0%, #eef4f8 100%);
+        linear-gradient(90deg, rgba(15,47,79,0.05) 1px, transparent 1px) 0 0 / 44px 44px,
+        linear-gradient(180deg, #ffffff 0%, #edf4f7 100%);
     }
-    .wrap { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
+    .wrap { width: min(1140px, calc(100% - 32px)); margin: 0 auto; }
     .hero {
       display: grid;
-      grid-template-columns: 1.05fr 0.95fr;
-      gap: 40px;
+      grid-template-columns: 1fr 440px;
+      gap: 56px;
       align-items: center;
-      padding: 42px 0 34px;
+      padding: 54px 0 46px;
     }
     .brand {
       display: inline-flex;
       align-items: center;
-      gap: 10px;
-      font-weight: 700;
-      color: #23415d;
+      gap: 12px;
+      color: #173f75;
+      font-weight: 900;
       margin-bottom: 22px;
     }
     .brand-mark {
-      width: 36px;
-      height: 36px;
-      border-radius: 8px;
-      background: #153e75;
+      width: 38px;
+      height: 38px;
+      background: #173f75;
       color: #fff;
       display: inline-grid;
       place-items: center;
-      font-weight: 800;
+      font-weight: 900;
     }
     h1 {
-      font-size: clamp(34px, 5vw, 64px);
-      line-height: 1.04;
+      font-size: clamp(42px, 6vw, 76px);
+      line-height: 1.02;
       margin: 0 0 18px;
-      color: #0e2a47;
+      color: #0d2d4e;
       letter-spacing: 0;
+      max-width: 760px;
     }
+    .accent { color: #f06b2f; }
     .lead {
       font-size: clamp(18px, 2.2vw, 24px);
-      color: #34465c;
-      margin: 0 0 24px;
-      max-width: 720px;
+      color: #31475e;
+      margin: 0 0 28px;
+      max-width: 760px;
     }
-    .chips { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 28px; }
-    .chip {
-      background: #e8f4f2;
-      border: 1px solid #c7e5df;
-      color: #14584e;
-      border-radius: 8px;
-      padding: 8px 12px;
-      font-size: 15px;
+    .meta-line {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0;
+      border-top: 2px solid #d6e3ea;
+      border-bottom: 2px solid #d6e3ea;
+      margin: 28px 0;
+    }
+    .meta-line span {
+      padding: 12px 18px;
+      border-left: 2px solid #d6e3ea;
+      font-weight: 900;
+      color: #123653;
+      background: rgba(255,255,255,0.65);
+    }
+    .meta-line span:last-child { border-left: 0; }
+    .proof {
+      border-right: 6px solid #2aae9b;
+      padding: 12px 18px;
+      margin: 0 0 26px;
+      background: rgba(42,174,155,0.08);
+      color: #20364d;
       font-weight: 700;
     }
     .actions { display: flex; flex-wrap: wrap; gap: 12px; }
     .btn {
-      border: 0;
-      border-radius: 8px;
+      min-height: 52px;
       padding: 14px 22px;
       font-size: 17px;
-      font-weight: 800;
+      font-weight: 900;
       text-decoration: none;
-      cursor: pointer;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 52px;
+      border: 2px solid transparent;
     }
     .btn-primary { background: #f06b2f; color: #fff; }
-    .btn-secondary { background: #10385e; color: #fff; }
+    .btn-secondary { background: #102f50; color: #fff; }
     .visual {
-      border-radius: 10px;
-      overflow: hidden;
-      box-shadow: 0 18px 50px rgba(16, 56, 94, 0.16);
-      background: #dcebf4;
+      border: 2px solid #d7e5ec;
+      background: #fff;
+      box-shadow: 18px 18px 0 #dcecf1;
       aspect-ratio: 1 / 1;
     }
     .visual img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .band { background: #fff; border-top: 1px solid #e3eaf0; border-bottom: 1px solid #e3eaf0; }
-    .grid {
+    .strip {
+      background: #102f50;
+      color: #fff;
+      padding: 26px 0;
+    }
+    .strip-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 18px;
+      gap: 28px;
+    }
+    .strip-item {
+      border-right: 4px solid #2aae9b;
+      padding-right: 16px;
+    }
+    .strip-item strong { display: block; font-size: 20px; margin-bottom: 4px; color: #b7f4e6; }
+    .main {
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      gap: 42px;
+      padding: 46px 0 62px;
+      align-items: start;
+    }
+    .section {
       padding: 30px 0;
+      border-bottom: 2px solid #dbe6ec;
     }
-    .item {
-      padding: 18px;
-      border: 1px solid #dfe8ef;
-      border-radius: 8px;
-      background: #fbfdff;
+    .section:first-child { padding-top: 0; }
+    h2 {
+      margin: 0 0 18px;
+      color: #102f50;
+      font-size: 34px;
+      line-height: 1.15;
     }
-    .item strong { display: block; color: #102f50; font-size: 18px; margin-bottom: 6px; }
-    .proof {
-      background: #0f2f4f;
-      color: #fff;
-      border-radius: 8px;
-      padding: 18px 20px;
-      margin: 26px 0 0;
-      font-size: 16px;
-    }
-    .proof strong { color: #b7f4e6; }
-    .section-panel {
-      background: #ffffff;
-      border: 1px solid #dfe8ef;
-      border-radius: 8px;
-      padding: 24px;
-      margin-bottom: 28px;
-    }
-    .build-grid, .case-grid, .fit-grid {
+    .outputs {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
-      gap: 14px;
-      margin-top: 16px;
+      border-top: 2px solid #dbe6ec;
+      border-right: 2px solid #dbe6ec;
     }
-    .build-card, .case-card, .fit-card {
-      background: #f8fbfd;
-      border: 1px solid #dfe8ef;
-      border-radius: 8px;
-      padding: 16px;
+    .output {
+      min-height: 122px;
+      padding: 20px;
+      border-left: 2px solid #dbe6ec;
+      border-bottom: 2px solid #dbe6ec;
+      background: rgba(255,255,255,0.55);
     }
-    .build-card strong, .case-card strong, .fit-card strong {
+    .output strong {
       display: block;
       color: #102f50;
+      font-size: 20px;
       margin-bottom: 6px;
-      font-size: 17px;
     }
-    .curriculum {
+    .timeline {
       display: grid;
-      gap: 10px;
-      counter-reset: step;
-      margin-top: 14px;
+      gap: 0;
+      border-top: 2px solid #dbe6ec;
     }
     .step {
       display: grid;
-      grid-template-columns: 42px 1fr;
-      gap: 12px;
-      align-items: start;
-      background: #fbfdff;
-      border: 1px solid #dfe8ef;
-      border-radius: 8px;
-      padding: 14px;
+      grid-template-columns: 84px 1fr;
+      gap: 18px;
+      padding: 18px 0;
+      border-bottom: 2px solid #dbe6ec;
     }
-    .step::before {
-      counter-increment: step;
-      content: counter(step);
-      width: 34px;
-      height: 34px;
-      border-radius: 8px;
-      background: #f06b2f;
-      color: #fff;
-      display: grid;
-      place-items: center;
+    .num {
+      font-size: 34px;
+      line-height: 1;
+      color: #f06b2f;
       font-weight: 900;
+      border-left: 3px solid #f06b2f;
+      text-align: center;
     }
-    .step strong { color: #102f50; display: block; margin-bottom: 2px; }
-    .main {
+    .step strong { color: #102f50; display: block; font-size: 20px; margin-bottom: 4px; }
+    .examples {
+      columns: 2;
+      column-gap: 34px;
+      margin: 0;
+      padding: 0 22px 0 0;
+    }
+    .examples li { margin-bottom: 11px; break-inside: avoid; }
+    .price-panel {
+      margin-top: 22px;
       display: grid;
-      grid-template-columns: 1fr 380px;
-      gap: 34px;
-      padding: 42px 0 56px;
-      align-items: start;
+      grid-template-columns: 1fr auto;
+      gap: 20px;
+      align-items: center;
+      border-top: 4px solid #102f50;
+      border-bottom: 4px solid #102f50;
+      padding: 22px 0;
     }
-    h2 { margin: 0 0 14px; color: #102f50; font-size: 30px; }
-    .section { margin-bottom: 34px; }
-    ul { margin: 0; padding: 0 22px 0 0; }
-    li { margin-bottom: 8px; }
     .price {
-      background: #102f50;
-      color: #fff;
-      border-radius: 8px;
-      padding: 20px;
-      margin-top: 20px;
+      font-size: 42px;
+      color: #f06b2f;
+      font-weight: 900;
+      line-height: 1;
     }
-    .price .big { font-size: 34px; font-weight: 900; line-height: 1.1; }
-    .price .old { color: #bad4e8; text-decoration: line-through; }
+    .old { color: #7c8da0; text-decoration: line-through; font-weight: 700; }
     .form-box {
       position: sticky;
       top: 18px;
       background: #ffffff;
-      border: 1px solid #dfe8ef;
-      border-radius: 8px;
-      box-shadow: 0 14px 42px rgba(16, 56, 94, 0.12);
-      padding: 22px;
+      border-top: 5px solid #f06b2f;
+      box-shadow: 14px 14px 0 #dcecf1;
+      padding: 24px;
     }
-    .form-box h2 { font-size: 24px; }
-    label { display: block; font-weight: 700; margin: 12px 0 6px; color: #24374d; }
+    .form-box h2 { font-size: 25px; }
+    label { display: block; font-weight: 900; margin: 12px 0 6px; color: #24374d; }
     input, textarea {
       width: 100%;
-      border: 1px solid #cbd7e2;
-      border-radius: 8px;
-      padding: 12px 13px;
+      border: 0;
+      border-bottom: 2px solid #b9c9d5;
+      padding: 12px 4px;
       font-size: 16px;
       font-family: inherit;
-      background: #fff;
+      background: #f7fafc;
       color: #152033;
       direction: rtl;
     }
+    input:focus, textarea:focus { outline: 0; border-bottom-color: #f06b2f; background: #fff; }
     textarea { min-height: 86px; resize: vertical; }
     .fine { color: #66788a; font-size: 13px; margin: 10px 0 0; }
-    .status { display: none; margin-top: 12px; padding: 12px; border-radius: 8px; font-weight: 700; }
+    .status { display: none; margin-top: 12px; padding: 12px; font-weight: 800; }
     .ok { background: #e9f8f0; color: #116b3f; }
     .err { background: #fff0ee; color: #9e2b19; }
     .form-actions { display: grid; gap: 10px; margin-top: 16px; }
     footer { padding: 28px 0; color: #64758a; font-size: 14px; }
     @media (max-width: 900px) {
       .hero, .main { grid-template-columns: 1fr; }
-      .grid, .build-grid, .case-grid, .fit-grid { grid-template-columns: 1fr; }
+      .strip-grid, .outputs { grid-template-columns: 1fr; }
       .form-box { position: static; }
-      .hero { padding-top: 26px; }
+      .visual { box-shadow: 10px 10px 0 #dcecf1; }
+      .examples { columns: 1; }
+      .price-panel { grid-template-columns: 1fr; }
+      .meta-line span { border-left: 0; border-bottom: 2px solid #d6e3ea; width: 100%; }
     }
   </style>
 </head>
@@ -234,78 +249,78 @@
     <header class="wrap hero">
       <div>
         <div class="brand"><span class="brand-mark">AI</span><span>דרך ההייטק | מתחם עומר</span></div>
-        <h1>קורס AI מעשי לבעלי עסקים: בונים סוכנים, אוטומציות ואפליקציות</h1>
-        <p class="lead">16 מפגשים פרונטליים בעומר שבהם בונים כלים אמיתיים לעסק ולעבודה היומיומית. מתאים גם למי שמתחיל מהבסיס.</p>
-        <div class="chips">
-          <span class="chip">16 מפגשים | שעתיים אקדמיות</span>
-          <span class="chip">ימי ראשון 19:30-21:00</span>
-          <span class="chip">פרונטלי בעומר</span>
-          <span class="chip">עד 16 משתתפים</span>
+        <h1>קורס AI מעשי לבעלי עסקים: <span class="accent">בונים כלים שעובדים</span></h1>
+        <p class="lead">16 מפגשים פרונטליים שבהם בונים סוכני AI, אוטומציות, אתרים ואפליקציות לעסק ולעבודה היומיומית.</p>
+        <div class="meta-line">
+          <span>16 מפגשים</span>
+          <span>שעתיים אקדמיות</span>
+          <span>ימי ראשון 19:30-21:00</span>
+          <span>עד 16 משתתפים</span>
         </div>
-        <div class="proof">
-          <strong>מבוסס על ניסיון אמיתי:</strong> בניית סוכני AI ואוטומציות ללקוחות, עסקים ומועצות אזוריות.
-        </div>
+        <div class="proof"><strong>מבוסס על ניסיון אמיתי:</strong> בניית סוכני AI ואוטומציות ללקוחות, עסקים ומועצות אזוריות.</div>
         <div class="actions">
           <a class="btn btn-primary" href="#lead-form">בדיקת התאמה</a>
           <a class="btn btn-secondary" href="https://crm.orma-ai.com/pl/3rchu">הרשמה ותשלום</a>
         </div>
       </div>
       <div class="visual">
-        <img src="./creative-business.png" alt="קורס AI מעשי לבעלי עסקים בעומר" />
+        <img src="./sharp-creative.png" alt="קורס AI מעשי לבעלי עסקים בעומר" />
       </div>
     </header>
 
-    <section class="band">
-      <div class="wrap grid">
-        <div class="item"><strong>למידה דרך בנייה</strong>בכל שלב בונים תוצר שאפשר לקחת לעסק או לעבודה.</div>
-        <div class="item"><strong>תוצרים אמיתיים</strong>סוכן עסקי, אוטומציה, אתר קטן, אפליקציה וכלי עבודה אישי.</div>
-        <div class="item"><strong>ליווי פרונטלי</strong>קבוצה קטנה בעומר, עם עבודה מעשית ומענה תוך כדי בנייה.</div>
+    <section class="strip">
+      <div class="wrap strip-grid">
+        <div class="strip-item"><strong>למידה דרך בנייה</strong>בכל שלב בונים תוצר שאפשר לקחת לעסק או לעבודה.</div>
+        <div class="strip-item"><strong>תוצרים אמיתיים</strong>סוכן עסקי, אוטומציה, אתר קטן, אפליקציה וכלי עבודה אישי.</div>
+        <div class="strip-item"><strong>ליווי פרונטלי</strong>קבוצה קטנה בעומר, עם עבודה מעשית ומענה תוך כדי בנייה.</div>
       </div>
     </section>
 
     <main class="wrap main">
       <div>
-        <section class="section-panel">
-          <h2>מה תבנו בפועל?</h2>
-          <div class="build-grid">
-            <div class="build-card"><strong>סוכן AI עסקי</strong>סוכן שמכיר תהליך עבודה, מקבל הנחיות ומבצע משימות חוזרות בצורה מסודרת.</div>
-            <div class="build-card"><strong>אוטומציה שחוסכת זמן</strong>חיבור בין טופס, מייל, גיליון/CRM והתראה, עם שליטה אנושית כשצריך.</div>
-            <div class="build-card"><strong>דף נחיתה או אתר קטן</strong>בניית עמוד שיווקי עובד עם טופס ליד, תוכן, עיצוב וקישור פרסום.</div>
-            <div class="build-card"><strong>אפליקציה או כלי פנימי</strong>כלי פשוט שמרכז מידע, עוזר לקבל החלטות או מטפל בתהליך יומיומי.</div>
+        <section class="section">
+          <h2>מה בונים בפועל?</h2>
+          <div class="outputs">
+            <div class="output"><strong>סוכן AI עסקי</strong>סוכן שמכיר תהליך עבודה, מקבל הנחיות ומבצע משימות חוזרות בצורה מסודרת.</div>
+            <div class="output"><strong>אוטומציה שחוסכת זמן</strong>חיבור בין טופס, מייל, גיליון/CRM והתראה, עם שליטה אנושית כשצריך.</div>
+            <div class="output"><strong>דף נחיתה או אתר קטן</strong>בניית עמוד שיווקי עובד עם טופס ליד, תוכן, עיצוב וקישור פרסום.</div>
+            <div class="output"><strong>אפליקציה או כלי פנימי</strong>כלי פשוט שמרכז מידע, עוזר לקבל החלטות או מטפל בתהליך יומיומי.</div>
           </div>
         </section>
 
-        <section class="section-panel">
+        <section class="section">
           <h2>המסע בקורס</h2>
-          <div class="curriculum">
-            <div class="step"><div><strong>יסודות עבודה עם AI</strong>איך לחשוב עם הכלים, להגדיר משימות, לבדוק תוצרים ולבנות תהליך עבודה נכון.</div></div>
-            <div class="step"><div><strong>סוכני AI לעסק</strong>בניית סוכן עם תפקיד, ידע, הוראות וכללי פעולה שמתאימים לצורך אמיתי.</div></div>
-            <div class="step"><div><strong>אוטומציות</strong>חיבור כלים ותהליכים: טפסים, מיילים, גיליונות, CRM והתראות.</div></div>
-            <div class="step"><div><strong>אתרים ודפי נחיתה</strong>שימוש ב־Claude Code, Codex וכלי AI נוספים כדי לבנות עמודים וכלים במהירות.</div></div>
-            <div class="step"><div><strong>אפליקציות וכלים פנימיים</strong>בניית כלי פשוט שעונה על צורך אישי או עסקי.</div></div>
-            <div class="step"><div><strong>פרויקט מסכם</strong>כל משתתף בונה פתרון משלו ומקבל כיוון להמשך פיתוח עצמאי.</div></div>
+          <div class="timeline">
+            <div class="step"><div class="num">01</div><div><strong>יסודות עבודה עם AI</strong>איך לחשוב עם הכלים, להגדיר משימות, לבדוק תוצרים ולבנות תהליך עבודה נכון.</div></div>
+            <div class="step"><div class="num">02</div><div><strong>סוכני AI לעסק</strong>בניית סוכן עם תפקיד, ידע, הוראות וכללי פעולה שמתאימים לצורך אמיתי.</div></div>
+            <div class="step"><div class="num">03</div><div><strong>אוטומציות</strong>חיבור כלים ותהליכים: טפסים, מיילים, גיליונות, CRM והתראות.</div></div>
+            <div class="step"><div class="num">04</div><div><strong>אתרים ודפי נחיתה</strong>שימוש ב־Claude Code, Codex וכלי AI נוספים כדי לבנות עמודים וכלים במהירות.</div></div>
+            <div class="step"><div class="num">05</div><div><strong>אפליקציות וכלים פנימיים</strong>בניית כלי פשוט שעונה על צורך אישי או עסקי.</div></div>
+            <div class="step"><div class="num">06</div><div><strong>פרויקט מסכם</strong>כל משתתף בונה פתרון משלו ומקבל כיוון להמשך פיתוח עצמאי.</div></div>
           </div>
         </section>
 
-        <section class="section-panel">
+        <section class="section">
           <h2>דוגמאות למה שאפשר לבנות</h2>
-          <div class="case-grid">
-            <div class="case-card"><strong>סוכן טיפול בלידים</strong>מקבל פנייה חדשה, מסכם אותה, מציע תגובה ומעדכן מעקב.</div>
-            <div class="case-card"><strong>אוטומציית שירות</strong>אוספת מידע מטפסים ומיילים, שולחת התראה ומייצרת משימה מסודרת.</div>
-            <div class="case-card"><strong>מחולל תוכן שיווקי</strong>מייצר פוסטים, מיילים ודפי נחיתה לפי הצעת הערך של העסק.</div>
-            <div class="case-card"><strong>דשבורד ניהולי קטן</strong>מרכז נתונים חשובים ומציג תמונת מצב במקום אחד.</div>
-          </div>
+          <ul class="examples">
+            <li>סוכן טיפול בלידים שמסכם פניות ומציע תגובה.</li>
+            <li>אוטומציה שמחברת טופס, מייל, CRM והתראות.</li>
+            <li>מחולל תוכן שיווקי לפוסטים, מיילים ודפי נחיתה.</li>
+            <li>דשבורד ניהולי קטן שמרכז נתונים במקום אחד.</li>
+            <li>דף נחיתה עם טופס ליד וקישור תשלום.</li>
+            <li>כלי פנימי שמרכז ידע ותהליכים לעסק.</li>
+          </ul>
         </section>
 
-        <section class="section-panel">
+        <section class="section">
           <h2>למי זה מתאים?</h2>
-          <div class="fit-grid">
-            <div class="fit-card"><strong>בעלי עסקים ועצמאיים</strong>מי שרוצה לבנות לעצמו כלים שחוסכים זמן ומקדמים תהליכים בעסק.</div>
-            <div class="fit-card"><strong>מנהלים ואנשי מקצוע</strong>מי שרוצה להכניס AI לעבודה היומיומית בצורה מסודרת, מעשית ובטוחה.</div>
+          <div class="outputs">
+            <div class="output"><strong>בעלי עסקים ועצמאיים</strong>מי שרוצה לבנות לעצמו כלים שחוסכים זמן ומקדמים תהליכים בעסק.</div>
+            <div class="output"><strong>מנהלים ואנשי מקצוע</strong>מי שרוצה להכניס AI לעבודה היומיומית בצורה מסודרת, מעשית ובטוחה.</div>
           </div>
         </section>
 
-        <section class="section-panel">
+        <section class="section">
           <h2>מבנה הקורס</h2>
           <ul>
             <li>פתיחה: יום ראשון, 25.10.2026.</li>
@@ -314,10 +329,12 @@
             <li>מדריך: עמי מידר.</li>
             <li>קיבולת מקסימלית: 16 משתתפים.</li>
           </ul>
-          <div class="price">
-            <div>מחיר פתיחה</div>
-            <div class="big">₪5,900</div>
-            <div>במקום <span class="old">₪9,000</span> | אפשרות עד 6 תשלומים שווים</div>
+          <div class="price-panel">
+            <div>
+              <strong>מחיר פתיחה</strong><br>
+              במקום <span class="old">₪9,000</span> | אפשרות עד 6 תשלומים שווים
+            </div>
+            <div class="price">₪5,900</div>
           </div>
         </section>
       </div>
@@ -327,16 +344,12 @@
         <form id="leadForm">
           <label for="name">שם מלא *</label>
           <input id="name" name="name" autocomplete="name" required />
-
           <label for="phone">טלפון *</label>
           <input id="phone" name="phone" autocomplete="tel" required />
-
           <label for="email">מייל</label>
           <input id="email" name="email" type="email" autocomplete="email" />
-
           <label for="interest">מה חשוב לך לבנות?</label>
           <textarea id="interest" name="interest" placeholder="לדוגמה: סוכן לעסק, אוטומציות, אתר, אפליקציה..."></textarea>
-
           <div class="form-actions">
             <button class="btn btn-primary" type="submit">שליחת פרטים</button>
             <a class="btn btn-secondary" href="https://crm.orma-ai.com/pl/3rchu">מעבר לתשלום</a>
@@ -347,10 +360,8 @@
         </form>
       </aside>
     </main>
-
     <footer class="wrap">דרך ההייטק | קורסים מעשיים בטכנולוגיה, תכנות ובינה מלאכותית</footer>
   </div>
-
   <script>
     const form = document.getElementById('leadForm');
     const ok = document.getElementById('ok');
@@ -360,15 +371,16 @@
       ok.style.display = 'none';
       err.style.display = 'none';
       const data = new FormData(form);
+      const params = new URLSearchParams(location.search);
       const payload = {
         campaignId: 'adult-ai-agents-omer-20261025',
         name: String(data.get('name') || '').trim(),
         phone: String(data.get('phone') || '').trim(),
         email: String(data.get('email') || '').trim(),
         interest: String(data.get('interest') || 'קורס AI מעשי למבוגרים בעומר').trim() || 'קורס AI מעשי למבוגרים בעומר',
-        utm_source: new URLSearchParams(location.search).get('utm_source') || 'landing',
-        utm_medium: new URLSearchParams(location.search).get('utm_medium') || 'organic',
-        utm_campaign: new URLSearchParams(location.search).get('utm_campaign') || 'adult_ai_agents_omer_20261025'
+        utm_source: params.get('utm_source') || 'landing',
+        utm_medium: params.get('utm_medium') || 'organic',
+        utm_campaign: params.get('utm_campaign') || 'adult_ai_agents_omer_20261025'
       };
       try {
         const res = await fetch('/api/campaign-leads', {

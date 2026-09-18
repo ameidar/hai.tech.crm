@@ -881,6 +881,9 @@ export default function Meetings() {
           {/* Mobile card view */}
           <div className="md:hidden space-y-2">
             {displayMeetings.map((meeting) => {
+              const mobileProfitValue = (meeting as any).adjustedProfit !== undefined
+                ? (meeting as any).adjustedProfit
+                : (meeting.profit || 0);
               return (
                 <div
                   key={meeting.id}
@@ -919,7 +922,13 @@ export default function Meetings() {
                   </div>
                   <div className="mt-1 min-h-[1rem]">
                     {meeting.status === 'completed' && (
-                      <span className="text-xs text-green-600">₪{(meeting.revenue || 0).toLocaleString()}</span>
+                      <span className={`text-xs ${mobileProfitValue >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {mobileProfitValue.toLocaleString('he-IL', {
+                          style: 'currency',
+                          currency: 'ILS',
+                          minimumFractionDigits: 0,
+                        })}
+                      </span>
                     )}
                   </div>
                 </div>

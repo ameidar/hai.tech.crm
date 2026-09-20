@@ -18,6 +18,7 @@ import { sendEmail } from '../services/email/sender.js';
 import { sendWhatsAppToChat } from '../services/messaging.js';
 import { handleStatusReply, parseInstructorStatusReply } from '../services/whatsapp-reminder.service.js';
 import { addWaSseClient, broadcastWaSSE as broadcastSSE, removeWaSseClient } from '../services/wa-events.js';
+import { sanitizeLeadEmail, shouldSendPromisedEmailAlert } from '../utils/wa-lead-extraction.js';
 
 const router = Router();
 
@@ -607,13 +608,17 @@ async function extractLeadData(conversationId: string) {
     });
 
     const data = JSON.parse(res.choices[0].message.content || '{}');
+    const leadEmail = sanitizeLeadEmail(data.lead_email, messages);
+    const extractedLeadName = cleanContactValue(data.lead_name);
+    const crmCustomerName = extractedLeadName ? '' : await findCrmCustomerNameForWhatsAppPhone(conv.phone);
+    const leadName = extractedLeadName || cleanContactValue(conv.contactName) || crmCustomerName || 'שלום';
 
     // 1. Update conversation record
     await prisma.waConversation.update({
       where: { id: conversationId },
       data: {
-        leadName: data.lead_name,
-        leadEmail: data.lead_email,
+        leadName,
+        leadEmail,
         childName: data.child_name,
         childAge: data.child_age,
         interests: data.interests ? JSON.stringify(data.interests) : undefined,
@@ -623,7 +628,7 @@ async function extractLeadData(conversationId: string) {
     });
 
     // 2. Update matching leadAppointment with email (if extracted)
-    if (data.lead_email) {
+    if (leadEmail) {
       try {
         const digitsOnly = (p: string) => p.replace(/\D/g, '');
         const last9 = (p: string) => digitsOnly(p).slice(-9);
@@ -640,10 +645,10 @@ async function extractLeadData(conversationId: string) {
 
         if (leads.length > 0 && !leads[0].customer_email) {
           await prisma.$executeRaw`
-            UPDATE lead_appointments SET customer_email = ${data.lead_email}
+            UPDATE lead_appointments SET customer_email = ${leadEmail}
             WHERE id = ${leads[0].id}
           `;
-          console.log(`[WA] Updated lead ${leads[0].id} with email ${data.lead_email}`);
+          console.log(`[WA] Updated lead ${leads[0].id} with email ${leadEmail}`);
         }
       } catch (e) {
         console.error('[WA] Lead email update failed:', e);
@@ -651,10 +656,9 @@ async function extractLeadData(conversationId: string) {
     }
 
     // 3. Send email if bot promised one and we have the email
-    if (data.email_promised && data.lead_email) {
+    if (shouldSendPromisedEmailAlert(data.email_promised, leadEmail)) {
       try {
         const courseTitle: string | null = data.course_recommended || null;
-        const leadName: string = data.lead_name || 'שלום';
 
         // Find course details in knowledge base
         let courseHtml = '';
@@ -696,7 +700,7 @@ async function extractLeadData(conversationId: string) {
                 <p>הבוט הבטיח לשלוח מייל ללקוח, אך <strong>אין לו מידע מדויק</strong> לגבי הנושא שנשאל.</p>
                 <table style="border-collapse:collapse;margin:12px 0;">
                   <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">שם:</td><td style="font-weight:bold;">${leadName}</td></tr>
-                  <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">מייל:</td><td><a href="mailto:${data.lead_email}">${data.lead_email}</a></td></tr>
+                  <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">מייל:</td><td><a href="mailto:${leadEmail}">${leadEmail}</a></td></tr>
                   <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">טלפון:</td><td>${convPhone}</td></tr>
                   <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">נושא:</td><td>${courseTitle || 'לא זוהה'}</td></tr>
                   <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">סיכום שיחה:</td><td>${convSummary}</td></tr>
@@ -730,11 +734,11 @@ async function extractLeadData(conversationId: string) {
             </html>`;
 
           await sendEmail({
-            to: data.lead_email,
+            to: leadEmail!,
             subject: `פרטים על ${courseTitle} - דרך ההייטק`,
             html
           });
-          console.log(`[WA] Course email sent to ${data.lead_email} for conv ${conversationId}`);
+          console.log(`[WA] Course email sent to ${leadEmail} for conv ${conversationId}`);
         }
       } catch (e) {
         console.error('[WA] Email send failed:', e);

@@ -136,6 +136,7 @@ meetingsRouter.get('/', async (req, res, next) => {
     }
 
     const where = {
+      deletedAt: null,
       ...(date && { scheduledDate: new Date(date) }),
       ...(from && to && {
         scheduledDate: {

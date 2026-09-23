@@ -445,7 +445,7 @@ cyclesRouter.get('/', async (req, res, next) => {
           branch: { select: { id: true, name: true, type: true } },
           instructor: { select: { id: true, name: true } },
           institutionalOrder: { select: { id: true, orderNumber: true } },
-          _count: { select: { registrations: true, meetings: true } },
+          _count: { select: { registrations: true, meetings: { where: { deletedAt: null } } } },
           registrations: { where: { status: { notIn: ['cancelled', 'pending_cancellation'] } }, select: { amount: true } },
         },
         orderBy: { startDate: 'desc' },
@@ -506,7 +506,7 @@ cyclesRouter.get('/export', async (req, res, next) => {
         branch: { select: { id: true, name: true, type: true } },
         instructor: { select: { id: true, name: true } },
         institutionalOrder: { select: { id: true, orderNumber: true, orderName: true } },
-        _count: { select: { registrations: { where: { deletedAt: null } }, meetings: true } },
+        _count: { select: { registrations: { where: { deletedAt: null } }, meetings: { where: { deletedAt: null } } } },
         registrations: {
           where: { deletedAt: null, status: { notIn: ['cancelled', 'pending_cancellation'] } },
           select: { amount: true },

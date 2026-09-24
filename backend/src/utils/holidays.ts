@@ -1,4 +1,4 @@
-// Israeli holidays utility using Hebcal API
+// Israeli holidays utility using Hebcal API plus Ministry of Education school vacations
 
 interface HebcalItem {
   title: string;
@@ -13,14 +13,49 @@ interface HebcalResponse {
 // Cache holidays by year
 const holidayCache: Map<number, Set<string>> = new Map();
 
+const MINISTRY_OF_EDUCATION_VACATION_RANGES: Array<[string, string]> = [
+  // School year 2026-2027 (תשפ"ז)
+  ['2026-09-11', '2026-09-13'], // Rosh Hashana
+  ['2026-09-20', '2026-09-24'], // Yom Kippur vacation
+  ['2026-09-25', '2026-10-03'], // Sukkot vacation
+  ['2026-12-06', '2026-12-12'], // Hanukkah vacation
+  ['2027-03-23', '2027-03-24'], // Purim vacation
+  ['2027-04-13', '2027-04-28'], // Pesach vacation
+  ['2027-05-12', '2027-05-12'], // Yom HaAtzma'ut
+  ['2027-05-25', '2027-05-25'], // Lag BaOmer
+  ['2027-06-10', '2027-06-12'], // Shavuot vacation
+];
+
+function formatDateKey(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
+function addMinistryOfEducationVacations(holidays: Set<string>, year: number) {
+  for (const [start, end] of MINISTRY_OF_EDUCATION_VACATION_RANGES) {
+    const current = new Date(`${start}T00:00:00.000Z`);
+    const last = new Date(`${end}T00:00:00.000Z`);
+
+    while (current <= last) {
+      if (current.getUTCFullYear() === year) {
+        holidays.add(formatDateKey(current));
+      }
+      current.setUTCDate(current.getUTCDate() + 1);
+    }
+  }
+}
+
 /**
- * Fetch Israeli holidays for a given year from Hebcal API
+ * Fetch dates that should not generate school meetings.
+ * Uses Ministry of Education school vacation dates first, then augments with Hebcal.
  */
 export async function fetchHolidays(year: number): Promise<Set<string>> {
   // Check cache first
   if (holidayCache.has(year)) {
     return holidayCache.get(year)!;
   }
+
+  const holidays = new Set<string>();
+  addMinistryOfEducationVacations(holidays, year);
 
   try {
     const response = await fetch(
@@ -41,8 +76,6 @@ export async function fetchHolidays(year: number): Promise<Set<string>> {
       'Purim', 'Chanukah', 'Tish\'a B\'Av'
     ];
 
-    const holidays = new Set<string>();
-    
     for (const item of data.items) {
       // Add all major holidays
       const isHoliday = majorHolidays.some(h => item.title.includes(h)) ||
@@ -60,7 +93,8 @@ export async function fetchHolidays(year: number): Promise<Set<string>> {
     return holidays;
   } catch (error) {
     console.error(`Error fetching holidays for ${year}:`, error);
-    return new Set();
+    holidayCache.set(year, holidays);
+    return holidays;
   }
 }
 
@@ -70,7 +104,7 @@ export async function fetchHolidays(year: number): Promise<Set<string>> {
 export async function isHoliday(date: Date): Promise<boolean> {
   const year = date.getFullYear();
   const holidays = await fetchHolidays(year);
-  const dateStr = date.toISOString().split('T')[0];
+  const dateStr = formatDateKey(date);
   return holidays.has(dateStr);
 }
 
@@ -105,7 +139,7 @@ export async function calculateCycleEndDate(
   await Promise.all([fetchHolidays(startYear), fetchHolidays(endYear)]);
 
   while (meetingDates.length < totalMeetings) {
-    const dateStr = currentDate.toISOString().split('T')[0];
+    const dateStr = formatDateKey(currentDate);
     const holidays = await fetchHolidays(currentDate.getFullYear());
     
     // Check if this date is valid (not a holiday, not Shabbat)

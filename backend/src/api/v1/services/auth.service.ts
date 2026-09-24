@@ -101,7 +101,7 @@ export class AuthService {
   /**
    * Refresh access token
    */
-  async refreshToken(input: RefreshTokenInput): Promise<{ accessToken: string }> {
+  async refreshToken(input: RefreshTokenInput): Promise<{ accessToken: string; refreshToken: string }> {
     try {
       const decoded = jwt.verify(input.refreshToken, config.jwt.refreshSecret) as JwtPayload;
 
@@ -120,8 +120,9 @@ export class AuthService {
       };
 
       const accessToken = jwt.sign(payload, config.jwt.secret, accessTokenOptions);
+      const refreshToken = jwt.sign(payload, config.jwt.refreshSecret, refreshTokenOptions);
 
-      return { accessToken };
+      return { accessToken, refreshToken };
     } catch (error) {
       if (error instanceof jwt.JsonWebTokenError || error instanceof jwt.TokenExpiredError) {
         throw new UnauthorizedError('Invalid or expired refresh token');

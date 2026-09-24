@@ -133,8 +133,9 @@ authRouter.post('/refresh', async (req, res, next) => {
     };
 
     const newAccessToken = jwt.sign(payload, config.jwt.secret, accessTokenOptions);
+    const newRefreshToken = jwt.sign(payload, config.jwt.refreshSecret, refreshTokenOptions);
 
-    res.json({ accessToken: newAccessToken });
+    res.json({ accessToken: newAccessToken, refreshToken: newRefreshToken });
   } catch (error) {
     if (error instanceof jwt.JsonWebTokenError) {
       return next(new AppError(401, 'Invalid refresh token'));

@@ -19,6 +19,7 @@ import { sendWhatsAppToChat } from '../services/messaging.js';
 import { handleStatusReply, parseInstructorStatusReply } from '../services/whatsapp-reminder.service.js';
 import { addWaSseClient, broadcastWaSSE as broadcastSSE, removeWaSseClient } from '../services/wa-events.js';
 import { sanitizeLeadEmail, shouldSendPromisedEmailAlert } from '../utils/wa-lead-extraction.js';
+import { applyJevRouting, getJevMode } from '../services/jev-intent.js';
 
 const router = Router();
 
@@ -1025,10 +1026,19 @@ router.post('/webhook', async (req: Request, res: Response) => {
             console.error('[WA] quiet-wakeup alert failed:', err)
           );
 
+          // Jev intent routing (JEV_ROUTING_ENABLED). Off → skipped entirely; shadow → classify+store only.
+          // Fails open: any error/low confidence returns 'continue' (current behavior).
+          const jevAction = getJevMode() === 'off' ? 'continue' : await applyJevRouting(conv, text, newMsg.id);
+
           // Callback request detection — takes priority over AI reply
           const isCallbackRequest = detectCallbackIntent(text);
 
-          if (isCallbackRequest) {
+          if (jevAction === 'escalate') {
+            // human / support / job: bot already stopped (aiEnabled=false) — raise the staff callback alert, no auto-reply
+            handleCallbackRequest(conv, text);
+          } else if (jevAction === 'silence') {
+            // irrelevant (spam / automated reply): no auto-reply
+          } else if (isCallbackRequest) {
             handleCallbackRequest(conv, text); // save to DB + email info@hai.tech
 
             // Send confirmation to customer instead of generic AI reply

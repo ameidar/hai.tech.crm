@@ -1483,6 +1483,11 @@ model WaConversation {
   referralBody       String?              @map("referral_body")
   referralSourceUrl  String?              @map("referral_source_url")
   referralClickId    String?              @map("referral_click_id")
+  // Jev (TypeSafe System One) intent classification of the first inbound message
+  intent             String? // new_lead | purchase | human | support | job | irrelevant
+  intentConfidence   Float?               @map("intent_confidence")
+  intentNeedsHuman   Float?               @map("intent_needs_human")
+  intentClassifiedAt DateTime?            @map("intent_classified_at")
   createdAt          DateTime             @default(now()) @map("created_at")
   updatedAt          DateTime             @updatedAt @map("updated_at")
 

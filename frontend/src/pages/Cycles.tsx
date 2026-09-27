@@ -15,6 +15,8 @@ import type { Cycle, CycleType, CycleStatus, DayOfWeek, ActivityType, Instructor
 import { activityTypeHebrew } from '../types';
 import { exportMeetingsToExcel } from '../utils/meetingsExcel';
 
+const getRegisteredChildrenCount = (cycle: Cycle) => cycle._count?.registrations ?? cycle.registrations?.length ?? cycle.studentCount ?? 0;
+
 export default function Cycles() {
   const { user } = useAuth();
   const canManageCycles = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations_manager';
@@ -28,10 +30,11 @@ export default function Cycles() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showColumnPicker, setShowColumnPicker] = useState(false);
   const [isExportingMeetings, setIsExportingMeetings] = useState(false);
+  const [isExportingCycles, setIsExportingCycles] = useState(false);
   const [showMeetingsExportModal, setShowMeetingsExportModal] = useState(false);
 
   // Column visibility
-  const COLUMN_KEYS = ['name', 'course', 'branch', 'instructor', 'startDate', 'dayOfWeek', 'type', 'pricePerStudent', 'meetingRevenue', 'progress', 'status', 'zoom'] as const;
+  const COLUMN_KEYS = ['name', 'course', 'branch', 'instructor', 'startDate', 'dayOfWeek', 'type', 'pricePerStudent', 'meetingRevenue', 'registeredChildren', 'progress', 'status', 'zoom'] as const;
   const COLUMN_LABELS: Record<string, string> = {
     name: 'שם המחזור',
     course: 'קורס',
@@ -42,17 +45,19 @@ export default function Cycles() {
     type: 'סוג',
     pricePerStudent: 'מחיר לתלמיד',
     meetingRevenue: 'מחיר לפגישה',
+    registeredChildren: 'ילדים רשומים',
     progress: 'התקדמות',
     status: 'סטטוס',
     zoom: 'זום',
   };
 
   const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => {
+    const defaultVisibility = Object.fromEntries(COLUMN_KEYS.map(k => [k, true]));
     try {
       const saved = localStorage.getItem('cycles-column-visibility');
-      if (saved) return JSON.parse(saved);
+      if (saved) return { ...defaultVisibility, ...JSON.parse(saved) };
     } catch {}
-    return Object.fromEntries(COLUMN_KEYS.map(k => [k, true]));
+    return defaultVisibility;
   });
 
   useEffect(() => {
@@ -178,8 +183,8 @@ export default function Cycles() {
           break;
         case 'dayOfWeek':
           const dayOrder = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
-          aVal = dayOrder[a.dayOfWeek] ?? 0;
-          bVal = dayOrder[b.dayOfWeek] ?? 0;
+          aVal = `${dayOrder[a.dayOfWeek] ?? 0}-${a.startTime || ''}`;
+          bVal = `${dayOrder[b.dayOfWeek] ?? 0}-${b.startTime || ''}`;
           break;
         case 'type':
           aVal = a.type || '';
@@ -193,6 +198,10 @@ export default function Cycles() {
           aVal = Number(a.revenuePerMeeting ?? a.meetingRevenue) || 0;
           bVal = Number(b.revenuePerMeeting ?? b.meetingRevenue) || 0;
           break;
+        case 'registeredChildren':
+          aVal = getRegisteredChildrenCount(a);
+          bVal = getRegisteredChildrenCount(b);
+          break;
         case 'progress':
           aVal = a.totalMeetings > 0 ? a.completedMeetings / a.totalMeetings : 0;
           bVal = b.totalMeetings > 0 ? b.completedMeetings / b.totalMeetings : 0;
@@ -200,6 +209,10 @@ export default function Cycles() {
         case 'status':
           aVal = a.status || '';
           bVal = b.status || '';
+          break;
+        case 'zoom':
+          aVal = a.zoomJoinUrl ? 1 : 0;
+          bVal = b.zoomJoinUrl ? 1 : 0;
           break;
         default:
           return 0;
@@ -216,12 +229,14 @@ export default function Cycles() {
 
   // Toggle sort
   const handleSort = (field: string) => {
+    const newParams = new URLSearchParams(searchParams);
     if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+      newParams.set('dir', sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
-      setSortField(field);
-      setSortDirection('asc');
+      newParams.set('sort', field);
+      newParams.set('dir', 'asc');
     }
+    setSearchParams(newParams, { replace: true });
   };
 
   // Selection helpers
@@ -286,6 +301,44 @@ export default function Cycles() {
       alert('שגיאה בייצוא הפגישות לאקסל');
     } finally {
       setIsExportingMeetings(false);
+    }
+  };
+
+  const handleExportCycles = async () => {
+    setIsExportingCycles(true);
+    try {
+      const params = new URLSearchParams();
+      if (statusFilter) params.set('status', statusFilter);
+      if (instructorFilter) params.set('instructorId', instructorFilter);
+      if (branchFilter) params.set('branchId', branchFilter);
+      if (courseFilter) params.set('courseId', courseFilter);
+      if (dayFilter) params.set('dayOfWeek', dayFilter);
+      if (startFromFilter) params.set('startDateFrom', startFromFilter);
+      if (startToFilter) params.set('startDateTo', startToFilter);
+      if (debouncedSearch) params.set('search', debouncedSearch);
+      if (sortField) params.set('sort', sortField);
+      if (sortDirection) params.set('dir', sortDirection);
+
+      const response = await api.get(`/cycles/export?${params.toString()}`, {
+        responseType: 'blob',
+      });
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const today = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `מחזורים_${today}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to export cycles:', error);
+      alert('שגיאה בייצוא המחזורים לאקסל');
+    } finally {
+      setIsExportingCycles(false);
     }
   };
 
@@ -441,6 +494,17 @@ export default function Cycles() {
                 </>
               )}
             </div>
+
+            <button
+              onClick={handleExportCycles}
+              disabled={isExportingCycles || displayLoading}
+              className="btn btn-secondary flex items-center gap-1 min-h-[44px]"
+              title="ייצוא תצוגת המחזורים לאקסל"
+            >
+              <Download size={16} />
+              <span className="hidden md:inline">{isExportingCycles ? 'מייצא...' : 'ייצא לאקסל'}</span>
+              <span className="md:hidden">ייצא</span>
+            </button>
           </div>
 
           {/* Collapsible filters - hidden on mobile by default */}
@@ -595,7 +659,7 @@ export default function Cycles() {
         />
 
         {displayLoading ? (
-          <SkeletonTable rows={8} columns={11} />
+          <SkeletonTable rows={8} columns={12} />
         ) : displayCycles && displayCycles.length > 0 ? (
           <>
           {/* Mobile card view */}
@@ -736,7 +800,9 @@ export default function Cycles() {
                       )}
                       {isColVisible('pricePerStudent') && (
                         <td className="text-gray-600">
-                          {cycle.pricePerStudent ? `₪${Number(cycle.pricePerStudent).toLocaleString()}` : '-'}
+                          {cycle.pricePerStudent || cycle.defaultRegistrationAmount
+                            ? `₪${Number(cycle.pricePerStudent || cycle.defaultRegistrationAmount).toLocaleString()}`
+                            : '-'}
                         </td>
                       )}
                       {isColVisible('meetingRevenue') && (
@@ -744,6 +810,14 @@ export default function Cycles() {
                           {(cycle.revenuePerMeeting || cycle.meetingRevenue)
                             ? `₪${Number(cycle.revenuePerMeeting ?? cycle.meetingRevenue).toLocaleString()}`
                             : '-'}
+                        </td>
+                      )}
+                      {isColVisible('registeredChildren') && (
+                        <td className="text-gray-600">
+                          <div className="flex items-center gap-1.5">
+                            <Users size={14} className="text-gray-400" />
+                            <span className="tabular-nums">{getRegisteredChildrenCount(cycle).toLocaleString('he-IL')}</span>
+                          </div>
                         </td>
                       )}
                       {isColVisible('progress') && (
@@ -915,6 +989,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     maxStudents: 15,
     minimumStudentsThreshold: 0,
     sendParentReminders: true,
+    recallBotEnabled: false,
     isOnline: false,
     activityType: 'frontal' as ActivityType,
     location: '',
@@ -1048,6 +1123,7 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
           >
             <option value="private">פרטי</option>
             <option value="trial_private">שיעור ניסיון פרטי</option>
+            <option value="group">קבוצתי</option>
             <option value="institutional_per_child">מוסדי (פר ילד)</option>
             <option value="institutional_fixed">מוסדי (סכום קבוע)</option>
           </select>
@@ -1319,6 +1395,23 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
             <span className="text-sm text-gray-700">שלח תזכורות להורים</span>
           </label>
         </div>
+
+        {(formData.activityType === 'online' || formData.activityType === 'private_lesson') && (
+          <div className="mt-4">
+            <label className="flex items-start gap-3 cursor-pointer rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+              <input
+                type="checkbox"
+                checked={formData.recallBotEnabled}
+                onChange={(e) => setFormData({ ...formData, recallBotEnabled: e.target.checked })}
+                className="mt-1 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span>
+                <span className="block text-sm font-medium text-emerald-900">הפעל Recall bot למחזור</span>
+                <span className="block text-xs text-emerald-800 mt-1">רק לפגישות Google Meet.</span>
+              </span>
+            </label>
+          </div>
+        )}
       </div>
 
       <div className="flex justify-end gap-3 pt-4 border-t">
@@ -1375,6 +1468,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
     maxStudents: cycle.maxStudents || 15,
     minimumStudentsThreshold: cycle.minimumStudentsThreshold || 0,
     sendParentReminders: cycle.sendParentReminders,
+    recallBotEnabled: !!cycle.recallBotEnabled,
     isOnline: cycle.isOnline,
     activityType: cycle.activityType || 'frontal',
     location: cycle.location || '',
@@ -1446,6 +1540,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
       maxStudents: maxStudentsValue > 0 ? maxStudentsValue : undefined,
       minimumStudentsThreshold: minimumStudentsThresholdValue > 0 ? minimumStudentsThresholdValue : null,
       sendParentReminders: formData.sendParentReminders,
+      recallBotEnabled: formData.recallBotEnabled,
       isOnline: formData.isOnline,
       activityType: formData.activityType,
       location: formData.location.trim() || null,
@@ -1511,6 +1606,7 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
           >
             <option value="private">פרטי</option>
             <option value="trial_private">שיעור ניסיון פרטי</option>
+            <option value="group">קבוצתי</option>
             <option value="institutional_per_child">מוסדי (פר ילד)</option>
             <option value="institutional_fixed">מוסדי (סכום קבוע)</option>
           </select>
@@ -1767,6 +1863,23 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
             <span className="text-sm text-gray-700">שלח תזכורות להורים</span>
           </label>
         </div>
+
+        {(formData.activityType === 'online' || formData.activityType === 'private_lesson') && (
+          <div className="mt-4">
+            <label className="flex items-start gap-3 cursor-pointer rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+              <input
+                type="checkbox"
+                checked={formData.recallBotEnabled}
+                onChange={(e) => setFormData({ ...formData, recallBotEnabled: e.target.checked })}
+                className="mt-1 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span>
+                <span className="block text-sm font-medium text-emerald-900">הפעל Recall bot למחזור</span>
+                <span className="block text-xs text-emerald-800 mt-1">רק לפגישות Google Meet.</span>
+              </span>
+            </label>
+          </div>
+        )}
       </div>
 
       <div className="flex justify-end gap-3 pt-4 border-t">

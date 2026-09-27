@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import ExcelJS from 'exceljs';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, cycleRosterOrAdmin, operationsManagerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -13,12 +14,172 @@ import { recalculateInstructorPaymentsForCycle } from '../services/instructor-pa
 import { checkAndSendInstitutionalOrderCompletionAlert } from '../services/institutional-order-completion-alert.js';
 import { assertMeetingNotInIssuedPeriod } from '../services/billing-lock.js';
 import { resolveRegistrationAmountForCycle } from '../utils/registration-amount.js';
+import { cancelFutureMeetingsForCycle } from '../services/cancellations.js';
 
 // Make.com webhook removed — Zoom recordings handled directly via /api/zoom-webhook
 
 export const cyclesRouter = Router();
 
 cyclesRouter.use(authenticate);
+
+const DAY_OF_WEEK_HEBREW: Record<string, string> = {
+  sunday: 'ראשון',
+  monday: 'שני',
+  tuesday: 'שלישי',
+  wednesday: 'רביעי',
+  thursday: 'חמישי',
+  friday: 'שישי',
+  saturday: 'שבת',
+};
+
+const CYCLE_TYPE_HEBREW: Record<string, string> = {
+  private: 'פרטי',
+  trial_private: 'ניסיון פרטי',
+  group: 'קבוצתי',
+  institutional_per_child: 'מוסדי לפי ילד',
+  institutional_fixed: 'מוסדי קבוע',
+};
+
+const CYCLE_STATUS_HEBREW: Record<string, string> = {
+  active: 'פעיל',
+  completed: 'הושלם',
+  cancelled: 'בוטל',
+  frozen: 'מוקפא',
+  retainer: 'ריטיינר',
+};
+
+function parseCycleStartDateFilter(startDateFrom?: string, startDateTo?: string) {
+  const startDateFilter: { gte?: Date; lte?: Date } = {};
+  if (startDateFrom && /^\d{4}-\d{2}-\d{2}$/.test(startDateFrom)) {
+    startDateFilter.gte = new Date(`${startDateFrom}T00:00:00.000Z`);
+  }
+  if (startDateTo && /^\d{4}-\d{2}-\d{2}$/.test(startDateTo)) {
+    startDateFilter.lte = new Date(`${startDateTo}T00:00:00.000Z`);
+  }
+  return startDateFilter;
+}
+
+async function getEffectiveInstructorId(req: any, requestedInstructorId?: string) {
+  if (req.user?.role !== 'instructor') return requestedInstructorId;
+
+  const instructor = await prisma.instructor.findUnique({
+    where: { userId: req.user.userId },
+    select: { id: true },
+  });
+  return instructor?.id ?? requestedInstructorId;
+}
+
+function buildCycleWhere(params: {
+  status?: string;
+  type?: string;
+  branchId?: string;
+  instructorId?: string;
+  courseId?: string;
+  dayOfWeek?: string;
+  search?: string;
+  startDateFrom?: string;
+  startDateTo?: string;
+}) {
+  const startDateFilter = parseCycleStartDateFilter(params.startDateFrom, params.startDateTo);
+  return {
+    deletedAt: null,
+    ...(params.status && { status: params.status as any }),
+    ...(params.type && { type: params.type as any }),
+    ...(params.branchId && { branchId: params.branchId }),
+    ...(params.instructorId && { instructorId: params.instructorId }),
+    ...(params.courseId && { courseId: params.courseId }),
+    ...(params.dayOfWeek && { dayOfWeek: params.dayOfWeek as any }),
+    ...(params.search && {
+      OR: [
+        { name: { contains: params.search, mode: 'insensitive' as const } },
+        { location: { contains: params.search, mode: 'insensitive' as const } },
+      ],
+    }),
+    ...((startDateFilter.gte || startDateFilter.lte) && { startDate: startDateFilter }),
+  };
+}
+
+function formatDateForExcel(date?: Date | string | null) {
+  if (!date) return '';
+  return new Date(date).toLocaleDateString('he-IL', { timeZone: 'UTC' });
+}
+
+function formatTimeForExcel(time?: Date | string | null) {
+  if (!time) return '';
+  if (time instanceof Date) {
+    const hours = time.getUTCHours().toString().padStart(2, '0');
+    const minutes = time.getUTCMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+  }
+  if (time.includes('T')) {
+    const date = new Date(time);
+    const hours = date.getUTCHours().toString().padStart(2, '0');
+    const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+  }
+  return time.substring(0, 5);
+}
+
+function sanitizeExportFileName(name: string) {
+  return name.replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, '_').slice(0, 120);
+}
+
+function sortExportCycles(cycles: any[], sortField: string, sortDirection: 'asc' | 'desc') {
+  const dayOrder: Record<string, number> = {
+    sunday: 0,
+    monday: 1,
+    tuesday: 2,
+    wednesday: 3,
+    thursday: 4,
+    friday: 5,
+    saturday: 6,
+  };
+
+  const valueFor = (cycle: any) => {
+    switch (sortField) {
+      case 'name':
+        return cycle.name || '';
+      case 'course':
+        return cycle.course?.name || '';
+      case 'branch':
+        return cycle.branch?.name || '';
+      case 'instructor':
+        return cycle.instructor?.name || '';
+      case 'startDate':
+        return new Date(cycle.startDate).getTime();
+      case 'dayOfWeek':
+        return `${dayOrder[cycle.dayOfWeek] ?? 0}-${formatTimeForExcel(cycle.startTime)}`;
+      case 'type':
+        return cycle.type || '';
+      case 'pricePerStudent':
+        return Number(cycle.pricePerStudent || cycle.defaultRegistrationAmount || 0);
+      case 'meetingRevenue':
+        return Number(cycle.revenuePerMeeting ?? cycle.meetingRevenue ?? 0);
+      case 'registeredChildren':
+        return cycle._count?.registrations ?? cycle.registrations?.length ?? cycle.studentCount ?? 0;
+      case 'progress':
+        return cycle.totalMeetings > 0 ? cycle.completedMeetings / cycle.totalMeetings : 0;
+      case 'status':
+        return cycle.status || '';
+      case 'zoom':
+        return cycle.zoomJoinUrl ? 1 : 0;
+      default:
+        return new Date(cycle.startDate).getTime();
+    }
+  };
+
+  return [...cycles].sort((a, b) => {
+    const aValue = valueFor(a);
+    const bValue = valueFor(b);
+    let comparison = 0;
+    if (typeof aValue === 'string' || typeof bValue === 'string') {
+      comparison = String(aValue).localeCompare(String(bValue), 'he');
+    } else {
+      comparison = Number(aValue) - Number(bValue);
+    }
+    return sortDirection === 'asc' ? comparison : -comparison;
+  });
+}
 
 // Helper: compute expected revenue per meeting for any cycle type
 function computeRevenuePerMeeting(cycle: any): number {
@@ -27,10 +188,10 @@ function computeRevenuePerMeeting(cycle: any): number {
     return Number(cycle.meetingRevenue || 0);
   }
   if (cycle.type === 'institutional_per_child') {
-    const count = cycle.studentCount || (cycle.registrations?.length ?? cycle._count?.registrations ?? 0);
+    const count = cycle.registrations?.length ?? cycle._count?.registrations ?? cycle.studentCount ?? 0;
     return roundMoney(Number(cycle.pricePerStudent || 0) * count);
   }
-  if (cycle.type === 'private' || cycle.type === 'trial_private') {
+  if (cycle.type === 'private' || cycle.type === 'trial_private' || cycle.type === 'group') {
     // Priority: explicit meetingRevenue > registration amounts / meetings.
     // pricePerStudent is reserved for institutional_per_child.
     if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) return Number(cycle.meetingRevenue);
@@ -122,6 +283,7 @@ async function generateMeetingsForCycle(cycleId: string, fromDate?: Date, target
         startTime: cycle.startTime,
         endTime: cycle.endTime,
         status: 'scheduled' as const,
+        recallBotEnabled: cycle.recallBotEnabled,
         activityType: cycle.activityType,
       });
     }
@@ -283,7 +445,7 @@ cyclesRouter.get('/', async (req, res, next) => {
           branch: { select: { id: true, name: true, type: true } },
           instructor: { select: { id: true, name: true } },
           institutionalOrder: { select: { id: true, orderNumber: true } },
-          _count: { select: { registrations: true, meetings: true } },
+          _count: { select: { registrations: true, meetings: { where: { deletedAt: null } } } },
           registrations: { where: { status: { notIn: ['cancelled', 'pending_cancellation'] } }, select: { amount: true } },
         },
         orderBy: { startDate: 'desc' },
@@ -305,6 +467,139 @@ cyclesRouter.get('/', async (req, res, next) => {
         hasPrev: page > 1,
       },
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Export cycles view to Excel
+cyclesRouter.get('/export', async (req, res, next) => {
+  try {
+    const status = req.query.status as string | undefined;
+    const type = req.query.type as string | undefined;
+    const branchId = req.query.branchId as string | undefined;
+    const instructorId = await getEffectiveInstructorId(req, req.query.instructorId as string | undefined);
+    const courseId = req.query.courseId as string | undefined;
+    const dayOfWeek = req.query.dayOfWeek as string | undefined;
+    const search = req.query.search as string | undefined;
+    const startDateFrom = req.query.startDateFrom as string | undefined;
+    const startDateTo = req.query.startDateTo as string | undefined;
+    const sortField = (req.query.sort as string | undefined) || 'name';
+    const sortDirection = req.query.dir === 'desc' ? 'desc' : 'asc';
+
+    const where = buildCycleWhere({
+      status,
+      type,
+      branchId,
+      instructorId,
+      courseId,
+      dayOfWeek,
+      search,
+      startDateFrom,
+      startDateTo,
+    });
+
+    const cycles = await prisma.cycle.findMany({
+      where,
+      include: {
+        course: { select: { id: true, name: true, category: true } },
+        branch: { select: { id: true, name: true, type: true } },
+        instructor: { select: { id: true, name: true } },
+        institutionalOrder: { select: { id: true, orderNumber: true, orderName: true } },
+        _count: { select: { registrations: { where: { deletedAt: null } }, meetings: { where: { deletedAt: null } } } },
+        registrations: {
+          where: { deletedAt: null, status: { notIn: ['cancelled', 'pending_cancellation'] } },
+          select: { amount: true },
+        },
+      },
+      orderBy: { startDate: 'desc' },
+    });
+
+    const exportRows = sortExportCycles(
+      cycles.map(cycle => ({ ...cycle, revenuePerMeeting: computeRevenuePerMeeting(cycle) })),
+      sortField,
+      sortDirection
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'HaiTech CRM';
+    workbook.created = new Date();
+    const worksheet = workbook.addWorksheet('מחזורים', {
+      views: [{ rightToLeft: true, state: 'frozen', ySplit: 1 }],
+      pageSetup: { orientation: 'landscape', fitToPage: true },
+    });
+
+    worksheet.columns = [
+      { header: 'שם המחזור', key: 'name', width: 34 },
+      { header: 'קורס', key: 'course', width: 28 },
+      { header: 'סניף', key: 'branch', width: 24 },
+      { header: 'מדריך', key: 'instructor', width: 20 },
+      { header: 'תאריך התחלה', key: 'startDate', width: 14 },
+      { header: 'תאריך סיום', key: 'endDate', width: 14 },
+      { header: 'יום', key: 'day', width: 10 },
+      { header: 'שעה', key: 'time', width: 15 },
+      { header: 'סוג', key: 'type', width: 18 },
+      { header: 'פעילות', key: 'activityType', width: 14 },
+      { header: 'מחיר לתלמיד', key: 'pricePerStudent', width: 15 },
+      { header: 'מחיר לפגישה', key: 'meetingRevenue', width: 15 },
+      { header: 'ילדים רשומים', key: 'registeredChildren', width: 14 },
+      { header: 'מפגשים', key: 'meetings', width: 12 },
+      { header: 'התקדמות', key: 'progress', width: 13 },
+      { header: 'סטטוס', key: 'status', width: 12 },
+      { header: 'הזמנה מוסדית', key: 'institutionalOrder', width: 28 },
+      { header: 'זום/גוגל מיט', key: 'videoLink', width: 14 },
+      { header: 'מיקום', key: 'location', width: 18 },
+    ];
+
+    worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E79' } };
+    worksheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
+
+    for (const cycle of exportRows) {
+      const registeredChildren = cycle._count?.registrations ?? cycle.registrations?.length ?? cycle.studentCount ?? 0;
+      const completedMeetings = Number(cycle.completedMeetings) || 0;
+      const totalMeetings = Number(cycle.totalMeetings) || 0;
+      worksheet.addRow({
+        name: cycle.name,
+        course: cycle.course?.name || '',
+        branch: cycle.branch?.name || '',
+        instructor: cycle.instructor?.name || '',
+        startDate: formatDateForExcel(cycle.startDate),
+        endDate: formatDateForExcel(cycle.endDate),
+        day: DAY_OF_WEEK_HEBREW[cycle.dayOfWeek] || cycle.dayOfWeek,
+        time: `${formatTimeForExcel(cycle.startTime)}-${formatTimeForExcel(cycle.endTime)}`,
+        type: CYCLE_TYPE_HEBREW[cycle.type] || cycle.type,
+        activityType: cycle.activityType === 'online' ? 'אונליין' : cycle.activityType === 'private_lesson' ? 'פרטי' : 'פרונטלי',
+        pricePerStudent: cycle.pricePerStudent || cycle.defaultRegistrationAmount ? Number(cycle.pricePerStudent || cycle.defaultRegistrationAmount) : null,
+        meetingRevenue: cycle.revenuePerMeeting || cycle.meetingRevenue ? Number(cycle.revenuePerMeeting ?? cycle.meetingRevenue) : null,
+        registeredChildren,
+        meetings: `${completedMeetings}/${totalMeetings}`,
+        progress: totalMeetings > 0 ? completedMeetings / totalMeetings : 0,
+        status: CYCLE_STATUS_HEBREW[cycle.status] || cycle.status,
+        institutionalOrder: cycle.institutionalOrder?.orderName || cycle.institutionalOrder?.orderNumber || '',
+        videoLink: cycle.zoomJoinUrl || cycle.googleCalendarEventId || cycle.googleMeetSpaceName ? 'יש קישור' : '',
+        location: cycle.location || '',
+      });
+    }
+
+    worksheet.eachRow((row, rowNumber) => {
+      row.alignment = { vertical: 'middle', horizontal: rowNumber === 1 ? 'center' : 'right', wrapText: true };
+    });
+    worksheet.getColumn('pricePerStudent').numFmt = '#,##0';
+    worksheet.getColumn('meetingRevenue').numFmt = '#,##0';
+    worksheet.getColumn('registeredChildren').numFmt = '#,##0';
+    worksheet.getColumn('progress').numFmt = '0%';
+    worksheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: worksheet.columnCount },
+    };
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const filename = sanitizeExportFileName(`מחזורים_${dateStamp}.xlsx`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.send(Buffer.from(buffer));
   } catch (error) {
     next(error);
   }
@@ -448,6 +743,7 @@ cyclesRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
       maxStudents: data.maxStudents,
       minimumStudentsThreshold: data.minimumStudentsThreshold,
       sendParentReminders: data.sendParentReminders,
+      recallBotEnabled: data.recallBotEnabled ?? false,
       isOnline: data.activityType === 'online',
       activityType: data.activityType,
       location: data.location,
@@ -547,31 +843,38 @@ cyclesRouter.put('/:id', operationsManagerOrAdmin, async (req, res, next) => {
     // Remove regenerateMeetings from updateData as it's not a Cycle field
     delete updateData.regenerateMeetings;
 
-    // If the cycle is being cancelled (transitioning into 'cancelled'), cascade to all
-    // of its meetings. Invariant: cancelled cycle => every meeting is cancelled too.
+    // If the cycle is being cancelled, only future open meetings should be cancelled.
+    // Past/completed/cancelled meetings remain historical records.
     const cancellingNow = data.status === 'cancelled' && existingCycle.status !== 'cancelled';
 
-    const cycle = await prisma.$transaction(async (tx) => {
-      const updated = await tx.cycle.update({
-        where: { id },
-        data: updateData,
-        include: {
-          course: { select: { id: true, name: true } },
-          branch: { select: { id: true, name: true } },
-          instructor: { select: { id: true, name: true } },
-        },
-      });
-      if (cancellingNow) {
-        const cascade = await tx.meeting.updateMany({
-          where: { cycleId: id, status: { not: 'cancelled' }, deletedAt: null },
-          data: { status: 'cancelled', statusUpdatedAt: new Date(), statusUpdatedById: req.user?.userId ?? null },
-        });
-        if (cascade.count > 0) {
-          console.log(`[cycles.update] cascaded cancel to ${cascade.count} meetings of cycle ${id}`);
-        }
-      }
-      return updated;
+    const cycle = await prisma.cycle.update({
+      where: { id },
+      data: updateData,
+      include: {
+        course: { select: { id: true, name: true } },
+        branch: { select: { id: true, name: true } },
+        instructor: { select: { id: true, name: true } },
+      },
     });
+
+    if (data.recallBotEnabled !== undefined) {
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      await prisma.meeting.updateMany({
+        where: {
+          cycleId: id,
+          status: 'scheduled',
+          deletedAt: null,
+          recallBotId: null,
+          scheduledDate: { gte: today },
+        },
+        data: { recallBotEnabled: data.recallBotEnabled },
+      });
+    }
+
+    if (cancellingNow) {
+      await cancelFutureMeetingsForCycle(id, { req, markCycleCancelled: true });
+    }
 
     await recalculateInstructorPaymentsForCycle(id);
 
@@ -593,6 +896,7 @@ cyclesRouter.put('/:id', operationsManagerOrAdmin, async (req, res, next) => {
       studentCount: existingCycle.studentCount,
       minimumStudentsThreshold: existingCycle.minimumStudentsThreshold,
       activityType: existingCycle.activityType,
+      recallBotEnabled: existingCycle.recallBotEnabled,
     };
     const newRecord = {
       name: cycle.name,
@@ -611,6 +915,7 @@ cyclesRouter.put('/:id', operationsManagerOrAdmin, async (req, res, next) => {
       studentCount: cycle.studentCount,
       minimumStudentsThreshold: cycle.minimumStudentsThreshold,
       activityType: cycle.activityType,
+      recallBotEnabled: cycle.recallBotEnabled,
     };
     await logUpdateAudit({
       entity: 'Cycle',
@@ -909,13 +1214,14 @@ cyclesRouter.post('/bulk-update', operationsManagerOrAdmin, async (req, res, nex
     if (data.studentCount !== undefined) updateData.studentCount = data.studentCount;
     if (data.minimumStudentsThreshold !== undefined) updateData.minimumStudentsThreshold = data.minimumStudentsThreshold;
     if (data.sendParentReminders !== undefined) updateData.sendParentReminders = data.sendParentReminders;
+    if (data.recallBotEnabled !== undefined) updateData.recallBotEnabled = data.recallBotEnabled;
     if (data.activityType !== undefined) {
       updateData.activityType = data.activityType;
       updateData.isOnline = data.activityType === 'online';
     }
 
-    // If we're bulk-cancelling, identify cycles whose meetings need to be cascaded too.
-    // Invariant: cancelled cycle => every meeting is cancelled too.
+    // If we're bulk-cancelling, only future open meetings should be cancelled.
+    // Past/completed/cancelled meetings remain historical records.
     // Skip cycles already cancelled to avoid noisy zero-row updates and duplicate audit lines.
     const cancellingNow = data.status === 'cancelled';
     const cyclesNeedingCascade = cancellingNow
@@ -925,26 +1231,18 @@ cyclesRouter.post('/bulk-update', operationsManagerOrAdmin, async (req, res, nex
         })).map(c => c.id)
       : [];
 
-    // Update all cycles + (optionally) their open meetings in one transaction.
-    const results = await prisma.$transaction(async (tx) => {
-      const cycles = await Promise.all(
-        ids.map(id =>
-          tx.cycle.update({
-            where: { id },
-            data: updateData,
-            select: { id: true, name: true, institutionalOrderId: true },
-          })
-        )
-      );
-      if (cyclesNeedingCascade.length > 0) {
-        const cascade = await tx.meeting.updateMany({
-          where: { cycleId: { in: cyclesNeedingCascade }, status: { not: 'cancelled' }, deletedAt: null },
-          data: { status: 'cancelled', statusUpdatedAt: new Date(), statusUpdatedById: req.user?.userId ?? null },
-        });
-        console.log(`[cycles.bulk-update] cascaded cancel to ${cascade.count} meetings across ${cyclesNeedingCascade.length} cycles`);
-      }
-      return cycles;
-    });
+    const results = await Promise.all(
+      ids.map(id =>
+        prisma.cycle.update({
+          where: { id },
+          data: updateData,
+          select: { id: true, name: true, institutionalOrderId: true },
+        })
+      )
+    );
+    for (const cycleId of cyclesNeedingCascade) {
+      await cancelFutureMeetingsForCycle(cycleId, { req, markCycleCancelled: true });
+    }
 
     if (data.status === 'completed') {
       const orderIds = [...new Set(

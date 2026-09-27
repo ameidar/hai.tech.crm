@@ -1,7 +1,12 @@
 /**
- * Social Media Routes — text gen, image gen (Gemini), publish to FB/IG
+ * Social Media Routes — text gen, image gen (Gemini), publish to FB/IG/YouTube
  */
 import { Router, Request, Response } from 'express';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import multer from 'multer';
+import { google } from 'googleapis';
 import { authenticate, managerOrAdmin } from '../middleware/auth';
 import OpenAI from 'openai';
 
@@ -12,8 +17,89 @@ const GEMINI_API_KEY = process.env.GOOGLE_AI_API_KEY || '';
 const GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
 const FB_PAGE_ID = process.env.FB_PAGE_ID || '124822734055754';
 const FB_PAGE_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN || '';
+const YOUTUBE_UPLOAD_SCOPES = ['https://www.googleapis.com/auth/youtube.upload'];
+const YOUTUBE_MAX_VIDEO_MB = Math.max(Number(process.env.YOUTUBE_MAX_VIDEO_MB || 500), 1);
+
+const youtubeUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      const dir = path.join(os.tmpdir(), 'haitech-youtube-uploads');
+      fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (_req, file, cb) => {
+      const safeExt = path.extname(file.originalname || '').toLowerCase();
+      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${safeExt}`);
+    },
+  }),
+  limits: { fileSize: YOUTUBE_MAX_VIDEO_MB * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const isVideo = file.fieldname === 'video' && file.mimetype.startsWith('video/');
+    const isThumbnail = file.fieldname === 'thumbnail' && file.mimetype.startsWith('image/');
+    if (isVideo || isThumbnail) cb(null, true);
+    else cb(new Error('סוג קובץ לא נתמך'));
+  },
+});
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+function getYoutubeOAuthClient() {
+  const clientId = process.env.YOUTUBE_CLIENT_ID || process.env.GOOGLE_YOUTUBE_CLIENT_ID || '';
+  const clientSecret = process.env.YOUTUBE_CLIENT_SECRET || process.env.GOOGLE_YOUTUBE_CLIENT_SECRET || '';
+  const redirectUri = process.env.YOUTUBE_REDIRECT_URI || 'urn:ietf:wg:oauth:2.0:oob';
+  const refreshToken = process.env.YOUTUBE_REFRESH_TOKEN || '';
+  const tokenJson = process.env.YOUTUBE_OAUTH_TOKEN_JSON || '';
+  const tokenFile = process.env.YOUTUBE_OAUTH_TOKEN_FILE || '';
+
+  if (!clientId || !clientSecret) return null;
+
+  const auth = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+  if (refreshToken) {
+    auth.setCredentials({ refresh_token: refreshToken });
+    return auth;
+  }
+
+  let credentialsText = tokenJson;
+  if (!credentialsText && tokenFile && fs.existsSync(tokenFile)) {
+    credentialsText = fs.readFileSync(tokenFile, 'utf8');
+  }
+  if (!credentialsText) return null;
+
+  try {
+    auth.setCredentials(JSON.parse(credentialsText));
+    return auth;
+  } catch {
+    return null;
+  }
+}
+
+function getYoutubeFiles(req: Request) {
+  const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+  return {
+    video: files?.video?.[0],
+    thumbnail: files?.thumbnail?.[0],
+  };
+}
+
+function removeUploadedFiles(files: Array<Express.Multer.File | undefined>) {
+  for (const file of files) {
+    if (file?.path) fs.unlink(file.path, () => {});
+  }
+}
+
+function parseYoutubeTags(tags: unknown) {
+  if (typeof tags !== 'string') return [];
+  return tags
+    .split(',')
+    .map(tag => tag.trim())
+    .filter(Boolean)
+    .slice(0, 40);
+}
+
+function normalizeYoutubePrivacy(value: unknown): 'private' | 'public' | 'unlisted' {
+  if (value === 'public' || value === 'unlisted') return value;
+  return 'private';
+}
 
 async function waitForInstagramContainerReady(creationId: string, maxAttempts = 8, delayMs = 1500) {
   let lastStatus: any = null;
@@ -257,6 +343,122 @@ router.get('/instagram/status', authenticate, async (_req: Request, res: Respons
     res.json({ connected: false, error: err.message });
   }
 });
+
+// GET /api/social/youtube/status — check YouTube channel connection
+router.get('/youtube/status', authenticate, async (_req: Request, res: Response) => {
+  const auth = getYoutubeOAuthClient();
+  if (!auth) {
+    return res.json({ connected: false, message: 'YouTube OAuth is not configured' });
+  }
+
+  try {
+    const youtube = google.youtube({ version: 'v3', auth });
+    const channels = await youtube.channels.list({
+      mine: true,
+      part: ['snippet'],
+      maxResults: 1,
+    });
+    const channel = channels.data.items?.[0];
+    if (!channel?.id) {
+      return res.json({ connected: false, message: 'No YouTube channel found for configured account' });
+    }
+
+    res.json({
+      connected: true,
+      channelId: channel.id,
+      channelTitle: channel.snippet?.title || null,
+      scopes: YOUTUBE_UPLOAD_SCOPES,
+    });
+  } catch (err: any) {
+    console.error('YouTube status error:', err.message);
+    res.json({
+      connected: true,
+      channelTitle: null,
+      warning: err.message,
+      scopes: YOUTUBE_UPLOAD_SCOPES,
+    });
+  }
+});
+
+// POST /api/social/publish/youtube — upload a video to YouTube
+router.post(
+  '/publish/youtube',
+  authenticate,
+  managerOrAdmin,
+  youtubeUpload.fields([
+    { name: 'video', maxCount: 1 },
+    { name: 'thumbnail', maxCount: 1 },
+  ]),
+  async (req: Request, res: Response) => {
+    const { video, thumbnail } = getYoutubeFiles(req);
+    const auth = getYoutubeOAuthClient();
+    const title = String(req.body.title || '').trim();
+    const description = String(req.body.description || '').trim();
+    const privacyStatus = normalizeYoutubePrivacy(req.body.privacyStatus);
+    const tags = parseYoutubeTags(req.body.tags);
+
+    try {
+      if (!auth) return res.status(503).json({ error: 'YouTube OAuth is not configured' });
+      if (!video) return res.status(400).json({ error: 'video file required' });
+      if (!title) return res.status(400).json({ error: 'title required' });
+
+      const youtube = google.youtube({ version: 'v3', auth });
+      const upload = await youtube.videos.insert({
+        part: ['snippet', 'status'],
+        requestBody: {
+          snippet: {
+            title,
+            description,
+            tags,
+            categoryId: '27', // Education
+            defaultLanguage: 'he',
+            defaultAudioLanguage: 'he',
+          },
+          status: {
+            privacyStatus,
+            selfDeclaredMadeForKids: false,
+          },
+        },
+        media: {
+          mimeType: video.mimetype || 'video/mp4',
+          body: fs.createReadStream(video.path),
+        },
+      });
+
+      const videoId = upload.data.id;
+      if (!videoId) throw new Error('YouTube did not return a video id');
+
+      let thumbnailWarning: string | null = null;
+      if (thumbnail) {
+        try {
+          await youtube.thumbnails.set({
+            videoId,
+            media: {
+              mimeType: thumbnail.mimetype || 'image/png',
+              body: fs.createReadStream(thumbnail.path),
+            },
+          });
+        } catch (err: any) {
+          thumbnailWarning = err.message || 'Thumbnail upload failed';
+          console.warn('YouTube thumbnail upload warning:', thumbnailWarning);
+        }
+      }
+
+      res.json({
+        success: true,
+        videoId,
+        url: `https://www.youtube.com/watch?v=${videoId}`,
+        privacyStatus,
+        thumbnailWarning,
+      });
+    } catch (err: any) {
+      console.error('YouTube publish error:', err.message);
+      res.status(500).json({ error: err.message });
+    } finally {
+      removeUploadedFiles([video, thumbnail]);
+    }
+  }
+);
 
 // POST /api/social/publish/instagram — post image + caption to IG
 router.post('/publish/instagram', authenticate, managerOrAdmin, async (req: Request, res: Response) => {

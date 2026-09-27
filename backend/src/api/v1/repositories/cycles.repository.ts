@@ -77,7 +77,7 @@ export class CyclesRepository {
           branch: { select: { id: true, name: true, type: true } },
           instructor: { select: { id: true, name: true } },
           institutionalOrder: { select: { id: true, orderNumber: true } },
-          _count: { select: { registrations: true, meetings: true } },
+          _count: { select: { registrations: { where: { deletedAt: null } }, meetings: { where: { deletedAt: null } } } },
         },
         orderBy,
         skip: offset,
@@ -100,7 +100,7 @@ export class CyclesRepository {
         branch: true,
         instructor: true,
         institutionalOrder: true,
-        _count: { select: { registrations: true, meetings: true } },
+        _count: { select: { registrations: { where: { deletedAt: null } }, meetings: { where: { deletedAt: null } } } },
       },
     });
   }
@@ -171,6 +171,7 @@ export class CyclesRepository {
         studentCount: data.studentCount,
         maxStudents: data.maxStudents,
         sendParentReminders: data.sendParentReminders,
+        recallBotEnabled: data.recallBotEnabled,
         isOnline: data.activityType === 'online',
         activityType: data.activityType,
         location: data.location,
@@ -181,7 +182,7 @@ export class CyclesRepository {
         course: { select: { id: true, name: true } },
         branch: { select: { id: true, name: true } },
         instructor: { select: { id: true, name: true } },
-        _count: { select: { registrations: true, meetings: true } },
+        _count: { select: { registrations: { where: { deletedAt: null } }, meetings: { where: { deletedAt: null } } } },
       },
     });
   }
@@ -215,7 +216,7 @@ export class CyclesRepository {
         course: { select: { id: true, name: true } },
         branch: { select: { id: true, name: true } },
         instructor: { select: { id: true, name: true } },
-        _count: { select: { registrations: true, meetings: true } },
+        _count: { select: { registrations: { where: { deletedAt: null } }, meetings: { where: { deletedAt: null } } } },
       },
     });
   }

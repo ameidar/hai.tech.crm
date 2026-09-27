@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
-import { sendEmail, sendWhatsAppMessage } from '../services/notifications.js';
-import { deleteMeeting as deleteZoomMeeting } from '../services/zoom.js';
+import { sendWhatsAppMessage } from '../services/notifications.js';
 import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
+import { logAudit } from '../utils/audit.js';
+import { notifyCancellationSubmitted } from '../services/cancellations.js';
 
 export const publicCancelRouter = Router();
 
@@ -107,28 +108,9 @@ publicCancelRouter.post('/:token', async (req, res, next) => {
       },
     });
 
-    // Cascade: check if cycle should be cancelled (import inline to avoid circular)
+    // Final cancellation is a staff decision. A public form only marks the
+    // registration as pending and notifies operations.
     const cycleId = cancellationRequest.registration.cycleId;
-    const activeCount = await prisma.registration.count({
-      where: { cycleId, status: { in: ['registered', 'active'] } },
-    });
-    if (activeCount === 0) {
-      await prisma.cycle.update({ where: { id: cycleId }, data: { status: 'cancelled' } });
-      const meetingsToCancel = await prisma.meeting.findMany({
-        where: { cycleId, status: { not: 'cancelled' }, deletedAt: null },
-      });
-      for (const m of meetingsToCancel) {
-        await prisma.meeting.update({
-          where: { id: m.id },
-          data: { status: 'cancelled', zoomMeetingId: null, zoomJoinUrl: null, zoomStartUrl: null },
-        });
-        if (m.zoomMeetingId) {
-          deleteZoomMeeting(m.zoomMeetingId).catch(err =>
-            console.error(`[CANCEL CASCADE] Failed to delete Zoom ${m.zoomMeetingId}:`, err)
-          );
-        }
-      }
-    }
 
     const reg = cancellationRequest.registration;
     const courseName = reg.cycle.course?.name || reg.cycle.name;
@@ -137,32 +119,24 @@ publicCancelRouter.post('/:token', async (req, res, next) => {
       console.error('[PublicCancel] Failed to recalc meeting revenue:', err)
     );
 
-    const crmLink = `${process.env.FRONTEND_URL || 'https://crm.orma-ai.com'}/cycles/${reg.cycleId}`;
-
-    // Send email to admin
-    const adminEmailHtml = `
-<!DOCTYPE html>
-<html dir="rtl" lang="he">
-<head><meta charset="UTF-8"></head>
-<body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; direction: rtl;">
-  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-    <h2 style="color: #dc2626;">🔴 בקשת ביטול חדשה</h2>
-    <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
-      <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">שם תלמיד/ה:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${reg.student.name}</td></tr>
-      <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">שם הורה:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${cancellationRequest.customerName}</td></tr>
-      <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">קורס:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${courseName}</td></tr>
-      <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">סיבת ביטול:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${reason || 'לא צוינה'}</td></tr>
-      <tr><td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">חתימה:</td><td style="padding: 8px; border-bottom: 1px solid #eee;">${signature || 'לא צוינה'}</td></tr>
-    </table>
-    <p><a href="${crmLink}" style="color: #2563eb;">צפייה בהרשמה ב-CRM</a></p>
-    <p><strong>קישור לחשבונית:</strong> ${reg.invoiceLink ? `<a href="${reg.invoiceLink}">${reg.invoiceLink}</a>` : 'לא צורף'}</p>
-  </div>
-</body>
-</html>`;
-
     // Send notifications — non-blocking (don't fail the request if these fail)
-    sendEmail('info@hai.tech', `בקשת ביטול - ${reg.student.name} - ${courseName}`, adminEmailHtml)
-      .catch((err: unknown) => console.error('[PublicCancel] Failed to send admin email:', err));
+    notifyCancellationSubmitted(cancellationRequest.registrationId, reason)
+      .catch((err: unknown) => console.error('[PublicCancel] Failed to send cancellation notification:', err));
+
+    logAudit({
+      action: 'UPDATE',
+      entity: 'CancellationRequest',
+      entityId: cancellationRequest.id,
+      newValue: {
+        status: 'submitted',
+        registrationId: cancellationRequest.registrationId,
+        cycleId,
+        reason,
+        customerName: cancellationRequest.customerName,
+        studentName: cancellationRequest.studentName,
+      },
+      req,
+    }).catch((err: unknown) => console.error('[PublicCancel] Failed to log audit:', err));
 
     const instructor = reg.cycle.instructor;
     if (instructor?.phone) {

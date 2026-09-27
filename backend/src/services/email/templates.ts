@@ -168,14 +168,14 @@ export const parentReminderTemplate = (data: ParentReminderData): string => `
         <p><strong>📚 קורס:</strong> ${data.className}</p>
         <p><strong>📅 תאריך:</strong> ${data.date}</p>
         <p><strong>🕐 שעה:</strong> ${data.time}</p>
-        <p><strong>📍 מיקום:</strong> ${data.isOnline ? 'שיעור אונליין (זום)' : data.location}</p>
+        <p><strong>📍 מיקום:</strong> ${data.isOnline ? 'שיעור אונליין' : data.location}</p>
         <p><strong>👨‍🏫 מדריך/ה:</strong> ${data.instructorName}</p>
       </div>
       
       ${data.isOnline && data.zoomLink ? `
       <div class="success">
         <p><strong>🔗 קישור לשיעור:</strong></p>
-        <p><a href="${data.zoomLink}" class="btn">כניסה לזום</a></p>
+        <p><a href="${data.zoomLink}" class="btn">כניסה לשיעור</a></p>
         <p style="font-size: 12px; color: #6b7280;">מומלץ להיכנס 5 דקות לפני תחילת השיעור</p>
       </div>
       ` : ''}

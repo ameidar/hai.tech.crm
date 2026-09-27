@@ -1212,7 +1212,7 @@ export default function Reports() {
                           <td className="p-3">{cycle.instructor?.name || '-'}</td>
                           <td className="p-3">{dayNames[cycle.dayOfWeek?.toLowerCase()] || cycle.dayOfWeek || '-'}</td>
                           <td className="p-3">{cycle.startTime?.substring(0, 5) || '-'}</td>
-                          <td className="p-3">{cycle.studentCount || cycle._count?.registrations || 0}</td>
+                          <td className="p-3">{cycle._count?.registrations ?? cycle.studentCount ?? 0}</td>
                           <td className="p-3">
                             <div className="flex items-center gap-2">
                               <div className="w-24 bg-gray-200 rounded-full h-2">

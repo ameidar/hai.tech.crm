@@ -166,7 +166,7 @@ export default function InstructorMagicMeeting() {
           requestReason: isRequestStatus(status) ? requestReason : undefined,
           attendance: attendance.filter(a => a.status).map(a => ({
             registrationId: a.registrationId,
-            studentId: a.studentId,
+            studentId: a.registrationId ? undefined : a.studentId,
             status: a.status,
             isTrial: a.isTrial,
           })),

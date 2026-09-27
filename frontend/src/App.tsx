@@ -34,6 +34,7 @@ import QuoteDetail from './pages/QuoteDetail';
 import QuoteEdit from './pages/QuoteEdit';
 import PublicQuoteView from './pages/PublicQuoteView';
 import PublicCancelForm from './pages/PublicCancelForm';
+import PublicLessonQuiz from './pages/PublicLessonQuiz';
 import LeadAppointments from './pages/LeadAppointments';
 import InstitutionalOrders from './pages/InstitutionalOrders';
 import InstitutionalOrderDetail from './pages/InstitutionalOrderDetail';
@@ -158,6 +159,7 @@ function AppRoutes() {
       <Route path="/public/quote/:id" element={<PublicQuoteView />} />
       <Route path="/cancel/:token" element={<PublicCancelForm />} />
       <Route path="/public/cancel/:token" element={<PublicCancelForm />} />
+      <Route path="/lesson-quiz/:token" element={<PublicLessonQuiz />} />
       <Route path="/campaign/:campaignId" element={<CampaignLanding />} />
       <Route path="/pay/:token" element={<PayPage />} />
       <Route path="/m/:meetingId/:token" element={<MeetingStatus />} />

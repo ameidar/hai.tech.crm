@@ -47,10 +47,13 @@ export const createCustomerSchema = z.object({
 export const updateCustomerSchema = createCustomerSchema.partial();
 
 // Student schemas
+export const studentGenderSchema = z.enum(['unknown', 'female', 'male', 'other']);
+
 export const createStudentSchema = z.object({
   customerId: z.string().min(1, 'Customer ID is required'),
   name: z.string().min(2, 'Name must be at least 2 characters'),
   birthDate: z.string().optional().nullable(),
+  gender: studentGenderSchema.default('unknown'),
   grade: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
 });
@@ -138,7 +141,7 @@ const cycleBaseSchema = z.object({
   branchId: z.string().min(1, 'חובה לבחור סניף למחזור'),
   instructorId: z.string().min(1, 'Instructor ID is required'),
   institutionalOrderId: z.string().optional().nullable(),
-  type: z.enum(['private', 'trial_private', 'institutional_per_child', 'institutional_fixed']),
+  type: z.enum(['private', 'trial_private', 'group', 'institutional_per_child', 'institutional_fixed']),
   startDate: z.string(),
   endDate: z.string().optional(), // Will be calculated automatically if not provided
   dayOfWeek: z.enum(['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']),
@@ -156,6 +159,7 @@ const cycleBaseSchema = z.object({
   maxStudents: z.number().int().nonnegative().optional().nullable(),
   minimumStudentsThreshold: z.number().int().nonnegative().optional().nullable(),
   sendParentReminders: z.boolean().default(true),
+  recallBotEnabled: z.boolean().optional().default(false),
   isOnline: z.boolean().default(false),
   activityType: z.enum(['online', 'frontal', 'private_lesson']).default('frontal'),
   location: z.string().trim().optional().nullable(),
@@ -242,6 +246,7 @@ export const createMeetingSchema = z.object({
   activityType: z.enum(['online', 'frontal', 'private_lesson']).optional().nullable(),
   topic: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  recallBotEnabled: z.boolean().optional(),
   registrationId: z.string().min(1).optional().nullable(),
   videoProvider: videoMeetingProviderEnum.optional().default('zoom'),
   zoomMeetingId: z.string().optional().nullable(),
@@ -318,6 +323,7 @@ export const bulkUpdateCyclesSchema = z.object({
     studentCount: z.number().int().positive().optional().nullable(),
     minimumStudentsThreshold: z.number().int().nonnegative().optional().nullable(),
     sendParentReminders: z.boolean().optional(),
+    recallBotEnabled: z.boolean().optional(),
     activityType: z.enum(['online', 'frontal', 'private_lesson']).optional(),
   }).refine(
     (data) => Object.keys(data).some(k => data[k as keyof typeof data] !== undefined),

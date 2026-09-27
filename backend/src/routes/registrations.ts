@@ -8,85 +8,17 @@ import { updateRegistrationSchema, uuidSchema } from '../types/schemas.js';
 import { z } from 'zod';
 import { parsePaginationParams, paginatedResponse } from '../utils/pagination.js';
 import { sendEmail, sendWhatsAppMessage } from '../services/notifications.js';
-import { deleteMeeting as deleteZoomMeeting } from '../services/zoom.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
+import { cancelFutureMeetingsForCycle } from '../services/cancellations.js';
 
-/**
- * Check if a cycle has no active registrations left after a cancellation.
- * If so: cancel the cycle, cancel future meetings, delete their Zoom links.
- */
-async function handleCycleCascadeOnCancellation(cycleId: string): Promise<void> {
+async function hasActiveRegistrations(cycleId: string): Promise<boolean> {
   const activeCount = await prisma.registration.count({
     where: {
       cycleId,
       status: { in: ['registered', 'active'] },
     },
   });
-
-  if (activeCount > 0) return;
-
-  console.log(`[CANCEL CASCADE] Cycle ${cycleId} has 0 active registrations — cancelling cycle`);
-
-  // Cancel the cycle and clear its Zoom data
-  const cycle = await prisma.cycle.findUnique({ where: { id: cycleId }, select: { zoomMeetingId: true } });
-  await prisma.cycle.update({
-    where: { id: cycleId },
-    data: {
-      status: 'cancelled',
-      zoomMeetingId: null,
-      zoomJoinUrl: null,
-      zoomHostEmail: null,
-      zoomHostKey: null,
-      zoomPassword: null,
-    },
-  });
-
-  // Delete cycle-level Zoom meeting
-  if (cycle?.zoomMeetingId) {
-    try {
-      await deleteZoomMeeting(cycle.zoomMeetingId);
-      console.log(`[CANCEL CASCADE] Deleted cycle Zoom meeting ${cycle.zoomMeetingId}`);
-    } catch (err) {
-      console.error(`[CANCEL CASCADE] Failed to delete cycle Zoom:`, err);
-    }
-  }
-
-  // Get future scheduled meetings
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const futureMeetings = await prisma.meeting.findMany({
-    where: {
-      cycleId,
-      status: 'scheduled',
-      scheduledDate: { gte: today },
-    },
-  });
-
-  // Cancel future meetings and delete their Zoom
-  for (const meeting of futureMeetings) {
-    await prisma.meeting.update({
-      where: { id: meeting.id },
-      data: {
-        status: 'cancelled',
-        zoomMeetingId: null,
-        zoomJoinUrl: null,
-        zoomStartUrl: null,
-      },
-    });
-
-    // Delete Zoom meeting if exists
-    if (meeting.zoomMeetingId) {
-      try {
-        await deleteZoomMeeting(meeting.zoomMeetingId);
-        console.log(`[CANCEL CASCADE] Deleted Zoom meeting ${meeting.zoomMeetingId}`);
-      } catch (err) {
-        console.error(`[CANCEL CASCADE] Failed to delete Zoom ${meeting.zoomMeetingId}:`, err);
-      }
-    }
-  }
-
-  console.log(`[CANCEL CASCADE] Cancelled ${futureMeetings.length} future meetings for cycle ${cycleId}`);
+  return activeCount > 0;
 }
 
 export const registrationsRouter = Router();
@@ -221,11 +153,15 @@ registrationsRouter.put('/:id', cycleRosterOrAdmin, async (req, res, next) => {
       await logUpdateAudit({ entity: 'Registration', entityId: id, oldRecord: oldRegistration, newRecord: registration, req });
     }
 
-    // Cascade: if cancelled/pending_cancellation and no active students left, cancel cycle
-    if (data.status === 'cancelled' || data.status === 'pending_cancellation') {
-      handleCycleCascadeOnCancellation(registration.cycle.id).catch(err =>
+    // Final cancellation requires a manager/admin action. Pending cancellation only
+    // flags the registration for review and must not cancel the whole cycle.
+    if (data.status === 'cancelled' && !(await hasActiveRegistrations(registration.cycle.id))) {
+      cancelFutureMeetingsForCycle(registration.cycle.id, { req, markCycleCancelled: true }).catch(err =>
         console.error('[CANCEL CASCADE] Error:', err)
       );
+    }
+
+    if (data.status === 'cancelled' || data.status === 'pending_cancellation') {
       // Recalculate future meeting revenues based on new student count
       recalcMeetingRevenue(registration.cycle.id).catch(err =>
         console.error('[RECALC REVENUE] Error:', err)
@@ -288,10 +224,13 @@ registrationsRouter.post('/:id/cancel', cycleRosterOrAdmin, async (req, res, nex
       await logUpdateAudit({ entity: 'Registration', entityId: id, oldRecord: oldRegistration, newRecord: registration, req });
     }
 
-    // Cascade: check if cycle should be cancelled
-    handleCycleCascadeOnCancellation(registration.cycle.id).catch(err =>
-      console.error('[CANCEL CASCADE] Error:', err)
-    );
+    // Final cancellation: if this was the last active registration, cancel the
+    // cycle and only its future open meetings.
+    if (!(await hasActiveRegistrations(registration.cycle.id))) {
+      cancelFutureMeetingsForCycle(registration.cycle.id, { req, markCycleCancelled: true }).catch(err =>
+        console.error('[CANCEL CASCADE] Error:', err)
+      );
+    }
 
     // Recalculate future meeting revenues based on new student count
     recalcMeetingRevenue(registration.cycle.id).catch(err =>

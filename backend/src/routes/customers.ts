@@ -531,6 +531,7 @@ customersRouter.post('/:id/students', cycleRosterOrAdmin, async (req, res, next)
       data: {
         name: data.name,
         birthDate: data.birthDate ? new Date(data.birthDate) : null,
+        gender: data.gender ?? 'unknown',
         grade: data.grade,
         notes: data.notes,
         customerId,

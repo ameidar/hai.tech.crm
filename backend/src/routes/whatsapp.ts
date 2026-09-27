@@ -18,6 +18,7 @@ import { sendEmail } from '../services/email/sender.js';
 import { sendWhatsAppToChat } from '../services/messaging.js';
 import { handleStatusReply, parseInstructorStatusReply } from '../services/whatsapp-reminder.service.js';
 import { addWaSseClient, broadcastWaSSE as broadcastSSE, removeWaSseClient } from '../services/wa-events.js';
+import { sanitizeLeadEmail, shouldSendPromisedEmailAlert } from '../utils/wa-lead-extraction.js';
 
 const router = Router();
 
@@ -43,7 +44,10 @@ const WA_INBOUND_FORWARD_TIMEOUT_MS = parseInt(process.env.WA_INBOUND_FORWARD_TI
 // (or it's a brand-new conversation). Prevents alert spam during active back-and-forth.
 const WA_QUIET_WAKEUP_HOURS = parseFloat(process.env.WA_QUIET_WAKEUP_HOURS || '3');
 const WA_INBOUND_ALERT_GROUP_ID = process.env.WA_INBOUND_ALERT_GROUP_ID || '120363308669020817@g.us';
+const WA_AI_FAILURE_ALERT_COOLDOWN_MINUTES = parseInt(process.env.WA_AI_FAILURE_ALERT_COOLDOWN_MINUTES || '30', 10);
 const APP_URL = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
+
+let lastOpenAICreditAlertAt = 0;
 
 // Multi-number support: phoneNumberId → wabaId mapping
 const PHONE_WABA_MAP: Record<string, string> = {
@@ -90,6 +94,59 @@ async function findCrmCustomerNameForWhatsAppPhone(phone?: string | null): Promi
   });
 
   return cleanContactValue(customer?.name);
+}
+
+async function findCrmProfileForWhatsAppPhone(
+  phone: string,
+  conversationType: 'customer' | 'instructor',
+): Promise<{ profileType: 'customer' | 'instructor'; profileId: string; profileName: string; profileUrl: string } | null> {
+  const last9 = digitsOnly(phone).slice(-9);
+  if (!last9) return null;
+
+  const [customer, instructor] = await Promise.all([
+    prisma.customer.findFirst({
+      where: {
+        deletedAt: null,
+        phone: { endsWith: last9 },
+      },
+      select: { id: true, name: true },
+    }),
+    prisma.instructor.findFirst({
+      where: {
+        phone: { endsWith: last9 },
+      },
+      select: { id: true, name: true, phone: true },
+    }),
+  ]);
+
+  if (conversationType === 'instructor' && instructor) {
+    return {
+      profileType: 'instructor',
+      profileId: instructor.id,
+      profileName: instructor.name,
+      profileUrl: `/instructors?status=all&search=${encodeURIComponent(instructor.phone || instructor.name)}`,
+    };
+  }
+
+  if (customer) {
+    return {
+      profileType: 'customer',
+      profileId: customer.id,
+      profileName: customer.name,
+      profileUrl: `/customers/${customer.id}`,
+    };
+  }
+
+  if (instructor) {
+    return {
+      profileType: 'instructor',
+      profileId: instructor.id,
+      profileName: instructor.name,
+      profileUrl: `/instructors?status=all&search=${encodeURIComponent(instructor.phone || instructor.name)}`,
+    };
+  }
+
+  return null;
 }
 
 async function resolveWhatsAppContactName(phone: string, metaName?: string | null, currentName?: string | null): Promise<string> {
@@ -149,6 +206,7 @@ const ACTIVE_PHONES: { phoneNumberId: string; businessPhone: string; label: stri
   { phoneNumberId: process.env.WA_PHONE_NUMBER_ID || '', businessPhone: '+972533027763', label: 'Bot Hai.tech (+972 53 302 7763)' },
   ...(process.env.WA_PHONE_NUMBER_ID_2 ? [{ phoneNumberId: process.env.WA_PHONE_NUMBER_ID_2, businessPhone: '+972533009742', label: 'Bot Hai.Tech (+972 53 300 9742)' }] : []),
 ];
+const LEAD_BUSINESS_PHONE = '+972533009742';
 
 function normalizeConversationPhone(phone: string | null | undefined): string | null {
   const digits = (phone || '').replace(/\D/g, '');
@@ -278,6 +336,72 @@ async function maybeAlertQuietWakeup(
   }
 }
 
+function isOpenAICreditError(error: unknown): boolean {
+  const err = error as {
+    status?: number;
+    statusCode?: number;
+    code?: string;
+    message?: string;
+    error?: { code?: string; message?: string; type?: string };
+  };
+  const status = err?.status || err?.statusCode;
+  const code = `${err?.code || ''} ${err?.error?.code || ''}`.toLowerCase();
+  const message = `${err?.message || ''} ${err?.error?.message || ''}`.toLowerCase();
+
+  return status === 429 && (
+    code.includes('insufficient_quota') ||
+    message.includes('no credits remaining') ||
+    message.includes('billing') ||
+    message.includes('quota')
+  );
+}
+
+async function alertOpenAICreditIssue(params: {
+  conversationId: string;
+  phone: string;
+  displayName?: string | null;
+  inboundText?: string | null;
+  error: unknown;
+}): Promise<void> {
+  if (!WA_INBOUND_ALERT_GROUP_ID) return;
+
+  const now = Date.now();
+  const cooldownMs = Math.max(WA_AI_FAILURE_ALERT_COOLDOWN_MINUTES, 1) * 60 * 1000;
+  if (now - lastOpenAICreditAlertAt < cooldownMs) {
+    console.warn(`[WA] OpenAI credit alert throttled for conv ${params.conversationId}`);
+    return;
+  }
+  lastOpenAICreditAlertAt = now;
+
+  const link = `${APP_URL}/whatsapp?conv=${params.conversationId}`;
+  const snippet = (params.inboundText || '').trim();
+  const shortSnippet = snippet.length > 200 ? snippet.slice(0, 200) + '…' : snippet;
+  const errorMessage = ((params.error as { message?: string } | null)?.message || 'OpenAI 429 / no credits remaining')
+    .replace(/\s+/g, ' ')
+    .slice(0, 220);
+
+  const message = [
+    '🚨 תקלה קריטית בבוט הוואטסאפ',
+    '',
+    'הבוט קיבל הודעה מלקוח אבל לא הצליח לייצר תגובה אוטומטית כי OpenAI החזיר שאין קרדיטים/מכסה זמינה.',
+    '',
+    `לקוח: ${params.displayName || params.phone}`,
+    `טלפון: ${params.phone}`,
+    shortSnippet ? `הודעה: "${shortSnippet}"` : null,
+    `שיחה ב-CRM: ${link}`,
+    '',
+    `שגיאה: ${errorMessage}`,
+    'לטיפול בבילינג: https://platform.openai.com/settings/organization/billing/overview',
+  ].filter(Boolean).join('\n');
+
+  const result = await sendWhatsAppToChat(WA_INBOUND_ALERT_GROUP_ID, message);
+  if (!result.success) {
+    console.error(`[WA] OpenAI credit alert send failed: ${result.error}`);
+  } else {
+    console.log(`[WA] OpenAI credit alert sent for conv ${params.conversationId}`);
+  }
+}
+
 // ============================================================
 // AI support guardrails
 // ============================================================
@@ -312,6 +436,46 @@ function buildHumanEscalationReply(userText: string | null | undefined): string 
   return 'אני מבין/ה, זה באמת מתסכל.\nאני מעביר/ה את זה לנציג אנושי לבדיקה — אין צורך לפנות שוב לוואטסאפ, זה כבר הערוץ הנכון.\n\nכדי שנאתר את החשבון מהר: מה המייל שאיתו נרשמת לקורס?';
 }
 
+function extractReferralContext(msg: any) {
+  const referral = msg?.referral;
+  if (!referral || typeof referral !== 'object') return null;
+
+  return {
+    referralSourceId: referral.source_id ? String(referral.source_id) : undefined,
+    referralSourceType: referral.source_type ? String(referral.source_type) : undefined,
+    referralHeadline: referral.headline ? String(referral.headline) : undefined,
+    referralBody: referral.body ? String(referral.body) : undefined,
+    referralSourceUrl: referral.source_url ? String(referral.source_url) : undefined,
+    referralClickId: referral.ctwa_clid ? String(referral.ctwa_clid) : undefined,
+  };
+}
+
+function buildReferralPromptContext(conv: any): string {
+  const parts = [
+    conv.referralHeadline ? `כותרת מודעה: ${conv.referralHeadline}` : null,
+    conv.referralBody ? `טקסט מודעה: ${conv.referralBody}` : null,
+    conv.referralSourceType ? `סוג מקור: ${conv.referralSourceType}` : null,
+    conv.referralSourceUrl ? `קישור מקור: ${conv.referralSourceUrl}` : null,
+  ].filter(Boolean);
+
+  if (parts.length === 0) return '';
+
+  return `
+הקשר ממודעת Meta/WhatsApp:
+${parts.join('\n')}
+
+אם הלקוח שואל "על זה", "אפשר פרטים?", "מידע נוסף", "אני מעוניין/ת", "מעוניין בפרטים" או פנייה כללית דומה — התייחס למודעה הזו כהקשר המרכזי. אל תשאל "על איזה נושא?" כתשובה ראשונה.
+
+תגובה ראשונה אחרי גילוי עניין ממודעה חייבת להיות קצרה:
+1. להסביר במשפט אחד שדרך ההייטק מציעה חוגי טכנולוגיה לילדים ונוער: תכנות, גיימינג יוצר, רובלוקס/מיינקראפט ובינה מלאכותית, בהתאם לגיל ולעניין.
+2. אם המודעה מזכירה נושא ספציפי, להזכיר אותו בקצרה בלי להמציא פרטים שלא נמצאים ב-Knowledge Base.
+3. להציע שנציג מדרך ההייטק יחזור בהקדם להתאמה והרשמה.
+4. לשאול רק שאלה אחת בסוף, למשל: "תרצה/י שנציג יחזור אליך בהקדם?"
+
+אל תיכנס ללופ של שאלות התאמה לפני שהצעת חזרת נציג.
+`;
+}
+
 // ============================================================
 // AI Response generation (mirrors bot logic)
 // ============================================================
@@ -340,6 +504,7 @@ ${JSON.stringify(knowledgeBase, null, 2)}
 ${conv.contactName ? `שם: ${conv.contactName}` : ''}
 ${conv.childName ? `שם הילד: ${conv.childName}` : ''}
 ${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}
+${buildReferralPromptContext(conv)}
 
 ---
 ## כלל אנטי-לופ (חובה!)
@@ -443,13 +608,17 @@ async function extractLeadData(conversationId: string) {
     });
 
     const data = JSON.parse(res.choices[0].message.content || '{}');
+    const leadEmail = sanitizeLeadEmail(data.lead_email, messages);
+    const extractedLeadName = cleanContactValue(data.lead_name);
+    const crmCustomerName = extractedLeadName ? '' : await findCrmCustomerNameForWhatsAppPhone(conv.phone);
+    const leadName = extractedLeadName || cleanContactValue(conv.contactName) || crmCustomerName || 'שלום';
 
     // 1. Update conversation record
     await prisma.waConversation.update({
       where: { id: conversationId },
       data: {
-        leadName: data.lead_name,
-        leadEmail: data.lead_email,
+        leadName,
+        leadEmail,
         childName: data.child_name,
         childAge: data.child_age,
         interests: data.interests ? JSON.stringify(data.interests) : undefined,
@@ -459,7 +628,7 @@ async function extractLeadData(conversationId: string) {
     });
 
     // 2. Update matching leadAppointment with email (if extracted)
-    if (data.lead_email) {
+    if (leadEmail) {
       try {
         const digitsOnly = (p: string) => p.replace(/\D/g, '');
         const last9 = (p: string) => digitsOnly(p).slice(-9);
@@ -476,10 +645,10 @@ async function extractLeadData(conversationId: string) {
 
         if (leads.length > 0 && !leads[0].customer_email) {
           await prisma.$executeRaw`
-            UPDATE lead_appointments SET customer_email = ${data.lead_email}
+            UPDATE lead_appointments SET customer_email = ${leadEmail}
             WHERE id = ${leads[0].id}
           `;
-          console.log(`[WA] Updated lead ${leads[0].id} with email ${data.lead_email}`);
+          console.log(`[WA] Updated lead ${leads[0].id} with email ${leadEmail}`);
         }
       } catch (e) {
         console.error('[WA] Lead email update failed:', e);
@@ -487,10 +656,9 @@ async function extractLeadData(conversationId: string) {
     }
 
     // 3. Send email if bot promised one and we have the email
-    if (data.email_promised && data.lead_email) {
+    if (shouldSendPromisedEmailAlert(data.email_promised, leadEmail)) {
       try {
         const courseTitle: string | null = data.course_recommended || null;
-        const leadName: string = data.lead_name || 'שלום';
 
         // Find course details in knowledge base
         let courseHtml = '';
@@ -532,7 +700,7 @@ async function extractLeadData(conversationId: string) {
                 <p>הבוט הבטיח לשלוח מייל ללקוח, אך <strong>אין לו מידע מדויק</strong> לגבי הנושא שנשאל.</p>
                 <table style="border-collapse:collapse;margin:12px 0;">
                   <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">שם:</td><td style="font-weight:bold;">${leadName}</td></tr>
-                  <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">מייל:</td><td><a href="mailto:${data.lead_email}">${data.lead_email}</a></td></tr>
+                  <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">מייל:</td><td><a href="mailto:${leadEmail}">${leadEmail}</a></td></tr>
                   <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">טלפון:</td><td>${convPhone}</td></tr>
                   <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">נושא:</td><td>${courseTitle || 'לא זוהה'}</td></tr>
                   <tr><td style="padding:4px 12px 4px 0;color:#6b7280;">סיכום שיחה:</td><td>${convSummary}</td></tr>
@@ -566,11 +734,11 @@ async function extractLeadData(conversationId: string) {
             </html>`;
 
           await sendEmail({
-            to: data.lead_email,
+            to: leadEmail!,
             subject: `פרטים על ${courseTitle} - דרך ההייטק`,
             html
           });
-          console.log(`[WA] Course email sent to ${data.lead_email} for conv ${conversationId}`);
+          console.log(`[WA] Course email sent to ${leadEmail} for conv ${conversationId}`);
         }
       } catch (e) {
         console.error('[WA] Email send failed:', e);
@@ -743,6 +911,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           const text = msg.text?.body || '';
           const waMessageId = msg.id;
           const rawContactName = value.contacts?.[0]?.profile?.name;
+          const referralContext = extractReferralContext(msg);
 
           // Dedup
           const existing = await prisma.waMessage.findUnique({ where: { waMessageId } });
@@ -761,14 +930,18 @@ router.post('/webhook', async (req: Request, res: Response) => {
                 phone,
                 contactName: await resolveWhatsAppContactName(phone, rawContactName),
                 businessPhone,
-                phoneNumberId: bizPhoneNumberId
+                phoneNumberId: bizPhoneNumberId,
+                ...(referralContext || {})
               }
             });
             isNewConversation = true;
-          } else if (!conv.businessPhone && businessPhone) {
+          } else if ((!conv.businessPhone && businessPhone) || referralContext) {
             conv = await prisma.waConversation.update({
               where: { id: conv.id },
-              data: { businessPhone, phoneNumberId: bizPhoneNumberId }
+              data: {
+                ...(!conv.businessPhone && businessPhone ? { businessPhone, phoneNumberId: bizPhoneNumberId } : {}),
+                ...(referralContext || {})
+              }
             });
           }
 
@@ -792,9 +965,16 @@ router.post('/webhook', async (req: Request, res: Response) => {
                 customerName: contactName || phone,
                 customerPhone: phone,
                 source: 'whatsapp',
-                appointmentNotes: isNew
-                  ? `ליד חדש מוואטסאפ. לשיחה: ${waLink}`
-                  : `לקוח קיים פנה שוב בוואטסאפ. לשיחה: ${waLink}`,
+                adId: referralContext?.referralSourceId,
+                adName: referralContext?.referralHeadline,
+                appointmentNotes: [
+                  isNew
+                    ? `ליד חדש מוואטסאפ. לשיחה: ${waLink}`
+                    : `לקוח קיים פנה שוב בוואטסאפ. לשיחה: ${waLink}`,
+                  referralContext?.referralHeadline ? `כותרת מודעה: ${referralContext.referralHeadline}` : null,
+                  referralContext?.referralBody ? `טקסט מודעה: ${referralContext.referralBody}` : null,
+                  referralContext?.referralSourceUrl ? `קישור מקור: ${referralContext.referralSourceUrl}` : null,
+                ].filter(Boolean).join('\n'),
                 appointmentStatus: 'pending',
               });
               console.log(`[WA] Lead upserted for ${isNew ? 'new' : 'existing'} customer ${phone}`);
@@ -905,6 +1085,17 @@ router.post('/webhook', async (req: Request, res: Response) => {
                 }
               } catch (e) {
                 console.error('[WA] AI reply error:', e);
+                if (isOpenAICreditError(e)) {
+                  alertOpenAICreditIssue({
+                    conversationId: conv.id,
+                    phone,
+                    displayName: contactName || conv.contactName,
+                    inboundText: text,
+                    error: e,
+                  }).catch((alertError) => {
+                    console.error('[WA] OpenAI credit alert failed:', alertError);
+                  });
+                }
               }
             });
             replyLocks.set(conv.id, currentLock);
@@ -1333,28 +1524,41 @@ router.get('/phones', authenticate, (_req: Request, res: Response) => {
 router.get('/conversations', authenticate, async (_req: Request, res: Response) => {
   try {
     const instructorPhones = await getInstructorConversationPhones();
+    const instructorPhoneSet = new Set(instructorPhones);
+
     const conversations = await prisma.waConversation.findMany({
-      where: instructorPhones.length > 0 ? { phone: { notIn: instructorPhones } } : undefined,
-      orderBy: { lastMessageAt: 'desc' },
+      orderBy: [
+        { lastMessageAt: { sort: 'desc', nulls: 'last' } },
+        { updatedAt: 'desc' },
+      ],
       include: {
         _count: { select: { messages: true } }
       }
     });
 
     const displayConversations = await Promise.all(conversations.map(async (conv) => {
-      if (isUsablePersonName(conv.contactName)) return conv;
+      const isLeadBusinessPhone = conv.businessPhone === LEAD_BUSINESS_PHONE ||
+        Boolean(process.env.WA_PHONE_NUMBER_ID_2 && conv.phoneNumberId === process.env.WA_PHONE_NUMBER_ID_2);
+      const conversationType = instructorPhoneSet.has(conv.phone) && !isLeadBusinessPhone
+        ? 'instructor'
+        : 'customer';
+      const crmProfile = await findCrmProfileForWhatsAppPhone(conv.phone, conversationType);
+
+      if (isUsablePersonName(conv.contactName)) return { ...conv, conversationType, crmProfile };
 
       const leadName = cleanContactValue(conv.leadName);
       if (isUsablePersonName(leadName)) {
-        return { ...conv, contactName: leadName };
+        return { ...conv, contactName: leadName, conversationType, crmProfile };
       }
 
       if (conv.leadEmail) {
-        return { ...conv, contactName: conv.leadEmail };
+        return { ...conv, contactName: conv.leadEmail, conversationType, crmProfile };
       }
 
       return {
         ...conv,
+        conversationType,
+        crmProfile,
         contactName: await resolveWhatsAppContactName(conv.phone, undefined, conv.contactName),
       };
     }));
@@ -1466,7 +1670,10 @@ router.get('/customer/:customerId', authenticate, async (req: Request, res: Resp
 
     const conversation = await prisma.waConversation.findFirst({
       where: { phone: normalizedPhone },
-      orderBy: { lastMessageAt: 'desc' },
+      orderBy: [
+        { lastMessageAt: { sort: 'desc', nulls: 'last' } },
+        { updatedAt: 'desc' },
+      ],
     });
 
     if (!conversation) {

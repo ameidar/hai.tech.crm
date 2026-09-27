@@ -22,9 +22,14 @@ import {
   formatZoomHostConflictAlert,
 } from '../zoom-conflicts.js';
 import { sendTomorrowMeetingCheckReport } from '../meeting-check-report.js';
-import { sendParentWhatsAppReminder } from '../parent-whatsapp-reminders.js';
+import {
+  getParentReminderVideoLink,
+  isParentReminderOnline,
+  sendParentWhatsAppReminder,
+} from '../parent-whatsapp-reminders.js';
 import { sendWhatsAppCloudTemplate, templateText } from '../whatsapp-cloud-templates.js';
 import { getOperationsEmailRecipients } from '../operations-notifications.js';
+import { sendPendingInstitutionalAttendanceAlerts } from '../institutional-absence-alerts.js';
 
 // Management email list (configure via env or database)
 const MANAGEMENT_EMAILS = getOperationsEmailRecipients(process.env.MANAGEMENT_EMAILS);
@@ -172,7 +177,8 @@ const sendParentReminders = async () => {
         const parent = student.customer;
         if (!parent) continue;
 
-        const isOnline = !meeting.cycle.branch;
+        const videoLink = getParentReminderVideoLink(meeting);
+        const isOnline = isParentReminderOnline(meeting);
         
         const data: ParentReminderData = {
           parentName: parent.name,
@@ -183,7 +189,7 @@ const sendParentReminders = async () => {
           location: meeting.cycle.branch?.name || 'אונליין',
           instructorName: meeting.cycle.instructor?.name || 'צוות HaiTech',
           isOnline,
-          zoomLink: isOnline ? meeting.zoomJoinUrl || undefined : undefined,
+          zoomLink: videoLink,
         };
 
         if (parent.email) {
@@ -459,7 +465,7 @@ async function checkCyclesNearCompletion(): Promise<void> {
         status: 'active',
         deletedAt: null,
         remainingMeetings: 1,
-        type: 'private', // הודעת "שיעור אחרון" רלוונטית רק למחזורים פרטיים
+        type: { in: ['private', 'group'] }, // B2C cycles get last-lesson instructor reminders.
       },
       include: {
         course: { select: { name: true } },
@@ -583,6 +589,7 @@ const schedules = {
   monthlyInstructorReport:  '0 8 1 * *',    // 08:00 on 1st of every month
   cyclesNearCompletion:     '0 9 * * *',    // 09:00 daily — cycles with 1 meeting left
   meetingCheckReport:       process.env.MEETINGS_CHECK_REPORT_CRON || '0 20 * * *',
+  institutionalAbsenceAlerts: process.env.INSTITUTIONAL_ABSENCE_ALERT_CRON || '*/15 * * * *',
 };
 
 // Scheduled tasks
@@ -626,6 +633,18 @@ export const initEmailScheduler = () => {
   }, { timezone: 'Asia/Jerusalem' });
   scheduledTasks.push(preMeetingTask);
   console.log('   ✓ Pre-meeting WhatsApp reminders: every 15 min');
+
+  if (process.env.INSTITUTIONAL_ABSENCE_ALERTS_ENABLED !== 'false') {
+    const institutionalAbsenceTask = cron.schedule(schedules.institutionalAbsenceAlerts, () => {
+      sendPendingInstitutionalAttendanceAlerts().catch((err: any) =>
+        console.error('[InstitutionalAbsenceAlert] Cron failed:', err)
+      );
+    }, { timezone: 'Asia/Jerusalem' });
+    scheduledTasks.push(institutionalAbsenceTask);
+    console.log(`   ✓ Institutional absence alerts: ${schedules.institutionalAbsenceAlerts} Asia/Jerusalem → WhatsApp`);
+  } else {
+    console.log('   - Institutional absence alerts disabled; set INSTITUTIONAL_ABSENCE_ALERTS_ENABLED=false to keep it disabled');
+  }
 
   // Schedule evening status check (22:00) — WhatsApp poll to instructors
   const eveningStatusTask = cron.schedule('0 22 * * *', () => {
@@ -684,3 +703,4 @@ export const triggerEveningStatusCheck = () => sendEveningStatusCheck();
 export const triggerMonthlyInstructorReport = () => sendMonthlyInstructorReport();
 export const triggerCyclesNearCompletion = () => checkCyclesNearCompletion();
 export const triggerMeetingCheckReport = () => sendTomorrowMeetingCheckReport();
+export const triggerInstitutionalAbsenceAlerts = () => sendPendingInstitutionalAttendanceAlerts();

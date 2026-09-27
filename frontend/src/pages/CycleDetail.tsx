@@ -31,6 +31,7 @@ import {
   CalendarX,
   FileText,
   Download,
+  MessageCircle,
 } from 'lucide-react';
 import MeetingExpenses from '../components/MeetingExpenses';
 import MeetingsExportModal from '../components/MeetingsExportModal';
@@ -53,6 +54,11 @@ import {
   useZoomMeeting,
   useCreateZoomMeeting,
   useDeleteZoomMeeting,
+  useScheduleCycleRecallBots,
+  useScheduleMeetingRecallBot,
+  useMeetingLessonQuiz,
+  useGenerateMeetingLessonQuiz,
+  useSendMeetingLessonQuizToParent,
   useGenerateMeetings,
   useSyncCycleProgress,
   useCreateMeeting,
@@ -72,8 +78,9 @@ import {
   cycleTypeHebrew,
   dayOfWeekHebrew,
   meetingStatusHebrew,
+  studentGenderHebrew,
 } from '../types';
-import type { Meeting, MeetingStatus, MeetingNature, Registration, RegistrationStatus, PaymentStatus, PaymentMethod, ActivityType, Cycle, Course, Branch, Instructor, CycleStatus, CycleType, DayOfWeek, InstructorPaymentMode } from '../types';
+import type { Meeting, MeetingStatus, MeetingNature, Registration, RegistrationStatus, PaymentStatus, PaymentMethod, ActivityType, Cycle, Course, Branch, Instructor, CycleStatus, CycleType, DayOfWeek, InstructorPaymentMode, StudentGender } from '../types';
 import { paymentStatusHebrew, activityTypeHebrew, meetingNatureHebrew } from '../types';
 import { exportCycleMeetingsToExcel } from '../utils/meetingsExcel';
 
@@ -100,6 +107,7 @@ function AddStudentModal({
   const [newCustomerPhone, setNewCustomerPhone] = useState('');
   const [newCustomerEmail, setNewCustomerEmail] = useState('');
   const [newStudentName, setNewStudentName] = useState('');
+  const [newStudentGender, setNewStudentGender] = useState<StudentGender>('unknown');
   const [newStudentGrade, setNewStudentGrade] = useState('');
   const [creating, setCreating] = useState(false);
 
@@ -156,6 +164,7 @@ function AddStudentModal({
       // Create student under customer
       const student = await api.post(`/customers/${customerId}/students`, {
         name: newStudentName,
+        gender: newStudentGender,
         grade: newStudentGrade || undefined,
       });
       // Add to cycle
@@ -166,6 +175,7 @@ function AddStudentModal({
       setNewCustomerPhone('');
       setNewCustomerEmail('');
       setNewStudentName('');
+      setNewStudentGender('unknown');
       setNewStudentGrade('');
     } catch (err: any) {
       alert(err?.response?.data?.message || 'שגיאה ביצירת תלמיד');
@@ -209,7 +219,7 @@ function AddStudentModal({
                   >
                     <p className="font-medium">{student.name}</p>
                     <p className="text-sm text-gray-500">
-                      {student.customer?.name} • {student.grade || 'לא צוין כיתה'}
+                      {student.customer?.name} • {studentGenderHebrew[student.gender ?? 'unknown']} • {student.grade || 'לא צוין כיתה'}
                     </p>
                   </button>
                 ))}
@@ -299,6 +309,18 @@ function AddStudentModal({
                 />
               </div>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">מגדר</label>
+              <select
+                value={newStudentGender}
+                onChange={(e) => setNewStudentGender(e.target.value as StudentGender)}
+                className="w-full p-2 border rounded-lg text-right"
+              >
+                {Object.entries(studentGenderHebrew).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </div>
 
             <div className="mt-4 pt-4 border-t flex justify-between items-center">
               <button
@@ -359,6 +381,11 @@ export default function CycleDetail() {
   const { data: zoomMeeting, isLoading: zoomLoading } = useZoomMeeting(id!);
   const createZoomMeeting = useCreateZoomMeeting();
   const deleteZoomMeeting = useDeleteZoomMeeting();
+  const scheduleCycleRecallBots = useScheduleCycleRecallBots();
+  const scheduleMeetingRecallBot = useScheduleMeetingRecallBot();
+  const { data: lessonQuiz, isLoading: lessonQuizLoading } = useMeetingLessonQuiz(viewingMeeting?.id);
+  const generateLessonQuiz = useGenerateMeetingLessonQuiz();
+  const sendLessonQuizToParent = useSendMeetingLessonQuizToParent();
   const [selectedVideoProvider, setSelectedVideoProvider] = useState<'zoom' | 'google_meet'>('google_meet');
   const generateMeetings = useGenerateMeetings();
   const syncCycleProgress = useSyncCycleProgress();
@@ -403,6 +430,37 @@ export default function CycleDetail() {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
+  const handleGenerateLessonQuiz = async () => {
+    if (!viewingMeeting) return;
+    try {
+      await generateLessonQuiz.mutateAsync(viewingMeeting.id);
+      alert('החידון נוצר בהצלחה');
+    } catch (error: any) {
+      console.error('Failed to generate lesson quiz:', error);
+      alert(error.response?.data?.error || 'שגיאה ביצירת החידון');
+    }
+  };
+
+  const handleSendLessonQuizToParent = async () => {
+    if (!viewingMeeting || !lessonQuiz?.url) return;
+    const message = lessonQuiz.parentMessagePreview;
+    const target = lessonQuiz.parentName || lessonQuiz.parentPhone || 'ההורה';
+    const confirmed = window.confirm(
+      message
+        ? `לשלוח ל${target} ב-WhatsApp את ההודעה הבאה?\n\n${message}`
+        : `לשלוח ל${target} ב-WhatsApp את לינק החידון?`
+    );
+    if (!confirmed) return;
+
+    try {
+      await sendLessonQuizToParent.mutateAsync(viewingMeeting.id);
+      alert('החידון נשלח להורה בהצלחה');
+    } catch (error: any) {
+      console.error('Failed to send lesson quiz to parent:', error);
+      alert(error.response?.data?.error || 'שגיאה בשליחת החידון להורה');
+    }
+  };
+
   const handleCreateZoomMeeting = async () => {
     try {
       await createZoomMeeting.mutateAsync({ cycleId: id!, videoProvider: selectedVideoProvider });
@@ -420,6 +478,40 @@ export default function CycleDetail() {
         console.error('Failed to delete video meeting:', error);
         alert('שגיאה במחיקת פגישת וידאו');
       }
+    }
+  };
+
+  const handleScheduleRecallBots = async () => {
+    if (!cycle) return;
+    const googleMeetCount = (meetings || []).filter((meeting) =>
+      meeting.status === 'scheduled' &&
+      !meeting.recallBotId &&
+      !!meeting.zoomJoinUrl &&
+      meeting.zoomJoinUrl.includes('meet.google.com')
+    ).length;
+
+    if (googleMeetCount === 0) {
+      alert('לא נמצאו פגישות Google Meet עתידיות בלי Recall bot במחזור הזה');
+      return;
+    }
+
+    try {
+      await updateCycle.mutateAsync({ id: cycle.id, data: { recallBotEnabled: true } as any });
+      const result = await scheduleCycleRecallBots.mutateAsync(cycle.id);
+      alert(`Recall הופעל למחזור. נוצרו ${result.scheduled.length} בוטים, דולגו ${result.skipped.length}.`);
+    } catch (error: any) {
+      console.error('Failed to schedule Recall bots:', error);
+      alert(error.response?.data?.error || 'שגיאה בהפעלת Recall למחזור');
+    }
+  };
+
+  const handleDisableCycleRecall = async () => {
+    if (!cycle) return;
+    try {
+      await updateCycle.mutateAsync({ id: cycle.id, data: { recallBotEnabled: false } as any });
+    } catch (error: any) {
+      console.error('Failed to disable Recall:', error);
+      alert(error.response?.data?.error || 'שגיאה בכיבוי Recall למחזור');
     }
   };
 
@@ -451,6 +543,7 @@ export default function CycleDetail() {
     withZoom: boolean;
     videoProvider?: 'zoom' | 'google_meet';
     activityType?: string;
+    recallBotEnabled?: boolean;
     topic?: string;
     notes?: string;
   }) => {
@@ -480,6 +573,9 @@ export default function CycleDetail() {
   const handleUpdateCycle = async (data: Partial<Cycle>) => {
     try {
       await updateCycle.mutateAsync({ id: id!, data });
+      if (data.recallBotEnabled === true) {
+        await scheduleCycleRecallBots.mutateAsync(id!);
+      }
       setShowEditCycleModal(false);
     } catch (error) {
       console.error('Failed to update cycle:', error);
@@ -705,12 +801,15 @@ export default function CycleDetail() {
     return [studentName, customerName, phone].filter(Boolean).join(' | ');
   };
 
-  const handleUpdateMeetingData = async (meetingId: string, data: { status?: MeetingStatus; nature?: MeetingNature; instructorId?: string; registrationId?: string | null; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; activityType?: ActivityType; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => {
+  const handleUpdateMeetingData = async (meetingId: string, data: { status?: MeetingStatus; nature?: MeetingNature; instructorId?: string; registrationId?: string | null; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; activityType?: ActivityType; recallBotEnabled?: boolean; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => {
     try {
       await updateMeeting.mutateAsync({
         id: meetingId,
         data: data as any,
       });
+      if (data.recallBotEnabled === true) {
+        await scheduleMeetingRecallBot.mutateAsync(meetingId);
+      }
       setSelectedMeeting(null);
     } catch (error) {
       console.error('Failed to update meeting:', error);
@@ -891,14 +990,14 @@ export default function CycleDetail() {
                       <span className="font-semibold text-green-600">
                         {cycle.type === 'institutional_fixed' 
                           ? `₪${Number(cycle.meetingRevenue || 0).toLocaleString()}`
-                          : `₪${Number(cycle.pricePerStudent || 0).toLocaleString()} × ${cycle.studentCount || registrations?.length || 0} תלמידים`
+                          : `₪${Number(cycle.pricePerStudent || 0).toLocaleString()} × ${registrations?.length ?? cycle.studentCount ?? 0} תלמידים`
                         }
                       </span>
                     </div>
                   </div>
                 )}
 
-                {(cycle.type === 'private' || cycle.type === 'trial_private') && (
+                {(cycle.type === 'private' || cycle.type === 'trial_private' || cycle.type === 'group') && (
                   <div className="pt-3 mt-3 border-t space-y-1">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-gray-500">מחיר לפגישה:</span>
@@ -1145,6 +1244,60 @@ export default function CycleDetail() {
                       </button>
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {(cycle.activityType === 'online' || cycle.activityType === 'private_lesson' || cycle.type === 'private' || cycle.type === 'trial_private') && (
+              <div className="card" data-testid="recall-section">
+                <div className="card-header flex items-center gap-2">
+                  <FileText size={18} className="text-emerald-600" />
+                  <h2 className="font-semibold">Recall AI</h2>
+                </div>
+                <div className="card-body space-y-3">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!cycle.recallBotEnabled}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          handleScheduleRecallBots();
+                        } else {
+                          handleDisableCycleRecall();
+                        }
+                      }}
+                      disabled={updateCycle.isPending || scheduleCycleRecallBots.isPending}
+                      className="mt-1 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span>
+                      <span className="block text-sm font-medium text-gray-800">
+                        הפעל סיכום AI לשיעורי Google Meet במחזור
+                      </span>
+                      <span className="block text-xs text-gray-500 mt-1">
+                        מיועד רק לקישורי meet.google.com. סימון יזמן בוטים לפגישות עתידיות במחזור שעדיין אין להן בוט.
+                      </span>
+                    </span>
+                  </label>
+                  <div className="grid grid-cols-3 gap-3 text-center text-sm">
+                    <div className="p-3 bg-emerald-50 rounded-lg">
+                      <p className="font-semibold text-emerald-700">
+                        {(meetings || []).filter((meeting) => !!meeting.recallBotId).length}
+                      </p>
+                      <p className="text-xs text-gray-500">בוטים קיימים</p>
+                    </div>
+                    <div className="p-3 bg-blue-50 rounded-lg">
+                      <p className="font-semibold text-blue-700">
+                        {(meetings || []).filter((meeting) => meeting.lessonReportStatus === 'ready').length}
+                      </p>
+                      <p className="text-xs text-gray-500">דוחות מוכנים</p>
+                    </div>
+                    <div className="p-3 bg-gray-50 rounded-lg">
+                      <p className="font-semibold text-gray-700">
+                        {(meetings || []).filter((meeting) => meeting.zoomJoinUrl?.includes('meet.google.com') && !meeting.recallBotId).length}
+                      </p>
+                      <p className="text-xs text-gray-500">Google Meet ללא בוט</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -1590,6 +1743,143 @@ export default function CycleDetail() {
                         <ExternalLink size={14} />
                         צפה בהקלטה
                       </a>
+                    </div>
+                  )}
+
+                  {/* Recall AI Report */}
+                  {(viewingMeeting.recallBotId || viewingMeeting.lessonSummary || viewingMeeting.recallRecordingUrl) && (
+                    <div className="col-span-2 p-4 bg-emerald-50 rounded-lg">
+                      <h4 className="text-sm font-medium text-emerald-800 mb-2 flex items-center gap-2">
+                        <FileText size={16} />
+                        דוח AI מהשיעור
+                      </h4>
+                      <div className="space-y-3 text-sm text-gray-700">
+                        {viewingMeeting.lessonReportStatus && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-600">סטטוס דוח</span>
+                            <span className="font-medium">{viewingMeeting.lessonReportStatus}</span>
+                          </div>
+                        )}
+                        {viewingMeeting.lessonReportGeneratedAt && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-600">נוצר בתאריך</span>
+                            <span className="font-medium">
+                              {new Date(viewingMeeting.lessonReportGeneratedAt).toLocaleString('he-IL')}
+                            </span>
+                          </div>
+                        )}
+                        {viewingMeeting.recallRecordingUrl && (
+                          <a
+                            href={viewingMeeting.recallRecordingUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-secondary text-sm py-1 inline-flex"
+                          >
+                            <ExternalLink size={14} />
+                            צפייה בהקלטת Recall
+                          </a>
+                        )}
+                        {viewingMeeting.lessonSummary && (
+                          <div className="whitespace-pre-wrap leading-relaxed">
+                            {viewingMeeting.lessonSummary}
+                          </div>
+                        )}
+                        {viewingMeeting.lessonReportStatus === 'ready' && (
+                          <div className="border border-emerald-200 bg-white rounded-lg p-3 space-y-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <div className="font-medium text-emerald-900">חידון לתלמיד</div>
+                                <div className="text-xs text-gray-500">
+                                  {lessonQuizLoading
+                                    ? 'טוען...'
+                                    : lessonQuiz
+                                      ? `${lessonQuiz.totalQuestions} שאלות · ${lessonQuiz.status === 'submitted' ? 'הוגש' : 'מוכן'}`
+                                      : 'עדיין לא נוצר'}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={handleGenerateLessonQuiz}
+                                disabled={generateLessonQuiz.isPending}
+                                className="btn btn-secondary text-sm py-1"
+                              >
+                                <RefreshCcw size={14} className={generateLessonQuiz.isPending ? 'animate-spin' : ''} />
+                                {lessonQuiz ? 'צור מחדש' : 'צור חידון'}
+                              </button>
+                            </div>
+                            {lessonQuiz?.url && (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <a
+                                  href={lessonQuiz.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="btn btn-secondary text-sm py-1 inline-flex"
+                                >
+                                  <ExternalLink size={14} />
+                                  פתח חידון
+                                </a>
+                                <button
+                                  type="button"
+                                  onClick={() => copyToClipboard(lessonQuiz.url, 'lessonQuizUrl')}
+                                  className={`btn btn-secondary text-sm py-1 ${copiedField === 'lessonQuizUrl' ? 'bg-green-100 text-green-600' : ''}`}
+                                >
+                                  {copiedField === 'lessonQuizUrl' ? <CheckCircle size={14} /> : <Copy size={14} />}
+                                  {copiedField === 'lessonQuizUrl' ? 'הועתק!' : 'העתק לינק'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleSendLessonQuizToParent}
+                                  disabled={sendLessonQuizToParent.isPending || !lessonQuiz.parentPhone}
+                                  className="btn btn-primary text-sm py-1"
+                                  title={lessonQuiz.parentPhone ? 'שלח חידון להורה בוואטסאפ' : 'אין טלפון הורה לשליחה'}
+                                >
+                                  <MessageCircle size={14} className={sendLessonQuizToParent.isPending ? 'animate-pulse' : ''} />
+                                  {sendLessonQuizToParent.isPending ? 'שולח...' : 'שלח להורה'}
+                                </button>
+                                {lessonQuiz.score !== null && lessonQuiz.score !== undefined && (
+                                  <span className="text-sm text-gray-600">
+                                    ציון: {lessonQuiz.score}/{lessonQuiz.totalQuestions}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {lessonQuiz?.submittedAt && (
+                              <div className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded p-2">
+                                הוגש ב-{new Date(lessonQuiz.submittedAt).toLocaleString('he-IL')}
+                                {lessonQuiz.score !== null && lessonQuiz.score !== undefined
+                                  ? ` · ציון ${lessonQuiz.score}/${lessonQuiz.totalQuestions}`
+                                  : ''}
+                              </div>
+                            )}
+                            {lessonQuiz?.parentSentAt && (
+                              <div className="text-sm text-green-800 bg-green-50 border border-green-200 rounded p-2">
+                                נשלח להורה ב-{new Date(lessonQuiz.parentSentAt).toLocaleString('he-IL')}
+                                {lessonQuiz.parentSentToPhone ? ` · ${lessonQuiz.parentSentToPhone}` : ''}
+                              </div>
+                            )}
+                            {lessonQuiz?.generationError && (
+                              <div className="text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                                {lessonQuiz.generationError}
+                              </div>
+                            )}
+                            {lessonQuiz?.parentSendError && (
+                              <div className="text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                                {lessonQuiz.parentSendError}
+                              </div>
+                            )}
+                            {lessonQuiz?.emailError && (
+                              <div className="text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                                {lessonQuiz.emailError}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {viewingMeeting.lessonReportError && (
+                          <div className="text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                            {viewingMeeting.lessonReportError}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                   
@@ -2374,7 +2664,7 @@ interface MeetingUpdateFormProps {
   registrations: Registration[];
   defaultInstructorId?: string;
   defaultActivityType?: ActivityType;
-  onUpdate: (data: { status?: MeetingStatus; nature?: MeetingNature; instructorId?: string; registrationId?: string | null; activityType?: ActivityType; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => void;
+  onUpdate: (data: { status?: MeetingStatus; nature?: MeetingNature; instructorId?: string; registrationId?: string | null; activityType?: ActivityType; topic?: string; notes?: string; scheduledDate?: string; startTime?: string; endTime?: string; recallBotEnabled?: boolean; zoomJoinUrl?: string | null; zoomMeetingId?: string | null; zoomHostKey?: string | null }) => void;
   onCancel: () => void;
   isLoading?: boolean;
   isAdmin?: boolean;
@@ -2406,6 +2696,7 @@ function MeetingUpdateForm({ meeting, instructors, cycleType, registrations, def
   const [activityType, setActivityType] = useState<ActivityType>(meeting.activityType || defaultActivityType || 'frontal');
   const [topic, setTopic] = useState(meeting.topic || '');
   const [notes, setNotes] = useState(meeting.notes || '');
+  const [recallBotEnabled, setRecallBotEnabled] = useState(!!meeting.recallBotEnabled);
   const [scheduledDate, setScheduledDate] = useState(formatDateForInput(meeting.scheduledDate));
   const [startTime, setStartTime] = useState(formatTimeForInput(meeting.startTime));
   const [endTime, setEndTime] = useState(formatTimeForInput(meeting.endTime));
@@ -2443,6 +2734,7 @@ function MeetingUpdateForm({ meeting, instructors, cycleType, registrations, def
       activityType: activityType !== (meeting.activityType || defaultActivityType) ? activityType : undefined,
       topic: topic || undefined,
       notes: notes || undefined,
+      recallBotEnabled: recallBotEnabled !== !!meeting.recallBotEnabled ? recallBotEnabled : undefined,
       scheduledDate: scheduledDate !== originalDate ? scheduledDate : undefined,
       startTime: startTime !== originalStart ? startTime : undefined,
       endTime: endTime !== originalEnd ? endTime : undefined,
@@ -2638,6 +2930,24 @@ function MeetingUpdateForm({ meeting, instructors, cycleType, registrations, def
           placeholder="הערות נוספות..."
         />
       </div>
+
+      <label className="flex items-start gap-3 cursor-pointer rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+        <input
+          type="checkbox"
+          checked={recallBotEnabled}
+          onChange={(e) => setRecallBotEnabled(e.target.checked)}
+          disabled={!!meeting.recallBotId}
+          className="mt-1 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 disabled:opacity-50"
+        />
+        <span>
+          <span className="block text-sm font-medium text-emerald-900">
+            הפעל Recall bot לפגישה
+          </span>
+          <span className="block text-xs text-emerald-800 mt-1">
+            מיועד רק לפגישת Google Meet. אם כבר הוזמן בוט, לא ניתן לכבות אותו מהטופס.
+          </span>
+        </span>
+      </label>
 
       {/* Zoom Fields - Admin only */}
       {isAdmin && (
@@ -2922,6 +3232,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
     minimumStudentsThreshold: cycle.minimumStudentsThreshold || 0,
     activityType: cycle.activityType || 'frontal',
     location: cycle.location || '',
+    recallBotEnabled: !!cycle.recallBotEnabled,
   });
 
   const [regenerateMeetings, setRegenerateMeetings] = useState(false);
@@ -3005,6 +3316,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
       minimumStudentsThreshold: Number(formData.minimumStudentsThreshold) > 0 ? Number(formData.minimumStudentsThreshold) : null,
       activityType: formData.activityType as ActivityType,
       location: formData.location.trim() || null,
+      recallBotEnabled: formData.recallBotEnabled,
       institutionalOrderId: formData.institutionalOrderId || null,
       regenerateMeetings: shouldRegenerate,
     } as any);
@@ -3091,6 +3403,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
             className="form-input"
           >
             <option value="private">פרטי</option>
+            <option value="group">קבוצתי</option>
             <option value="institutional_per_child">מוסדי (לפי ילד)</option>
             <option value="institutional_fixed">מוסדי (סכום קבוע)</option>
           </select>
@@ -3248,7 +3561,7 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
           />
         </div>
 
-        {(formData.type === 'private' || formData.type === 'trial_private') && (
+        {(formData.type === 'private' || formData.type === 'trial_private' || formData.type === 'group') && (
           <div>
             <label className="form-label">מחיר לפגישה לפני מע״מ (₪)</label>
             <input
@@ -3343,6 +3656,27 @@ function CycleQuickEditForm({ cycle, courses, branches, instructors, onSubmit, o
             />
           </div>
         )}
+
+        {(formData.activityType === 'online' || formData.activityType === 'private_lesson') && (
+          <div className="col-span-2">
+            <label className="flex items-start gap-3 cursor-pointer rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+              <input
+                type="checkbox"
+                checked={formData.recallBotEnabled}
+                onChange={(e) => setFormData({ ...formData, recallBotEnabled: e.target.checked })}
+                className="mt-1 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span>
+                <span className="block text-sm font-medium text-emerald-900">
+                  הפעל Recall bot למחזור
+                </span>
+                <span className="block text-xs text-emerald-800 mt-1">
+                  מיועד רק לפגישות Google Meet. סימון במחזור מסמן גם פגישות עתידיות בלי בוט.
+                </span>
+              </span>
+            </label>
+          </div>
+        )}
       </div>
 
       <div className="flex justify-end gap-3 pt-4 border-t">
@@ -3371,6 +3705,7 @@ interface CreateMeetingFormProps {
     withZoom: boolean;
     videoProvider?: 'zoom' | 'google_meet';
     activityType?: string;
+    recallBotEnabled?: boolean;
     topic?: string;
     notes?: string;
   }) => void;
@@ -3388,6 +3723,7 @@ function CreateMeetingForm({ cycle, instructors, registrations, onSubmit, onCanc
     withZoom: cycle.activityType === 'online',
     videoProvider: 'google_meet' as 'zoom' | 'google_meet',
     activityType: (cycle.activityType || 'frontal') as string,
+    recallBotEnabled: !!cycle.recallBotEnabled,
     topic: '',
     notes: '',
   });
@@ -3517,6 +3853,27 @@ function CreateMeetingForm({ cycle, instructors, registrations, onSubmit, onCanc
               <option value="google_meet">Google Meet</option>
               <option value="zoom">Zoom</option>
             </select>
+          </div>
+        )}
+
+        {formData.withZoom && formData.videoProvider === 'google_meet' && (
+          <div className="col-span-2">
+            <label className="flex items-start gap-3 cursor-pointer rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+              <input
+                type="checkbox"
+                checked={formData.recallBotEnabled}
+                onChange={(e) => setFormData({ ...formData, recallBotEnabled: e.target.checked })}
+                className="mt-1 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span>
+                <span className="block text-sm font-medium text-emerald-900">
+                  הפעל Recall bot לפגישה
+                </span>
+                <span className="block text-xs text-emerald-800 mt-1">
+                  רלוונטי רק אם לפגישה יהיה קישור Google Meet.
+                </span>
+              </span>
+            </label>
           </div>
         )}
 

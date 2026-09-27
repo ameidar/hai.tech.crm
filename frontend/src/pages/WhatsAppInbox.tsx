@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp, ChevronRight, Search, PenSquare, Plus, CheckCircle, AlertCircle, CreditCard, Settings, Save } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp, ChevronRight, Search, PenSquare, Plus, CheckCircle, AlertCircle, CreditCard, Settings, Save, ExternalLink } from 'lucide-react';
 import WaSendModal from '../components/WaSendModal';
 import WooPayModal from '../components/WooPayModal';
 import { useAuth } from '../context/AuthContext';
@@ -69,6 +69,13 @@ interface WaConversation {
   aiEnabled: boolean;
   businessPhone?: string;
   phoneNumberId?: string;
+  conversationType?: 'customer' | 'instructor';
+  crmProfile?: {
+    profileType: 'customer' | 'instructor';
+    profileId: string;
+    profileName: string;
+    profileUrl: string;
+  } | null;
   createdAt: string;
 }
 
@@ -138,6 +145,14 @@ function getConversationDisplayName(conv: WaConversation) {
   return formatPhone(conv.phone);
 }
 
+function normalizeSearch(value?: string | null) {
+  return (value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function normalizeDigits(value?: string | null) {
+  return (value || '').replace(/\D/g, '');
+}
+
 // ─── Message status icon ──────────────────────────────────────────────────────
 function StatusIcon({ status }: { status: string }) {
   if (status === 'read') return <CheckCheck size={14} className="text-blue-400" />;
@@ -156,6 +171,8 @@ export default function WhatsAppInbox() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'operations' || user?.role === 'operations_manager';
   const [conversations, setConversations] = useState<WaConversation[]>([]);
+  const [conversationSearch, setConversationSearch] = useState('');
+  const [conversationTypeFilter, setConversationTypeFilter] = useState<'customer' | 'instructor'>('customer');
   const [selected, setSelected] = useState<WaConversation | null>(null);
   const [messages, setMessages] = useState<WaMessage[]>([]);
   const [channelFilter, setChannelFilter] = useState<'all' | 'meta' | 'green'>('all');
@@ -706,6 +723,42 @@ export default function WhatsAppInbox() {
   };
 
   const totalUnread = conversations.reduce((s, c) => s + c.unreadCount, 0);
+  const conversationTypeCounts = useMemo(() => {
+    return conversations.reduce((counts, conv) => {
+      const type = conv.conversationType === 'instructor' ? 'instructor' : 'customer';
+      counts[type] += 1;
+      return counts;
+    }, { customer: 0, instructor: 0 });
+  }, [conversations]);
+
+  const filteredConversations = useMemo(() => {
+    const query = normalizeSearch(conversationSearch);
+    const digits = normalizeDigits(conversationSearch);
+    const typeFiltered = conversations.filter(conv => {
+      const type = conv.conversationType === 'instructor' ? 'instructor' : 'customer';
+      return type === conversationTypeFilter;
+    });
+    if (!query && !digits) return typeFiltered;
+
+    return typeFiltered.filter(conv => {
+      const textFields = [
+        getConversationDisplayName(conv),
+        conv.contactName,
+        conv.leadName,
+        conv.leadEmail,
+        conv.childName,
+        conv.summary,
+        conv.lastMessagePreview,
+      ].map(normalizeSearch);
+      const digitFields = [
+        conv.phone,
+        formatPhone(conv.phone),
+      ].map(normalizeDigits);
+
+      return textFields.some(field => field.includes(query)) ||
+        Boolean(digits && digitFields.some(field => field.includes(digits)));
+    });
+  }, [conversations, conversationSearch, conversationTypeFilter]);
   const metaMessages = useMemo(() => messages.filter(m => !isGreenMessage(m.waMessageId)), [messages]);
   const greenMessages = useMemo(() => messages.filter(m => isGreenMessage(m.waMessageId)), [messages]);
   const visibleMessages = channelFilter === 'green'
@@ -1355,6 +1408,42 @@ export default function WhatsAppInbox() {
             </button>
           </div>
         </div>
+        <div className="p-3 border-b border-gray-100">
+          <div className="relative">
+            <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="search"
+              value={conversationSearch}
+              onChange={e => setConversationSearch(e.target.value)}
+              placeholder="חיפוש לפי שם או טלפון..."
+              className="w-full border border-gray-200 rounded-xl pr-9 pl-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-1 mt-2 bg-gray-100 rounded-lg p-1">
+            <button
+              type="button"
+              onClick={() => setConversationTypeFilter('customer')}
+              className={`px-2 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                conversationTypeFilter === 'customer'
+                  ? 'bg-white text-green-700 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              לקוחות ({conversationTypeCounts.customer})
+            </button>
+            <button
+              type="button"
+              onClick={() => setConversationTypeFilter('instructor')}
+              className={`px-2 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                conversationTypeFilter === 'instructor'
+                  ? 'bg-white text-green-700 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              מדריכים/תזכורות ({conversationTypeCounts.instructor})
+            </button>
+          </div>
+        </div>
 
         {/* List */}
         <div className="flex-1 overflow-y-auto">
@@ -1365,8 +1454,13 @@ export default function WhatsAppInbox() {
               <MessageCircle size={32} />
               <p className="text-sm">אין שיחות עדיין</p>
             </div>
+          ) : filteredConversations.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 text-gray-400 gap-2 px-4 text-center">
+              <Search size={28} />
+              <p className="text-sm">לא נמצאו שיחות לפי החיפוש</p>
+            </div>
           ) : (
-            conversations.map(conv => (
+            filteredConversations.map(conv => (
               <button
                 key={conv.id}
                 onClick={() => selectConversation(conv)}
@@ -1384,11 +1478,9 @@ export default function WhatsAppInbox() {
                         <Bot size={12} className="text-purple-400 flex-shrink-0" />
                       )}
                     </div>
-                    {conv.businessPhone && (
-                      <p className="text-xs text-green-600 font-mono mt-0.5">
-                        → {formatPhone(conv.businessPhone.replace('+', ''))}
-                      </p>
-                    )}
+                    <p className="text-xs text-gray-400 font-mono mt-0.5" dir="ltr">
+                      {formatPhone(conv.phone)}
+                    </p>
                     <p className="text-xs text-gray-500 truncate mt-0.5">
                       {conv.lastMessagePreview || 'שיחה חדשה'}
                     </p>
@@ -1437,6 +1529,18 @@ export default function WhatsAppInbox() {
                   )}
                 </p>
               </div>
+              {selected.crmProfile && (
+                <Link
+                  to={selected.crmProfile.profileUrl}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full text-xs font-medium transition-colors flex-shrink-0"
+                  title={selected.crmProfile.profileName}
+                >
+                  <ExternalLink size={13} />
+                  <span className="hidden sm:inline">
+                    {selected.crmProfile.profileType === 'customer' ? 'פתח לקוח' : 'פתח מדריך'}
+                  </span>
+                </Link>
+              )}
             </div>
             <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
               {/* AI toggle */}

@@ -13,20 +13,27 @@ import {
   formatWhatsAppReminder,
   getDailyMeetingsForInstructors 
 } from '../services/instructor-reminder.service.js';
-import { authenticate, adminOnly } from '../middleware/auth.js';
+import { authenticate, operationsManagerOrAdmin } from '../middleware/auth.js';
 import { sendWhatsAppMessage } from '../services/notifications.js';
 import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
 import { meetingRevenueForMeeting } from '../utils/revenue.js';
-import { syncCycleProgress } from '../utils/cycle-sync.js';
+import { shouldAutoCompleteCycle, syncCycleProgress } from '../utils/cycle-sync.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
 import { checkAndSendMeetingReportQualityAlert } from '../services/meeting-report-quality-alert.js';
+import { handleInstitutionalAbsenceAlert } from '../services/institutional-absence-alerts.js';
 
 // WhatsApp group for pending meeting requests (postponements, cancellations)
 const ADMIN_PHONE = '120363353459332838@g.us';
 
 const router = Router();
+
+function queueInstitutionalAbsenceAlert(attendanceId: string): void {
+  handleInstitutionalAbsenceAlert(attendanceId).catch((error) => {
+    console.error(`[InstitutionalAbsenceAlert] failed after instructor magic save ${attendanceId}:`, error);
+  });
+}
 
 /**
  * GET /api/instructor-magic/verify/:meetingId/:token
@@ -251,7 +258,7 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
       for (const record of attendance) {
         if (!record.registrationId || !record.status) continue;
         
-        await prisma.attendance.upsert({
+        const savedAttendance = await prisma.attendance.upsert({
           where: {
             meetingId_registrationId: {
               meetingId,
@@ -269,6 +276,7 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
             status: record.status,
           }
         });
+        queueInstitutionalAbsenceAlert(savedAttendance.id);
       }
     }
 
@@ -310,7 +318,12 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
           // Sync counters from actual meetings. If this instructor report completed the
           // last required meeting, trigger the same cycle-completion flow as admin updates.
           const { remainingMeetings } = await syncCycleProgress(meeting.cycleId);
-          if (meeting.status !== 'completed' && remainingMeetings <= 0 && !['completed', 'cancelled'].includes(cycleData.status)) {
+          if (
+            meeting.status !== 'completed' &&
+            remainingMeetings <= 0 &&
+            !['completed', 'cancelled'].includes(cycleData.status) &&
+            await shouldAutoCompleteCycle(meeting.cycleId)
+          ) {
             await handleCycleCompletion(meeting.cycleId);
           }
         }
@@ -380,9 +393,9 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
 
 /**
  * GET /api/instructor-magic/pending-requests
- * Get all meetings pending cancellation or postponement approval (admin only)
+ * Get all meetings pending cancellation or postponement approval.
  */
-router.get('/pending-requests', authenticate, adminOnly, async (_req: Request, res: Response) => {
+router.get('/pending-requests', authenticate, operationsManagerOrAdmin, async (_req: Request, res: Response) => {
   try {
     const pending = await prisma.meeting.findMany({
       where: {
@@ -410,9 +423,9 @@ router.get('/pending-requests', authenticate, adminOnly, async (_req: Request, r
 
 /**
  * POST /api/instructor-magic/approve-request/:meetingId
- * Approve a pending cancellation/postponement request (admin only)
+ * Approve a pending cancellation/postponement request.
  */
-router.post('/approve-request/:meetingId', authenticate, adminOnly, async (req: Request, res: Response) => {
+router.post('/approve-request/:meetingId', authenticate, operationsManagerOrAdmin, async (req: Request, res: Response) => {
   try {
     const { meetingId } = req.params;
     const { action, adminNotes } = req.body; // action: 'approve' | 'reject'
@@ -483,9 +496,9 @@ router.post('/approve-request/:meetingId', authenticate, adminOnly, async (req: 
 
 /**
  * GET /api/instructor-magic/preview-reminders
- * Preview today's reminders (admin only, for testing)
+ * Preview today's reminders.
  */
-router.get('/preview-reminders', authenticate, adminOnly, async (_req: Request, res: Response) => {
+router.get('/preview-reminders', authenticate, operationsManagerOrAdmin, async (_req: Request, res: Response) => {
   try {
     const preview = await previewDailyReminders();
     
@@ -510,9 +523,9 @@ router.get('/preview-reminders', authenticate, adminOnly, async (_req: Request, 
 
 /**
  * POST /api/instructor-magic/send-test/:instructorId
- * Send test reminder to a specific instructor (admin only)
+ * Send test reminder to a specific instructor.
  */
-router.post('/send-test/:instructorId', authenticate, adminOnly, async (req: Request, res: Response) => {
+router.post('/send-test/:instructorId', authenticate, operationsManagerOrAdmin, async (req: Request, res: Response) => {
   try {
     const { instructorId } = req.params;
     const summaries = await getDailyMeetingsForInstructors();

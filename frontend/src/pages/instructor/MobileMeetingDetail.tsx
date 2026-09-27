@@ -119,7 +119,7 @@ export default function MobileMeetingDetail() {
         meetingId: id,
         data: {
           registrationId: record.registrationId || undefined,
-          studentId: record.studentId || undefined,
+          studentId: record.registrationId ? undefined : record.studentId || undefined,
           status: newStatus,
           isTrial: record.isTrial,
         },

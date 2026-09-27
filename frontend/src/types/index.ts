@@ -2,7 +2,7 @@
 export type CourseCategory = 'programming' | 'ai' | 'robotics' | 'printing_3d';
 export type BranchType = 'school' | 'community_center' | 'frontal' | 'online';
 export type OrderStatus = 'draft' | 'active' | 'completed' | 'cancelled';
-export type CycleType = 'private' | 'trial_private' | 'institutional_per_child' | 'institutional_fixed';
+export type CycleType = 'private' | 'trial_private' | 'group' | 'institutional_per_child' | 'institutional_fixed';
 export type CycleStatus = 'active' | 'completed' | 'cancelled' | 'frozen' | 'retainer';
 export type DayOfWeek = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday';
 export type MeetingStatus = 'scheduled' | 'completed' | 'cancelled' | 'postponed' | 'pending_cancellation' | 'pending_postponement';
@@ -16,6 +16,14 @@ export type ActivityType = 'online' | 'frontal' | 'private_lesson';
 export type TaskStatus = 'new' | 'in_progress' | 'waiting_info' | 'completed';
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type VideoMeetingProvider = 'zoom' | 'google_meet';
+export type StudentGender = 'unknown' | 'female' | 'male' | 'other';
+
+export const studentGenderHebrew: Record<StudentGender, string> = {
+  unknown: 'לא צוין',
+  female: 'בת',
+  male: 'בן',
+  other: 'אחר',
+};
 
 // Entities
 export interface User {
@@ -56,6 +64,10 @@ export interface Task {
   assigneeId?: string | null;
   completedAt?: string | null;
   completedById?: string | null;
+  completionSummary?: string | null;
+  completionDetails?: string | null;
+  completionLink?: string | null;
+  requiresCompletionLink: boolean;
   createdAt: string;
   updatedAt: string;
   createdBy?: TaskUser;
@@ -118,6 +130,7 @@ export interface Student {
   customerId: string;
   name: string;
   birthDate?: string;
+  gender?: StudentGender;
   grade?: string;
   notes?: string;
   customer?: Customer;
@@ -288,6 +301,7 @@ export interface Cycle {
   maxStudents?: number;
   minimumStudentsThreshold?: number | null;
   sendParentReminders: boolean;
+  recallBotEnabled?: boolean;
   isOnline: boolean;
   activityType: ActivityType;
   location?: string | null;
@@ -313,8 +327,8 @@ export interface Cycle {
   meetings?: Meeting[];
   registrations?: Registration[];
   _count?: {
-    meetings: number;
-    registrations: number;
+    meetings?: number;
+    registrations?: number;
   };
 }
 
@@ -357,6 +371,17 @@ export interface Meeting {
   zoomRecordingUrl?: string;
   zoomRecordingPassword?: string;
   lessonTranscript?: string;
+  recallBotEnabled?: boolean;
+  recallBotId?: string | null;
+  recallBotStatus?: string | null;
+  recallRecordingId?: string | null;
+  recallRecordingUrl?: string | null;
+  recallTranscriptUrl?: string | null;
+  lessonSummary?: string | null;
+  lessonReportStatus?: string | null;
+  lessonReportGeneratedAt?: string | null;
+  lessonReportError?: string | null;
+  lessonQuiz?: LessonQuiz | null;
   rescheduledToId?: string;
   createdAt: string;
   cycle?: Cycle;
@@ -366,6 +391,40 @@ export interface Meeting {
   _count?: {
     attendance: number;
   };
+}
+
+export interface LessonQuizQuestion {
+  id: string;
+  question: string;
+  options: string[];
+  correctIndex?: number;
+  explanation?: string;
+}
+
+export interface LessonQuiz {
+  id: string;
+  meetingId: string;
+  token: string;
+  url: string;
+  status: string;
+  questions: LessonQuizQuestion[];
+  score?: number | null;
+  totalQuestions: number;
+  submittedAt?: string | null;
+  instructorEmailSnapshot?: string | null;
+  studentNameSnapshot?: string | null;
+  emailSentAt?: string | null;
+  emailError?: string | null;
+  parentSentAt?: string | null;
+  parentSentToPhone?: string | null;
+  parentMessageId?: string | null;
+  parentSendError?: string | null;
+  parentName?: string | null;
+  parentPhone?: string | null;
+  parentMessagePreview?: string | null;
+  generationError?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Registration {
@@ -464,6 +523,7 @@ export const cycleStatusHebrew: Record<CycleStatus, string> = {
 export const cycleTypeHebrew: Record<CycleType, string> = {
   private: 'פרטי',
   trial_private: 'שיעור ניסיון פרטי',
+  group: 'קבוצתי',
   institutional_per_child: 'מוסדי (פר ילד)',
   institutional_fixed: 'מוסדי (סכום קבוע)',
 };

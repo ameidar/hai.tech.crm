@@ -2,7 +2,7 @@
  * Revenue helpers — central place to compute meeting revenue from a cycle's
  * registrations, applying the right VAT treatment.
  *
- * B2C cycles (`private` / `trial_private`) are billed gross (the price the
+ * B2C cycles (`private` / `trial_private` / `group`) are billed gross (the price the
  * parent pays includes 18% VAT). Our actual revenue is the net amount, so
  * we strip VAT before dividing by totalMeetings. Institutional cycles are
  * already net.
@@ -18,7 +18,7 @@ export function roundMoney(amount: number): number {
   return Math.round((Number(amount) + Number.EPSILON) * 100) / 100;
 }
 
-const PRIVATE_TYPES = new Set(['private', 'trial_private']);
+const PRIVATE_TYPES = new Set(['private', 'trial_private', 'group']);
 const REVENUE_REGISTRATION_STATUSES = new Set(['registered', 'active', 'completed']);
 
 export function isVatInclusive(cycleType: string | null | undefined): boolean {
@@ -93,6 +93,7 @@ export function meetingRevenueFromRegistrations(
 
 export function meetingRevenueForCycle(cycle: CycleRevenueLike): number {
   const type = String(cycle.type || '');
+  const hasRegistrationList = Array.isArray(cycle.registrations);
   const registrations = revenueRegistrations(cycle.registrations ?? []);
 
   if (type === 'institutional_fixed') {
@@ -101,7 +102,9 @@ export function meetingRevenueForCycle(cycle: CycleRevenueLike): number {
 
   if (type === 'institutional_per_child') {
     const pricePerStudent = Number(cycle.pricePerStudent || 0);
-    const studentCount = cycle.studentCount || registrations.length;
+    const studentCount = hasRegistrationList
+      ? registrations.length
+      : Number(cycle.studentCount || 0);
     return roundMoney(pricePerStudent * studentCount);
   }
 

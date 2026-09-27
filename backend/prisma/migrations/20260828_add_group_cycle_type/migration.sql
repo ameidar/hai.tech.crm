@@ -1,0 +1,1 @@
+ALTER TYPE "CycleType" ADD VALUE IF NOT EXISTS 'group';

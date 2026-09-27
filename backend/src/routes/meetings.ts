@@ -8,7 +8,7 @@ import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { zoomService, getIsraelOffset } from '../services/zoom.js';
 import { googleMeetService } from '../services/google-meet.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
-import { syncCycleProgress, syncCycleEndDate } from '../utils/cycle-sync.js';
+import { shouldAutoCompleteCycle, syncCycleProgress, syncCycleEndDate } from '../utils/cycle-sync.js';
 import { meetingRevenueFromRegistrations, revenueRegistrationCount, roundMoney } from '../utils/revenue.js';
 import { assertCyclePeriodNotLocked, assertMeetingNotInIssuedPeriod } from '../services/billing-lock.js';
 import {
@@ -136,6 +136,7 @@ meetingsRouter.get('/', async (req, res, next) => {
     }
 
     const where = {
+      deletedAt: null,
       ...(date && { scheduledDate: new Date(date) }),
       ...(from && to && {
         scheduledDate: {
@@ -164,6 +165,7 @@ meetingsRouter.get('/', async (req, res, next) => {
             include: {
               course: { select: { id: true, name: true } },
               branch: { select: { id: true, name: true } },
+              _count: { select: { registrations: true } },
             },
           },
           instructor: { select: { id: true, name: true, phone: true } },
@@ -294,7 +296,19 @@ meetingsRouter.get('/:id', async (req, res, next) => {
 // Create exceptional/ad-hoc meeting for a cycle
 meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
   try {
-    const { cycleId, instructorId, registrationId, scheduledDate, startTime, endTime, withZoom, activityType, topic, notes } = req.body;
+    const {
+      cycleId,
+      instructorId,
+      registrationId,
+      scheduledDate,
+      startTime,
+      endTime,
+      withZoom,
+      activityType,
+      topic,
+      notes,
+      recallBotEnabled,
+    } = req.body;
     const videoProvider = req.body.videoProvider === 'google_meet' ? 'google_meet' : 'zoom';
 
     if (!cycleId || !instructorId || !scheduledDate || !startTime || !endTime) {
@@ -347,9 +361,9 @@ meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
     if (cycle.type === 'institutional_fixed' && cycle.meetingRevenue) {
       revenue = Number(cycle.meetingRevenue);
     } else if (cycle.type === 'institutional_per_child' && cycle.pricePerStudent) {
-      const studentCount = cycle.studentCount || cycle.registrations.length;
+      const studentCount = revenueRegistrationCount(cycle.registrations);
       revenue = Number(cycle.pricePerStudent) * studentCount;
-    } else if (['private', 'trial_private'].includes(String(cycle.type))) {
+    } else if (['private', 'trial_private', 'group'].includes(String(cycle.type))) {
       if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
         revenue = Number(cycle.meetingRevenue);
       } else {
@@ -379,6 +393,7 @@ meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
         activityType: activityType || cycle.activityType || 'frontal',
         topic,
         notes,
+        recallBotEnabled: recallBotEnabled ?? cycle.recallBotEnabled ?? false,
         revenue,
         instructorPayment,
         profit,
@@ -620,16 +635,16 @@ meetingsRouter.put('/:id', async (req, res, next) => {
           const registrationCount = revenueRegistrationCount(cycleData.registrations);
 
           if (existingMeeting.nature !== 'no_revenue') {
-            if (['private', 'trial_private'].includes(String(cycleData.type))) {
+            if (['private', 'trial_private', 'group'].includes(String(cycleData.type))) {
               if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
                 revenue = Number(cycleData.meetingRevenue);
               } else {
                 revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
               }
             } else if (cycleData.type === 'institutional_per_child') {
-              // Price per student × number of students (use studentCount if set, otherwise count registrations)
+              // Price per student × live revenue-bearing registrations.
               const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-              const studentCount = cycleData.studentCount || registrationCount;
+              const studentCount = registrationCount;
               revenue = roundMoney(pricePerStudent * studentCount);
             } else if (cycleData.type === 'institutional_fixed') {
               // Fixed meeting revenue
@@ -727,7 +742,7 @@ meetingsRouter.put('/:id', async (req, res, next) => {
       console.log(`[CycleSync] cycleId=${existingMeeting.cycleId} remaining=${remainingMeetings}`);
 
       // Trigger cycle completion if all meetings done
-      if (statusChangedToCompleted && remainingMeetings <= 0) {
+      if (statusChangedToCompleted && remainingMeetings <= 0 && await shouldAutoCompleteCycle(existingMeeting.cycleId)) {
         handleCycleCompletion(existingMeeting.cycleId).catch(err =>
           console.error('Cycle completion error:', err)
         );
@@ -1118,7 +1133,7 @@ meetingsRouter.post('/:id/recalculate', operationsManagerOrAdmin, async (req, re
     const registrationCount = revenueRegistrationCount(cycleData.registrations);
 
     if (meeting.nature !== 'no_revenue') {
-      if (['private', 'trial_private'].includes(String(cycleData.type))) {
+      if (['private', 'trial_private', 'group'].includes(String(cycleData.type))) {
         if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
           revenue = Number(cycleData.meetingRevenue);
         } else {
@@ -1126,7 +1141,7 @@ meetingsRouter.post('/:id/recalculate', operationsManagerOrAdmin, async (req, re
         }
       } else if (cycleData.type === 'institutional_per_child') {
         const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-        const studentCount = cycleData.studentCount || registrationCount;
+        const studentCount = registrationCount;
         revenue = roundMoney(pricePerStudent * studentCount);
       } else if (cycleData.type === 'institutional_fixed') {
         revenue = Number(cycleData.meetingRevenue || 0);
@@ -1220,7 +1235,7 @@ meetingsRouter.post('/bulk-recalculate', operationsManagerOrAdmin, async (req, r
       const registrationCount = revenueRegistrationCount(cycleData.registrations);
 
       if (meeting.nature !== 'no_revenue') {
-        if (['private', 'trial_private'].includes(String(cycleData.type))) {
+        if (['private', 'trial_private', 'group'].includes(String(cycleData.type))) {
           if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
             revenue = Number(cycleData.meetingRevenue);
           } else {
@@ -1228,7 +1243,7 @@ meetingsRouter.post('/bulk-recalculate', operationsManagerOrAdmin, async (req, r
           }
         } else if (cycleData.type === 'institutional_per_child') {
           const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-          const studentCount = cycleData.studentCount || registrationCount;
+          const studentCount = registrationCount;
           revenue = roundMoney(pricePerStudent * studentCount);
         } else if (cycleData.type === 'institutional_fixed') {
           revenue = Number(cycleData.meetingRevenue || 0);
@@ -1308,7 +1323,7 @@ meetingsRouter.post('/bulk-update-status', operationsManagerOrAdmin, async (req,
             let revenue = 0;
             const registrationCount = revenueRegistrationCount(cycleData.registrations);
             
-            if (['private', 'trial_private'].includes(String(cycleData.type))) {
+            if (['private', 'trial_private', 'group'].includes(String(cycleData.type))) {
               if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
                 revenue = Number(cycleData.meetingRevenue);
               } else {
@@ -1316,7 +1331,7 @@ meetingsRouter.post('/bulk-update-status', operationsManagerOrAdmin, async (req,
               }
             } else if (cycleData.type === 'institutional_per_child') {
               const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-              const studentCount = cycleData.studentCount || registrationCount;
+              const studentCount = registrationCount;
               revenue = roundMoney(pricePerStudent * studentCount);
             } else if (cycleData.type === 'institutional_fixed') {
               revenue = Number(cycleData.meetingRevenue || 0);
@@ -1349,7 +1364,7 @@ meetingsRouter.post('/bulk-update-status', operationsManagerOrAdmin, async (req,
             });
 
             // Trigger cycle completion if no remaining meetings
-            if (newRemaining <= 0) {
+            if (newRemaining <= 0 && await shouldAutoCompleteCycle(existingMeeting.cycleId)) {
               handleCycleCompletion(existingMeeting.cycleId).catch(err =>
                 console.error('Cycle completion error:', err)
               );
@@ -1527,14 +1542,14 @@ meetingsRouter.post('/bulk-update', operationsManagerOrAdmin, async (req, res, n
             let revenue = 0;
             const registrationCount = revenueRegistrationCount(cycleData.registrations);
 
-            if (['private', 'trial_private'].includes(String(cycleData.type))) {
+            if (['private', 'trial_private', 'group'].includes(String(cycleData.type))) {
               if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
                 revenue = Number(cycleData.meetingRevenue);
               } else {
                 revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
               }
             } else if (cycleData.type === 'institutional_per_child') {
-              revenue = roundMoney(Number(cycleData.pricePerStudent || 0) * (cycleData.studentCount || registrationCount));
+              revenue = roundMoney(Number(cycleData.pricePerStudent || 0) * registrationCount);
             } else if (cycleData.type === 'institutional_fixed') {
               revenue = Number(cycleData.meetingRevenue || 0);
             }

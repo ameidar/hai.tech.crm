@@ -8,8 +8,8 @@ import EmptyState from '../components/ui/EmptyState';
 import Modal from '../components/ui/Modal';
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal';
 import ViewSelector from '../components/ViewSelector';
-import type { Student, Cycle, Registration, PaymentStatus, PaymentMethod, Customer, RegistrationStatus } from '../types';
-import { paymentStatusHebrew } from '../types';
+import type { Student, Cycle, Registration, PaymentStatus, PaymentMethod, Customer, RegistrationStatus, StudentGender } from '../types';
+import { paymentStatusHebrew, studentGenderHebrew } from '../types';
 
 export default function Students() {
   const [search, setSearch] = useState('');
@@ -40,7 +40,8 @@ export default function Students() {
   const filteredStudents = (() => {
     let list = students?.filter((student) =>
       student.name.toLowerCase().includes(search.toLowerCase()) ||
-      student.customer?.name.toLowerCase().includes(search.toLowerCase())
+      student.customer?.name.toLowerCase().includes(search.toLowerCase()) ||
+      studentGenderHebrew[student.gender ?? 'unknown'].includes(search)
     ) || [];
     if (sortConfig) {
       list = [...list].sort((a, b) => {
@@ -53,6 +54,10 @@ export default function Students() {
             return sortConfig.direction === 'asc'
               ? String(a.grade ?? '').localeCompare(String(b.grade ?? ''), 'he')
               : String(b.grade ?? '').localeCompare(String(a.grade ?? ''), 'he');
+          case 'gender':
+            return sortConfig.direction === 'asc'
+              ? studentGenderHebrew[a.gender ?? 'unknown'].localeCompare(studentGenderHebrew[b.gender ?? 'unknown'], 'he')
+              : studentGenderHebrew[b.gender ?? 'unknown'].localeCompare(studentGenderHebrew[a.gender ?? 'unknown'], 'he');
           case 'customer':
             return sortConfig.direction === 'asc'
               ? String(a.customer?.name ?? '').localeCompare(String(b.customer?.name ?? ''), 'he')
@@ -168,7 +173,7 @@ export default function Students() {
     }
   };
 
-  const handleAddStudent = async (data: { customerId: string; name: string; birthDate?: string; grade?: string; notes?: string }) => {
+  const handleAddStudent = async (data: { customerId: string; name: string; birthDate?: string; gender?: StudentGender; grade?: string; notes?: string }) => {
     const { customerId, ...studentData } = data;
     try {
       await createStudent.mutateAsync({ customerId, data: studentData });
@@ -180,7 +185,7 @@ export default function Students() {
 
   const handleBulkExport = () => {
     const selected = filteredStudents.filter(s => selectedStudentIds.has(s.id));
-    const csv = ['שם,לקוח,כיתה,הרשמות', ...selected.map(s => `"${s.name}","${s.customer?.name || ''}","${s.grade || ''}","${s.registrations?.length || 0}"`)].join('\n');
+    const csv = ['שם,לקוח,מגדר,כיתה,הרשמות', ...selected.map(s => `"${s.name}","${s.customer?.name || ''}","${studentGenderHebrew[s.gender ?? 'unknown']}","${s.grade || ''}","${s.registrations?.length || 0}"`)].join('\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'students.csv'; link.click();
   };
@@ -249,7 +254,10 @@ export default function Students() {
                       </div>
                       <div>
                         <h3 className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">{student.name}</h3>
-                        {student.grade && <span className="text-xs text-gray-500">כיתה {student.grade}</span>}
+                        <div className="text-xs text-gray-500">
+                          {studentGenderHebrew[student.gender ?? 'unknown']}
+                          {student.grade ? ` • כיתה ${student.grade}` : ''}
+                        </div>
                       </div>
                     </div>
                     <div className="flex gap-1">
@@ -307,7 +315,7 @@ export default function Students() {
                         className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
                     </th>
-                    {[['name','שם התלמיד','right'],['customer','לקוח (הורה)','right'],['grade','כיתה','right'],['registrations','הרשמות','center']].map(([k,l,a]) => (
+                    {[['name','שם התלמיד','right'],['customer','לקוח (הורה)','right'],['gender','מגדר','right'],['grade','כיתה','right'],['registrations','הרשמות','center']].map(([k,l,a]) => (
                       <th key={k} className={`p-3 font-medium text-gray-600 cursor-pointer select-none hover:bg-gray-100 transition-colors text-${a}`} onClick={() => handleSort(k)}>
                         <span className="inline-flex items-center gap-1">{l}{sortConfig?.key===k ? (sortConfig.direction==='asc' ? <ChevronUp size={13} className="text-blue-600"/> : <ChevronDown size={13} className="text-blue-600"/>) : <ChevronsUpDown size={13} className="text-gray-400"/>}</span>
                       </th>
@@ -347,6 +355,7 @@ export default function Students() {
                           <span className="text-gray-400">-</span>
                         )}
                       </td>
+                      <td className="p-3 text-gray-600">{studentGenderHebrew[student.gender ?? 'unknown']}</td>
                       <td className="p-3 text-gray-600">{student.grade || <span className="text-gray-400">-</span>}</td>
                       <td className="p-3 text-gray-600">
                         {student.registrations && student.registrations.length > 0 ? (
@@ -489,6 +498,7 @@ function StudentEditForm({ student, customers, onSubmit, onCancel, isLoading }: 
   const [formData, setFormData] = useState({
     name: student.name,
     birthDate: student.birthDate ? new Date(student.birthDate).toISOString().split('T')[0] : '',
+    gender: student.gender || 'unknown' as StudentGender,
     grade: student.grade || '',
     customerId: student.customerId || '',
   });
@@ -498,6 +508,7 @@ function StudentEditForm({ student, customers, onSubmit, onCancel, isLoading }: 
     onSubmit({
       name: formData.name,
       birthDate: formData.birthDate || undefined,
+      gender: formData.gender,
       grade: formData.grade || undefined,
       customerId: formData.customerId || undefined,
     });
@@ -536,6 +547,19 @@ function StudentEditForm({ student, customers, onSubmit, onCancel, isLoading }: 
             className="form-input"
             placeholder="לדוגמה: ז1"
           />
+        </div>
+
+        <div className="col-span-2">
+          <label className="form-label">מגדר</label>
+          <select
+            value={formData.gender}
+            onChange={(e) => setFormData({ ...formData, gender: e.target.value as StudentGender })}
+            className="form-input"
+          >
+            {Object.entries(studentGenderHebrew).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
         </div>
 
         <div className="col-span-2">
@@ -579,9 +603,11 @@ interface StudentBulkEditFormProps {
 function StudentBulkEditForm({ selectedCount, customers, onSubmit, onCancel, isLoading }: StudentBulkEditFormProps) {
   const [formData, setFormData] = useState({
     grade: '',
+    gender: 'unknown' as StudentGender,
     customerId: '',
   });
   const [updateGrade, setUpdateGrade] = useState(false);
+  const [updateGender, setUpdateGender] = useState(false);
   const [updateCustomer, setUpdateCustomer] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -589,6 +615,7 @@ function StudentBulkEditForm({ selectedCount, customers, onSubmit, onCancel, isL
     
     const data: Partial<Student> = {};
     if (updateGrade) data.grade = formData.grade || undefined;
+    if (updateGender) data.gender = formData.gender;
     if (updateCustomer) data.customerId = formData.customerId || undefined;
     
     if (Object.keys(data).length === 0) {
@@ -636,6 +663,29 @@ function StudentBulkEditForm({ selectedCount, customers, onSubmit, onCancel, isL
         <div className="flex items-start gap-3">
           <input
             type="checkbox"
+            id="updateGender"
+            checked={updateGender}
+            onChange={(e) => setUpdateGender(e.target.checked)}
+            className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1">
+            <label htmlFor="updateGender" className="form-label cursor-pointer">מגדר</label>
+            <select
+              value={formData.gender}
+              onChange={(e) => setFormData({ ...formData, gender: e.target.value as StudentGender })}
+              className="form-input"
+              disabled={!updateGender}
+            >
+              {Object.entries(studentGenderHebrew).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex items-start gap-3">
+          <input
+            type="checkbox"
             id="updateCustomer"
             checked={updateCustomer}
             onChange={(e) => setUpdateCustomer(e.target.checked)}
@@ -664,7 +714,7 @@ function StudentBulkEditForm({ selectedCount, customers, onSubmit, onCancel, isL
         <button type="button" onClick={onCancel} className="btn btn-secondary">
           ביטול
         </button>
-        <button type="submit" className="btn btn-primary" disabled={isLoading || (!updateGrade && !updateCustomer)}>
+        <button type="submit" className="btn btn-primary" disabled={isLoading || (!updateGrade && !updateGender && !updateCustomer)}>
           {isLoading ? 'מעדכן...' : `עדכן ${selectedCount} תלמידים`}
         </button>
       </div>
@@ -1004,7 +1054,7 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
 // Add Student Form
 interface AddStudentFormProps {
   customers: Customer[];
-  onSubmit: (data: { customerId: string; name: string; birthDate?: string; grade?: string; notes?: string }) => void;
+  onSubmit: (data: { customerId: string; name: string; birthDate?: string; gender?: StudentGender; grade?: string; notes?: string }) => void;
   onCancel: () => void;
   isLoading?: boolean;
 }
@@ -1014,6 +1064,7 @@ function AddStudentForm({ customers, onSubmit, onCancel, isLoading }: AddStudent
     customerId: '',
     name: '',
     birthDate: '',
+    gender: 'unknown' as StudentGender,
     grade: '',
     notes: '',
   });
@@ -1024,6 +1075,7 @@ function AddStudentForm({ customers, onSubmit, onCancel, isLoading }: AddStudent
       customerId: formData.customerId,
       name: formData.name,
       birthDate: formData.birthDate || undefined,
+      gender: formData.gender,
       grade: formData.grade || undefined,
       notes: formData.notes || undefined,
     });
@@ -1075,6 +1127,18 @@ function AddStudentForm({ customers, onSubmit, onCancel, isLoading }: AddStudent
             placeholder="כיתה ג׳"
           />
         </div>
+      </div>
+      <div>
+        <label className="form-label">מגדר</label>
+        <select
+          value={formData.gender}
+          onChange={(e) => setFormData({ ...formData, gender: e.target.value as StudentGender })}
+          className="form-input"
+        >
+          {Object.entries(studentGenderHebrew).map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </select>
       </div>
       <div>
         <label className="form-label">הערות</label>

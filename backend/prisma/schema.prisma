@@ -83,6 +83,7 @@ enum OrderStatus {
 enum CycleType {
   private
   trial_private
+  group
   institutional_per_child
   institutional_fixed
 }
@@ -256,6 +257,10 @@ model Task {
   assigneeId    String?      @map("assignee_id")
   completedAt   DateTime?    @map("completed_at")
   completedById String?      @map("completed_by_id")
+  completionSummary String?  @map("completion_summary")
+  completionDetails String?  @map("completion_details")
+  completionLink    String?  @map("completion_link")
+  requiresCompletionLink Boolean @default(false) @map("requires_completion_link")
   createdAt     DateTime     @default(now()) @map("created_at")
   updatedAt     DateTime     @updatedAt @map("updated_at")
   deletedAt     DateTime?    @map("deleted_at")
@@ -358,12 +363,20 @@ model Customer {
   @@map("customers")
 }
 
+enum StudentGender {
+  unknown
+  female
+  male
+  other
+}
+
 model Student {
   id         String    @id @default(uuid())
   customerId String    @map("customer_id")
   name       String
   birthDate  DateTime? @map("birth_date") @db.Date
   age        Int?
+  gender     StudentGender @default(unknown)
   grade      String?
   notes      String?
   createdAt  DateTime  @default(now()) @map("created_at")
@@ -762,6 +775,7 @@ model Cycle {
   maxStudents              Int?         @map("max_students")
   minimumStudentsThreshold Int?         @map("minimum_students_threshold")
   sendParentReminders      Boolean      @default(true) @map("send_parent_reminders")
+  recallBotEnabled         Boolean      @default(false) @map("recall_bot_enabled")
   isOnline                 Boolean      @default(false) @map("is_online")
   activityType             ActivityType @default(frontal) @map("activity_type")
   location                 String? // city/location where the cycle takes place — required for frontal cycles, irrelevant for online/private. Used as the location in the instructor salary report.
@@ -869,6 +883,7 @@ model Meeting {
   instructorPayment         Decimal       @default(0) @map("instructor_payment") @db.Decimal(10, 2)
   profit                    Decimal       @default(0) @db.Decimal(10, 2)
   negativeProfitAlertSentAt DateTime?     @map("negative_profit_alert_sent_at")
+  institutionalAttendanceMissingAlertSentAt DateTime? @map("institutional_attendance_missing_alert_sent_at")
   activityType              ActivityType? @map("activity_type")
   topic                     String?
   notes                     String?
@@ -884,6 +899,17 @@ model Meeting {
   zoomRecordingUrl          String?       @map("zoom_recording_url")
   zoomRecordingPassword     String?       @map("zoom_recording_password")
   lessonTranscript          String?       @map("lesson_transcript")
+  googleMeetArtifactAlertSentAt DateTime? @map("google_meet_artifact_alert_sent_at")
+  recallBotEnabled          Boolean       @default(false) @map("recall_bot_enabled")
+  recallBotId               String?       @map("recall_bot_id")
+  recallBotStatus           String?       @map("recall_bot_status")
+  recallRecordingId         String?       @map("recall_recording_id")
+  recallRecordingUrl        String?       @map("recall_recording_url")
+  recallTranscriptUrl       String?       @map("recall_transcript_url")
+  lessonSummary             String?       @map("lesson_summary")
+  lessonReportStatus        String?       @map("lesson_report_status")
+  lessonReportGeneratedAt   DateTime?     @map("lesson_report_generated_at")
+  lessonReportError         String?       @map("lesson_report_error")
   rescheduledToId           String?       @map("rescheduled_to_id")
   createdAt                 DateTime      @default(now()) @map("created_at")
   updatedAt                 DateTime      @updatedAt @map("updated_at")
@@ -901,10 +927,43 @@ model Meeting {
   expenses              MeetingExpense[]
   changeRequests        MeetingChangeRequest[]
   billingPeriodMeetings BillingPeriodMeeting[]
+  lessonQuiz            LessonQuiz?
 
+  @@index([recallBotId])
+  @@index([lessonReportStatus])
   @@index([negativeProfitAlertSentAt])
+  @@index([institutionalAttendanceMissingAlertSentAt])
   @@index([registrationId])
   @@map("meetings")
+}
+
+model LessonQuiz {
+  id                      String    @id @default(uuid())
+  meetingId               String    @unique @map("meeting_id")
+  token                   String    @unique
+  status                  String    @default("ready")
+  questions               Json
+  answers                 Json?
+  score                   Int?
+  totalQuestions          Int       @map("total_questions")
+  submittedAt             DateTime? @map("submitted_at")
+  instructorEmailSnapshot String?   @map("instructor_email_snapshot")
+  studentNameSnapshot     String?   @map("student_name_snapshot")
+  emailSentAt             DateTime? @map("email_sent_at")
+  emailError              String?   @map("email_error")
+  parentSentAt            DateTime? @map("parent_sent_at")
+  parentSentToPhone       String?   @map("parent_sent_to_phone")
+  parentMessageId         String?   @map("parent_message_id")
+  parentSendError         String?   @map("parent_send_error")
+  generationError         String?   @map("generation_error")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([submittedAt])
+  @@map("lesson_quizzes")
 }
 
 model Attendance {
@@ -918,6 +977,7 @@ model Attendance {
   notes          String?
   recordedAt     DateTime         @default(now()) @map("recorded_at")
   recordedById   String?          @map("recorded_by")
+  institutionalAbsenceAlertSentAt DateTime? @map("institutional_absence_alert_sent_at")
 
   // Relations
   meeting      Meeting       @relation(fields: [meetingId], references: [id], onDelete: Cascade)
@@ -927,6 +987,7 @@ model Attendance {
 
   @@unique([meetingId, registrationId])
   @@unique([meetingId, studentId])
+  @@index([institutionalAbsenceAlertSentAt])
   @@map("attendance")
 }
 
@@ -1416,6 +1477,12 @@ model WaConversation {
   aiEnabled          Boolean              @default(true) @map("ai_enabled")
   businessPhone      String?              @map("business_phone") // which WA number received this (e.g. +972533027763)
   phoneNumberId      String?              @map("phone_number_id") // Meta phone number ID
+  referralSourceId   String?              @map("referral_source_id")
+  referralSourceType String?              @map("referral_source_type")
+  referralHeadline   String?              @map("referral_headline")
+  referralBody       String?              @map("referral_body")
+  referralSourceUrl  String?              @map("referral_source_url")
+  referralClickId    String?              @map("referral_click_id")
   createdAt          DateTime             @default(now()) @map("created_at")
   updatedAt          DateTime             @updatedAt @map("updated_at")
 

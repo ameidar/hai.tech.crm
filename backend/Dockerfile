@@ -45,21 +45,26 @@ FROM node:22-alpine AS production
 
 WORKDIR /app
 
+# The production entrypoint fixes writable bind-mount ownership before dropping
+# privileges to the non-root app user.
+RUN apk add --no-cache su-exec
+
 # Copy only necessary files
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/frontend-dist ./frontend-dist
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
-
-USER nodejs
+    adduser -S nodejs -u 1001 && \
+    chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 3001
 
 ENV NODE_ENV=production
 
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "dist/index.js"]

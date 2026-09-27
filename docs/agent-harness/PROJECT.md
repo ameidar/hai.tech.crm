@@ -5,4 +5,3 @@ NAME: HaiTech CRM Agent Harness
 DESCRIPTION: Operational responsibility map for CRM agent work
 OWNER: Ami Meidar
 STATUS: active
-

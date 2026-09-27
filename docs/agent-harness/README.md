@@ -6,4 +6,3 @@ Use it when a change request affects ownership, permissions, or operational work
 ## Domains
 
 - [Operations Control](domains/operations-control.md)
-

@@ -10,6 +10,7 @@ import type {
   PayingBodyMorningCompare,
   PayingBodySyncDirection,
   Instructor,
+  LessonQuiz,
   Cycle,
   Meeting,
   Registration,
@@ -715,6 +716,7 @@ export interface CreateMeetingData {
   withZoom?: boolean;
   videoProvider?: 'zoom' | 'google_meet';
   activityType?: string;
+  recallBotEnabled?: boolean;
   topic?: string;
   notes?: string;
 }
@@ -1248,6 +1250,85 @@ export const useCancelInternalZoomMeeting = () => {
   });
 };
 
+interface ScheduleRecallBotsResponse {
+  success: boolean;
+  scheduled: Array<{ meetingId: string; botId: string; joinAt?: string }>;
+  skipped: Array<{ meetingId: string; reason: string }>;
+}
+
+export const useScheduleCycleRecallBots = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (cycleId: string) =>
+      mutateData<ScheduleRecallBotsResponse, undefined>(`/lesson-ai/cycles/${cycleId}/recall-bots`, 'post'),
+    onSuccess: (_, cycleId) => {
+      queryClient.invalidateQueries({ queryKey: ['cycle', cycleId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings', cycleId] });
+    },
+  });
+};
+
+export const useScheduleMeetingRecallBot = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (meetingId: string) =>
+      mutateData<{ success: boolean; botId: string; joinAt?: string; status?: string }, undefined>(
+        `/lesson-ai/meetings/${meetingId}/recall-bot`,
+        'post'
+      ),
+    onSuccess: (_, meetingId) => {
+      queryClient.invalidateQueries({ queryKey: ['meetings'] });
+      queryClient.invalidateQueries({ queryKey: ['meeting', meetingId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
+    },
+  });
+};
+
+export const useMeetingLessonQuiz = (meetingId?: string | null) => {
+  return useQuery({
+    queryKey: ['meeting-lesson-quiz', meetingId],
+    queryFn: async () => {
+      const response = await api.get<{ data: LessonQuiz | null }>(`/lesson-ai/meetings/${meetingId}/quiz`);
+      return response.data.data;
+    },
+    enabled: !!meetingId,
+  });
+};
+
+export const useGenerateMeetingLessonQuiz = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (meetingId: string) => {
+      const response = await api.post<{ success: boolean; data: LessonQuiz | null }>(
+        `/lesson-ai/meetings/${meetingId}/quiz`
+      );
+      return response.data.data;
+    },
+    onSuccess: (_, meetingId) => {
+      queryClient.invalidateQueries({ queryKey: ['meeting-lesson-quiz', meetingId] });
+      queryClient.invalidateQueries({ queryKey: ['meeting', meetingId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
+    },
+  });
+};
+
+export const useSendMeetingLessonQuizToParent = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (meetingId: string) => {
+      const response = await api.post<{ success: boolean; data: LessonQuiz | null; messageId?: string }>(
+        `/lesson-ai/meetings/${meetingId}/quiz/send-parent`
+      );
+      return response.data;
+    },
+    onSuccess: (_, meetingId) => {
+      queryClient.invalidateQueries({ queryKey: ['meeting-lesson-quiz', meetingId] });
+      queryClient.invalidateQueries({ queryKey: ['meeting', meetingId] });
+      queryClient.invalidateQueries({ queryKey: ['cycle-meetings'] });
+    },
+  });
+};
+
 // ==================== Messaging ====================
 
 export const useMessageTemplates = () => {
@@ -1583,6 +1664,10 @@ export type TaskPayload = {
   priority?: TaskPriority;
   dueDate?: string | null;
   assigneeId?: string | null;
+  completionSummary?: string | null;
+  completionDetails?: string | null;
+  completionLink?: string | null;
+  requiresCompletionLink?: boolean;
 };
 
 const taskQueryString = (filters?: TaskFilters) => {

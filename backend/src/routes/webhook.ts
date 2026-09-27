@@ -11,6 +11,7 @@ import { meetingRevenueForMeeting } from '../utils/revenue.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
 import { broadcastWaSSE } from '../services/wa-events.js';
 import { autoRegisterLeadToCycle } from '../services/lead-cycle-registration.js';
+import { extractLeadAttribution } from '../utils/lead-attribution.js';
 import rateLimit from 'express-rate-limit';
 
 // Rate limiter for public lead submission endpoint
@@ -613,9 +614,11 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       childAge,
       grade,
       interest,
+      cycleLabel,
       message,
     } = req.body;
     const cycleId = String(req.body.cycleId || req.body.cycle_id || req.body.selectedCycleId || '').trim();
+    const attribution = extractLeadAttribution(req.body);
 
     if (!name) {
       throw new AppError(400, 'name is required');
@@ -666,6 +669,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       if (childName && childAge) parts.push(`ילד/ה: ${childName}, גיל ${childAge}`);
       else if (childName) parts.push(`ילד/ה: ${childName}`);
       if (cycleId) parts.push(`מחזור: ${cycleId}`);
+      if (attribution.note) parts.push(attribution.note);
       return parts.length > 0 ? parts.join(' | ') : 'פנייה חדשה';
     };
 
@@ -712,6 +716,12 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
         source,
         appointmentStatus: 'pending',
         appointmentNotes: noteText,
+        campaignId: attribution.campaignId ?? null,
+        campaignName: attribution.campaignName ?? null,
+        adId: attribution.adId ?? null,
+        adName: attribution.adName ?? null,
+        adsetName: attribution.adsetName ?? null,
+        formId: attribution.formId ?? null,
       });
 
       const autoRegistration = await autoRegisterLeadToCycle({
@@ -721,6 +731,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
         childAge: childAge || null,
         grade: grade || null,
         cycleId,
+        cycleLabel: cycleLabel || null,
         interest: interest || null,
       });
 
@@ -759,9 +770,11 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
           email: customer.email,
           childName,
           cycleId,
+          cycleLabel,
           autoRegistration,
           interest,
           isDuplicate,
+          attribution,
           clientIp,
         },
       }).catch(err => console.error('[WEBHOOK] Failed to create audit log (existing customer):', err));
@@ -834,6 +847,12 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       source,
       appointmentStatus: 'pending',
       appointmentNotes: noteText,
+      campaignId: attribution.campaignId ?? null,
+      campaignName: attribution.campaignName ?? null,
+      adId: attribution.adId ?? null,
+      adName: attribution.adName ?? null,
+      adsetName: attribution.adsetName ?? null,
+      formId: attribution.formId ?? null,
     });
 
     const autoRegistration = await autoRegisterLeadToCycle({
@@ -843,6 +862,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       childAge: childAge || null,
       grade: grade || null,
       cycleId,
+      cycleLabel: cycleLabel || null,
       interest: interest || null,
     });
 
@@ -887,8 +907,10 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
         email: customer.email,
         childName,
         cycleId,
+        cycleLabel,
         autoRegistration,
         interest,
+        attribution,
         clientIp,
       },
     }).catch(err => console.error('[WEBHOOK] Failed to create audit log:', err));

@@ -4,10 +4,33 @@ import {
   templateText,
 } from './whatsapp-cloud-templates.js';
 
+export type ParentReminderMeetingContext = {
+  zoomJoinUrl?: string | null;
+  cycle?: {
+    isOnline?: boolean | null;
+    zoomJoinUrl?: string | null;
+    branch?: {
+      type?: string | null;
+    } | null;
+  } | null;
+};
+
+export function getParentReminderVideoLink(meeting: ParentReminderMeetingContext): string | undefined {
+  return meeting.zoomJoinUrl || meeting.cycle?.zoomJoinUrl || undefined;
+}
+
+export function isParentReminderOnline(meeting: ParentReminderMeetingContext): boolean {
+  return Boolean(
+    meeting.cycle?.isOnline
+      || meeting.cycle?.branch?.type === 'online'
+      || getParentReminderVideoLink(meeting),
+  );
+}
+
 export function buildParentReminderTemplateVariables(data: ParentReminderData): string[] {
   const zoomText = data.zoomLink
-    ? `קישור לזום: ${data.zoomLink}`
-    : 'לשיעור פרונטלי, אין צורך בקישור זום';
+    ? `קישור לשיעור אונליין (Zoom או Google Meet): ${data.zoomLink}`
+    : 'לשיעור פרונטלי, אין צורך בקישור אונליין';
   return [
     templateText(data.parentName, 'שלום'),
     templateText(data.studentName, 'התלמיד/ה'),
@@ -26,7 +49,7 @@ export function buildParentOnlineReminderTemplateVariables(data: ParentReminderD
     templateText(data.studentName, 'התלמיד/ה'),
     templateText(data.className, 'השיעור'),
     templateText(data.time, 'השעה תעודכן בהמשך'),
-    templateText(data.zoomLink, 'קישור הזום יישלח בהמשך'),
+    templateText(data.zoomLink, 'קישור השיעור יישלח בהמשך'),
   ];
 }
 

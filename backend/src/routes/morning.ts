@@ -248,6 +248,7 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
     const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const meetingsForPayments = await prisma.meeting.findMany({
       where: {
+        deletedAt: null,
         scheduledDate: { gte: fromDate, lte: toDate },
         OR: [
           { status: 'completed' },
@@ -459,6 +460,7 @@ morningRouter.get('/financials/details', managerOrAdmin, async (req, res, next) 
       const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const meetings = await prisma.meeting.findMany({
         where: {
+          deletedAt: null,
           scheduledDate: { gte: monthStart, lte: monthEnd },
           OR: [
             { status: 'completed' },
@@ -564,6 +566,7 @@ morningRouter.get('/paying-body-reconciliation', managerOrAdmin, async (req, res
     const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const meetings = await prisma.meeting.findMany({
       where: {
+        deletedAt: null,
         scheduledDate: { gte: fromDate, lte: toDate },
         OR: [
           { status: 'completed' },

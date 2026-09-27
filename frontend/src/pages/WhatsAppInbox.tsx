@@ -66,6 +66,8 @@ interface WaConversation {
   interests?: string;
   leadType?: string;
   summary?: string;
+  intent?: string | null;
+  intentConfidence?: number | null;
   aiEnabled: boolean;
   businessPhone?: string;
   phoneNumberId?: string;
@@ -78,6 +80,15 @@ interface WaConversation {
   } | null;
   createdAt: string;
 }
+
+const WA_INTENT_LABELS: Record<string, string> = {
+  new_lead: 'ליד חדש',
+  purchase: 'רכישה',
+  human: 'מבקש נציג',
+  support: 'תמיכה',
+  job: 'עבודה/שיתוף פעולה',
+  irrelevant: 'לא רלוונטי',
+};
 
 interface WaMessage {
   id: string;
@@ -1570,8 +1581,14 @@ export default function WhatsAppInbox() {
           </div>
 
           {/* Lead info strip */}
-          {(selected.leadName || selected.childName || selected.summary) && (
+          {(selected.leadName || selected.childName || selected.summary || selected.intent) && (
             <div className="bg-yellow-50 border-b border-yellow-200 px-4 py-2 text-xs text-yellow-800 flex flex-wrap gap-3">
+              {selected.intent && (
+                <span title="סיווג כוונה אוטומטי (Jev) של ההודעה הראשונה">
+                  🏷️ {WA_INTENT_LABELS[selected.intent] || selected.intent}
+                  {typeof selected.intentConfidence === 'number' ? ` (${Math.round(selected.intentConfidence * 100)}%)` : ''}
+                </span>
+              )}
               {selected.leadName && <span>👤 {selected.leadName}</span>}
               {selected.leadEmail && <span>✉️ {selected.leadEmail}</span>}
               {selected.childName && <span>👦 {selected.childName}{selected.childAge ? `, גיל ${selected.childAge}` : ''}</span>}

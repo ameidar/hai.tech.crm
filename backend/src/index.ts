@@ -606,6 +606,16 @@ app.use(express.static(frontendPath, {
   }
 }));
 
+// Campaign landing pages: express.static runs with index:false, so directory
+// URLs (e.g. /adult-ai-agents-omer/) would otherwise fall through to the SPA.
+// Serve each campaign folder's index.html explicitly, before the SPA fallback.
+app.get(/^\/([\w-]+)\/?$/, (req, res, next) => {
+  const candidate = path.join(frontendPath, req.params[0], 'index.html');
+  res.sendFile(candidate, (err) => {
+    if (err) next();
+  });
+});
+
 // SPA fallback - serve index.html for all non-API routes (no cache!)
 // Generate unique ETag based on server start time to force cache invalidation
 const serverStartTime = Date.now().toString(36);

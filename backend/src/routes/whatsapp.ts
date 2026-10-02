@@ -166,6 +166,15 @@ async function resolveWhatsAppContactName(phone: string, metaName?: string | nul
   return phone;
 }
 
+export function extractInboundText(msg: any): string | null {
+  if (msg?.type === 'text') return msg.text?.body || '';
+  if (msg?.type === 'button') return msg.button?.text || msg.button?.payload || null;
+  if (msg?.type === 'interactive') {
+    return msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || null;
+  }
+  return null;
+}
+
 async function forwardInboundWebhookChangeToAgent(originalBody: any, entry: any, change: any): Promise<boolean> {
   const phoneNumberId = change?.value?.metadata?.phone_number_id;
   if (!WA_INBOUND_FORWARD_PHONE_NUMBER_ID || phoneNumberId !== WA_INBOUND_FORWARD_PHONE_NUMBER_ID) return false;
@@ -906,10 +915,11 @@ router.post('/webhook', async (req: Request, res: Response) => {
         const bizPhoneNumberId = value.metadata?.phone_number_id;
 
         for (const msg of value.messages || []) {
-          if (msg.type !== 'text') continue; // Only text for now
+          // Text, plus quick-reply button taps (template buttons / interactive replies).
+          const text = extractInboundText(msg);
+          if (text === null) continue;
 
           const phone = msg.from;
-          const text = msg.text?.body || '';
           const waMessageId = msg.id;
           const rawContactName = value.contacts?.[0]?.profile?.name;
           const referralContext = extractReferralContext(msg);

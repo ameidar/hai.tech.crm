@@ -461,6 +461,71 @@ export const useBulkUpdateInstructors = () => {
   });
 };
 
+// ==================== Instructor fixed monthly additions (תוספות קבועות) ====================
+export interface InstructorFixedAddition {
+  id: string;
+  instructorId: string;
+  description: string;
+  amount: number;
+  isNet: boolean;
+  startMonth: string; // YYYY-MM
+  endMonth: string | null; // YYYY-MM, inclusive; null = open-ended
+  notes: string | null;
+  status: 'active' | 'ended' | 'future';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type InstructorFixedAdditionInput = {
+  description: string;
+  amount: number;
+  isNet: boolean;
+  startMonth: string;
+  endMonth?: string | null;
+  notes?: string | null;
+};
+
+export const useInstructorFixedAdditions = (instructorId: string | undefined) => {
+  return useQuery({
+    queryKey: ['instructor-fixed-additions', instructorId],
+    queryFn: () => fetchData<InstructorFixedAddition[]>(`/instructors/${instructorId}/fixed-additions`),
+    enabled: !!instructorId,
+  });
+};
+
+export const useCreateInstructorFixedAddition = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ instructorId, data }: { instructorId: string; data: InstructorFixedAdditionInput }) =>
+      mutateData<InstructorFixedAddition, InstructorFixedAdditionInput>(`/instructors/${instructorId}/fixed-additions`, 'post', data),
+    onSuccess: (_, { instructorId }) => {
+      queryClient.invalidateQueries({ queryKey: ['instructor-fixed-additions', instructorId] });
+    },
+  });
+};
+
+export const useUpdateInstructorFixedAddition = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ instructorId, additionId, data }: { instructorId: string; additionId: string; data: Partial<InstructorFixedAdditionInput> }) =>
+      mutateData<InstructorFixedAddition, Partial<InstructorFixedAdditionInput>>(`/instructors/${instructorId}/fixed-additions/${additionId}`, 'put', data),
+    onSuccess: (_, { instructorId }) => {
+      queryClient.invalidateQueries({ queryKey: ['instructor-fixed-additions', instructorId] });
+    },
+  });
+};
+
+export const useDeleteInstructorFixedAddition = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ instructorId, additionId }: { instructorId: string; additionId: string }) =>
+      mutateData<void, undefined>(`/instructors/${instructorId}/fixed-additions/${additionId}`, 'delete'),
+    onSuccess: (_, { instructorId }) => {
+      queryClient.invalidateQueries({ queryKey: ['instructor-fixed-additions', instructorId] });
+    },
+  });
+};
+
 // ==================== Cycles ====================
 export const useCycles = (params?: { branchId?: string; instructorId?: string; courseId?: string; status?: string; dayOfWeek?: string; search?: string; limit?: number; startDateFrom?: string; startDateTo?: string }) => {
   const searchParams = new URLSearchParams();

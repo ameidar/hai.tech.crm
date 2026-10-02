@@ -8,6 +8,7 @@ import { createDocument, previewDocument, getMorningDocument, DOCUMENT_TYPES } f
 import { isMorningConfigured, morningRequest } from '../services/morning/client.js';
 import { prodPrisma as prisma } from '../utils/prodPrisma.js';
 import { calculateInstructorPayment } from '../services/instructor-payment.js';
+import { fixedAdditionMonthlyCost, isFixedAdditionActiveInMonth } from '../services/instructor-fixed-additions.js';
 import { buildProformaSnapshotFromMorningDocument } from '../services/billing.js';
 
 // Fixed monthly salaries for global employees (not paid via Morning or per-meeting).
@@ -20,6 +21,31 @@ const GLOBAL_MONTHLY_SALARIES: { name: string; amount: number; monthOverrides?: 
 
 function salaryForMonth(emp: typeof GLOBAL_MONTHLY_SALARIES[number], month: string): number {
   return emp.monthOverrides?.[month] ?? emp.amount;
+}
+
+// Instructor fixed monthly additions (תוספות קבועות, e.g. ריכוז) are fixed monthly pay, so
+// they are shown inside the "global salaries" bucket. Gross amounts for employees carry the
+// 1.3 employer-cost multiplier; net amounts are counted as entered.
+// Defensive: on dev this reads prod via prodPrisma, which may not have the table yet.
+async function loadFixedAdditionSalaryItems(fromMonth: Date, toMonthExclusive: Date) {
+  try {
+    const rows = await prisma.instructorFixedAddition.findMany({
+      where: {
+        deletedAt: null,
+        startMonth: { lt: toMonthExclusive },
+        OR: [{ endMonth: null }, { endMonth: { gte: fromMonth } }],
+      },
+      include: { instructor: { select: { name: true, employmentType: true } } },
+    });
+    return rows.map((a) => ({
+      addition: a,
+      name: `${a.instructor.name} — ${a.description} (${a.isNet ? 'נטו' : 'ברוטו'})`,
+      cost: fixedAdditionMonthlyCost(a, a.instructor.employmentType),
+    }));
+  } catch (err) {
+    console.warn('[morning/financials] fixed additions unavailable:', (err as Error)?.message);
+    return [];
+  }
 }
 
 function localDateString(date: Date): string {
@@ -336,6 +362,13 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       }
     }
 
+    const firstMonthKey = Array.from(monthMap.keys())[0];
+    const [fy, fm] = firstMonthKey.split('-').map(Number);
+    const fixedAdditionItems = await loadFixedAdditionSalaryItems(
+      new Date(Date.UTC(fy, fm - 1, 1)),
+      new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 1)),
+    );
+
     const result = Array.from(monthMap.entries()).map(([key, data]) => {
       const [year, month] = key.split('-').map(Number);
       const morningExp = Math.round(data.morningExpenses);
@@ -344,7 +377,9 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       const globalSalariesMonthly = GLOBAL_MONTHLY_SALARIES.reduce(
         (s, e) => s + salaryForMonth(e, key),
         0,
-      );
+      ) + fixedAdditionItems
+        .filter((i) => isFixedAdditionActiveInMonth(i.addition, key))
+        .reduce((s, i) => s + i.cost, 0);
       const totalExpenses = morningExp + instructorPay + globalSalariesMonthly;
       const income = Math.round(data.income);
       return {
@@ -506,9 +541,16 @@ morningRouter.get('/financials/details', managerOrAdmin, async (req, res, next) 
     }
 
     if (category === 'globalSalaries') {
-      const items = GLOBAL_MONTHLY_SALARIES
-        .map((e) => ({ name: e.name, amount: salaryForMonth(e, month) }))
-        .filter((i) => i.amount > 0);
+      const fixedAdditionItems = await loadFixedAdditionSalaryItems(
+        new Date(Date.UTC(yearN, monthN - 1, 1)),
+        new Date(Date.UTC(yearN, monthN, 1)),
+      );
+      const items = [
+        ...GLOBAL_MONTHLY_SALARIES.map((e) => ({ name: e.name, amount: salaryForMonth(e, month) })),
+        ...fixedAdditionItems
+          .filter((i) => isFixedAdditionActiveInMonth(i.addition, month))
+          .map((i) => ({ name: i.name, amount: i.cost })),
+      ].filter((i) => i.amount > 0);
       return res.json({ items });
     }
 

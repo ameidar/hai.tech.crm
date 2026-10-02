@@ -200,6 +200,7 @@ model User {
   submittedExpenses        MeetingExpense[]              @relation("ExpenseSubmitter")
   reviewedExpenses         MeetingExpense[]              @relation("ExpenseReviewer")
   reviewedWorkHours        WorkHourEntry[]               @relation("WorkHourReviewer")
+  createdFixedAdditions    InstructorFixedAddition[]     @relation("InstructorFixedAdditionCreator")
   quotes                   Quote[]
   uploadedFiles            FileAttachment[]
   campaigns                Campaign[]
@@ -465,8 +466,35 @@ model Instructor {
   cycleExpenses   CycleExpense[]
   changeRequests  MeetingChangeRequest[]
   workHourEntries WorkHourEntry[]
+  fixedAdditions  InstructorFixedAddition[]
 
   @@map("instructors")
+}
+
+// Recurring fixed monthly pay for an instructor (e.g. "ריכוז" 2,500 ₪ net / month).
+// Active for report month M when startMonth <= M and (endMonth is null or endMonth >= M).
+// Months are stored as the first day of the month; endMonth is inclusive.
+model InstructorFixedAddition {
+  id           String    @id @default(uuid())
+  instructorId String    @map("instructor_id")
+  description  String
+  amount       Decimal   @db.Decimal(10, 2)
+  isNet        Boolean   @default(true) @map("is_net") // true = נטו, false = ברוטו
+  startMonth   DateTime  @map("start_month") @db.Date
+  endMonth     DateTime? @map("end_month") @db.Date
+  notes        String?
+  createdById  String?   @map("created_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+  deletedBy    String?   @map("deleted_by")
+
+  instructor Instructor @relation(fields: [instructorId], references: [id], onDelete: Cascade)
+  createdBy  User?      @relation("InstructorFixedAdditionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([instructorId])
+  @@index([startMonth])
+  @@map("instructor_fixed_additions")
 }
 
 // Self-reported work hours for operations staff (Instructor.kind = "operations").

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { Decimal } from '@prisma/client/runtime/library';
+import { fixedAdditionMonthlyCost, isFixedAdditionActiveInMonth } from '../services/instructor-fixed-additions.js';
 
 export const forecastRouter = Router();
 
@@ -54,6 +55,7 @@ interface MonthlyData {
   instructorPayments: number;
   cycleExpenses: number;
   meetingExpenses: number;
+  fixedInstructorAdditions?: number; // recurring instructor fixed additions (תוספות קבועות) — monthly cost
   totalExpenses: number;
   profit: number;
   meetingCount: number;
@@ -662,6 +664,31 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
     for (const data of forecastByMonth.values()) {
       data.totalExpenses = data.instructorPayments + data.cycleExpenses + data.meetingExpenses;
       data.profit = data.revenue - data.totalExpenses;
+    }
+
+    // ============================================
+    // INSTRUCTOR FIXED MONTHLY ADDITIONS (תוספות קבועות)
+    // ============================================
+    // Counted as a fixed monthly cost in every month they are active. Gross (ברוטו) amounts
+    // for employees carry the 1.3 employer-cost multiplier (same rule as meeting pay); net
+    // (נטו) amounts are counted as entered.
+    const fixedAdditions = await prisma.instructorFixedAddition.findMany({
+      where: {
+        deletedAt: null,
+        startMonth: { lt: forecastEnd },
+        OR: [{ endMonth: null }, { endMonth: { gte: historicalStart } }],
+      },
+      include: { instructor: { select: { employmentType: true } } },
+    });
+    if (fixedAdditions.length > 0) {
+      for (const data of [...historicalByMonth.values(), ...forecastByMonth.values()]) {
+        const cost = fixedAdditions
+          .filter((a) => isFixedAdditionActiveInMonth(a, data.month))
+          .reduce((sum, a) => sum + fixedAdditionMonthlyCost(a, a.instructor.employmentType), 0);
+        data.fixedInstructorAdditions = cost;
+        data.totalExpenses += cost;
+        data.profit -= cost;
+      }
     }
 
     // ============================================

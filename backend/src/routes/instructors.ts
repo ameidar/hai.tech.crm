@@ -6,6 +6,12 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createInstructorSchema, updateInstructorSchema, uuidSchema } from '../types/schemas.js';
 import { parsePaginationParams, paginatedResponse } from '../utils/pagination.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
+import { z } from 'zod';
+import {
+  MONTH_REGEX,
+  monthToDate,
+  dateToMonth,
+} from '../services/instructor-fixed-additions.js';
 
 export const instructorsRouter = Router();
 
@@ -319,6 +325,196 @@ instructorsRouter.post('/bulk-update', operationsManagerOrAdmin, async (req, res
       updated: result.count,
       message: `עודכנו ${result.count} מדריכים`
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ==================== Fixed monthly additions (תוספות קבועות) ====================
+
+const monthField = z.string().regex(MONTH_REGEX, 'חודש חייב להיות בפורמט YYYY-MM');
+
+const fixedAdditionBaseSchema = z.object({
+  description: z.string().trim().min(1, 'תיאור הוא שדה חובה').max(200),
+  amount: z.coerce.number().positive('הסכום חייב להיות גדול מ-0').max(1_000_000),
+  isNet: z.boolean().default(true),
+  startMonth: monthField,
+  endMonth: monthField.nullable().optional(),
+  notes: z.string().trim().max(2000).nullable().optional(),
+});
+
+const endNotBeforeStart = (d: { startMonth?: string; endMonth?: string | null }) =>
+  !d.startMonth || !d.endMonth || d.endMonth >= d.startMonth;
+const endBeforeStartError = { message: 'חודש סיום חייב להיות זהה או מאוחר מחודש ההתחלה', path: ['endMonth'] };
+
+export const createFixedAdditionSchema = fixedAdditionBaseSchema.refine(endNotBeforeStart, endBeforeStartError);
+export const updateFixedAdditionSchema = fixedAdditionBaseSchema.partial().refine(endNotBeforeStart, endBeforeStartError);
+
+type FixedAdditionRow = {
+  id: string;
+  instructorId: string;
+  description: string;
+  amount: { toString(): string };
+  isNet: boolean;
+  startMonth: Date;
+  endMonth: Date | null;
+  notes: string | null;
+  createdById: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+const serializeFixedAddition = (a: FixedAdditionRow) => {
+  const currentMonth = dateToMonth(new Date());
+  const endMonth = a.endMonth ? dateToMonth(a.endMonth) : null;
+  const startMonth = dateToMonth(a.startMonth);
+  return {
+    id: a.id,
+    instructorId: a.instructorId,
+    description: a.description,
+    amount: Number(a.amount.toString()),
+    isNet: a.isNet,
+    startMonth,
+    endMonth,
+    notes: a.notes,
+    createdById: a.createdById,
+    createdAt: a.createdAt,
+    updatedAt: a.updatedAt,
+    status: endMonth && endMonth < currentMonth ? 'ended' : startMonth > currentMonth ? 'future' : 'active',
+  };
+};
+
+const auditFixedAddition = (a: FixedAdditionRow) => ({
+  instructorId: a.instructorId,
+  description: a.description,
+  amount: Number(a.amount.toString()),
+  isNet: a.isNet,
+  startMonth: dateToMonth(a.startMonth),
+  endMonth: a.endMonth ? dateToMonth(a.endMonth) : null,
+  notes: a.notes,
+});
+
+const findFixedAdditionOr404 = async (instructorId: string, additionId: string) => {
+  const existing = await prisma.instructorFixedAddition.findFirst({
+    where: { id: additionId, instructorId, deletedAt: null },
+  });
+  if (!existing) throw new AppError(404, 'Fixed addition not found');
+  return existing;
+};
+
+// List fixed additions for an instructor
+instructorsRouter.get('/:id/fixed-additions', operationsManagerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+    const additions = await prisma.instructorFixedAddition.findMany({
+      where: { instructorId: id, deletedAt: null },
+      orderBy: [{ startMonth: 'desc' }, { createdAt: 'desc' }],
+    });
+    res.json(additions.map(serializeFixedAddition));
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Create fixed addition
+instructorsRouter.post('/:id/fixed-additions', operationsManagerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+    const data = createFixedAdditionSchema.parse(req.body);
+
+    const instructor = await prisma.instructor.findUnique({ where: { id }, select: { id: true } });
+    if (!instructor) throw new AppError(404, 'Instructor not found');
+
+    const created = await prisma.instructorFixedAddition.create({
+      data: {
+        instructorId: id,
+        description: data.description,
+        amount: data.amount,
+        isNet: data.isNet,
+        startMonth: monthToDate(data.startMonth),
+        endMonth: data.endMonth ? monthToDate(data.endMonth) : null,
+        notes: data.notes || null,
+        createdById: req.user?.userId ?? null,
+      },
+    });
+
+    await logAudit({
+      action: 'CREATE',
+      entity: 'InstructorFixedAddition',
+      entityId: created.id,
+      newValue: auditFixedAddition(created),
+      req,
+    });
+
+    res.status(201).json(serializeFixedAddition(created));
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Update fixed addition (also used to "end" an addition by setting endMonth)
+instructorsRouter.put('/:id/fixed-additions/:additionId', operationsManagerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+    const additionId = uuidSchema.parse(req.params.additionId);
+    const data = updateFixedAdditionSchema.parse(req.body);
+    const existing = await findFixedAdditionOr404(id, additionId);
+
+    const startMonth = data.startMonth ?? dateToMonth(existing.startMonth);
+    const endMonth = data.endMonth !== undefined
+      ? data.endMonth
+      : (existing.endMonth ? dateToMonth(existing.endMonth) : null);
+    if (endMonth && endMonth < startMonth) {
+      throw new AppError(400, 'חודש סיום חייב להיות זהה או מאוחר מחודש ההתחלה');
+    }
+
+    const updated = await prisma.instructorFixedAddition.update({
+      where: { id: additionId },
+      data: {
+        ...(data.description !== undefined && { description: data.description }),
+        ...(data.amount !== undefined && { amount: data.amount }),
+        ...(data.isNet !== undefined && { isNet: data.isNet }),
+        ...(data.startMonth !== undefined && { startMonth: monthToDate(data.startMonth) }),
+        ...(data.endMonth !== undefined && { endMonth: data.endMonth ? monthToDate(data.endMonth) : null }),
+        ...(data.notes !== undefined && { notes: data.notes || null }),
+      },
+    });
+
+    await logUpdateAudit({
+      entity: 'InstructorFixedAddition',
+      entityId: additionId,
+      oldRecord: auditFixedAddition(existing),
+      newRecord: auditFixedAddition(updated),
+      req,
+    });
+
+    res.json(serializeFixedAddition(updated));
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Delete fixed addition (soft delete)
+instructorsRouter.delete('/:id/fixed-additions/:additionId', operationsManagerOrAdmin, async (req, res, next) => {
+  try {
+    const id = uuidSchema.parse(req.params.id);
+    const additionId = uuidSchema.parse(req.params.additionId);
+    const existing = await findFixedAdditionOr404(id, additionId);
+
+    await prisma.instructorFixedAddition.update({
+      where: { id: additionId },
+      data: { deletedAt: new Date(), deletedBy: req.user?.userId ?? null },
+    });
+
+    await logAudit({
+      action: 'DELETE',
+      entity: 'InstructorFixedAddition',
+      entityId: additionId,
+      oldValue: auditFixedAddition(existing),
+      req,
+    });
+
+    res.status(204).send();
   } catch (error) {
     next(error);
   }

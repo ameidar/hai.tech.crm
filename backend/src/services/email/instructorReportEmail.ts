@@ -8,6 +8,9 @@ const DEFAULT_RECIPIENTS = [
   'inna@hai.tech',
 ];
 
+const escapeHtml = (v: string) =>
+  v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
 function buildEmailHtml(report: InstructorMonthlyReport): string {
   const rows = report.instructors.map(i => `
     <tr>
@@ -17,6 +20,7 @@ function buildEmailHtml(report: InstructorMonthlyReport): string {
       <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;text-align:center;color:#374151">${i.totalHours.toFixed(1)}</td>
       <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;text-align:center;color:#374151">₪${i.totalPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
       <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;text-align:center;color:#374151">${i.totalExpenses > 0 ? '₪' + i.totalExpenses.toLocaleString('he-IL', { minimumFractionDigits: 2 }) : '—'}</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;text-align:center;color:#5b21b6">${(i.fixedAdditionsTotal ?? 0) > 0 ? '₪' + i.fixedAdditionsTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 }) : '—'}</td>
       <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;text-align:center;font-weight:700;color:#1e40af">₪${i.grandTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
     </tr>
   `).join('');
@@ -28,6 +32,7 @@ function buildEmailHtml(report: InstructorMonthlyReport): string {
       <td style="padding:10px 14px;border-bottom:1px solid #fde68a;text-align:center;color:#92400e">—</td>
       <td style="padding:10px 14px;border-bottom:1px solid #fde68a;text-align:center;color:#92400e">—</td>
       <td style="padding:10px 14px;border-bottom:1px solid #fde68a;text-align:center;color:#92400e">₪${i.amount.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #fde68a;text-align:center;color:#92400e">—</td>
       <td style="padding:10px 14px;border-bottom:1px solid #fde68a;text-align:center;color:#92400e">—</td>
       <td style="padding:10px 14px;border-bottom:1px solid #fde68a;text-align:center;font-weight:700;color:#92400e">₪${i.amount.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
     </tr>
@@ -78,6 +83,7 @@ function buildEmailHtml(report: InstructorMonthlyReport): string {
             <th style="padding:12px 14px;text-align:center;color:#fff;font-size:13px;font-weight:700">שעות</th>
             <th style="padding:12px 14px;text-align:center;color:#fff;font-size:13px;font-weight:700">תשלום</th>
             <th style="padding:12px 14px;text-align:center;color:#fff;font-size:13px;font-weight:700">הוצאות</th>
+            <th style="padding:12px 14px;text-align:center;color:#fff;font-size:13px;font-weight:700">תוספות קבועות</th>
             <th style="padding:12px 14px;text-align:center;color:#fff;font-size:13px;font-weight:700">סה"כ</th>
           </tr>
         </thead>
@@ -88,11 +94,50 @@ function buildEmailHtml(report: InstructorMonthlyReport): string {
             <td colspan="4" style="padding:12px 14px;font-weight:700;color:#1e40af;font-size:14px">סה"כ כולל</td>
             <td style="padding:12px 14px;text-align:center;font-weight:700;color:#1e40af">₪${(report.summaryTotalPayment + report.summaryTotalFixedSalaries).toLocaleString('he-IL',{minimumFractionDigits:2})}</td>
             <td style="padding:12px 14px;text-align:center;font-weight:700;color:#1e40af">₪${report.summaryTotalExpenses.toLocaleString('he-IL',{minimumFractionDigits:2})}</td>
+            <td style="padding:12px 14px;text-align:center;font-weight:700;color:#1e40af">₪${(report.summaryTotalFixedAdditions ?? 0).toLocaleString('he-IL',{minimumFractionDigits:2})}</td>
             <td style="padding:12px 14px;text-align:center;font-weight:800;color:#1e40af;font-size:16px">₪${report.summaryGrandTotal.toLocaleString('he-IL',{minimumFractionDigits:2})}</td>
           </tr>
         </tbody>
       </table>
     </div>
+
+    <!-- Fixed monthly additions -->
+    ${(() => {
+      const additions = report.instructors.flatMap(i =>
+        (i.fixedAdditions ?? []).map(a => ({ instructorName: i.instructorName, a })),
+      );
+      if (additions.length === 0) return '';
+      return `
+    <div style="margin:0 36px 24px;padding:20px;background:#F5F3FF;border-radius:10px;border-right:4px solid #7C3AED">
+      <div style="font-weight:700;color:#5B21B6;font-size:15px;margin-bottom:12px">
+        📌 תוספות קבועות החודש (${additions.length}) — נכללו בסה"כ לתשלום
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="background:#7C3AED">
+            <th style="padding:8px;text-align:right;color:#fff">מדריך</th>
+            <th style="padding:8px;text-align:right;color:#fff">תיאור</th>
+            <th style="padding:8px;text-align:center;color:#fff">נטו / ברוטו</th>
+            <th style="padding:8px;text-align:center;color:#fff">סכום</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${additions.map((p, i) => `
+            <tr style="background:${i % 2 === 0 ? '#EDE9FE' : '#fff'}">
+              <td style="padding:7px 10px;border-bottom:1px solid #DDD6FE;font-weight:600">${p.instructorName}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid #DDD6FE">${escapeHtml(p.a.description)}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid #DDD6FE;text-align:center;font-weight:700">${p.a.netLabel}</td>
+              <td style="padding:7px 10px;border-bottom:1px solid #DDD6FE;text-align:center;font-weight:600">₪${p.a.amount.toLocaleString('he-IL',{minimumFractionDigits:2})}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      <div style="margin-top:10px;color:#5B21B6;font-size:12px">
+        סכומי נטו מוצגים כפי שהוזנו — יש לגלגל לברוטו בהנהלת החשבונות.
+      </div>
+    </div>
+      `;
+    })()}
 
     <!-- Unresolved meetings alert -->
     ${report.unresolvedMeetings && report.unresolvedMeetings.length > 0 ? `

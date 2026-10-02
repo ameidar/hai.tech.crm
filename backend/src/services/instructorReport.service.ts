@@ -1,5 +1,12 @@
 import { prisma } from '../utils/prisma.js';
-import { usesDailyInstructorPayment } from './instructor-payment.js';
+import { calculateInstructorPayment, usesDailyInstructorPayment } from './instructor-payment.js';
+import {
+  activeFixedAdditionsWhere,
+  toFixedAdditionReportItem,
+  type FixedAdditionReportItem,
+} from './instructor-fixed-additions.js';
+
+export type { FixedAdditionReportItem } from './instructor-fixed-additions.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -23,8 +30,9 @@ export interface MeetingDetail {
   activityType: string | null;
   activityTypeRaw: string | null; // raw enum value: frontal/online/private
   topic: string | null;
-  hourlyRate: number | null; // instructor's rate for this activity type
+  hourlyRate: number | null; // instructor's rate for this activity type (effective rate for manual overrides)
   paymentNote: string | null;
+  manualPaymentOverride: boolean; // stored instructorPayment was manually corrected — report uses it
   instructorPayment: number;
   expenses: MeetingExpenseDetail[];
   totalExpenses: number;
@@ -52,6 +60,7 @@ export interface ActivityTypeSummary {
   hours: number;
   hourlyRate: number | null;
   subtotal: number; // sum of instructorPayment for meetings of this type
+  manualOverrides: number; // meetings in this bucket paid by a manually corrected amount (not hours × rate)
 }
 
 export interface InstructorReportData {
@@ -69,7 +78,9 @@ export interface InstructorReportData {
   totalExpenses: number; // meeting expenses + approved cycle expenses
   totalCycleExpenses: number; // approved cycle expenses only
   pendingCycleExpensesTotal: number; // pending cycle expenses (not included in grandTotal)
-  grandTotal: number;
+  fixedAdditions: FixedAdditionReportItem[]; // recurring fixed monthly additions active this month (e.g. ריכוז)
+  fixedAdditionsTotal: number; // sum of fixedAdditions amounts (as entered — net and gross mixed, no ×1.3)
+  grandTotal: number; // totalPayment + totalExpenses + fixedAdditionsTotal
   workDays: number;       // distinct activity days this month (one per day, online + frontal combined)
   frontalHours: number;   // hours billed at the frontal rate
   frontalPayment: number; // base payment for frontal-rate activity
@@ -126,6 +137,7 @@ export interface InstructorMonthlyReport {
   summaryTotalFixedSalaries: number;
   summaryTotalPayment: number;
   summaryTotalExpenses: number;
+  summaryTotalFixedAdditions: number; // per-instructor fixed monthly additions (תוספות קבועות)
   summaryGrandTotal: number;
   unresolvedMeetings: UnresolvedMeeting[]; // meetings still "scheduled" after the month ended
 }
@@ -249,6 +261,16 @@ const FIXED_MANAGEMENT_INSTRUCTOR_MATCHERS = [
 const isFixedManagementInstructor = (name: string) =>
   FIXED_MANAGEMENT_INSTRUCTOR_MATCHERS.some((matcher) => name.includes(matcher));
 
+export const MANUAL_PAYMENT_NOTE = 'סכום מתוקן ידנית';
+const MANUAL_OVERRIDE_TOLERANCE = 1; // ₪ — absorbs rounding differences
+
+/**
+ * A meeting's stored instructorPayment is treated as a manual correction when it differs
+ * from what calculateInstructorPayment() would store today by more than ₪1.
+ */
+export const isManualPaymentOverride = (stored: number, expected: number): boolean =>
+  Math.abs(stored - expected) > MANUAL_OVERRIDE_TOLERANCE;
+
 // ─── Main service ─────────────────────────────────────────────────────────────
 
 /**
@@ -327,6 +349,25 @@ export async function buildInstructorMonthlyReport(
     cycleExpensesByInstructor.set(insId, entry);
   }
 
+  // 1c. Fixed monthly additions (תוספות קבועות) active in this month:
+  // startMonth <= M and (endMonth is null or endMonth >= M), not soft-deleted.
+  const fixedAdditionsRaw = await prisma.instructorFixedAddition.findMany({
+    where: activeFixedAdditionsWhere(from),
+    include: { instructor: true },
+    orderBy: [{ startMonth: 'asc' }, { createdAt: 'asc' }],
+  });
+  const fixedAdditionsByInstructor = new Map<string, { instructor: typeof fixedAdditionsRaw[number]['instructor']; items: FixedAdditionReportItem[] }>();
+  for (const a of fixedAdditionsRaw) {
+    const entry = fixedAdditionsByInstructor.get(a.instructorId) ?? { instructor: a.instructor, items: [] };
+    entry.items.push(toFixedAdditionReportItem(a));
+    fixedAdditionsByInstructor.set(a.instructorId, entry);
+  }
+  const takeFixedAdditions = (instructorId: string) => {
+    const items = fixedAdditionsByInstructor.get(instructorId)?.items ?? [];
+    fixedAdditionsByInstructor.delete(instructorId); // mark as handled
+    return { fixedAdditions: items, fixedAdditionsTotal: items.reduce((s, a) => s + a.amount, 0) };
+  };
+
   // 2. Group by instructor
   const byInstructor = new Map<string, typeof meetings>();
   for (const mtg of meetings) {
@@ -352,11 +393,12 @@ export async function buildInstructorMonthlyReport(
     // Payment column reports BASE pay (hours × hourlyRate), without the 1.3 employer-cost
     // multiplier that the stored instructorPayment carries for employees. We sum *unrounded*
     // values across all activity types and floor once at the end (matches accounting convention).
-    type ActAgg = { hours: number; rate: number | null; label: string; rawType: string | null; unroundedSubtotal: number };
+    type ActAgg = { hours: number; rate: number | null; label: string; rawType: string | null; unroundedSubtotal: number; manualOverrides: number };
     const actAgg = new Map<string, ActAgg>();
     const perMeetingUnrounded = new Map<string, number>(); // meetingId -> unrounded base share
     const perMeetingNote = new Map<string, string | null>();
     const perMeetingRate = new Map<string, number | null>();
+    const perMeetingOverride = new Set<string>();
     const dailyPaymentKeys = new Set<string>();
 
     for (const mtg of mtgs) {
@@ -388,6 +430,7 @@ export async function buildInstructorMonthlyReport(
           label: 'יומי גלובלי',
           rawType: dailyAggKey,
           unroundedSubtotal: 0,
+          manualOverrides: 0,
         };
         existing.hours += durationHours;
         existing.unroundedSubtotal += unroundedShare;
@@ -396,16 +439,38 @@ export async function buildInstructorMonthlyReport(
       }
 
       // Per-meeting unrounded base: hours × rate when rate known; otherwise fallback (stored ÷ 1.3 for employees, stored as-is for freelancers).
-      const unroundedShare = (hourlyRate != null && durationHours > 0)
-        ? hourlyRate * durationHours
-        : (isEmployee ? stored / 1.3 : stored);
+      // Manual corrections win: when the stored instructorPayment differs from what the system
+      // would calculate for this meeting today, someone corrected it by hand — use the stored
+      // amount (as base pay) instead of hours × rate.
+      const storedBase = isEmployee ? stored / 1.3 : stored;
+      let unroundedShare = storedBase;
+      let note: string | null = null;
+      let rate: number | null = hourlyRate;
+      let isOverride = false;
+      if (hourlyRate != null && durationHours > 0) {
+        const expectedStored = calculateInstructorPayment(cycle, instr, {
+          instructorId: mtg.instructorId,
+          startTime: mtg.startTime,
+          endTime: mtg.endTime,
+          activityType: mtg.activityType,
+        });
+        if (isManualPaymentOverride(stored, expectedStored)) {
+          isOverride = true;
+          note = MANUAL_PAYMENT_NOTE;
+          rate = Math.round((storedBase / durationHours) * 100) / 100; // effective rate
+        } else {
+          unroundedShare = hourlyRate * durationHours;
+        }
+      }
       perMeetingUnrounded.set(mtg.id, unroundedShare);
-      perMeetingNote.set(mtg.id, null);
-      perMeetingRate.set(mtg.id, hourlyRate);
+      perMeetingNote.set(mtg.id, note);
+      perMeetingRate.set(mtg.id, rate);
+      if (isOverride) perMeetingOverride.add(mtg.id);
 
-      const existing = actAgg.get(key) ?? { hours: 0, rate: hourlyRate, label: activityLabel(rawType), rawType, unroundedSubtotal: 0 };
+      const existing = actAgg.get(key) ?? { hours: 0, rate: hourlyRate, label: activityLabel(rawType), rawType, unroundedSubtotal: 0, manualOverrides: 0 };
       existing.hours += durationHours;
       existing.unroundedSubtotal += unroundedShare;
+      if (isOverride) existing.manualOverrides += 1;
       actAgg.set(key, existing);
     }
 
@@ -460,6 +525,7 @@ export async function buildInstructorMonthlyReport(
         topic:             mtg.topic ?? null,
         hourlyRate:        perMeetingRate.has(mtg.id) ? (perMeetingRate.get(mtg.id) ?? null) : getHourlyRate(instr, rawType),
         paymentNote:       perMeetingNote.get(mtg.id) ?? null,
+        manualPaymentOverride: perMeetingOverride.has(mtg.id),
         instructorPayment: basePayment,
         expenses,
         totalExpenses,
@@ -478,6 +544,7 @@ export async function buildInstructorMonthlyReport(
         hours:           parseFloat(val.hours.toFixed(2)),
         hourlyRate:      val.rate,
         subtotal:        Math.floor(val.unroundedSubtotal),
+        manualOverrides: val.manualOverrides,
       }))
       .sort((a, b) => b.subtotal - a.subtotal);
 
@@ -490,6 +557,7 @@ export async function buildInstructorMonthlyReport(
     const totalCycleExpenses = approvedCycle.reduce((s, e) => s + e.amount, 0);
     const pendingCycleExpensesTotal = pendingCycle.reduce((s, e) => s + e.amount, 0);
     const combinedExpenses = totalExpenses + totalCycleExpenses;
+    const { fixedAdditions, fixedAdditionsTotal } = takeFixedAdditions(instructorId);
 
     // Distinct activity days (one per calendar day with at least one completed meeting).
     const workDays = new Set(mtgs.map(mtg => dateKey(mtg.scheduledDate))).size;
@@ -529,7 +597,9 @@ export async function buildInstructorMonthlyReport(
       totalExpenses:   combinedExpenses,
       totalCycleExpenses,
       pendingCycleExpensesTotal,
-      grandTotal:      totalPayment + combinedExpenses,
+      fixedAdditions,
+      fixedAdditionsTotal,
+      grandTotal:      totalPayment + combinedExpenses + fixedAdditionsTotal,
       workDays,
       frontalHours:    frontalAgg?.hours ?? 0,
       frontalPayment:  frontalAgg?.subtotal ?? 0,
@@ -540,14 +610,16 @@ export async function buildInstructorMonthlyReport(
     });
   }
 
-  // 3b. Instructors with cycle expenses this month but no completed meetings — add minimal entries
-  // so their payable amount still appears in the report.
-  for (const [instructorId, entry] of cycleExpensesByInstructor) {
-    const instr = entry.instructor;
+  // 3b. Instructors with cycle expenses and/or fixed monthly additions this month but no
+  // completed meetings — add minimal entries so their payable amount still appears in the report.
+  const remainingIds = new Set<string>([...cycleExpensesByInstructor.keys(), ...fixedAdditionsByInstructor.keys()]);
+  for (const instructorId of remainingIds) {
+    const entry = cycleExpensesByInstructor.get(instructorId);
+    const instr = entry?.instructor ?? fixedAdditionsByInstructor.get(instructorId)?.instructor;
     if (!instr) continue;
     if (isFixedManagementInstructor(instr.name)) continue;
 
-    const cycleExpenseDetails = entry.expenses.map(toCycleExpenseDetail);
+    const cycleExpenseDetails = (entry?.expenses ?? []).map(toCycleExpenseDetail);
     const approvedCycle = cycleExpenseDetails.filter(e => e.status === 'approved');
     const pendingCycle  = cycleExpenseDetails.filter(e => e.status === 'pending');
     const totalCycleExpenses = approvedCycle.reduce((s, e) => s + e.amount, 0);
@@ -555,6 +627,7 @@ export async function buildInstructorMonthlyReport(
     const travelTotal = approvedCycle
       .filter(e => TRAVEL_CYCLE_EXPENSE_TYPES.has(e.type))
       .reduce((s, e) => s + e.amount, 0);
+    const { fixedAdditions, fixedAdditionsTotal } = takeFixedAdditions(instructorId);
 
     instructors.push({
       instructorId,
@@ -571,7 +644,9 @@ export async function buildInstructorMonthlyReport(
       totalExpenses:   totalCycleExpenses,
       totalCycleExpenses,
       pendingCycleExpensesTotal,
-      grandTotal:      totalCycleExpenses,
+      fixedAdditions,
+      fixedAdditionsTotal,
+      grandTotal:      totalCycleExpenses + fixedAdditionsTotal,
       workDays:        0,
       frontalHours:    0,
       frontalPayment:  0,
@@ -628,6 +703,7 @@ export async function buildInstructorMonthlyReport(
   const summaryTotalFixedSalaries = fixedManagementSalaries.reduce((s, i) => s + i.amount, 0);
   const summaryTotalPayment  = instructors.reduce((s, i) => s + i.totalPayment, 0);
   const summaryTotalExpenses = instructors.reduce((s, i) => s + i.totalExpenses, 0);
+  const summaryTotalFixedAdditions = instructors.reduce((s, i) => s + i.fixedAdditionsTotal, 0);
 
   // 5. Unresolved meetings — scheduled but date has passed (still in the report month)
   const unresolvedRaw = await prisma.meeting.findMany({
@@ -664,7 +740,8 @@ export async function buildInstructorMonthlyReport(
     summaryTotalFixedSalaries,
     summaryTotalPayment,
     summaryTotalExpenses,
-    summaryGrandTotal: summaryTotalPayment + summaryTotalExpenses + summaryTotalFixedSalaries + summaryTotalOperationsPayment,
+    summaryTotalFixedAdditions,
+    summaryGrandTotal: summaryTotalPayment + summaryTotalExpenses + summaryTotalFixedAdditions + summaryTotalFixedSalaries + summaryTotalOperationsPayment,
     unresolvedMeetings,
   };
 }

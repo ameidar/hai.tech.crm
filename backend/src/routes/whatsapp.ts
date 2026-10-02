@@ -20,6 +20,7 @@ import { handleStatusReply, parseInstructorStatusReply } from '../services/whats
 import { addWaSseClient, broadcastWaSSE as broadcastSSE, removeWaSseClient } from '../services/wa-events.js';
 import { sanitizeLeadEmail, shouldSendPromisedEmailAlert } from '../utils/wa-lead-extraction.js';
 import { applyJevRouting, getJevMode } from '../services/jev-intent.js';
+import { extractInboundText } from '../utils/wa-inbound-text.js';
 
 const router = Router();
 
@@ -932,10 +933,11 @@ router.post('/webhook', async (req: Request, res: Response) => {
         const bizPhoneNumberId = value.metadata?.phone_number_id;
 
         for (const msg of value.messages || []) {
-          if (msg.type !== 'text') continue; // Only text for now
+          // Text, plus quick-reply button taps (template buttons / interactive replies).
+          const text = extractInboundText(msg);
+          if (text === null) continue;
 
           const phone = msg.from;
-          const text = msg.text?.body || '';
           const waMessageId = msg.id;
           const rawContactName = value.contacts?.[0]?.profile?.name;
           const referralContext = extractReferralContext(msg);

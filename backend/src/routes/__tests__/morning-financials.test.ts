@@ -27,6 +27,9 @@ vi.mock('../../utils/prodPrisma.js', () => ({
     institutionalOrder: {
       findMany: vi.fn(),
     },
+    instructorFixedAddition: {
+      findMany: vi.fn(async () => []),
+    },
   },
 }));
 

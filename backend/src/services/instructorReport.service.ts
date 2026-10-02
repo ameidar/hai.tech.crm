@@ -1,5 +1,12 @@
 import { prisma } from '../utils/prisma.js';
 import { usesDailyInstructorPayment } from './instructor-payment.js';
+import {
+  activeFixedAdditionsWhere,
+  toFixedAdditionReportItem,
+  type FixedAdditionReportItem,
+} from './instructor-fixed-additions.js';
+
+export type { FixedAdditionReportItem } from './instructor-fixed-additions.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -69,7 +76,9 @@ export interface InstructorReportData {
   totalExpenses: number; // meeting expenses + approved cycle expenses
   totalCycleExpenses: number; // approved cycle expenses only
   pendingCycleExpensesTotal: number; // pending cycle expenses (not included in grandTotal)
-  grandTotal: number;
+  fixedAdditions: FixedAdditionReportItem[]; // recurring fixed monthly additions active this month (e.g. ריכוז)
+  fixedAdditionsTotal: number; // sum of fixedAdditions amounts (as entered — net and gross mixed, no ×1.3)
+  grandTotal: number; // totalPayment + totalExpenses + fixedAdditionsTotal
   workDays: number;       // distinct activity days this month (one per day, online + frontal combined)
   frontalHours: number;   // hours billed at the frontal rate
   frontalPayment: number; // base payment for frontal-rate activity
@@ -126,6 +135,7 @@ export interface InstructorMonthlyReport {
   summaryTotalFixedSalaries: number;
   summaryTotalPayment: number;
   summaryTotalExpenses: number;
+  summaryTotalFixedAdditions: number; // per-instructor fixed monthly additions (תוספות קבועות)
   summaryGrandTotal: number;
   unresolvedMeetings: UnresolvedMeeting[]; // meetings still "scheduled" after the month ended
 }
@@ -327,6 +337,25 @@ export async function buildInstructorMonthlyReport(
     cycleExpensesByInstructor.set(insId, entry);
   }
 
+  // 1c. Fixed monthly additions (תוספות קבועות) active in this month:
+  // startMonth <= M and (endMonth is null or endMonth >= M), not soft-deleted.
+  const fixedAdditionsRaw = await prisma.instructorFixedAddition.findMany({
+    where: activeFixedAdditionsWhere(from),
+    include: { instructor: true },
+    orderBy: [{ startMonth: 'asc' }, { createdAt: 'asc' }],
+  });
+  const fixedAdditionsByInstructor = new Map<string, { instructor: typeof fixedAdditionsRaw[number]['instructor']; items: FixedAdditionReportItem[] }>();
+  for (const a of fixedAdditionsRaw) {
+    const entry = fixedAdditionsByInstructor.get(a.instructorId) ?? { instructor: a.instructor, items: [] };
+    entry.items.push(toFixedAdditionReportItem(a));
+    fixedAdditionsByInstructor.set(a.instructorId, entry);
+  }
+  const takeFixedAdditions = (instructorId: string) => {
+    const items = fixedAdditionsByInstructor.get(instructorId)?.items ?? [];
+    fixedAdditionsByInstructor.delete(instructorId); // mark as handled
+    return { fixedAdditions: items, fixedAdditionsTotal: items.reduce((s, a) => s + a.amount, 0) };
+  };
+
   // 2. Group by instructor
   const byInstructor = new Map<string, typeof meetings>();
   for (const mtg of meetings) {
@@ -490,6 +519,7 @@ export async function buildInstructorMonthlyReport(
     const totalCycleExpenses = approvedCycle.reduce((s, e) => s + e.amount, 0);
     const pendingCycleExpensesTotal = pendingCycle.reduce((s, e) => s + e.amount, 0);
     const combinedExpenses = totalExpenses + totalCycleExpenses;
+    const { fixedAdditions, fixedAdditionsTotal } = takeFixedAdditions(instructorId);
 
     // Distinct activity days (one per calendar day with at least one completed meeting).
     const workDays = new Set(mtgs.map(mtg => dateKey(mtg.scheduledDate))).size;
@@ -529,7 +559,9 @@ export async function buildInstructorMonthlyReport(
       totalExpenses:   combinedExpenses,
       totalCycleExpenses,
       pendingCycleExpensesTotal,
-      grandTotal:      totalPayment + combinedExpenses,
+      fixedAdditions,
+      fixedAdditionsTotal,
+      grandTotal:      totalPayment + combinedExpenses + fixedAdditionsTotal,
       workDays,
       frontalHours:    frontalAgg?.hours ?? 0,
       frontalPayment:  frontalAgg?.subtotal ?? 0,
@@ -540,14 +572,16 @@ export async function buildInstructorMonthlyReport(
     });
   }
 
-  // 3b. Instructors with cycle expenses this month but no completed meetings — add minimal entries
-  // so their payable amount still appears in the report.
-  for (const [instructorId, entry] of cycleExpensesByInstructor) {
-    const instr = entry.instructor;
+  // 3b. Instructors with cycle expenses and/or fixed monthly additions this month but no
+  // completed meetings — add minimal entries so their payable amount still appears in the report.
+  const remainingIds = new Set<string>([...cycleExpensesByInstructor.keys(), ...fixedAdditionsByInstructor.keys()]);
+  for (const instructorId of remainingIds) {
+    const entry = cycleExpensesByInstructor.get(instructorId);
+    const instr = entry?.instructor ?? fixedAdditionsByInstructor.get(instructorId)?.instructor;
     if (!instr) continue;
     if (isFixedManagementInstructor(instr.name)) continue;
 
-    const cycleExpenseDetails = entry.expenses.map(toCycleExpenseDetail);
+    const cycleExpenseDetails = (entry?.expenses ?? []).map(toCycleExpenseDetail);
     const approvedCycle = cycleExpenseDetails.filter(e => e.status === 'approved');
     const pendingCycle  = cycleExpenseDetails.filter(e => e.status === 'pending');
     const totalCycleExpenses = approvedCycle.reduce((s, e) => s + e.amount, 0);
@@ -555,6 +589,7 @@ export async function buildInstructorMonthlyReport(
     const travelTotal = approvedCycle
       .filter(e => TRAVEL_CYCLE_EXPENSE_TYPES.has(e.type))
       .reduce((s, e) => s + e.amount, 0);
+    const { fixedAdditions, fixedAdditionsTotal } = takeFixedAdditions(instructorId);
 
     instructors.push({
       instructorId,
@@ -571,7 +606,9 @@ export async function buildInstructorMonthlyReport(
       totalExpenses:   totalCycleExpenses,
       totalCycleExpenses,
       pendingCycleExpensesTotal,
-      grandTotal:      totalCycleExpenses,
+      fixedAdditions,
+      fixedAdditionsTotal,
+      grandTotal:      totalCycleExpenses + fixedAdditionsTotal,
       workDays:        0,
       frontalHours:    0,
       frontalPayment:  0,
@@ -628,6 +665,7 @@ export async function buildInstructorMonthlyReport(
   const summaryTotalFixedSalaries = fixedManagementSalaries.reduce((s, i) => s + i.amount, 0);
   const summaryTotalPayment  = instructors.reduce((s, i) => s + i.totalPayment, 0);
   const summaryTotalExpenses = instructors.reduce((s, i) => s + i.totalExpenses, 0);
+  const summaryTotalFixedAdditions = instructors.reduce((s, i) => s + i.fixedAdditionsTotal, 0);
 
   // 5. Unresolved meetings — scheduled but date has passed (still in the report month)
   const unresolvedRaw = await prisma.meeting.findMany({
@@ -664,7 +702,8 @@ export async function buildInstructorMonthlyReport(
     summaryTotalFixedSalaries,
     summaryTotalPayment,
     summaryTotalExpenses,
-    summaryGrandTotal: summaryTotalPayment + summaryTotalExpenses + summaryTotalFixedSalaries + summaryTotalOperationsPayment,
+    summaryTotalFixedAdditions,
+    summaryGrandTotal: summaryTotalPayment + summaryTotalExpenses + summaryTotalFixedAdditions + summaryTotalFixedSalaries + summaryTotalOperationsPayment,
     unresolvedMeetings,
   };
 }

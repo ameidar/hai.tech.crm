@@ -72,7 +72,7 @@ function buildSummarySheet(
   ws.properties.defaultRowHeight = 22;
 
   // ── Title ──────────────────────────────────────────────────────────────────
-  ws.mergeCells('A1:H1');
+  ws.mergeCells('A1:I1');
   const titleCell = ws.getCell('A1');
   titleCell.value = `דוח פעילות מדריכים — ${report.monthLabel}`;
   titleCell.font  = font({ size: 16, bold: true, color: { argb: 'FF' + HEADER_FG } });
@@ -82,7 +82,7 @@ function buildSummarySheet(
   ws.getRow(1).height = 36;
 
   // ── Sub-title ──────────────────────────────────────────────────────────────
-  ws.mergeCells('A2:H2');
+  ws.mergeCells('A2:I2');
   const sub = ws.getCell('A2');
   sub.value = `הופק: ${report.generatedAt.toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' })}`;
   sub.font  = font({ size: 10, italic: true, color: { argb: 'FF6B7280' } });
@@ -90,7 +90,7 @@ function buildSummarySheet(
   ws.getRow(2).height = 18;
 
   // ── Headers ────────────────────────────────────────────────────────────────
-  const COLS = ['סוג', 'מדריך / תפקיד', 'פגישות', 'שעות', 'תשלום פגישות', 'הוצאות נוספות', 'סה"כ לתשלום'];
+  const COLS = ['סוג', 'מדריך / תפקיד', 'פגישות', 'שעות', 'תשלום פגישות', 'הוצאות נוספות', 'תוספות קבועות', 'סה"כ לתשלום'];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (ws.getRow(3) as any).values = ['', ...COLS]; // col A is spacer
   ws.columns = [
@@ -101,6 +101,7 @@ function buildSummarySheet(
     { key: 'hours',    width: 10 },
     { key: 'payment',  width: 18 },
     { key: 'expenses', width: 18 },
+    { key: 'fixedAdd', width: 18 },
     { key: 'total',    width: 18 },
   ];
   const headerRow = ws.getRow(3);
@@ -117,7 +118,7 @@ function buildSummarySheet(
   let row = 4;
 
   const addSectionTitle = (title: string, count: number) => {
-    ws.mergeCells(`B${row}:H${row}`);
+    ws.mergeCells(`B${row}:I${row}`);
     const r = ws.getRow(row++);
     r.height = 24;
     r.getCell(2).value = `${title} (${count})`;
@@ -137,6 +138,7 @@ function buildSummarySheet(
       instr.totalHours,
       instr.totalPayment,
       instr.totalExpenses,
+      instr.fixedAdditionsTotal ?? 0,
       instr.grandTotal,
     ];
     r.height = 22;
@@ -146,7 +148,7 @@ function buildSummarySheet(
       r.getCell(c).numFmt    = hoursFmt;
       r.getCell(c).alignment = { ...center };
     });
-    [6, 7, 8].forEach(c => {
+    [6, 7, 8, 9].forEach(c => {
       r.getCell(c).numFmt    = moneyFmt;
       r.getCell(c).alignment = { ...center };
     });
@@ -172,10 +174,10 @@ function buildSummarySheet(
   addSectionTitle('שכר קבוע הנהלה', report.fixedManagementSalaries.length);
   for (const item of report.fixedManagementSalaries) {
     const r = ws.getRow(row++);
-    r.values = ['', 'שכר קבוע', `${item.name} — ${item.role}`, '', '', item.amount, '', item.amount];
+    r.values = ['', 'שכר קבוע', `${item.name} — ${item.role}`, '', '', item.amount, '', '', item.amount];
     r.height = 22;
     r.getCell(3).font = font({ bold: true });
-    [6, 8].forEach(c => {
+    [6, 9].forEach(c => {
       r.getCell(c).numFmt    = moneyFmt;
       r.getCell(c).alignment = { ...center };
     });
@@ -196,10 +198,11 @@ function buildSummarySheet(
   totalRow.getCell(2).alignment = { ...center };
   totalRow.getCell(2).border    = thickBorder;
 
-  [6, 7, 8].forEach((col, i) => {
+  [6, 7, 8, 9].forEach((col, i) => {
     const vals = [
       report.summaryTotalPayment + report.summaryTotalFixedSalaries,
       report.summaryTotalExpenses,
+      report.summaryTotalFixedAdditions ?? 0,
       report.summaryGrandTotal,
     ];
     totalRow.getCell(col).value     = vals[i];
@@ -512,6 +515,43 @@ function buildInstructorSheet(
   renderCycleExpenseBlock('הוצאות מחזור — שולם החודש (לפי תאריך תשלום)', instr.cycleExpenses ?? [], '065F46', 'D1FAE5');
   renderCycleExpenseBlock('הוצאות מחזור — ממתין לאישור מנהל (לא נכלל בסה"כ)', instr.pendingCycleExpenses ?? [], '92400E', 'FEF3C7');
 
+  // ── Fixed monthly additions (תוספות קבועות) ────────────────────────────────
+  const fixedAdditions = instr.fixedAdditions ?? [];
+  if (fixedAdditions.length > 0) {
+    ws.mergeCells(`A${rowIdx}:M${rowIdx}`);
+    const tr = ws.getRow(rowIdx++);
+    tr.height = 22;
+    tr.getCell(1).value = 'תוספות קבועות (סכום כפי שהוזן — נטו/ברוטו, ללא עלות מעסיק)';
+    tr.getCell(1).font = font({ bold: true, color: { argb: 'FF5B21B6' } });
+    tr.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEDE9FE' } };
+    tr.getCell(1).alignment = { ...center };
+    tr.getCell(1).border = border;
+
+    for (const add of fixedAdditions) {
+      const r = ws.getRow(rowIdx++);
+      r.values = [
+        'תוספת קבועה',                                         // 1
+        '', '', '',                                           // 2-4
+        add.description,                                      // 5
+        add.netLabel,                                         // 6 נטו / ברוטו
+        '', '', '',                                           // 7-9
+        add.endMonth ? `עד ${add.endMonth}` : 'ללא הגבלה',    // 10
+        '',                                                   // 11
+        '',                                                   // 12
+        add.amount,                                           // 13 total
+      ];
+      r.height = 20;
+      r.eachCell({ includeEmpty: false }, (cell, col) => {
+        cell.border = border;
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F3FF' } };
+        cell.alignment = { ...right };
+        if (col === 6) { cell.font = font({ bold: true, color: { argb: add.isNet ? 'FF047857' : 'FFB45309' } }); cell.alignment = { ...center }; }
+        if (col === 10) { cell.alignment = { ...center }; }
+        if (col === 13) { cell.numFmt = moneyFmt; cell.alignment = { ...center }; }
+      });
+    }
+  }
+
   // ── Totals row ─────────────────────────────────────────────────────────────
   ws.mergeCells(`A${rowIdx}:J${rowIdx}`);
   const totalsRow = ws.getRow(rowIdx);
@@ -687,7 +727,7 @@ export async function generateAccountingReportExcel(
   const ws = wb.addWorksheet('הנהלת חשבונות', { views: [{ rightToLeft: true }] });
   ws.properties.defaultRowHeight = 22;
 
-  const LAST_COL = 'I';
+  const LAST_COL = 'L';
 
   // ── Title ──────────────────────────────────────────────────────────────────
   ws.mergeCells(`A1:${LAST_COL}1`);
@@ -717,6 +757,9 @@ export async function generateAccountingReportExcel(
     'סכום שעתי תעריף אונליין',
     'סך הכל נסיעות',
     'הוצאות נוספות',
+    'תוספות קבועות — נטו (יש לגלגל לברוטו)',
+    'תוספות קבועות — ברוטו',
+    'פירוט תוספות קבועות',
     'סך הכל לתשלום',
   ];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -730,6 +773,9 @@ export async function generateAccountingReportExcel(
     { key: 'onlinePayment',  width: 16 },
     { key: 'travel',         width: 14 },
     { key: 'otherExpenses',  width: 14 },
+    { key: 'fixedNet',       width: 18 },
+    { key: 'fixedGross',     width: 16 },
+    { key: 'fixedDetails',   width: 34 },
     { key: 'total',          width: 16 },
   ];
   const headerRow = ws.getRow(3);
@@ -742,6 +788,12 @@ export async function generateAccountingReportExcel(
   });
 
   // ── Data rows (hourly employees only) ────────────────────────────────────────
+  type ReportInstr = InstructorMonthlyReport['instructors'][number];
+  const fixedNet = (i: ReportInstr) => (i.fixedAdditions ?? []).filter(a => a.isNet).reduce((s, a) => s + a.amount, 0);
+  const fixedGross = (i: ReportInstr) => (i.fixedAdditions ?? []).filter(a => !a.isNet).reduce((s, a) => s + a.amount, 0);
+  const fixedDetails = (i: ReportInstr) => (i.fixedAdditions ?? [])
+    .map(a => `${a.description}: ₪${a.amount.toLocaleString('he-IL')} ${a.netLabel}`)
+    .join('\n');
   const employees = report.instructors.filter(i => i.employmentType === 'employee');
   let row = 4;
   for (const instr of employees) {
@@ -755,17 +807,21 @@ export async function generateAccountingReportExcel(
       instr.onlinePayment,
       instr.travelTotal,
       instr.otherExpenses,
+      fixedNet(instr),
+      fixedGross(instr),
+      fixedDetails(instr),
       instr.grandTotal,
     ];
     r.height = 22;
     r.getCell(1).font = font({ bold: true });
     r.getCell(1).alignment = { ...right };
     r.getCell(2).alignment = { ...center };
+    r.getCell(11).alignment = { ...right, wrapText: true };
     [3, 5].forEach(c => {
       r.getCell(c).numFmt    = hoursFmt;
       r.getCell(c).alignment = { ...center };
     });
-    [4, 6, 7, 8, 9].forEach(c => {
+    [4, 6, 7, 8, 9, 10, 12].forEach(c => {
       r.getCell(c).numFmt    = moneyFmt;
       r.getCell(c).alignment = { ...center };
     });
@@ -799,7 +855,9 @@ export async function generateAccountingReportExcel(
     { col: 6, value: sum(i => i.onlinePayment),  fmt: moneyFmt },
     { col: 7, value: sum(i => i.travelTotal),    fmt: moneyFmt },
     { col: 8, value: sum(i => i.otherExpenses),  fmt: moneyFmt },
-    { col: 9, value: sum(i => i.grandTotal),     fmt: moneyFmt },
+    { col: 9, value: sum(fixedNet),              fmt: moneyFmt },
+    { col: 10, value: sum(fixedGross),           fmt: moneyFmt },
+    { col: 12, value: sum(i => i.grandTotal),    fmt: moneyFmt },
   ];
   for (const { col, value, fmt } of totals) {
     totalRow.getCell(col).value     = value;
@@ -808,6 +866,20 @@ export async function generateAccountingReportExcel(
     totalRow.getCell(col).fill      = headerFill(GRAND_BG);
     totalRow.getCell(col).alignment = { ...center };
     totalRow.getCell(col).border    = thickBorder;
+  }
+  totalRow.getCell(11).fill   = headerFill(GRAND_BG);
+  totalRow.getCell(11).border = thickBorder;
+
+  // ── Note for the bookkeeper about net fixed additions ──────────────────────
+  if (employees.some(i => (i.fixedAdditions ?? []).length > 0)) {
+    const noteRow = row + 2;
+    ws.mergeCells(`A${noteRow}:${LAST_COL}${noteRow}`);
+    const note = ws.getCell(`A${noteRow}`);
+    note.value = 'שימו לב: "תוספות קבועות — נטו" הן סכומי נטו לתשלום לעובד ויש לגלגל אותם לברוטו בתלוש. "סך הכל לתשלום" כולל את סכומי התוספות כפי שהוזנו (נטו/ברוטו).';
+    note.font = font({ size: 10, bold: true, color: { argb: 'FF92400E' } });
+    note.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+    note.alignment = { ...right, wrapText: true };
+    ws.getRow(noteRow).height = 36;
   }
 
   const buf = await wb.xlsx.writeBuffer();

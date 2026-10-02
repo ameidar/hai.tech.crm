@@ -54,6 +54,16 @@ interface CycleExpenseDetail {
   cycleName: string;
 }
 
+interface FixedAdditionDetail {
+  id: string;
+  description: string;
+  amount: number;
+  isNet: boolean;
+  netLabel: string;
+  startMonth: string;
+  endMonth: string | null;
+}
+
 interface InstructorReportSummary {
   instructorName: string;
   employmentType?: 'employee' | 'freelancer' | string | null;
@@ -63,6 +73,8 @@ interface InstructorReportSummary {
   totalExpenses: number;
   totalCycleExpenses?: number;
   pendingCycleExpensesTotal?: number;
+  fixedAdditions?: FixedAdditionDetail[];
+  fixedAdditionsTotal?: number;
   grandTotal: number;
   meetings?: MeetingDetail[];
   byActivityType?: ActivityTypeSummary[];
@@ -99,7 +111,7 @@ function InstructorReportTab() {
   const [months, setMonths] = useState<MonthOption[]>([]);
   const [selectedMonth, setSelectedMonth] = useState('');
   const [loadingMonths, setLoadingMonths] = useState(false);
-  const [report, setReport] = useState<{ monthLabel: string; instructors: InstructorReportSummary[]; operationsStaff?: OperationsStaffSummary[]; summaryTotalOperationsPayment?: number; fixedManagementSalaries?: FixedManagementSalary[]; summaryTotalFixedSalaries?: number; summaryTotalPayment: number; summaryTotalExpenses: number; summaryGrandTotal: number; unresolvedMeetings: UnresolvedMeeting[] } | null>(null);
+  const [report, setReport] = useState<{ monthLabel: string; instructors: InstructorReportSummary[]; operationsStaff?: OperationsStaffSummary[]; summaryTotalOperationsPayment?: number; fixedManagementSalaries?: FixedManagementSalary[]; summaryTotalFixedSalaries?: number; summaryTotalPayment: number; summaryTotalExpenses: number; summaryTotalFixedAdditions?: number; summaryGrandTotal: number; unresolvedMeetings: UnresolvedMeeting[] } | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
   const [sending, setSending] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -138,6 +150,7 @@ function InstructorReportTab() {
         <td className="p-3 text-center text-gray-700">{instr.totalHours.toFixed(1)}</td>
         <td className="p-3 text-center text-gray-700">₪{instr.totalPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
         <td className="p-3 text-center text-gray-500 text-sm">{instr.totalExpenses > 0 ? `₪${instr.totalExpenses.toLocaleString('he-IL', { minimumFractionDigits: 2 })}` : '—'}</td>
+        <td className="p-3 text-center text-violet-700 text-sm">{(instr.fixedAdditionsTotal ?? 0) > 0 ? `₪${(instr.fixedAdditionsTotal ?? 0).toLocaleString('he-IL', { minimumFractionDigits: 2 })}` : '—'}</td>
         <td className="p-3 text-center font-bold text-blue-700">₪{instr.grandTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
       </tr>
     );
@@ -146,7 +159,7 @@ function InstructorReportTab() {
   const renderInstructorSection = (title: string, items: InstructorReportSummary[], tone: 'blue' | 'emerald') => (
     <>
       <tr className={tone === 'blue' ? 'bg-blue-50' : 'bg-emerald-50'}>
-        <td colSpan={7} className={`p-3 font-bold ${tone === 'blue' ? 'text-blue-900' : 'text-emerald-900'}`}>
+        <td colSpan={8} className={`p-3 font-bold ${tone === 'blue' ? 'text-blue-900' : 'text-emerald-900'}`}>
           {title} ({items.length}) · סה"כ ₪{sumGrandTotal(items).toLocaleString('he-IL', { minimumFractionDigits: 2 })}
         </td>
       </tr>
@@ -343,6 +356,7 @@ function InstructorReportTab() {
                     <th className="text-center p-3 font-medium text-gray-600 text-sm">שעות</th>
                     <th className="text-center p-3 font-medium text-gray-600 text-sm">תשלום</th>
                     <th className="text-center p-3 font-medium text-gray-600 text-sm">הוצאות נוספות</th>
+                    <th className="text-center p-3 font-medium text-gray-600 text-sm">תוספות קבועות</th>
                     <th className="text-center p-3 font-medium text-gray-600 text-sm font-bold">סה"כ לתשלום</th>
                   </tr>
                 </thead>
@@ -352,7 +366,7 @@ function InstructorReportTab() {
                   {fixedManagementSalaries.length > 0 && (
                     <>
                       <tr className="bg-purple-50 border-t">
-                        <td colSpan={7} className="p-3 font-bold text-purple-900">
+                        <td colSpan={8} className="p-3 font-bold text-purple-900">
                           שכר קבוע הנהלה ({fixedManagementSalaries.length}) · סה"כ ₪{(report.summaryTotalFixedSalaries ?? 0).toLocaleString('he-IL', { minimumFractionDigits: 2 })}
                         </td>
                       </tr>
@@ -366,6 +380,7 @@ function InstructorReportTab() {
                           <td className="p-3 text-center text-gray-400">—</td>
                           <td className="p-3 text-center text-gray-700">₪{item.amount.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
                           <td className="p-3 text-center text-gray-400">—</td>
+                          <td className="p-3 text-center text-gray-400">—</td>
                           <td className="p-3 text-center font-bold text-purple-700">₪{item.amount.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
                         </tr>
                       ))}
@@ -374,7 +389,7 @@ function InstructorReportTab() {
                   {(report.operationsStaff?.length ?? 0) > 0 && (
                     <>
                       <tr className="bg-teal-50 border-t">
-                        <td colSpan={7} className="p-3 font-bold text-teal-900">
+                        <td colSpan={8} className="p-3 font-bold text-teal-900">
                           תפעול ({report.operationsStaff!.length}) · סה"כ ₪{(report.summaryTotalOperationsPayment ?? 0).toLocaleString('he-IL', { minimumFractionDigits: 2 })}
                         </td>
                       </tr>
@@ -391,6 +406,7 @@ function InstructorReportTab() {
                           </td>
                           <td className="p-3 text-center text-gray-700">₪{item.approvedPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
                           <td className="p-3 text-center text-gray-400">—</td>
+                          <td className="p-3 text-center text-gray-400">—</td>
                           <td className="p-3 text-center font-bold text-teal-700">₪{item.approvedPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
                         </tr>
                       ))}
@@ -402,6 +418,7 @@ function InstructorReportTab() {
                     <td colSpan={4} className="p-3 font-bold text-blue-900">סה"כ כולל</td>
                     <td className="p-3 text-center font-bold text-blue-900">₪{report.summaryTotalPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
                     <td className="p-3 text-center font-bold text-blue-900">{report.summaryTotalExpenses > 0 ? `₪${report.summaryTotalExpenses.toLocaleString('he-IL', { minimumFractionDigits: 2 })}` : '—'}</td>
+                    <td className="p-3 text-center font-bold text-blue-900">{(report.summaryTotalFixedAdditions ?? 0) > 0 ? `₪${(report.summaryTotalFixedAdditions ?? 0).toLocaleString('he-IL', { minimumFractionDigits: 2 })}` : '—'}</td>
                     <td className="p-3 text-center font-bold text-blue-900 text-lg">₪{report.summaryGrandTotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
                   </tr>
                 </tfoot>
@@ -528,6 +545,41 @@ function InstructorReportTab() {
                 </table>
               ) : (
                 <div className="p-6 text-center text-gray-400 text-sm">אין פרטי פגישות זמינים</div>
+              )}
+
+              {/* Fixed monthly additions (תוספות קבועות) */}
+              {(selectedInstructor.fixedAdditions?.length ?? 0) > 0 && (
+                <div className="p-4 border-t bg-violet-50">
+                  <p className="text-xs font-semibold text-violet-700 mb-2 uppercase tracking-wide">תוספות קבועות — נכללות בסה"כ לתשלום (סכום כפי שהוזן, ללא עלות מעסיק)</p>
+                  <table className="text-sm w-full">
+                    <thead>
+                      <tr className="text-violet-800">
+                        <th className="text-right pb-1 font-semibold">תיאור</th>
+                        <th className="text-center pb-1 font-semibold">נטו/ברוטו</th>
+                        <th className="text-center pb-1 font-semibold">תקופה</th>
+                        <th className="text-center pb-1 font-semibold">סכום</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedInstructor.fixedAdditions!.map((a) => (
+                        <tr key={a.id} className="border-t border-violet-100">
+                          <td className="py-1.5 text-gray-800 font-medium">{a.description}</td>
+                          <td className="py-1.5 text-center">
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${a.isNet ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{a.netLabel}</span>
+                          </td>
+                          <td className="py-1.5 text-center text-gray-600 text-xs" dir="ltr">{a.startMonth} → {a.endMonth ?? '∞'}</td>
+                          <td className="py-1.5 text-center font-bold text-violet-800">₪{a.amount.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="border-t-2 border-violet-200">
+                      <tr>
+                        <td colSpan={3} className="py-1.5 font-bold text-violet-900">סה"כ תוספות קבועות</td>
+                        <td className="py-1.5 text-center font-bold text-violet-900">₪{(selectedInstructor.fixedAdditionsTotal ?? 0).toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
               )}
 
               {/* Cycle expenses (by payment date) */}

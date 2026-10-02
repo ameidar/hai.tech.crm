@@ -10,7 +10,7 @@ vi.mock('../../utils/prisma.js', () => ({
 }));
 
 import { prisma } from '../../utils/prisma.js';
-import { buildInstructorMonthlyReport } from '../instructorReport.service.js';
+import { buildInstructorMonthlyReport, isManualPaymentOverride } from '../instructorReport.service.js';
 
 const mockPrisma = vi.mocked(prisma, true);
 
@@ -126,5 +126,82 @@ describe('buildInstructorMonthlyReport — fixed monthly additions', () => {
     expect(k.fixedAdditions).toEqual([]);
     expect(k.fixedAdditionsTotal).toBe(0);
     expect(k.grandTotal).toBe(200);
+  });
+});
+
+describe('buildInstructorMonthlyReport — manual payment overrides', () => {
+  it('detects overrides with a ₪1 tolerance', () => {
+    expect(isManualPaymentOverride(260, 260)).toBe(false);
+    expect(isManualPaymentOverride(261, 260)).toBe(false);
+    expect(isManualPaymentOverride(262, 260)).toBe(true);
+    expect(isManualPaymentOverride(273, 585)).toBe(true);
+  });
+
+  it('keeps hours × rate when the stored payment matches the calculation', async () => {
+    // employee, 2h × 100 → stored 260 (= 200 × 1.3)
+    setup({ meetings: [meeting({ instructorPayment: 260 })] });
+    const report = await buildInstructorMonthlyReport('2026-09');
+    const m = report.instructors[0].meetings[0];
+    expect(m.instructorPayment).toBe(200);
+    expect(m.hourlyRate).toBe(100);
+    expect(m.manualPaymentOverride).toBe(false);
+    expect(m.paymentNote).toBeNull();
+  });
+
+  it('uses the stored amount ÷ 1.3 for an employee whose payment was corrected (Fadi case)', async () => {
+    const fadi = { ...kim, id: 'fadi', name: 'פאדי אמון', rateFrontal: 150 };
+    // 3h × 150 would store 585; manually corrected to 273 (= 3 × 70 × 1.3)
+    setup({
+      meetings: [meeting({
+        instructorId: 'fadi', instructor: fadi, cycle: cycle({ instructorId: 'fadi' }),
+        startTime: t('16:00'), endTime: t('19:00'), instructorPayment: 273,
+      })],
+    });
+    const report = await buildInstructorMonthlyReport('2026-09');
+    const i = report.instructors[0];
+    expect(i.totalPayment).toBe(210);
+    expect(i.meetings[0]).toMatchObject({
+      instructorPayment: 210, hourlyRate: 70, manualPaymentOverride: true, paymentNote: 'סכום מתוקן ידנית',
+    });
+    expect(i.byActivityType[0]).toMatchObject({ activityTypeRaw: 'frontal', hours: 3, subtotal: 210, manualOverrides: 1 });
+  });
+
+  it('raises the base when stored was corrected upward (Elad case, 3 × 1h meetings)', async () => {
+    const elad = { ...kim, id: 'elad', name: 'אלעד תורגמן', rateFrontal: 90 };
+    const base = { instructorId: 'elad', instructor: elad, cycle: cycle({ instructorId: 'elad' }), instructorPayment: 156 };
+    setup({
+      meetings: [
+        meeting({ ...base, id: 'e1', startTime: t('16:30'), endTime: t('17:30') }),
+        meeting({ ...base, id: 'e2', startTime: t('17:30'), endTime: t('18:30') }),
+        meeting({ ...base, id: 'e3', startTime: t('18:30'), endTime: t('19:30') }),
+      ],
+    });
+    const report = await buildInstructorMonthlyReport('2026-09');
+    const i = report.instructors[0];
+    expect(i.meetings.map((m) => m.instructorPayment)).toEqual([120, 120, 120]);
+    expect(i.meetings.every((m) => m.manualPaymentOverride && m.hourlyRate === 120)).toBe(true);
+    expect(i.totalPayment).toBe(360);
+  });
+
+  it('uses the stored amount as-is for freelancers', async () => {
+    // freelancer 2h × 120 would store 240; corrected to 300
+    setup({ meetings: [meeting({ instructorId: 'dana', instructor: dana, cycle: cycle({ instructorId: 'dana' }), instructorPayment: 300 })] });
+    const report = await buildInstructorMonthlyReport('2026-09');
+    expect(report.instructors[0].meetings[0]).toMatchObject({ instructorPayment: 300, hourlyRate: 150, manualPaymentOverride: true });
+  });
+
+  it('leaves daily-payment cycles untouched', async () => {
+    const dailyCycle = cycle({ instructorPaymentMode: 'daily', instructorDailyRate: 500 });
+    setup({
+      meetings: [
+        meeting({ id: 'd1', cycle: dailyCycle, instructorPayment: 500 }),
+        meeting({ id: 'd2', cycle: dailyCycle, instructorPayment: 0, startTime: t('18:00'), endTime: t('19:00') }),
+      ],
+    });
+    const report = await buildInstructorMonthlyReport('2026-09');
+    const i = report.instructors[0];
+    expect(i.meetings.map((m) => [m.instructorPayment, m.paymentNote, m.manualPaymentOverride]))
+      .toEqual([[500, 'תשלום יומי', false], [0, 'כלול בתשלום יומי', false]]);
+    expect(i.totalPayment).toBe(500);
   });
 });

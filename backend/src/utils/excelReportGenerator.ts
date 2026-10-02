@@ -250,7 +250,9 @@ function buildRatesBlock(
   for (const at of byActivityType) {
     const dr   = ws.getRow(r);
     const calc = (at.hourlyRate != null)
-      ? `${at.hours.toFixed(2)} × ₪${at.hourlyRate} = ₪${(at.hours * at.hourlyRate).toFixed(2)}`
+      ? (at.manualOverrides
+        ? `${at.hours.toFixed(2)} × ₪${at.hourlyRate}, כולל ${at.manualOverrides} פגישות בסכום מתוקן ידנית`
+        : `${at.hours.toFixed(2)} × ₪${at.hourlyRate} = ₪${(at.hours * at.hourlyRate).toFixed(2)}`)
       : '—';
     dr.values  = [at.activityType, at.hours, at.hourlyRate ?? '—', calc, at.subtotal, '', '', '', '', ''];
     dr.height  = 20;

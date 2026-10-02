@@ -27,6 +27,8 @@ interface MeetingDetail {
   activityTypeRaw: string | null;
   topic: string | null;
   hourlyRate: number | null;
+  paymentNote?: string | null;
+  manualPaymentOverride?: boolean;
   instructorPayment: number;
   expenses: MeetingExpenseDetail[];
   totalExpenses: number;
@@ -39,6 +41,7 @@ interface ActivityTypeSummary {
   hours: number;
   hourlyRate: number | null;
   subtotal: number;
+  manualOverrides?: number;
 }
 
 interface CycleExpenseDetail {
@@ -466,7 +469,9 @@ function InstructorReportTab() {
                           </td>
                           <td className="py-1.5 px-4 text-center text-xs text-gray-500">
                             {at.hourlyRate != null
-                              ? `${at.hours.toFixed(2)} × ₪${at.hourlyRate} = ₪${(at.hours * at.hourlyRate).toLocaleString('he-IL', { minimumFractionDigits: 2 })}`
+                              ? (at.manualOverrides
+                                ? `${at.hours.toFixed(2)} × ₪${at.hourlyRate}, כולל ${at.manualOverrides} פגישות בסכום מתוקן ידנית`
+                                : `${at.hours.toFixed(2)} × ₪${at.hourlyRate} = ₪${(at.hours * at.hourlyRate).toLocaleString('he-IL', { minimumFractionDigits: 2 })}`)
                               : '—'}
                           </td>
                           <td className="py-1.5 text-center font-bold text-indigo-700">₪{at.subtotal.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
@@ -515,7 +520,12 @@ function InstructorReportTab() {
                         <td className="p-2.5 text-center text-indigo-600 font-medium text-xs">
                           {mtg.hourlyRate != null ? `₪${mtg.hourlyRate}` : '—'}
                         </td>
-                        <td className="p-2.5 text-center text-gray-700">₪{mtg.instructorPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</td>
+                        <td className="p-2.5 text-center text-gray-700">
+                          ₪{mtg.instructorPayment.toLocaleString('he-IL', { minimumFractionDigits: 2 })}
+                          {mtg.paymentNote && (
+                            <div className={`text-[11px] ${mtg.manualPaymentOverride ? 'text-amber-700 font-semibold' : 'text-gray-400'}`}>{mtg.paymentNote}</div>
+                          )}
+                        </td>
                         <td className="p-2.5 text-center">
                           {mtg.expenses.length > 0 ? (
                             <div className="space-y-0.5">

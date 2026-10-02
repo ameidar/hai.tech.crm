@@ -1,5 +1,5 @@
 import { prisma } from '../utils/prisma.js';
-import { usesDailyInstructorPayment } from './instructor-payment.js';
+import { calculateInstructorPayment, usesDailyInstructorPayment } from './instructor-payment.js';
 import {
   activeFixedAdditionsWhere,
   toFixedAdditionReportItem,
@@ -30,8 +30,9 @@ export interface MeetingDetail {
   activityType: string | null;
   activityTypeRaw: string | null; // raw enum value: frontal/online/private
   topic: string | null;
-  hourlyRate: number | null; // instructor's rate for this activity type
+  hourlyRate: number | null; // instructor's rate for this activity type (effective rate for manual overrides)
   paymentNote: string | null;
+  manualPaymentOverride: boolean; // stored instructorPayment was manually corrected — report uses it
   instructorPayment: number;
   expenses: MeetingExpenseDetail[];
   totalExpenses: number;
@@ -59,6 +60,7 @@ export interface ActivityTypeSummary {
   hours: number;
   hourlyRate: number | null;
   subtotal: number; // sum of instructorPayment for meetings of this type
+  manualOverrides: number; // meetings in this bucket paid by a manually corrected amount (not hours × rate)
 }
 
 export interface InstructorReportData {
@@ -259,6 +261,16 @@ const FIXED_MANAGEMENT_INSTRUCTOR_MATCHERS = [
 const isFixedManagementInstructor = (name: string) =>
   FIXED_MANAGEMENT_INSTRUCTOR_MATCHERS.some((matcher) => name.includes(matcher));
 
+export const MANUAL_PAYMENT_NOTE = 'סכום מתוקן ידנית';
+const MANUAL_OVERRIDE_TOLERANCE = 1; // ₪ — absorbs rounding differences
+
+/**
+ * A meeting's stored instructorPayment is treated as a manual correction when it differs
+ * from what calculateInstructorPayment() would store today by more than ₪1.
+ */
+export const isManualPaymentOverride = (stored: number, expected: number): boolean =>
+  Math.abs(stored - expected) > MANUAL_OVERRIDE_TOLERANCE;
+
 // ─── Main service ─────────────────────────────────────────────────────────────
 
 /**
@@ -381,11 +393,12 @@ export async function buildInstructorMonthlyReport(
     // Payment column reports BASE pay (hours × hourlyRate), without the 1.3 employer-cost
     // multiplier that the stored instructorPayment carries for employees. We sum *unrounded*
     // values across all activity types and floor once at the end (matches accounting convention).
-    type ActAgg = { hours: number; rate: number | null; label: string; rawType: string | null; unroundedSubtotal: number };
+    type ActAgg = { hours: number; rate: number | null; label: string; rawType: string | null; unroundedSubtotal: number; manualOverrides: number };
     const actAgg = new Map<string, ActAgg>();
     const perMeetingUnrounded = new Map<string, number>(); // meetingId -> unrounded base share
     const perMeetingNote = new Map<string, string | null>();
     const perMeetingRate = new Map<string, number | null>();
+    const perMeetingOverride = new Set<string>();
     const dailyPaymentKeys = new Set<string>();
 
     for (const mtg of mtgs) {
@@ -417,6 +430,7 @@ export async function buildInstructorMonthlyReport(
           label: 'יומי גלובלי',
           rawType: dailyAggKey,
           unroundedSubtotal: 0,
+          manualOverrides: 0,
         };
         existing.hours += durationHours;
         existing.unroundedSubtotal += unroundedShare;
@@ -425,16 +439,38 @@ export async function buildInstructorMonthlyReport(
       }
 
       // Per-meeting unrounded base: hours × rate when rate known; otherwise fallback (stored ÷ 1.3 for employees, stored as-is for freelancers).
-      const unroundedShare = (hourlyRate != null && durationHours > 0)
-        ? hourlyRate * durationHours
-        : (isEmployee ? stored / 1.3 : stored);
+      // Manual corrections win: when the stored instructorPayment differs from what the system
+      // would calculate for this meeting today, someone corrected it by hand — use the stored
+      // amount (as base pay) instead of hours × rate.
+      const storedBase = isEmployee ? stored / 1.3 : stored;
+      let unroundedShare = storedBase;
+      let note: string | null = null;
+      let rate: number | null = hourlyRate;
+      let isOverride = false;
+      if (hourlyRate != null && durationHours > 0) {
+        const expectedStored = calculateInstructorPayment(cycle, instr, {
+          instructorId: mtg.instructorId,
+          startTime: mtg.startTime,
+          endTime: mtg.endTime,
+          activityType: mtg.activityType,
+        });
+        if (isManualPaymentOverride(stored, expectedStored)) {
+          isOverride = true;
+          note = MANUAL_PAYMENT_NOTE;
+          rate = Math.round((storedBase / durationHours) * 100) / 100; // effective rate
+        } else {
+          unroundedShare = hourlyRate * durationHours;
+        }
+      }
       perMeetingUnrounded.set(mtg.id, unroundedShare);
-      perMeetingNote.set(mtg.id, null);
-      perMeetingRate.set(mtg.id, hourlyRate);
+      perMeetingNote.set(mtg.id, note);
+      perMeetingRate.set(mtg.id, rate);
+      if (isOverride) perMeetingOverride.add(mtg.id);
 
-      const existing = actAgg.get(key) ?? { hours: 0, rate: hourlyRate, label: activityLabel(rawType), rawType, unroundedSubtotal: 0 };
+      const existing = actAgg.get(key) ?? { hours: 0, rate: hourlyRate, label: activityLabel(rawType), rawType, unroundedSubtotal: 0, manualOverrides: 0 };
       existing.hours += durationHours;
       existing.unroundedSubtotal += unroundedShare;
+      if (isOverride) existing.manualOverrides += 1;
       actAgg.set(key, existing);
     }
 
@@ -489,6 +525,7 @@ export async function buildInstructorMonthlyReport(
         topic:             mtg.topic ?? null,
         hourlyRate:        perMeetingRate.has(mtg.id) ? (perMeetingRate.get(mtg.id) ?? null) : getHourlyRate(instr, rawType),
         paymentNote:       perMeetingNote.get(mtg.id) ?? null,
+        manualPaymentOverride: perMeetingOverride.has(mtg.id),
         instructorPayment: basePayment,
         expenses,
         totalExpenses,
@@ -507,6 +544,7 @@ export async function buildInstructorMonthlyReport(
         hours:           parseFloat(val.hours.toFixed(2)),
         hourlyRate:      val.rate,
         subtotal:        Math.floor(val.unroundedSubtotal),
+        manualOverrides: val.manualOverrides,
       }))
       .sort((a, b) => b.subtotal - a.subtotal);
 

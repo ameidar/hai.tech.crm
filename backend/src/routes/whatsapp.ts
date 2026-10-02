@@ -20,6 +20,7 @@ import { handleStatusReply, parseInstructorStatusReply } from '../services/whats
 import { addWaSseClient, broadcastWaSSE as broadcastSSE, removeWaSseClient } from '../services/wa-events.js';
 import { sanitizeLeadEmail, shouldSendPromisedEmailAlert } from '../utils/wa-lead-extraction.js';
 import { applyJevRouting, getJevMode } from '../services/jev-intent.js';
+import { extractInboundText } from '../utils/wa-inbound-text.js';
 
 const router = Router();
 
@@ -164,15 +165,6 @@ async function resolveWhatsAppContactName(phone: string, metaName?: string | nul
   if (looksLikeEmail(cleanCurrentName)) return cleanCurrentName;
 
   return phone;
-}
-
-export function extractInboundText(msg: any): string | null {
-  if (msg?.type === 'text') return msg.text?.body || '';
-  if (msg?.type === 'button') return msg.button?.text || msg.button?.payload || null;
-  if (msg?.type === 'interactive') {
-    return msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || null;
-  }
-  return null;
 }
 
 async function forwardInboundWebhookChangeToAgent(originalBody: any, entry: any, change: any): Promise<boolean> {

@@ -16,7 +16,7 @@ import {
 import { buildInstructorMonthlyReport, getPreviousMonth } from '../instructorReport.service.js';
 import { generateInstructorReportExcel } from '../../utils/excelReportGenerator.js';
 import { sendInstructorMonthlyReportEmail } from './instructorReportEmail.js';
-import { reminderEligibleMeetingWhereForDate } from '../reminder-eligibility.js';
+import { reminderEligibleMeetingWhereForDate, reminderEligibleRegistrationWhere } from '../reminder-eligibility.js';
 import {
   findZoomHostConflictsForDate,
   formatZoomHostConflictAlert,
@@ -91,7 +91,7 @@ const sendInstructorReminders = async () => {
             course: true,
             branch: true,
             registrations: {
-              where: { status: 'active' },
+              where: reminderEligibleRegistrationWhere(),
             },
           },
         },
@@ -152,7 +152,7 @@ const sendParentReminders = async () => {
             instructor: true,
             branch: true,
             registrations: {
-              where: { status: 'active' },
+              where: reminderEligibleRegistrationWhere(),
               include: {
                 student: {
                   include: {

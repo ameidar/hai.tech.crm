@@ -65,50 +65,71 @@ function getRateLimit(req: ApiKeyRequest & AuthRequest): number {
   return 100;
 }
 
+const WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
 /**
- * Rate limiting middleware
- * Tracks requests per hour per identity (API key, user, or IP)
+ * Count one request against `key` and set the X-RateLimit-* headers.
+ * Returns a RateLimitError when the bucket is over its limit, otherwise null.
  */
-export function rateLimit(req: ApiKeyRequest & AuthRequest, res: Response, next: NextFunction) {
-  const key = getRateLimitKey(req);
-  const limit = getRateLimit(req);
-  const windowMs = 60 * 60 * 1000; // 1 hour
+function consume(key: string, limit: number, res: Response): RateLimitError | null {
   const now = Date.now();
-
   let entry = rateLimitStore.get(key);
-
-  // Create new entry if doesn't exist or expired
   if (!entry || entry.resetAt < now) {
-    entry = {
-      count: 0,
-      resetAt: now + windowMs,
-    };
+    entry = { count: 0, resetAt: now + WINDOW_MS };
     rateLimitStore.set(key, entry);
   }
-
-  // Increment count
   entry.count++;
 
-  // Calculate remaining
-  const remaining = Math.max(0, limit - entry.count);
-  const resetTimestamp = Math.ceil(entry.resetAt / 1000);
-
-  // Set headers
-  res.setHeader('X-RateLimit-Limit', limit);
-  res.setHeader('X-RateLimit-Remaining', remaining);
-  res.setHeader('X-RateLimit-Reset', resetTimestamp);
-
-  // Check if over limit
-  if (entry.count > limit) {
-    const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
-    res.setHeader('Retry-After', retryAfter);
-    
-    return next(new RateLimitError(retryAfter, 
-      `Rate limit exceeded. Try again in ${retryAfter} seconds`
-    ));
+  if (!res.headersSent) {
+    res.setHeader('X-RateLimit-Limit', limit);
+    res.setHeader('X-RateLimit-Remaining', Math.max(0, limit - entry.count));
+    res.setHeader('X-RateLimit-Reset', Math.ceil(entry.resetAt / 1000));
   }
 
-  next();
+  if (entry.count > limit) {
+    const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
+    if (!res.headersSent) res.setHeader('Retry-After', retryAfter);
+    return new RateLimitError(retryAfter, `Rate limit exceeded. Try again in ${retryAfter} seconds`);
+  }
+  return null;
+}
+
+/** True when the request presents credentials (API key or Bearer token). */
+export function hasCredentials(req: ApiKeyRequest & AuthRequest): boolean {
+  return Boolean(req.headers['x-api-key']) || Boolean(req.headers.authorization?.startsWith('Bearer '));
+}
+
+/**
+ * Rate limiting middleware (router level, runs BEFORE authentication).
+ *
+ * Only anonymous traffic is limited here (per IP). Requests that carry credentials are
+ * limited per identity right after authentication (see applyIdentityRateLimit) — at this
+ * point req.apiKey/req.user are not set yet, so limiting them here would throttle a
+ * trusted API key with the 100/h anonymous IP budget and break bulk jobs mid-run.
+ */
+export function rateLimit(req: ApiKeyRequest & AuthRequest, res: Response, next: NextFunction) {
+  if (!req.apiKey && !req.user && hasCredentials(req)) {
+    return next();
+  }
+  (req as any).rateLimitApplied = true;
+  const err = consume(getRateLimitKey(req), getRateLimit(req), res);
+  return err ? next(err) : next();
+}
+
+/**
+ * Per-identity limit, applied by the auth middleware after a successful authentication.
+ * API keys use their own configured rateLimit (requests/hour); users use the role default.
+ */
+export function applyIdentityRateLimit(req: ApiKeyRequest & AuthRequest, res: Response): RateLimitError | null {
+  return consume(getRateLimitKey(req), getRateLimit(req), res);
+}
+
+/**
+ * Count a request whose credentials were missing/invalid against the anonymous per-IP
+ * budget, so credential guessing is still throttled even though it skipped the pre-auth limiter.
+ */
+export function applyAnonymousRateLimit(req: ApiKeyRequest & AuthRequest, res: Response): RateLimitError | null {
+  return consume(getRateLimitKey({ headers: req.headers, socket: req.socket } as any), 100, res);
 }
 
 /**

@@ -17,6 +17,15 @@ import {
 } from '../services/instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
 import { checkAndSendMeetingReportQualityAlert } from '../services/meeting-report-quality-alert.js';
+import {
+  assertRegistrationBelongsToCycle,
+  ensureTrialMeetingHasRegistration,
+  upsertTrialAttendance,
+  bulkRecalculateMeetings,
+  bulkUpdateMeetingStatus,
+  bulkUpdateMeetings,
+  bulkDeleteMeetings,
+} from '../services/meeting-bulk.service.js';
 
 export const meetingsRouter = Router();
 
@@ -29,77 +38,6 @@ const registrationStudentInclude = {
     },
   },
 };
-
-async function assertRegistrationBelongsToCycle(registrationId: string, cycleId: string) {
-  const registration = await prisma.registration.findFirst({
-    where: {
-      id: registrationId,
-      cycleId,
-      deletedAt: null,
-      status: { notIn: ['cancelled', 'pending_cancellation'] as any },
-    },
-    select: { id: true },
-  });
-
-  if (!registration) {
-    throw new AppError(400, 'ההרשמה שנבחרה לא שייכת למחזור או אינה פעילה');
-  }
-}
-
-async function findLinkedTrialRegistrationId(meetingId: string, registrationId?: string | null) {
-  if (registrationId) return registrationId;
-
-  const attendance = await prisma.attendance.findFirst({
-    where: {
-      meetingId,
-      registrationId: { not: null },
-    },
-    select: { registrationId: true },
-  });
-
-  return attendance?.registrationId ?? null;
-}
-
-async function ensureTrialMeetingHasRegistration(meeting: {
-  id: string;
-  cycleId: string;
-  registrationId?: string | null;
-  cycle?: { type?: string | null } | null;
-}) {
-  if (meeting.cycle?.type !== 'trial_private') return null;
-
-  const registrationId = await findLinkedTrialRegistrationId(meeting.id, meeting.registrationId);
-  if (!registrationId) {
-    throw new AppError(400, 'חובה לשייך תלמיד/הרשמה לפני סימון שיעור ניסיון כהושלם');
-  }
-
-  await assertRegistrationBelongsToCycle(registrationId, meeting.cycleId);
-  return registrationId;
-}
-
-async function upsertTrialAttendance(meetingId: string, registrationId: string, recordedById?: string) {
-  await prisma.attendance.upsert({
-    where: {
-      meetingId_registrationId: {
-        meetingId,
-        registrationId,
-      },
-    },
-    update: {
-      status: 'present',
-      recordedAt: new Date(),
-      recordedById,
-      isTrial: true,
-    },
-    create: {
-      meetingId,
-      registrationId,
-      status: 'present',
-      recordedById,
-      isTrial: true,
-    },
-  });
-}
 
 async function getInstructorScopeForMeetingList(userId: string, role: string) {
   if (role !== 'instructor' && role !== 'operations_control') return null;
@@ -1191,478 +1129,34 @@ meetingsRouter.post('/:id/recalculate', operationsManagerOrAdmin, async (req, re
   }
 });
 
-// Bulk recalculate meetings
+// Bulk operations — logic lives in services/meeting-bulk.service.ts (shared with v1).
 meetingsRouter.post('/bulk-recalculate', operationsManagerOrAdmin, async (req, res, next) => {
   try {
-    const { ids, force } = req.body;
-    
-    if (!Array.isArray(ids) || ids.length === 0) {
-      throw new AppError(400, 'ids array is required');
-    }
-
-    let recalculated = 0;
-    let skipped = 0;
-    
-    for (const id of ids) {
-      const meeting = await prisma.meeting.findUnique({
-        where: { id },
-        include: {
-          cycle: {
-            include: {
-              registrations: {
-                where: { status: { in: ['registered', 'active', 'completed'] } },
-              },
-            },
-          },
-          instructor: true,
-        },
-      });
-
-      if (!meeting || meeting.status !== 'completed') {
-        continue;
-      }
-
-      // Skip if already has financials calculated (unless force=true)
-      if (!force && meeting.revenue !== null && Number(meeting.revenue) > 0) {
-        skipped++;
-        continue;
-      }
-
-      const cycleData = meeting.cycle;
-
-      // Calculate revenue — skipped for no_revenue meetings.
-      let revenue = 0;
-      const registrationCount = revenueRegistrationCount(cycleData.registrations);
-
-      if (meeting.nature !== 'no_revenue') {
-        if (['private', 'trial_private', 'group'].includes(String(cycleData.type))) {
-          if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
-            revenue = Number(cycleData.meetingRevenue);
-          } else {
-            revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
-          }
-        } else if (cycleData.type === 'institutional_per_child') {
-          const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-          const studentCount = registrationCount;
-          revenue = roundMoney(pricePerStudent * studentCount);
-        } else if (cycleData.type === 'institutional_fixed') {
-          revenue = Number(cycleData.meetingRevenue || 0);
-        }
-      }
-
-      const instructorPayment = calculateInstructorPayment(cycleData, meeting.instructor, meeting);
-
-      const profit = revenue - instructorPayment;
-
-      const updatedMeeting = await prisma.meeting.update({
-        where: { id },
-        data: { revenue, instructorPayment, profit },
-      });
-      await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
-      await checkAndSendNegativeProfitAlert(id, 'meeting-bulk-recalculate');
-
-      recalculated++;
-    }
-
-    res.json({ success: true, recalculated, skipped });
+    res.json(await bulkRecalculateMeetings(req.body, req));
   } catch (error) {
     next(error);
   }
 });
 
-// Bulk update meeting status
 meetingsRouter.post('/bulk-update-status', operationsManagerOrAdmin, async (req, res, next) => {
   try {
-    const { ids, status } = req.body;
-    
-    if (!Array.isArray(ids) || ids.length === 0) {
-      throw new AppError(400, 'ids array is required');
-    }
-    
-    if (!status || !['scheduled', 'completed', 'cancelled', 'postponed'].includes(status)) {
-      throw new AppError(400, 'Valid status is required (scheduled, completed, cancelled, postponed)');
-    }
-
-    let updated = 0;
-    let errors: string[] = [];
-
-    for (const id of ids) {
-      try {
-        const existingMeeting = await prisma.meeting.findUnique({
-          where: { id },
-          include: { cycle: true },
-        });
-
-        if (!existingMeeting) {
-          errors.push(`Meeting ${id} not found`);
-          continue;
-        }
-
-        const updateData: any = {
-          status,
-          statusUpdatedAt: new Date(),
-          statusUpdatedById: req.user!.userId,
-        };
-
-        // Handle status change to completed - calculate financials
-        if (status === 'completed' && existingMeeting.status !== 'completed') {
-          const trialRegistrationId = await ensureTrialMeetingHasRegistration(existingMeeting);
-
-          const cycleData = await prisma.cycle.findUnique({
-            where: { id: existingMeeting.cycleId },
-            include: {
-              registrations: {
-                where: { status: { in: ['registered', 'active', 'completed'] } },
-              },
-              instructor: true,
-            },
-          });
-
-          if (cycleData) {
-            // Calculate revenue based on cycle type
-            let revenue = 0;
-            const registrationCount = revenueRegistrationCount(cycleData.registrations);
-            
-            if (['private', 'trial_private', 'group'].includes(String(cycleData.type))) {
-              if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
-                revenue = Number(cycleData.meetingRevenue);
-              } else {
-                revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
-              }
-            } else if (cycleData.type === 'institutional_per_child') {
-              const pricePerStudent = Number(cycleData.pricePerStudent || 0);
-              const studentCount = registrationCount;
-              revenue = roundMoney(pricePerStudent * studentCount);
-            } else if (cycleData.type === 'institutional_fixed') {
-              revenue = Number(cycleData.meetingRevenue || 0);
-            }
-
-            const meetingInstructorId = existingMeeting.instructorId;
-            const instructor = await prisma.instructor.findUnique({ where: { id: meetingInstructorId } });
-            const instructorPayment = calculateInstructorPayment(cycleData, instructor, existingMeeting);
-
-            const profit = revenue - instructorPayment;
-
-            updateData.revenue = revenue;
-            updateData.instructorPayment = instructorPayment;
-            updateData.profit = profit;
-
-            if (trialRegistrationId) {
-              await upsertTrialAttendance(id, trialRegistrationId, req.user!.userId);
-              updateData.registrationId = trialRegistrationId;
-            }
-
-            // Update cycle counters
-            const updatedCompleted = cycleData.completedMeetings + 1;
-            const newRemaining = cycleData.totalMeetings - updatedCompleted;
-            await prisma.cycle.update({
-              where: { id: existingMeeting.cycleId },
-              data: {
-                completedMeetings: updatedCompleted,
-                remainingMeetings: newRemaining,
-              },
-            });
-
-            // Trigger cycle completion if no remaining meetings
-            if (newRemaining <= 0 && await shouldAutoCompleteCycle(existingMeeting.cycleId)) {
-              handleCycleCompletion(existingMeeting.cycleId).catch(err =>
-                console.error('Cycle completion error:', err)
-              );
-            }
-          }
-        }
-        
-        // Handle status change FROM completed to something else (decrement counters)
-        if (existingMeeting.status === 'completed' && status !== 'completed') {
-          const cycleData = await prisma.cycle.findUnique({
-            where: { id: existingMeeting.cycleId },
-          });
-          
-          if (cycleData && cycleData.completedMeetings > 0) {
-            const updatedCompleted = cycleData.completedMeetings - 1;
-            await prisma.cycle.update({
-              where: { id: existingMeeting.cycleId },
-              data: {
-                completedMeetings: updatedCompleted,
-                remainingMeetings: cycleData.totalMeetings - updatedCompleted,
-              },
-            });
-          }
-          
-          // Reset financial fields
-          updateData.revenue = 0;
-          updateData.instructorPayment = 0;
-          updateData.profit = 0;
-        }
-
-        // Zero amounts on any transition to postponed/cancelled — these meetings
-        // didn't take place, so they shouldn't carry revenue/payment/profit.
-        if (status === 'postponed' || status === 'cancelled') {
-          updateData.revenue = 0;
-          updateData.instructorPayment = 0;
-          updateData.profit = 0;
-        }
-
-        const updatedMeeting = await prisma.meeting.update({
-          where: { id },
-          data: updateData,
-        });
-        await recalculateDailyInstructorPaymentsForMeeting(existingMeeting);
-        await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
-        await checkAndSendNegativeProfitAlert(id, 'meeting-bulk-status');
-
-        // Audit log
-        await logAudit({
-          userId: req.user?.userId,
-          action: 'UPDATE',
-          entity: 'Meeting',
-          entityId: id,
-          oldValue: { status: existingMeeting.status },
-          newValue: { status },
-          req,
-        });
-
-        // Trigger replacement meeting when admin bulk-sets status to 'postponed'
-        if (status === 'postponed' && existingMeeting.status !== 'postponed') {
-          const replacementId = await addReplacementMeetingWithRetry(id, req.user!.userId);
-          if (!replacementId) {
-            errors.push(`Meeting ${id}: replacement meeting creation failed — admin notified`);
-          }
-        }
-
-        updated++;
-      } catch (error: any) {
-        errors.push(`Meeting ${id}: ${error.message}`);
-      }
-    }
-
-    res.json({ 
-      success: true, 
-      updated, 
-      errors: errors.length > 0 ? errors : undefined 
-    });
+    res.json(await bulkUpdateMeetingStatus(req.body, req));
   } catch (error) {
     next(error);
   }
 });
 
-// Bulk update meetings (multiple fields)
 meetingsRouter.post('/bulk-update', operationsManagerOrAdmin, async (req, res, next) => {
   try {
-    const { ids, data } = req.body;
-    
-    if (!Array.isArray(ids) || ids.length === 0) {
-      throw new AppError(400, 'ids array is required');
-    }
-    
-    if (!data || Object.keys(data).length === 0) {
-      throw new AppError(400, 'data object is required');
-    }
-
-    // Allowed fields for bulk update
-    const allowedFields = ['status', 'activityType', 'topic', 'notes', 'scheduledDate', 'startTime', 'endTime', 'instructorId', 'registrationId'];
-    const updateData: Record<string, any> = {};
-    
-    for (const field of allowedFields) {
-      if (data[field] !== undefined) {
-        if (field === 'scheduledDate' && data[field]) {
-          updateData[field] = new Date(data[field]);
-        } else if ((field === 'startTime' || field === 'endTime') && data[field]) {
-          // Convert HH:MM to Date object
-          const [hours, minutes] = data[field].split(':').map(Number);
-          const timeDate = new Date(Date.UTC(1970, 0, 1, hours, minutes, 0));
-          updateData[field] = timeDate;
-        } else {
-          updateData[field] = data[field];
-        }
-      }
-    }
-
-    if (Object.keys(updateData).length === 0) {
-      throw new AppError(400, 'No valid fields to update');
-    }
-
-    let updated = 0;
-    let errors: string[] = [];
-    const shouldRecalculate = updateData.status === 'completed';
-
-    for (const id of ids) {
-      try {
-        const existingMeeting = await prisma.meeting.findUnique({
-          where: { id },
-          include: { cycle: true },
-        });
-
-        if (!existingMeeting) {
-          errors.push(`Meeting ${id} not found`);
-          continue;
-        }
-
-        const perMeetingUpdateData = { ...updateData };
-
-        // If status changing to completed and wasn't completed before, add timestamps
-        if (perMeetingUpdateData.status === 'completed' && existingMeeting.status !== 'completed') {
-          const trialRegistrationId = await ensureTrialMeetingHasRegistration({
-            ...existingMeeting,
-            registrationId: perMeetingUpdateData.registrationId ?? existingMeeting.registrationId,
-          });
-          if (trialRegistrationId) {
-            await upsertTrialAttendance(id, trialRegistrationId, req.user!.userId);
-            perMeetingUpdateData.registrationId = trialRegistrationId;
-          }
-          perMeetingUpdateData.statusUpdatedAt = new Date();
-          perMeetingUpdateData.statusUpdatedById = req.user!.userId;
-        }
-
-        if (Object.prototype.hasOwnProperty.call(perMeetingUpdateData, 'registrationId') && perMeetingUpdateData.registrationId) {
-          await assertRegistrationBelongsToCycle(perMeetingUpdateData.registrationId, existingMeeting.cycleId);
-        }
-
-        await prisma.meeting.update({
-          where: { id },
-          data: perMeetingUpdateData,
-        });
-
-        // Recalculate financials if status changed to completed
-        if (shouldRecalculate && existingMeeting.status !== 'completed') {
-          const meeting = await prisma.meeting.findUnique({
-            where: { id },
-            include: {
-              cycle: {
-                include: {
-                  registrations: { where: { status: { in: ['registered', 'active', 'completed'] } } },
-                },
-              },
-              instructor: true,
-            },
-          });
-
-          if (meeting) {
-            const cycleData = meeting.cycle;
-            let revenue = 0;
-            const registrationCount = revenueRegistrationCount(cycleData.registrations);
-
-            if (['private', 'trial_private', 'group'].includes(String(cycleData.type))) {
-              if (cycleData.meetingRevenue && Number(cycleData.meetingRevenue) > 0) {
-                revenue = Number(cycleData.meetingRevenue);
-              } else {
-                revenue = meetingRevenueFromRegistrations(cycleData.registrations, cycleData.totalMeetings, cycleData.type);
-              }
-            } else if (cycleData.type === 'institutional_per_child') {
-              revenue = roundMoney(Number(cycleData.pricePerStudent || 0) * registrationCount);
-            } else if (cycleData.type === 'institutional_fixed') {
-              revenue = Number(cycleData.meetingRevenue || 0);
-            }
-
-            const instructorPayment = calculateInstructorPayment(cycleData, meeting.instructor, meeting);
-
-            const updatedMeeting = await prisma.meeting.update({
-              where: { id },
-              data: { revenue, instructorPayment, profit: revenue - instructorPayment },
-            });
-            await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
-            await checkAndSendNegativeProfitAlert(id, 'meeting-bulk-update');
-          }
-        }
-
-        updated++;
-      } catch (err: any) {
-        errors.push(`Meeting ${id}: ${err.message}`);
-      }
-    }
-
-    res.json({ 
-      success: true, 
-      updated, 
-      errors: errors.length > 0 ? errors : undefined 
-    });
+    res.json(await bulkUpdateMeetings(req.body, req));
   } catch (error) {
     next(error);
   }
 });
 
-// Bulk delete meetings
 meetingsRouter.post('/bulk-delete', operationsManagerOrAdmin, async (req, res, next) => {
   try {
-    const { ids } = req.body;
-    
-    if (!Array.isArray(ids) || ids.length === 0) {
-      throw new AppError(400, 'ids array is required');
-    }
-
-    // Get meetings to check their status and cycle
-    const meetings = await prisma.meeting.findMany({
-      where: { id: { in: ids } },
-      select: {
-        id: true,
-        cycleId: true,
-        instructorId: true,
-        scheduledDate: true,
-        status: true,
-        videoProvider: true,
-        zoomHostEmail: true,
-        googleMeetSpaceName: true,
-        googleCalendarEventId: true,
-      },
-    });
-
-    for (const meeting of meetings) {
-      await assertMeetingNotInIssuedPeriod(meeting.id);
-    }
-
-    // Group completed meetings by cycle to update counters
-    const completedByCycle = meetings
-      .filter(m => m.status === 'completed')
-      .reduce((acc, m) => {
-        acc[m.cycleId] = (acc[m.cycleId] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>);
-
-    for (const meeting of meetings) {
-      if ((meeting.videoProvider ?? 'zoom') !== 'google_meet') continue;
-      try {
-        await googleMeetService.deleteGoogleMeetMeeting({
-          hostEmail: meeting.zoomHostEmail,
-          googleMeetSpaceName: meeting.googleMeetSpaceName,
-          googleCalendarEventIds: [meeting.googleCalendarEventId],
-        });
-      } catch (e) {
-        console.warn(`[meetings] Failed to delete Google Meet calendar event for bulk-deleted meeting ${meeting.id}:`, e);
-      }
-    }
-
-    const result = await prisma.$transaction(async (tx) => {
-      // Update cycle counters
-      for (const [cycleId, count] of Object.entries(completedByCycle)) {
-        await tx.cycle.update({
-          where: { id: cycleId },
-          data: {
-            completedMeetings: { decrement: count },
-            remainingMeetings: { increment: count },
-          },
-        });
-      }
-
-      await tx.meetingChangeRequest.deleteMany({
-        where: { meetingId: { in: ids } },
-      });
-      await tx.meeting.updateMany({
-        where: { rescheduledToId: { in: ids } },
-        data: { rescheduledToId: null },
-      });
-
-      return tx.meeting.deleteMany({
-        where: { id: { in: ids } },
-      });
-    });
-
-    for (const meeting of meetings) {
-      if (meeting.status === 'completed') {
-        await recalculateDailyInstructorPaymentsForMeeting(meeting);
-      }
-    }
-
-    res.json({ success: true, deleted: result.count });
+    res.json(await bulkDeleteMeetings(req.body, req));
   } catch (error) {
     next(error);
   }

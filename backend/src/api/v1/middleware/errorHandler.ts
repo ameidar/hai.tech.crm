@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { ApiError } from '../../../common/errors/index.js';
 import { sendError } from '../../../common/utils/response.js';
 import { logger } from './logger.js';
+import { AppError } from '../../../middleware/errorHandler.js';
 
 /**
  * Format Zod validation errors into a consistent structure
@@ -105,6 +106,22 @@ export const apiErrorHandler: ErrorRequestHandler = (
     return;
   }
   
+  // Errors thrown by shared business logic (src/services, src/routes) that the v1 ops
+  // endpoints reuse. Map their HTTP status 1:1 so e.g. a billing-lock 423 isn't a 500.
+  if (err instanceof AppError) {
+    const code =
+      err.statusCode === 400 ? 'VALIDATION_ERROR'
+      : err.statusCode === 401 ? 'UNAUTHORIZED'
+      : err.statusCode === 403 ? 'FORBIDDEN'
+      : err.statusCode === 404 ? 'NOT_FOUND'
+      : err.statusCode === 409 ? 'CONFLICT'
+      : err.statusCode === 423 ? 'LOCKED'
+      : err.statusCode >= 500 ? 'INTERNAL_ERROR'
+      : 'ERROR';
+    sendError(res, err.statusCode, code, err.message, err.data);
+    return;
+  }
+
   // Handle Prisma errors
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     const { statusCode, code, message, details } = handlePrismaError(err);

@@ -3,10 +3,12 @@ import { cyclesController } from '../controllers/cycles.controller.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { validate, validateBody, validateQuery, validateParams } from '../middleware/validate.js';
 import { idParamSchema } from '../validators/common.js';
+import { requireScopeOrRole } from '../middleware/scope-check.js';
+import { opsIdParamSchema } from '../validators/ops.js';
+import { sendCreated, sendSuccess } from '../../../common/utils/response.js';
+import { createCycle, updateCycle } from '../../../services/cycle-admin.service.js';
 import {
   cycleQuerySchema,
-  createCycleSchema,
-  updateCycleSchema,
   createCycleRegistrationSchema,
   duplicateCycleSchema,
   bulkUpdateCyclesSchema,
@@ -16,6 +18,8 @@ const router = Router();
 
 // All routes require authentication
 router.use(authenticate);
+
+const CYCLE_WRITE_ROLES = ['admin', 'manager', 'operations_manager'] as const; // internal: operationsManagerOrAdmin
 
 /**
  * GET /cycles
@@ -35,22 +39,38 @@ router.get('/:id', validateParams(idParamSchema), (req, res, next) => {
 
 /**
  * POST /cycles
- * Create new cycle (manager or admin only)
+ * Create new cycle. Same logic as the CRM UI (services/cycle-admin.service.ts):
+ * internal createCycleSchema validation (branch required; institutional types require
+ * institutionalOrderId), automatic endDate (holiday-aware) and meeting generation
+ * (except trial_private), audit.
+ * API key: write:cycles. JWT: admin / manager / operations_manager.
  */
-router.post('/', managerOrAdmin, validateBody(createCycleSchema), (req, res, next) => {
-  cyclesController.create(req, res, next);
+router.post('/', requireScopeOrRole('write:cycles', CYCLE_WRITE_ROLES), async (req, res, next) => {
+  try {
+    sendCreated(res, await createCycle(req.body, req));
+  } catch (error) {
+    next(error);
+  }
 });
 
 /**
  * PUT /cycles/:id
- * Update cycle (manager or admin only)
+ * Update cycle. Same logic as the CRM UI: remainingMeetings recalculation on
+ * totalMeetings/completedMeetings/status, institutional-order guard, cancellation of future
+ * meetings when status→cancelled, instructor payment recalculation, optional
+ * `regenerateMeetings: true` to rebuild the open schedule, audit.
+ * API key: write:cycles. JWT: admin / manager / operations_manager.
  */
 router.put(
   '/:id',
-  managerOrAdmin,
-  validate({ params: idParamSchema, body: updateCycleSchema }),
-  (req, res, next) => {
-    cyclesController.update(req, res, next);
+  requireScopeOrRole('write:cycles', CYCLE_WRITE_ROLES),
+  validateParams(opsIdParamSchema),
+  async (req, res, next) => {
+    try {
+      sendSuccess(res, await updateCycle(req.params.id, req.body, req));
+    } catch (error) {
+      next(error);
+    }
   }
 );
 

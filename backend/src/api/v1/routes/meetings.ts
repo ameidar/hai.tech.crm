@@ -11,10 +11,24 @@ import {
   postponeMeetingSchema,
   completeMeetingSchema,
   cancelMeetingSchema,
-  bulkRecalculateMeetingsSchema,
-  bulkUpdateMeetingStatusSchema,
-  bulkDeleteMeetingsSchema,
 } from '../validators/meetings.js';
+import { requireScopeOrRole } from '../middleware/scope-check.js';
+import {
+  v1BulkUpdateMeetingsSchema,
+  v1BulkRecalculateMeetingsSchema,
+  v1BulkUpdateMeetingStatusSchema,
+  v1BulkDeleteMeetingsSchema,
+  type V1MeetingSelector,
+} from '../validators/ops.js';
+import { sendSuccess } from '../../../common/utils/response.js';
+import { NotFoundError, ValidationError } from '../../../common/errors/index.js';
+import { prisma } from '../../../utils/prisma.js';
+import {
+  bulkUpdateMeetings,
+  bulkRecalculateMeetings,
+  bulkUpdateMeetingStatus,
+  bulkDeleteMeetings,
+} from '../../../services/meeting-bulk.service.js';
 import { bulkAttendanceSchema } from '../validators/attendance.js';
 
 const router = Router();
@@ -137,42 +151,122 @@ router.post(
   }
 );
 
+// =============================================================================
+// Bulk operations — same logic as the CRM UI's /api/meetings/bulk-* routes
+// (services/meeting-bulk.service.ts): revenue/instructor-payment recalculation, cycle
+// counters, billing locks, replacement meetings for postponed, audit per meeting.
+// API key: write:meetings. JWT: admin / manager / operations_manager.
+// =============================================================================
+
+const BULK_ROLES = ['admin', 'manager', 'operations_manager'] as const; // internal: operationsManagerOrAdmin
+const MAX_SELECTED_MEETINGS = 1000;
+
+/** Resolve `ids` or `cycleId` (+ statuses/fromDate/toDate) into meeting ids. */
+async function resolveMeetingIds(selector: V1MeetingSelector): Promise<string[]> {
+  if (selector.ids) return selector.ids;
+  const cycle = await prisma.cycle.findFirst({ where: { id: selector.cycleId!, deletedAt: null }, select: { id: true } });
+  if (!cycle) throw new NotFoundError('Cycle', selector.cycleId);
+  const meetings = await prisma.meeting.findMany({
+    where: {
+      cycleId: selector.cycleId!,
+      deletedAt: null,
+      ...(selector.statuses && { status: { in: selector.statuses } }),
+      ...((selector.fromDate || selector.toDate) && {
+        scheduledDate: {
+          ...(selector.fromDate && { gte: new Date(`${selector.fromDate}T00:00:00.000Z`) }),
+          ...(selector.toDate && { lte: new Date(`${selector.toDate}T00:00:00.000Z`) }),
+        },
+      }),
+    },
+    select: { id: true },
+    orderBy: { scheduledDate: 'asc' },
+    take: MAX_SELECTED_MEETINGS + 1,
+  });
+  if (meetings.length > MAX_SELECTED_MEETINGS) {
+    throw new ValidationError(`Selector matches more than ${MAX_SELECTED_MEETINGS} meetings — narrow it down`);
+  }
+  return meetings.map((m) => m.id);
+}
+
+/**
+ * POST /meetings/bulk-update
+ * Body: { ids: [...] } or { cycleId, statuses?, fromDate?, toDate? } plus
+ * data: { status?, activityType?, topic?, notes?, scheduledDate?, startTime?, endTime?,
+ *         instructorId?, registrationId?, revenue?, instructorPayment? }
+ * revenue/instructorPayment set a manual amount (profit = revenue − instructorPayment −
+ * approved expenses); refused on meetings in an invoiced billing period; cannot be combined
+ * with a status change.
+ */
+router.post(
+  '/bulk-update',
+  requireScopeOrRole('write:meetings', BULK_ROLES),
+  validateBody(v1BulkUpdateMeetingsSchema),
+  async (req, res, next) => {
+    try {
+      const ids = await resolveMeetingIds(req.body);
+      if (ids.length === 0) return sendSuccess(res, { success: true, updated: 0, matched: 0 });
+      const result = await bulkUpdateMeetings({ ids, data: req.body.data }, req);
+      sendSuccess(res, { ...result, matched: ids.length });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 /**
  * POST /meetings/bulk-recalculate
- * Bulk recalculate meetings (manager or admin only)
+ * Recalculate revenue / instructor payment / profit of COMPLETED meetings from the cycle.
+ * Body: { ids } or { cycleId, ... }, force?: boolean (recalculate even if revenue > 0).
  */
 router.post(
   '/bulk-recalculate',
-  managerOrAdmin,
-  validateBody(bulkRecalculateMeetingsSchema),
-  (req, res, next) => {
-    meetingsController.bulkRecalculate(req, res, next);
+  requireScopeOrRole('write:meetings', BULK_ROLES),
+  validateBody(v1BulkRecalculateMeetingsSchema),
+  async (req, res, next) => {
+    try {
+      const ids = await resolveMeetingIds(req.body);
+      if (ids.length === 0) return sendSuccess(res, { success: true, recalculated: 0, skipped: 0, matched: 0 });
+      const result = await bulkRecalculateMeetings({ ids, force: req.body.force }, req);
+      sendSuccess(res, { ...result, matched: ids.length });
+    } catch (error) {
+      next(error);
+    }
   }
 );
 
 /**
  * POST /meetings/bulk-update-status
- * Bulk update meeting status (manager or admin only)
+ * Body: { ids, status }. Completion computes financials + cycle counters; postponed creates a
+ * replacement meeting; postponed/cancelled zero the amounts.
  */
 router.post(
   '/bulk-update-status',
-  managerOrAdmin,
-  validateBody(bulkUpdateMeetingStatusSchema),
-  (req, res, next) => {
-    meetingsController.bulkUpdateStatus(req, res, next);
+  requireScopeOrRole('write:meetings', BULK_ROLES),
+  validateBody(v1BulkUpdateMeetingStatusSchema),
+  async (req, res, next) => {
+    try {
+      sendSuccess(res, await bulkUpdateMeetingStatus(req.body, req));
+    } catch (error) {
+      next(error);
+    }
   }
 );
 
 /**
  * POST /meetings/bulk-delete
- * Bulk delete meetings (manager or admin only)
+ * Body: { ids }. Hard delete, identical to the CRM UI: refused (423) for meetings in an
+ * invoiced billing period; fixes cycle counters; removes Google Meet events.
  */
 router.post(
   '/bulk-delete',
-  managerOrAdmin,
-  validateBody(bulkDeleteMeetingsSchema),
-  (req, res, next) => {
-    meetingsController.bulkDelete(req, res, next);
+  requireScopeOrRole('write:meetings', BULK_ROLES),
+  validateBody(v1BulkDeleteMeetingsSchema),
+  async (req, res, next) => {
+    try {
+      sendSuccess(res, await bulkDeleteMeetings(req.body, req));
+    } catch (error) {
+      next(error);
+    }
   }
 );
 

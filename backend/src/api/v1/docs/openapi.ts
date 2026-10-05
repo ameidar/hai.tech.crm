@@ -1,6 +1,8 @@
 /**
  * OpenAPI 3.0 Specification for HaiTech CRM API
  */
+import { opsPaths, opsTags } from './openapi-ops.js';
+
 export const openApiSpec = {
   openapi: '3.0.3',
   info: {
@@ -33,9 +35,15 @@ Authorization: Bearer haitech_xxx...
 ## Rate Limiting
 
 כל request מוגבל לפי:
-- API Key: לפי הגדרת ה-key (ברירת מחדל 1000/שעה)
+- API Key: לפי הגדרת ה-key (ברירת מחדל 1000/שעה) — נספר אחרי אימות, לא לפי IP
 - User: 2000-10000/שעה לפי role
-- IP: 100/שעה (anonymous)
+- IP: 100/שעה (anonymous, וגם ניסיונות עם credentials שגויים)
+
+## Scopes (API keys)
+
+\`*\`, \`read:*\`, \`write:*\` מכסים את כל ה-scopes **חוץ** מ-scopes רגישים שחייבים להופיע במפורש:
+\`read:bot_config\`, \`write:bot_config\`, \`read:salary_reports\`.
+כל פעולת כתיבה עם API key נרשמת ב-audit_logs עם api_key_id ו-userName = \`api-key:<שם המפתח>\`.
 
 Headers:
 - \`X-RateLimit-Limit\`: מקסימום requests
@@ -79,6 +87,7 @@ Headers:
     { name: 'API Keys', description: 'API key management (admin only)' },
     { name: 'Webhooks', description: 'Webhook management (admin only)' },
     { name: 'Reports', description: 'Reports and analytics' },
+    ...opsTags,
   ],
   components: {
     securitySchemes: {
@@ -515,5 +524,6 @@ Headers:
         },
       },
     },
+    ...opsPaths,
   },
 };

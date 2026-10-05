@@ -132,3 +132,14 @@ export function sendError(
   };
   res.status(statusCode).json(response);
 }
+
+/**
+ * Send a page-based list (page/limit) as produced by the shared CRM services
+ * (institutional orders, paying bodies): { data, pagination: {page, limit, total, ...}, meta }.
+ */
+export function sendPaged<T>(
+  res: Response,
+  result: { data: T[]; pagination: { page: number; limit: number; total: number; totalPages: number; hasNext: boolean; hasPrev: boolean } },
+): void {
+  res.status(200).json({ data: result.data, pagination: result.pagination, meta: createMeta(res) });
+}

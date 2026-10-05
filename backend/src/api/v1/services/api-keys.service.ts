@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { NotFoundError, UnauthorizedError } from '../../../common/errors/index.js';
 import { apiKeysRepository, ApiKeysRepository, ApiKeyFilters, PaginationParams } from '../repositories/api-keys.repository.js';
-import { CreateApiKeyInput, UpdateApiKeyInput, ApiKeyScope } from '../validators/api-keys.js';
+import { CreateApiKeyInput, UpdateApiKeyInput, ApiKeyScope, scopesGrant } from '../validators/api-keys.js';
 
 /**
  * API Key response (without sensitive data)
@@ -259,23 +259,7 @@ export class ApiKeysService {
    * Check if an API key has a required scope
    */
   hasScope(apiKey: ValidatedApiKey, requiredScope: ApiKeyScope): boolean {
-    // Full access
-    if (apiKey.scopes.includes('*')) {
-      return true;
-    }
-
-    // Exact match
-    if (apiKey.scopes.includes(requiredScope)) {
-      return true;
-    }
-
-    // Wildcard match (e.g., 'read:*' matches 'read:customers')
-    const [action] = requiredScope.split(':');
-    if (apiKey.scopes.includes(`${action}:*`)) {
-      return true;
-    }
-
-    return false;
+    return scopesGrant(apiKey.scopes, requiredScope);
   }
 }
 

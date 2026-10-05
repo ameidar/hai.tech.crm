@@ -1,7 +1,9 @@
 import { Response, NextFunction } from 'express';
 import { ForbiddenError } from '../../../common/errors/index.js';
 import { AuthRequest } from './auth.js';
-import { ApiKeyScope, AVAILABLE_SCOPES } from '../validators/api-keys.js';
+import { ApiKeyScope, AVAILABLE_SCOPES, scopesGrant } from '../validators/api-keys.js';
+import { UnauthorizedError } from '../../../common/errors/index.js';
+import type { UserRole } from '@prisma/client';
 
 /**
  * Permission matrix for role-based access control
@@ -38,26 +40,12 @@ const ROLE_PERMISSIONS: Record<string, ApiKeyScope[]> = {
 };
 
 /**
- * Check if a set of scopes includes a required scope
+ * Check if a set of scopes includes a required scope.
+ * Delegates to the shared matcher so explicit-only scopes (bot config, salary reports)
+ * are never implied by '*', 'read:*' or 'write:*'.
  */
 function hasScope(scopes: string[], requiredScope: ApiKeyScope): boolean {
-  // Full access
-  if (scopes.includes('*')) {
-    return true;
-  }
-
-  // Exact match
-  if (scopes.includes(requiredScope)) {
-    return true;
-  }
-
-  // Wildcard match (e.g., 'read:*' matches 'read:customers')
-  const [action] = requiredScope.split(':');
-  if (scopes.includes(`${action}:*`)) {
-    return true;
-  }
-
-  return false;
+  return scopesGrant(scopes, requiredScope);
 }
 
 /**
@@ -85,6 +73,32 @@ export function requireScope(scope: ApiKeyScope) {
 
     // No authentication
     return next(new ForbiddenError('Authentication required'));
+  };
+}
+
+/**
+ * Authorization for the ops/admin endpoints (v1.62.0).
+ *
+ * - API key: the key's own scopes decide. The creator's role is deliberately ignored —
+ *   a key is a machine identity with exactly the permissions it was granted.
+ * - JWT user: the same roles the equivalent internal (/api/...) route allows, so the v1
+ *   endpoint never widens human access compared to the UI.
+ */
+export function requireScopeOrRole(scope: ApiKeyScope, roles: readonly UserRole[]) {
+  return (req: AuthRequest, _res: Response, next: NextFunction) => {
+    if (req.apiKey) {
+      if (!scopesGrant(req.apiKey.scopes, scope)) {
+        return next(new ForbiddenError(`Missing required scope: ${scope}`));
+      }
+      return next();
+    }
+    if (req.user) {
+      if (!roles.includes(req.user.role)) {
+        return next(new ForbiddenError(`Your role does not have permission for: ${scope}`));
+      }
+      return next();
+    }
+    return next(new UnauthorizedError('Authentication required'));
   };
 }
 

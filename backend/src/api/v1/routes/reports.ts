@@ -9,6 +9,11 @@ import {
   exportCycleProgress,
 } from '../controllers/reports.controller.js';
 import { authenticate } from '../middleware/auth.js';
+import { requireScopeOrRole } from '../middleware/scope-check.js';
+import { validateQuery } from '../middleware/validate.js';
+import { salaryReportQuerySchema } from '../validators/ops.js';
+import { sendSuccess } from '../../../common/utils/response.js';
+import { buildInstructorMonthlyReport, getPreviousMonth } from '../../../services/instructorReport.service.js';
 
 const router = Router();
 
@@ -67,5 +72,27 @@ router.get('/cycle-progress', getCycleProgress);
  * @access  Private (admin, manager)
  */
 router.get('/cycle-progress/export', exportCycleProgress);
+
+/**
+ * @route   GET /api/v1/reports/instructor-salaries?month=YYYY-MM
+ * @desc    Monthly instructor salary report — the same report as the CRM's
+ *          /api/reports/instructors (buildInstructorMonthlyReport): per-instructor meetings,
+ *          payments (incl. manual overrides), expenses, fixed monthly additions, operations
+ *          staff, fixed management salaries and grand totals. Defaults to the previous month.
+ * @access  API key with read:salary_reports (explicit-only scope) or admin/manager/operations
+ */
+router.get(
+  '/instructor-salaries',
+  requireScopeOrRole('read:salary_reports', ['admin', 'manager', 'operations']),
+  validateQuery(salaryReportQuerySchema),
+  async (req, res, next) => {
+    try {
+      const month = (req.query.month as string | undefined) || getPreviousMonth();
+      sendSuccess(res, await buildInstructorMonthlyReport(month));
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 export default router;

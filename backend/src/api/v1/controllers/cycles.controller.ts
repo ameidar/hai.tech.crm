@@ -2,8 +2,6 @@ import { Request, Response, NextFunction } from 'express';
 import { cyclesService } from '../services/cycles.service.js';
 import {
   CycleQuery,
-  CreateCycleInput,
-  UpdateCycleInput,
   CreateCycleRegistrationInput,
   DuplicateCycleInput,
   BulkUpdateCyclesInput,
@@ -40,32 +38,8 @@ export class CyclesController {
     }
   }
 
-  /**
-   * POST /cycles - Create cycle
-   */
-  async create(req: Request, res: Response, next: NextFunction) {
-    try {
-      const data = req.body as CreateCycleInput;
-      const cycle = await cyclesService.create(data, req);
-      sendCreated(res, cycle);
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /**
-   * PUT /cycles/:id - Update cycle
-   */
-  async update(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { id } = req.params;
-      const data = req.body as UpdateCycleInput;
-      const cycle = await cyclesService.update(id, data, req);
-      sendSuccess(res, cycle);
-    } catch (error) {
-      next(error);
-    }
-  }
+  // POST /cycles and PUT /cycles/:id are served by services/cycle-admin.service.ts
+  // (shared with the CRM UI) — see routes/cycles.ts.
 
   /**
    * DELETE /cycles/:id - Soft delete cycle

@@ -4,6 +4,7 @@ import { config } from '../../../config.js';
 import { UnauthorizedError, ForbiddenError } from '../../../common/errors/index.js';
 import { UserRole } from '@prisma/client';
 import { apiKeysService, ValidatedApiKey } from '../services/api-keys.service.js';
+import { applyIdentityRateLimit, applyAnonymousRateLimit, hasCredentials } from './rate-limit.js';
 
 /**
  * JWT Payload structure
@@ -43,7 +44,7 @@ function getClientIp(req: Request): string {
  * - JWT: Authorization: Bearer <token>
  * - API Key: X-API-Key: <key> OR Authorization: Bearer haitech_<key>
  */
-export const authenticate: RequestHandler = async (
+const authenticateCore = async (
   req: Request,
   res: Response,
   next: NextFunction
@@ -156,7 +157,7 @@ export const operationsManagerOrAdmin = authorize('admin', 'manager', 'operation
 /**
  * Optional authentication - doesn't fail if no token
  */
-export const optionalAuth: RequestHandler = async (
+const optionalAuthCore = async (
   req: Request,
   res: Response,
   next: NextFunction
@@ -220,4 +221,45 @@ export const optionalAuth: RequestHandler = async (
   }
   
   next();
+};
+
+/**
+ * Apply the per-identity (or, for failed/missing credentials, the anonymous per-IP) rate
+ * limit once per request. The router-level limiter skips credentialed requests because it
+ * runs before authentication; this is where they get counted.
+ */
+function applyPostAuthRateLimit(req: Request, res: Response, authenticated: boolean) {
+  const r = req as AuthRequest & { rateLimitApplied?: boolean };
+  if (r.rateLimitApplied) return null;
+  r.rateLimitApplied = true;
+  return authenticated ? applyIdentityRateLimit(r as any, res) : applyAnonymousRateLimit(r as any, res);
+}
+
+/**
+ * Authentication middleware
+ * Supports both JWT tokens and API keys
+ * - JWT: Authorization: Bearer <token>
+ * - API Key: X-API-Key: <key> OR Authorization: Bearer haitech_<key>
+ */
+export const authenticate: RequestHandler = (req, res, next) => {
+  void authenticateCore(req, res, ((err?: unknown) => {
+    if (err) {
+      const limited = applyPostAuthRateLimit(req, res, false);
+      return next(limited ?? err);
+    }
+    const limited = applyPostAuthRateLimit(req, res, true);
+    return limited ? next(limited) : next();
+  }) as NextFunction);
+};
+
+/**
+ * Optional authentication - doesn't fail if no token
+ */
+export const optionalAuth: RequestHandler = (req, res, next) => {
+  void optionalAuthCore(req, res, (() => {
+    const authenticated = Boolean((req as AuthRequest).apiKey || req.user);
+    if (!authenticated && !hasCredentials(req as any)) return next();
+    const limited = applyPostAuthRateLimit(req, res, authenticated);
+    return limited ? next(limited) : next();
+  }) as NextFunction);
 };

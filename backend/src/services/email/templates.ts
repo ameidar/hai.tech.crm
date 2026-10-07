@@ -58,6 +58,7 @@ export interface ManagementSummaryData {
   upcomingClasses: Array<{
     name: string;
     date: string;
+    time?: string;
     instructor: string;
     students: number;
   }>;
@@ -295,11 +296,12 @@ export const managementSummaryTemplate = (data: ManagementSummaryData): string =
       ` : '<div class="success">✅ אין התראות להיום</div>'}
 
       ${data.upcomingClasses.length > 0 ? `
-      <h2>📅 שיעורים קרובים</h2>
+      <h2>📅 השיעורים של מחר (${data.upcomingClasses.length})</h2>
       <table>
-        <tr><th>קורס</th><th>תאריך</th><th>מדריך</th><th>תלמידים</th></tr>
+        <tr><th>שעה</th><th>מחזור</th><th>תאריך</th><th>מדריך</th><th>תלמידים</th></tr>
         ${data.upcomingClasses.map(cls => `
         <tr>
+          <td>${cls.time || ''}</td>
           <td>${cls.name}</td>
           <td>${cls.date}</td>
           <td>${cls.instructor}</td>

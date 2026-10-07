@@ -12,8 +12,6 @@ import { config } from '../config.js';
 import jwt from 'jsonwebtoken';
 import OpenAI from 'openai';
 import axios from 'axios';
-import * as fs from 'fs';
-import * as path from 'path';
 import { sendEmail } from '../services/email/sender.js';
 import { sendWhatsAppToChat } from '../services/messaging.js';
 import { handleStatusReply, parseInstructorStatusReply } from '../services/whatsapp-reminder.service.js';
@@ -21,6 +19,14 @@ import { addWaSseClient, broadcastWaSSE as broadcastSSE, removeWaSseClient } fro
 import { sanitizeLeadEmail, shouldSendPromisedEmailAlert } from '../utils/wa-lead-extraction.js';
 import { applyJevRouting, getJevMode } from '../services/jev-intent.js';
 import { extractInboundText } from '../utils/wa-inbound-text.js';
+import { AppError } from '../middleware/errorHandler.js';
+import {
+  initBotConfigFromDB,
+  getSystemPrompt,
+  getKnowledgeBase,
+  getBotConfig,
+  updateBotConfig,
+} from '../services/wa-bot-config.js';
 
 const router = Router();
 
@@ -241,43 +247,8 @@ async function getInstructorConversationPhones(): Promise<string[]> {
 // OpenAI
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Load bot data — files as defaults, DB overrides at startup
-const DATA_DIR = path.join(__dirname, '../data');
-let systemPrompt = '';
-let knowledgeBase: any = {};
-let knowledgeBaseRaw = '{}'; // raw JSON string for editing
-
-// 1. Load from files (sync, always as fallback)
-try {
-  systemPrompt = fs.readFileSync(path.join(DATA_DIR, 'wa_system_prompt.md'), 'utf8');
-  knowledgeBaseRaw = fs.readFileSync(path.join(DATA_DIR, 'wa_knowledge_base.json'), 'utf8');
-  knowledgeBase = JSON.parse(knowledgeBaseRaw);
-  console.log('[WA] System prompt and knowledge base loaded from files');
-} catch (e) {
-  console.warn('[WA] Could not load system prompt / knowledge base from files:', e);
-}
-
-// 2. Override from DB if admin has saved custom values
-async function initBotConfigFromDB() {
-  try {
-    const rows = await prisma.$queryRaw<{ key: string; value: string }[]>`
-      SELECT key, value FROM bot_config WHERE key IN ('system_prompt', 'knowledge_base')
-    `;
-    for (const row of rows) {
-      if (row.key === 'system_prompt') {
-        systemPrompt = row.value;
-        console.log('[WA] System prompt loaded from DB');
-      }
-      if (row.key === 'knowledge_base') {
-        knowledgeBaseRaw = row.value;
-        try { knowledgeBase = JSON.parse(row.value); } catch {}
-        console.log('[WA] Knowledge base loaded from DB');
-      }
-    }
-  } catch (e) {
-    console.warn('[WA] Could not load bot config from DB:', e);
-  }
-}
+// Bot data (system prompt + knowledge base) lives in services/wa-bot-config.ts:
+// files as defaults (loaded on import), DB overrides at startup.
 // Fire-and-forget at startup
 initBotConfigFromDB();
 
@@ -492,6 +463,8 @@ async function generateAIReply(conversationId: string): Promise<string | null> {
   const conv = await prisma.waConversation.findUnique({ where: { id: conversationId } });
   if (!conv) return null;
 
+  const systemPrompt = getSystemPrompt();
+  const knowledgeBase = getKnowledgeBase();
   const fullSystemPrompt = `${systemPrompt}
 
 ---
@@ -664,6 +637,7 @@ async function extractLeadData(conversationId: string) {
 
         // Find course details in knowledge base
         let courseHtml = '';
+        const knowledgeBase = getKnowledgeBase();
         if (courseTitle && knowledgeBase.courses) {
           const allCourses: any[] = [
             ...(knowledgeBase.courses.digital_self_paced || []),
@@ -1197,7 +1171,7 @@ router.get('/callbacks/count', authenticate, async (_req: Request, res: Response
 router.get('/bot-config', authenticate, async (req: Request, res: Response) => {
   const user = (req as any).user;
   if (!['admin', 'manager'].includes(user?.role)) { res.status(403).json({ error: 'Forbidden' }); return; }
-  res.json({ systemPrompt, knowledgeBase: knowledgeBaseRaw });
+  res.json(getBotConfig());
 });
 
 // ── PUT /api/wa/bot-config — Save system prompt and/or knowledge base (admin)
@@ -1205,33 +1179,14 @@ router.put('/bot-config', authenticate, async (req: Request, res: Response) => {
   const user = (req as any).user;
   if (!['admin', 'manager'].includes(user?.role)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
-  const { systemPrompt: newPrompt, knowledgeBase: newKB } = req.body;
-
   try {
-    if (typeof newPrompt === 'string') {
-      systemPrompt = newPrompt;
-      await prisma.$executeRaw`
-        INSERT INTO bot_config (key, value, updated_at, updated_by)
-        VALUES ('system_prompt', ${newPrompt}, NOW(), ${user.email})
-        ON CONFLICT (key) DO UPDATE SET value = ${newPrompt}, updated_at = NOW(), updated_by = ${user.email}
-      `;
-    }
-
-    if (typeof newKB === 'string') {
-      // Validate JSON
-      try { JSON.parse(newKB); } catch { res.status(400).json({ error: 'Knowledge base must be valid JSON' }); return; }
-      knowledgeBaseRaw = newKB;
-      knowledgeBase = JSON.parse(newKB);
-      await prisma.$executeRaw`
-        INSERT INTO bot_config (key, value, updated_at, updated_by)
-        VALUES ('knowledge_base', ${newKB}, NOW(), ${user.email})
-        ON CONFLICT (key) DO UPDATE SET value = ${newKB}, updated_at = NOW(), updated_by = ${user.email}
-      `;
-    }
-
-    console.log(`[WA] Bot config updated by ${user.email}`);
+    await updateBotConfig({ systemPrompt: req.body?.systemPrompt, knowledgeBase: req.body?.knowledgeBase }, req);
     res.json({ ok: true, message: 'Bot configuration saved successfully' });
   } catch (err) {
+    if (err instanceof AppError && err.statusCode === 400) {
+      res.status(400).json({ error: err.message, ...(err.data ?? {}) });
+      return;
+    }
     console.error('[WA] Bot config save error:', err);
     res.status(500).json({ error: 'Failed to save configuration' });
   }

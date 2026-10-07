@@ -1,6 +1,7 @@
 // Audit logging utility
 import { Request } from 'express';
 import { prisma } from './prisma.js';
+import { getRequestApiKey } from './request-actor.js';
 
 export interface AuditLogParams {
   userId?: string;
@@ -86,15 +87,22 @@ export function computeChanges(
  */
 export async function logAudit(params: AuditLogParams): Promise<void> {
   try {
-    // Extract user info from request if available
+    // API-key requests are attributed to the key (api_key_id + "api-key:<name>"), never to a
+    // human — not even the key's creator, which the v1 auth layer exposes as req.user.
+    const apiKey = getRequestApiKey(params.req);
     const user = (params.req as any)?.user;
-    const userId = params.userId || user?.userId;
-    const userName = params.userName || user?.name || user?.email;
+    const userId = apiKey ? null : (params.userId || user?.userId);
+    const userName = apiKey ? `api-key:${apiKey.name}` : (params.userName || user?.name || user?.email);
+
+    // Tell the v1 audit middleware this request already wrote an explicit audit row,
+    // so it doesn't add a second generic one.
+    if (params.req) (params.req as any).auditLogged = true;
 
     await prisma.auditLog.create({
       data: {
         userId,
         userName,
+        apiKeyId: apiKey?.id ?? null,
         action: params.action,
         entity: params.entity,
         entityId: params.entityId,

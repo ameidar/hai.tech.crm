@@ -1,4 +1,5 @@
 import type { Request } from 'express';
+import { actorUserId } from '../utils/request-actor.js';
 import { prisma } from '../utils/prisma.js';
 import { logAudit } from '../utils/audit.js';
 import { sendEmail } from './email/sender.js';
@@ -146,7 +147,7 @@ export async function cancelFutureMeetingsForCycle(
         data: {
           status: 'cancelled',
           statusUpdatedAt: new Date(),
-          statusUpdatedById: (options.req as any)?.user?.userId ?? null,
+          statusUpdatedById: actorUserId(options.req) ?? null,
           zoomMeetingId: null,
           zoomJoinUrl: null,
           zoomStartUrl: null,

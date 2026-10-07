@@ -33,6 +33,9 @@ import { sendPendingInstitutionalAttendanceAlerts } from '../institutional-absen
 
 // Management email list (configure via env or database)
 const MANAGEMENT_EMAILS = getOperationsEmailRecipients(process.env.MANAGEMENT_EMAILS);
+// The 23:00 daily management summary also goes to Inna (requested by Ami 2026-10-07).
+// Kept separate from operations recipients so she doesn't get the WhatsApp ops alerts.
+const MANAGEMENT_SUMMARY_EMAILS = Array.from(new Set([...MANAGEMENT_EMAILS, 'inna@hai.tech']));
 
 const TZ = 'Asia/Jerusalem';
 
@@ -426,7 +429,7 @@ const sendManagementSummary = async () => {
     };
 
     // Send to all management emails
-    for (const email of MANAGEMENT_EMAILS) {
+    for (const email of MANAGEMENT_SUMMARY_EMAILS) {
       await queueEmail({
         to: email.trim(),
         subject: `📊 סיכום יומי - HaiTech CRM - ${formatDateHebrew(today)}`,
@@ -437,7 +440,7 @@ const sendManagementSummary = async () => {
       });
     }
 
-    console.log(`✅ Queued management summary to ${MANAGEMENT_EMAILS.length} recipients`);
+    console.log(`✅ Queued management summary to ${MANAGEMENT_SUMMARY_EMAILS.length} recipients`);
   } catch (error) {
     console.error('❌ Error sending management summary:', error);
   }

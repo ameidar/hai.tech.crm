@@ -12,9 +12,11 @@ type CombinedRequest = ApiKeyRequest & AuthRequest;
  * e.g., /api/v1/customers/123 -> { entity: 'Customer', entityId: '123' }
  */
 function extractEntityInfo(path: string): { entity: string; entityId?: string } | null {
-  // Match patterns like /api/v1/entity or /api/v1/entity/:id
-  const match = path.match(/\/api\/v1\/([a-z-]+)(?:\/([a-f0-9-]+))?/i);
-  
+  // Match /api/v1/<resource>[/<id>...]. `path` must be the full original URL path —
+  // inside the v1 router req.path is relative to the mount point ("/customers/..."),
+  // which is why this middleware used to never match anything.
+  const match = path.match(/^\/api\/v1\/([a-z-]+)(?:\/([^/?#]+))?/i);
+
   if (!match) return null;
 
   // Map route to entity name
@@ -29,14 +31,25 @@ function extractEntityInfo(path: string): { entity: string; entityId?: string } 
     'registrations': 'Registration',
     'attendance': 'Attendance',
     'api-keys': 'ApiKey',
+    'institutional-orders': 'InstitutionalOrder',
+    'paying-bodies': 'PayingBody',
+    'bot-config': 'BotConfig',
   };
 
   const entity = entityMap[match[1]];
   if (!entity) return null;
 
+  // Only treat the second segment as an id when it looks like one (UUID or CUID) —
+  // not action segments such as "bulk-update".
+  const candidate = match[2];
+  const looksLikeId = candidate && (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(candidate) ||
+    /^c[a-z0-9]{20,}$/.test(candidate)
+  );
+
   return {
     entity,
-    entityId: match[2],
+    entityId: looksLikeId ? candidate : undefined,
   };
 }
 
@@ -117,7 +130,7 @@ export function auditMiddleware(req: CombinedRequest, res: Response, next: NextF
     return next();
   }
 
-  const entityInfo = extractEntityInfo(req.path);
+  const entityInfo = extractEntityInfo((req.originalUrl || req.url).split('?')[0]);
   if (!entityInfo) {
     return next();
   }
@@ -133,8 +146,9 @@ export function auditMiddleware(req: CombinedRequest, res: Response, next: NextF
 
   // Log after response is sent
   res.on('finish', async () => {
-    // Only log successful mutations
-    if (res.statusCode >= 200 && res.statusCode < 300) {
+    // Only log successful mutations, and only when the handler didn't already write an
+    // explicit (richer) audit row via utils/audit.logAudit.
+    if (res.statusCode >= 200 && res.statusCode < 300 && !req.auditLogged) {
       try {
         const parsedResponse = typeof responseBody === 'string' 
           ? JSON.parse(responseBody) 
@@ -147,9 +161,12 @@ export function auditMiddleware(req: CombinedRequest, res: Response, next: NextF
         }
 
         if (entityId) {
+          // API-key requests are attributed to the key only — the v1 auth layer sets
+          // req.user to the key's creator for legacy role checks, which must not be
+          // recorded as the actor.
           await createAuditLog({
-            userId: req.user?.userId,
-            userName: req.user?.email,
+            userId: req.apiKey ? undefined : req.user?.userId,
+            userName: req.apiKey ? `api-key:${req.apiKey.name}` : req.user?.email,
             apiKeyId: req.apiKey?.id,
             action: getAction(method),
             entity: entityInfo.entity,

@@ -4,82 +4,34 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { paginationSchema, uuidSchema } from '../types/schemas.js';
+import { uuidSchema } from '../types/schemas.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { isMorningConfigured } from '../services/morning/client.js';
 import { searchClients, getMorningClient, updateMorningClient } from '../services/morning/clients.js';
 import { comparePayingBodyToMorning, planSync } from '../services/payingBodySync.js';
+import {
+  createSchema,
+  updateSchema,
+  isComplete,
+  listPayingBodies,
+  getPayingBody,
+  createPayingBody,
+  updatePayingBody,
+  type PayingBodyListQuery,
+} from '../services/paying-bodies.service.js';
 
 export const payingBodiesRouter = Router();
 
 payingBodiesRouter.use(authenticate);
 
-const trimmed = (max = 255) => z.string().trim().min(1).max(max);
-
-// Required on create (decided with Inna): name, taxId (ח.פ or ת.ז), contactName, email.
-// Phone + address fields are optional. morningClientId links to an existing Morning client.
-export const createSchema = z.object({
-  name: trimmed(),
-  taxId: trimmed(50),
-  contactName: trimmed(),
-  email: z.string().trim().email(),
-  phone: z.string().trim().max(50).optional().nullable(),
-  address: z.string().trim().max(255).optional().nullable(),
-  city: z.string().trim().max(120).optional().nullable(),
-  zip: z.string().trim().max(20).optional().nullable(),
-  morningClientId: z.string().trim().max(120).optional().nullable(),
-});
-
-// On update every field is optional so legacy incomplete rows can be completed gradually.
-export const updateSchema = z.object({
-  name: trimmed().optional(),
-  taxId: z.string().trim().max(50).optional().nullable(),
-  contactName: z.string().trim().max(255).optional().nullable(),
-  email: z.union([z.string().trim().email(), z.literal('')]).optional().nullable(),
-  phone: z.string().trim().max(50).optional().nullable(),
-  address: z.string().trim().max(255).optional().nullable(),
-  city: z.string().trim().max(120).optional().nullable(),
-  zip: z.string().trim().max(20).optional().nullable(),
-  morningClientId: z.string().trim().max(120).optional().nullable(),
-});
-
-export const isComplete = (b: { name?: string | null; taxId?: string | null; contactName?: string | null; email?: string | null }) =>
-  !!(b.name && b.taxId && b.contactName && b.email);
+// Schemas + helpers live in the shared service; re-exported for existing importers/tests.
+export { createSchema, updateSchema, isComplete };
 
 // List paying bodies — financial counterparty data, admin/manager only.
 // Optional `q` filters by name or taxId (substring).
 payingBodiesRouter.get('/', managerOrAdmin, async (req, res, next) => {
   try {
-    const { page, limit } = paginationSchema.parse(req.query);
-    const q = (req.query.q as string | undefined)?.trim();
-    const onlyIncomplete = req.query.incomplete === 'true';
-
-    const where = {
-      ...(q && {
-        OR: [
-          { name: { contains: q, mode: 'insensitive' as const } },
-          { taxId: { contains: q, mode: 'insensitive' as const } },
-        ],
-      }),
-      ...(onlyIncomplete && { isComplete: false }),
-    };
-
-    const [items, total] = await Promise.all([
-      prisma.payingBody.findMany({
-        where,
-        include: { _count: { select: { institutionalOrders: true } } },
-        orderBy: [{ isComplete: 'asc' }, { name: 'asc' }],
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-      prisma.payingBody.count({ where }),
-    ]);
-
-    const totalPages = Math.ceil(total / limit);
-    res.json({
-      data: items,
-      pagination: { page, limit, total, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
-    });
+    res.json(await listPayingBodies(req.query as PayingBodyListQuery));
   } catch (error) {
     next(error);
   }
@@ -181,12 +133,7 @@ payingBodiesRouter.post('/:id/morning/sync', managerOrAdmin, async (req, res, ne
 payingBodiesRouter.get('/:id', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
-    const body = await prisma.payingBody.findUnique({
-      where: { id },
-      include: { _count: { select: { institutionalOrders: true } } },
-    });
-    if (!body) throw new AppError(404, 'Paying body not found');
-    res.json(body);
+    res.json(await getPayingBody(id));
   } catch (error) {
     next(error);
   }
@@ -195,45 +142,18 @@ payingBodiesRouter.get('/:id', managerOrAdmin, async (req, res, next) => {
 // Create
 payingBodiesRouter.post('/', managerOrAdmin, async (req, res, next) => {
   try {
-    const data = createSchema.parse(req.body);
-    const body = await prisma.payingBody.create({
-      data: { ...data, isComplete: isComplete(data) },
-    });
-    await logAudit({ action: 'CREATE', entity: 'PayingBody', entityId: body.id, newValue: { name: body.name, taxId: body.taxId }, req });
+    const body = await createPayingBody(req.body, req);
     res.status(201).json(body);
   } catch (error) {
     next(error);
   }
 });
 
-// Update — recompute isComplete from the merged record so legacy rows flip to complete
-// once all required fields are filled.
+// Update — recomputes isComplete from the merged record (see service).
 payingBodiesRouter.put('/:id', managerOrAdmin, async (req, res, next) => {
   try {
     const id = uuidSchema.parse(req.params.id);
-    const data = updateSchema.parse(req.body);
-
-    const existing = await prisma.payingBody.findUnique({ where: { id } });
-    if (!existing) throw new AppError(404, 'Paying body not found');
-
-    const merged = {
-      name: data.name ?? existing.name,
-      taxId: data.taxId ?? existing.taxId,
-      contactName: data.contactName ?? existing.contactName,
-      email: (data.email === '' ? null : data.email) ?? existing.email,
-    };
-
-    const body = await prisma.payingBody.update({
-      where: { id },
-      data: {
-        ...data,
-        email: data.email === '' ? null : data.email,
-        isComplete: isComplete(merged),
-      },
-    });
-
-    await logUpdateAudit({ entity: 'PayingBody', entityId: id, oldRecord: existing, newRecord: body, req });
-    res.json(body);
+    res.json(await updatePayingBody(id, req.body, req));
   } catch (error) {
     next(error);
   }

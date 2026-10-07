@@ -29,9 +29,44 @@ export const AVAILABLE_SCOPES = [
   'read:leads',
   'write:leads',
   'read:payments',
+  // Ops/admin API (v1.62.0)
+  'read:institutional_orders',
+  'write:institutional_orders',
+  'read:paying_bodies',
+  'write:paying_bodies',
+  'read:instructor_additions',
+  'write:instructor_additions',
+  'read:bot_config',        // explicit-only (see EXPLICIT_ONLY_SCOPES)
+  'write:bot_config',       // explicit-only
+  'read:salary_reports',    // explicit-only
 ] as const;
 
 export type ApiKeyScope = typeof AVAILABLE_SCOPES[number];
+
+/**
+ * Sensitive scopes that are NEVER implied by a broad scope ('*', 'read:*', 'write:*').
+ * A key (or role) gets them only when they are listed explicitly — so the existing
+ * broad-scope integration keys don't silently gain access to the WhatsApp bot's
+ * prompt/knowledge base or to instructor salaries.
+ */
+export const EXPLICIT_ONLY_SCOPES: ReadonlySet<string> = new Set([
+  'read:bot_config',
+  'write:bot_config',
+  'read:salary_reports',
+]);
+
+/**
+ * Single source of truth for scope matching (API keys and role permission lists).
+ * - exact match always grants
+ * - '*' and '<action>:*' grant everything of that action EXCEPT explicit-only scopes
+ */
+export function scopesGrant(granted: readonly string[], required: string): boolean {
+  if (granted.includes(required)) return true;
+  if (EXPLICIT_ONLY_SCOPES.has(required)) return false;
+  if (granted.includes('*')) return true;
+  const [action] = required.split(':');
+  return granted.includes(`${action}:*`);
+}
 
 /**
  * Create API key input

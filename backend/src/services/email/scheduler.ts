@@ -33,6 +33,9 @@ import { sendPendingInstitutionalAttendanceAlerts } from '../institutional-absen
 
 // Management email list (configure via env or database)
 const MANAGEMENT_EMAILS = getOperationsEmailRecipients(process.env.MANAGEMENT_EMAILS);
+// The 23:00 daily management summary also goes to Inna (requested by Ami 2026-10-07).
+// Kept separate from operations recipients so she doesn't get the WhatsApp ops alerts.
+const MANAGEMENT_SUMMARY_EMAILS = Array.from(new Set([...MANAGEMENT_EMAILS, 'inna@hai.tech']));
 
 const TZ = 'Asia/Jerusalem';
 
@@ -229,6 +232,13 @@ const sendParentReminders = async () => {
   }
 };
 
+// Meeting start/end times are stored as 1970-01-01T<HH:MM>Z holding Israel-local wall time.
+const formatUtcTime = (value: Date | null | undefined): string => {
+  if (!value) return '';
+  const d = new Date(value);
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+};
+
 // Send management daily summary (23:00)
 const sendManagementSummary = async () => {
   console.log('📧 Running management summary job...');
@@ -266,17 +276,18 @@ const sendManagementSummary = async () => {
       }),
     ]);
 
-    // Get upcoming classes (next 3 days)
-    const { start: day2 } = getIsraelDateBoundsForDB(1);
-    const { start: day4 } = getIsraelDateBoundsForDB(3);
+    // Get ALL of tomorrow's scheduled meetings (no cap), ordered by start time
+    const { start: day2, end: day3 } = getIsraelDateBoundsForDB(1);
 
     const upcomingMeetings = await prisma.meeting.findMany({
       where: {
-        scheduledDate: { gte: day2, lt: day4 },
+        scheduledDate: { gte: day2, lt: day3 },
         status: 'scheduled',
+        deletedAt: null,
         cycle: { status: 'active' },
       },
       include: {
+        instructor: true,
         cycle: {
           include: {
             course: true,
@@ -285,8 +296,7 @@ const sendManagementSummary = async () => {
           },
         },
       },
-      take: 10,
-      orderBy: { scheduledDate: 'asc' },
+      orderBy: [{ startTime: 'asc' }, { endTime: 'asc' }],
     });
 
     // Calculate attendance rate
@@ -409,16 +419,17 @@ const sendManagementSummary = async () => {
       wooPayments,
       insights,
       upcomingClasses: upcomingMeetings.map(m => ({
-        name: m.cycle.course.name,
+        name: m.cycle.name,
         date: formatDateHebrew(m.scheduledDate),
-        instructor: m.cycle.instructor?.name || 'לא משויך',
+        time: `${formatUtcTime(m.startTime)}-${formatUtcTime(m.endTime)}`,
+        instructor: m.instructor?.name || m.cycle.instructor?.name || 'לא משויך',
         students: m.cycle.registrations.length,
       })),
       alerts,
     };
 
     // Send to all management emails
-    for (const email of MANAGEMENT_EMAILS) {
+    for (const email of MANAGEMENT_SUMMARY_EMAILS) {
       await queueEmail({
         to: email.trim(),
         subject: `📊 סיכום יומי - HaiTech CRM - ${formatDateHebrew(today)}`,
@@ -429,7 +440,7 @@ const sendManagementSummary = async () => {
       });
     }
 
-    console.log(`✅ Queued management summary to ${MANAGEMENT_EMAILS.length} recipients`);
+    console.log(`✅ Queued management summary to ${MANAGEMENT_SUMMARY_EMAILS.length} recipients`);
   } catch (error) {
     console.error('❌ Error sending management summary:', error);
   }

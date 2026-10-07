@@ -9,6 +9,15 @@ import {
   updateInstructorSchema,
   instructorMeetingsQuerySchema 
 } from '../validators/instructors.js';
+import { requireScopeOrRole } from '../middleware/scope-check.js';
+import { opsIdParamSchema, fixedAdditionParamsSchema } from '../validators/ops.js';
+import { sendSuccess, sendCreated, sendNoContent } from '../../../common/utils/response.js';
+import {
+  listFixedAdditions,
+  createFixedAddition,
+  updateFixedAddition,
+  deleteFixedAddition,
+} from '../../../services/instructor-fixed-additions.crud.js';
 
 const router = Router();
 
@@ -77,6 +86,67 @@ router.get(
   validate({ params: idParamSchema, query: instructorMeetingsQuerySchema }), 
   (req, res, next) => {
     instructorsController.getMeetings(req, res, next);
+  }
+);
+
+// =============================================================================
+// Fixed monthly additions (תוספות קבועות) — v1 ops API (v1.62.0)
+// Same logic as /api/instructors/:id/fixed-additions
+// (services/instructor-fixed-additions.crud.ts). Months are "YYYY-MM"; endMonth inclusive.
+// =============================================================================
+
+const ADDITION_ROLES = ['admin', 'manager', 'operations_manager'] as const; // internal: operationsManagerOrAdmin
+
+router.get(
+  '/:id/fixed-additions',
+  requireScopeOrRole('read:instructor_additions', ADDITION_ROLES),
+  validateParams(opsIdParamSchema),
+  async (req, res, next) => {
+    try {
+      sendSuccess(res, await listFixedAdditions(req.params.id));
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.post(
+  '/:id/fixed-additions',
+  requireScopeOrRole('write:instructor_additions', ADDITION_ROLES),
+  validateParams(opsIdParamSchema),
+  async (req, res, next) => {
+    try {
+      sendCreated(res, await createFixedAddition(req.params.id, req.body, req));
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.put(
+  '/:id/fixed-additions/:additionId',
+  requireScopeOrRole('write:instructor_additions', ADDITION_ROLES),
+  validateParams(fixedAdditionParamsSchema),
+  async (req, res, next) => {
+    try {
+      sendSuccess(res, await updateFixedAddition(req.params.id, req.params.additionId, req.body, req));
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.delete(
+  '/:id/fixed-additions/:additionId',
+  requireScopeOrRole('write:instructor_additions', ADDITION_ROLES),
+  validateParams(fixedAdditionParamsSchema),
+  async (req, res, next) => {
+    try {
+      await deleteFixedAddition(req.params.id, req.params.additionId, req);
+      sendNoContent(res);
+    } catch (error) {
+      next(error);
+    }
   }
 );
 

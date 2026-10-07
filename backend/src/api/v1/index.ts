@@ -19,6 +19,9 @@ import reportsRouter from './routes/reports.js';
 import auditLogsRouter from './routes/audit-logs.js';
 import docsRouter from './routes/docs.js';
 import { leadsRouter } from './routes/leads.js';
+import { institutionalOrdersRouter } from './routes/institutional-orders.js';
+import { payingBodiesRouter } from './routes/paying-bodies.js';
+import { botConfigRouter } from './routes/bot-config.js';
 
 /**
  * API v1 Router
@@ -38,7 +41,8 @@ router.use(requestIdMiddleware);
 // HTTP request/response logging with correlation ID
 router.use(httpLogger);
 
-// Rate limiting (per user/API key/IP)
+// Rate limiting: anonymous traffic per IP here; credentialed traffic per API key / user
+// right after authentication (see middleware/auth.ts + rate-limit.ts).
 router.use(rateLimit);
 
 // Audit logging for mutations
@@ -75,8 +79,10 @@ router.use('/webhooks', webhooksRouter);
 router.use('/reports', reportsRouter);
 router.use('/audit-logs', auditLogsRouter);
 
-// Future routes will be added here:
-// router.use('/institutional-orders', institutionalOrdersRouter);
+// Ops/admin endpoints (v1.62.0) — machine-identity (API key) friendly, scope-gated
+router.use('/institutional-orders', institutionalOrdersRouter);
+router.use('/paying-bodies', payingBodiesRouter);
+router.use('/bot-config', botConfigRouter);
 
 // =============================================================================
 // Error Handler (must be last)

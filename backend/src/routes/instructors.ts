@@ -191,10 +191,30 @@ instructorsRouter.put('/:id', operationsManagerOrAdmin, async (req, res, next) =
     const existingInstructor = await prisma.instructor.findUnique({ where: { id } });
     if (!existingInstructor) throw new AppError(404, 'Instructor not found');
 
-    const instructor = await prisma.instructor.update({
-      where: { id },
-      data,
-    });
+    // The login email lives on the linked User row. Keep it in sync with the
+    // instructor card, otherwise the instructor keeps logging in with the old
+    // (sometimes placeholder) address. Clearing the email leaves the login as-is.
+    const syncUserEmail =
+      !!existingInstructor.userId &&
+      typeof data.email === 'string' &&
+      data.email !== existingInstructor.email;
+
+    if (syncUserEmail) {
+      const emailOwner = await prisma.user.findUnique({ where: { email: data.email as string } });
+      if (emailOwner && emailOwner.id !== existingInstructor.userId) {
+        throw new AppError(409, 'Email already in use by another user');
+      }
+    }
+
+    const instructor = syncUserEmail
+      ? (await prisma.$transaction([
+          prisma.instructor.update({ where: { id }, data }),
+          prisma.user.update({
+            where: { id: existingInstructor.userId as string },
+            data: { email: data.email as string },
+          }),
+        ]))[0]
+      : await prisma.instructor.update({ where: { id }, data });
 
     // Audit log
     const oldRecord = {

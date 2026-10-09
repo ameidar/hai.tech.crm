@@ -38,6 +38,7 @@ import { initBillingScheduler } from './services/billing-scheduler.js';
 import { initProformaAlertScheduler } from './services/proforma-alerts.js';
 import { initTaskReminderScheduler } from './services/task-reminders.js';
 import { initWooBackupSyncScheduler } from './services/woo-sync-scheduler.js';
+import { initMorningReceiptSyncScheduler } from './services/morning-receipt-sync-scheduler.js';
 import { initGoogleMeetArtifactsScheduler } from './services/google-meet-artifacts-scheduler.js';
 import { reconcileOmerRegistrationPayment } from './services/omer-payment-reconciliation.js';
 import { forecastRouter } from './routes/forecast.js';
@@ -642,6 +643,7 @@ const start = async () => {
       initProformaAlertScheduler();
       initTaskReminderScheduler();
       initWooBackupSyncScheduler();
+      initMorningReceiptSyncScheduler();
       initGoogleMeetArtifactsScheduler();
     }
 

@@ -126,7 +126,7 @@ describe('Jev WhatsApp intent routing', () => {
       ['human', 'escalate'],
       ['support', 'escalate'],
       ['job', 'escalate'],
-      ['irrelevant', 'silence'],
+      ['irrelevant', 'acknowledge'],
     ] as const)('%s at high confidence → %s', (intent, action) => {
       expect(decideJevRoute({ intent, confidence: 0.9, needsHuman: null }, 'on')).toBe(action);
     });
@@ -171,10 +171,15 @@ describe('Jev WhatsApp intent routing', () => {
       });
     });
 
-    it('irrelevant → silence, bot flag untouched', async () => {
+    it('irrelevant → acknowledge and stop the bot (no auto-responder loops)', async () => {
       mockPost.mockResolvedValue(jevResponse('irrelevant', 0.92));
-      expect(await applyJevRouting(conv, 'Thank you for contacting XYZ Ltd.', 'msg-1')).toBe('silence');
-      expect(mockUpdate.mock.calls[0][0].data).toMatchObject({ intent: 'irrelevant' });
+      expect(await applyJevRouting(conv, 'Thank you for contacting XYZ Ltd.', 'msg-1')).toBe('acknowledge');
+      expect(mockUpdate.mock.calls[0][0].data).toMatchObject({ intent: 'irrelevant', aiEnabled: false });
+    });
+
+    it('irrelevant below threshold → current behavior, bot flag untouched', async () => {
+      mockPost.mockResolvedValue(jevResponse('irrelevant', 0.6));
+      expect(await applyJevRouting(conv, 'msg', 'msg-1')).toBe('continue');
       expect(mockUpdate.mock.calls[0][0].data).not.toHaveProperty('aiEnabled');
     });
 

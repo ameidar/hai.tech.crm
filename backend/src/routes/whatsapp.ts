@@ -765,6 +765,32 @@ function detectCallbackIntent(text: string): boolean {
   return CALLBACK_KEYWORDS.some(kw => lower.includes(kw));
 }
 
+const CALLBACK_CONFIRMATION_MSG = 'תודה! קיבלנו את בקשתך 😊 נציג מדרך ההייטק יחזור אליך בהקדם האפשרי.';
+
+// Send the "we'll get back to you" confirmation to the customer and record it as a bot message.
+async function sendCallbackConfirmation(conv: any, phone: string): Promise<void> {
+  try {
+    const waId = await sendWhatsAppMessage(phone, CALLBACK_CONFIRMATION_MSG, conv.phoneNumberId);
+    const botMsg = await prisma.waMessage.create({
+      data: {
+        conversationId: conv.id,
+        direction: 'outbound',
+        content: CALLBACK_CONFIRMATION_MSG,
+        waMessageId: waId || undefined,
+        status: 'sent',
+        isAiGenerated: true
+      }
+    });
+    await prisma.waConversation.update({
+      where: { id: conv.id },
+      data: { lastMessageAt: new Date(), lastMessagePreview: CALLBACK_CONFIRMATION_MSG.slice(0, 100), updatedAt: new Date() }
+    });
+    broadcastSSE('new_message', { conversationId: conv.id, message: botMsg });
+  } catch (e) {
+    console.error('[WA] Callback confirmation send error:', e);
+  }
+}
+
 async function handleCallbackRequest(conv: any, messageText: string): Promise<void> {
   try {
     // Check if there's already a pending callback request for this conversation in the last 24h
@@ -1010,36 +1036,20 @@ router.post('/webhook', async (req: Request, res: Response) => {
           const isCallbackRequest = detectCallbackIntent(text);
 
           if (jevAction === 'escalate') {
-            // human / support / job: bot already stopped (aiEnabled=false) — raise the staff callback alert, no auto-reply
+            // human / support / job: bot already stopped (aiEnabled=false) — raise the staff callback alert
+            // and send the callback confirmation once. Exclusive with the keyword branch below → never sent twice.
             handleCallbackRequest(conv, text);
-          } else if (jevAction === 'silence') {
-            // irrelevant (spam / automated reply): no auto-reply
+            await sendCallbackConfirmation(conv, phone);
+          } else if (jevAction === 'acknowledge') {
+            // irrelevant (spam / other business's auto-responder): bot already stopped (aiEnabled=false) so an
+            // auto-responder can't loop with us — send the confirmation once, no staff alert.
+            await sendCallbackConfirmation(conv, phone);
           } else if (isCallbackRequest) {
             handleCallbackRequest(conv, text); // save to DB + email info@hai.tech
 
             // Send confirmation to customer instead of generic AI reply
             if (conv.aiEnabled) {
-              try {
-                const confirmMsg = 'תודה! קיבלנו את בקשתך 😊 נציג מדרך ההייטק יחזור אליך בהקדם האפשרי.';
-                const waId = await sendWhatsAppMessage(phone, confirmMsg, conv.phoneNumberId);
-                const botMsg = await prisma.waMessage.create({
-                  data: {
-                    conversationId: conv.id,
-                    direction: 'outbound',
-                    content: confirmMsg,
-                    waMessageId: waId || undefined,
-                    status: 'sent',
-                    isAiGenerated: true
-                  }
-                });
-                await prisma.waConversation.update({
-                  where: { id: conv.id },
-                  data: { lastMessageAt: new Date(), lastMessagePreview: confirmMsg.slice(0, 100), updatedAt: new Date() }
-                });
-                broadcastSSE('new_message', { conversationId: conv.id, message: botMsg });
-              } catch (e) {
-                console.error('[WA] Callback confirmation send error:', e);
-              }
+              await sendCallbackConfirmation(conv, phone);
             }
           } else if (conv.aiEnabled) {
             // Regular AI auto-reply — queued per conversation to prevent parallel/duplicate replies

@@ -93,6 +93,8 @@ async function post(text: string) {
 }
 
 const metaSends = () => h.axiosPost.mock.calls.filter(([url]) => String(url).includes('graph.facebook.com'));
+const sentTexts = () => metaSends().map(([, body]) => body?.text?.body);
+const CONFIRMATION = 'תודה! קיבלנו את בקשתך 😊 נציג מדרך ההייטק יחזור אליך בהקדם האפשרי.';
 
 describe('WhatsApp webhook — Jev intent routing', () => {
   beforeEach(() => {
@@ -132,31 +134,41 @@ describe('WhatsApp webhook — Jev intent routing', () => {
     expect(metaSends()).toHaveLength(1);
   });
 
-  it('escalate (human/support/job): no auto-reply, staff callback alert raised', async () => {
+  it('escalate (human/support/job): one confirmation reply + staff callback alert, no AI reply', async () => {
     h.getJevMode.mockReturnValue('on');
     h.applyJevRouting.mockResolvedValue('escalate');
     await post('אני מחפשת עבודה כמדריכה');
     expect(h.openaiCreate).not.toHaveBeenCalled();
-    expect(metaSends()).toHaveLength(0);
+    expect(sentTexts()).toEqual([CONFIRMATION]);
     expect(h.prisma.waCallbackRequest.create).toHaveBeenCalledTimes(1);
     expect(h.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'info@hai.tech' }));
   });
 
-  it('escalate wins over keyword callback: no confirmation auto-reply', async () => {
+  it('escalate + callback keyword in the same message: confirmation sent exactly once', async () => {
     h.getJevMode.mockReturnValue('on');
     h.applyJevRouting.mockResolvedValue('escalate');
     await post('אפשר לדבר עם נציג?');
-    expect(metaSends()).toHaveLength(0);
+    expect(sentTexts()).toEqual([CONFIRMATION]);
     expect(h.prisma.waCallbackRequest.create).toHaveBeenCalledTimes(1);
   });
 
-  it('silence (irrelevant): no auto-reply and no staff alert', async () => {
+  it('after escalation the bot is off: a later callback-keyword message gets no second confirmation', async () => {
     h.getJevMode.mockReturnValue('on');
-    h.applyJevRouting.mockResolvedValue('silence');
+    h.applyJevRouting.mockResolvedValue('continue'); // intent already stored
+    h.prisma.waConversation.findFirst.mockResolvedValue({ ...conv, aiEnabled: false, intent: 'human' });
+    await post('אפשר שיחזרו אליי?');
+    expect(sentTexts()).toEqual([]);
+    expect(h.openaiCreate).not.toHaveBeenCalled();
+  });
+
+  it('acknowledge (irrelevant): one confirmation reply, no AI reply, no staff alert', async () => {
+    h.getJevMode.mockReturnValue('on');
+    h.applyJevRouting.mockResolvedValue('acknowledge');
     await post('Thank you for contacting us. We will reply soon.');
     expect(h.openaiCreate).not.toHaveBeenCalled();
-    expect(metaSends()).toHaveLength(0);
+    expect(sentTexts()).toEqual([CONFIRMATION]);
     expect(h.prisma.waCallbackRequest.create).not.toHaveBeenCalled();
+    expect(h.sendEmail).not.toHaveBeenCalled();
   });
 
   it('keyword callback path is unchanged when Jev says continue', async () => {
@@ -164,7 +176,7 @@ describe('WhatsApp webhook — Jev intent routing', () => {
     h.applyJevRouting.mockResolvedValue('continue');
     await post('אפשר לדבר עם נציג?');
     expect(h.prisma.waCallbackRequest.create).toHaveBeenCalledTimes(1);
-    expect(metaSends()).toHaveLength(1); // confirmation message, as today
+    expect(sentTexts()).toEqual([CONFIRMATION]); // confirmation message, as today
     expect(h.openaiCreate).not.toHaveBeenCalled();
   });
 });

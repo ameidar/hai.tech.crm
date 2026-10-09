@@ -30,7 +30,16 @@ export async function recalcMeetingRevenue(cycleId: string): Promise<void> {
     // pricePerStudent × active students
     const activeCount = cycle.registrations.length;
     newRevenue = roundMoney(Number(cycle.pricePerStudent || 0) * activeCount);
-  } else if (cycle.type === 'private' || cycle.type === 'trial_private' || cycle.type === 'group') {
+  } else if (cycle.type === 'group') {
+    // Group revenue always follows the active registrations (net of VAT).
+    // Reusing the stored meetingRevenue froze it at the first registrations,
+    // so later sign-ups and price changes never reached the meetings.
+    newRevenue = meetingRevenueFromRegistrations(
+      cycle.registrations,
+      Number(cycle.totalMeetings) || 1,
+      cycle.type
+    );
+  } else if (cycle.type === 'private' || cycle.type === 'trial_private') {
     if (cycle.meetingRevenue && Number(cycle.meetingRevenue) > 0) {
       newRevenue = Number(cycle.meetingRevenue);
     } else {
@@ -65,11 +74,16 @@ export async function recalcMeetingRevenue(cycleId: string): Promise<void> {
       scheduledDate: { gte: today },
       nature: 'regular',
     },
-    select: { id: true, instructorPayment: true, expenses: true },
+    select: {
+      id: true,
+      instructorPayment: true,
+      expenses: { where: { status: 'approved' }, select: { amount: true } },
+    },
   });
 
   for (const m of futureMeetings) {
-    const totalExpenses = Number(m.expenses ?? 0);
+    // `expenses` is a relation (array) — Number() on it yielded NaN profit.
+    const totalExpenses = (m.expenses ?? []).reduce((sum, e) => sum + Number(e.amount ?? 0), 0);
     const instructorPayment = Number(m.instructorPayment ?? 0);
     const newProfit = newRevenue - instructorPayment - totalExpenses;
     await prisma.meeting.update({

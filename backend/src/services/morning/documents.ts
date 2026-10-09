@@ -119,7 +119,7 @@ export async function closeMorningDocument(id: string): Promise<void> {
 
 /** Search Morning documents (e.g. by document number) — returns the matching items. */
 export async function searchMorningDocuments(
-  query: { type?: number[]; number?: number; page?: number; pageSize?: number },
+  query: { type?: number[]; number?: number; fromDate?: string; toDate?: string; page?: number; pageSize?: number },
 ): Promise<{ items: MorningDocument[]; total: number }> {
   const body = { page: 1, pageSize: 25, ...query };
   return morningRequest<{ items: MorningDocument[]; total: number }>('POST', '/api/v1/documents/search', body);

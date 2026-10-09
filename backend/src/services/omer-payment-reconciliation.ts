@@ -16,6 +16,40 @@ export interface OmerPaymentReconciliationResult {
 }
 
 /**
+ * Unpaid/partial Omer auto-registrations of a customer that a payment could be
+ * applied to. Callers must treat anything other than exactly one row as ambiguous.
+ */
+export function findReconcilableOmerRegistrations(customerId: string) {
+  return prisma.registration.findMany({
+    where: {
+      deletedAt: null,
+      status: { in: ['registered', 'active'] },
+      OR: [
+        { paymentStatus: { in: ['unpaid', 'partial'] } },
+        { paymentStatus: null },
+      ],
+      notes: { contains: OMER_REGISTRATION_SOURCE },
+      student: {
+        deletedAt: null,
+        customerId,
+      },
+      cycle: {
+        deletedAt: null,
+        status: 'active',
+      },
+    },
+    select: {
+      id: true,
+      cycleId: true,
+      amount: true,
+      cycle: {
+        select: { defaultRegistrationAmount: true },
+      },
+    },
+  });
+}
+
+/**
  * Connect a paid payment to a single unpaid Omer auto-registration when the
  * customer has exactly one obvious match. Ambiguous cases intentionally stay
  * manual so a payment is never applied to the wrong child/cycle.
@@ -39,33 +73,7 @@ export async function reconcileOmerRegistrationPayment(paymentId: string): Promi
     const paidAmount = positiveMoneyOrNull(payment.amount);
     if (!paidAmount) return { status: 'skipped', reason: 'invalid_amount' };
 
-    const registrations = await prisma.registration.findMany({
-      where: {
-        deletedAt: null,
-        status: { in: ['registered', 'active'] },
-        OR: [
-          { paymentStatus: { in: ['unpaid', 'partial'] } },
-          { paymentStatus: null },
-        ],
-        notes: { contains: OMER_REGISTRATION_SOURCE },
-        student: {
-          deletedAt: null,
-          customerId: payment.customerId,
-        },
-        cycle: {
-          deletedAt: null,
-          status: 'active',
-        },
-      },
-      select: {
-        id: true,
-        cycleId: true,
-        amount: true,
-        cycle: {
-          select: { defaultRegistrationAmount: true },
-        },
-      },
-    });
+    const registrations = await findReconcilableOmerRegistrations(payment.customerId);
 
     if (registrations.length === 0) return { status: 'skipped', reason: 'no_matching_registration' };
     if (registrations.length > 1) return { status: 'skipped', reason: 'ambiguous_registrations' };

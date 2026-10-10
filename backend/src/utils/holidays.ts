@@ -18,6 +18,7 @@ const MINISTRY_OF_EDUCATION_VACATION_RANGES: Array<[string, string]> = [
   ['2026-09-11', '2026-09-13'], // Rosh Hashana
   ['2026-09-20', '2026-09-24'], // Yom Kippur vacation
   ['2026-09-25', '2026-10-03'], // Sukkot vacation
+  ['2026-10-27', '2026-10-27'], // Knesset election day (Shabbaton, no school)
   ['2026-12-06', '2026-12-12'], // Hanukkah vacation
   ['2027-03-23', '2027-03-24'], // Purim vacation
   ['2027-04-13', '2027-04-28'], // Pesach vacation

@@ -3,6 +3,14 @@ import { PrismaClient } from '@prisma/client';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { logAudit } from '../utils/audit.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
+import { AppError } from '../middleware/errorHandler.js';
+import {
+  listCycleExpenses,
+  createCycleExpense,
+  updateCycleExpense,
+  deleteCycleExpense,
+  reviewCycleExpense,
+} from '../services/cycle-expenses.service.js';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -12,20 +20,7 @@ const prisma = new PrismaClient();
 // Get all expenses for a cycle
 router.get('/cycle/:cycleId', authenticate, async (req: Request, res: Response) => {
   try {
-    const { cycleId } = req.params;
-    
-    const expenses = await prisma.cycleExpense.findMany({
-      where: { cycleId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        instructor: {
-          select: { id: true, name: true, ratePreparation: true, rateOnline: true, rateFrontal: true, employmentType: true },
-        },
-        reviewedBy: { select: { id: true, name: true } },
-      },
-    });
-
-    res.json(expenses);
+    res.json(await listCycleExpenses(req.params.cycleId));
   } catch (error) {
     console.error('Error fetching cycle expenses:', error);
     res.status(500).json({ error: 'Failed to fetch expenses' });
@@ -98,6 +93,16 @@ router.get('/cycle/:cycleId/calculate-instructor-cost/:instructorId', authentica
   }
 });
 
+// Cycle expense create / update / delete / review — logic lives in
+// services/cycle-expenses.service.ts (shared with /api/v1/cycles/:id/expenses).
+const sendServiceError = (res: Response, error: unknown, fallback: string, logLabel: string) => {
+  if (error instanceof AppError) {
+    return res.status(error.statusCode).json({ error: error.message });
+  }
+  console.error(logLabel, error);
+  return res.status(500).json({ error: fallback });
+};
+
 // Create cycle expense (admin only)
 router.post('/cycle', authenticate, managerOrAdmin, async (req: Request, res: Response) => {
   try {
@@ -105,153 +110,19 @@ router.post('/cycle', authenticate, managerOrAdmin, async (req: Request, res: Re
     if (!user || (user.role !== 'admin' && user.role !== 'manager')) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
-
-    const { cycleId, type, description, amount, instructorId, isPercentage, percentage, hours, rateType, paymentDate } = req.body;
-
-    // Validate: basic required fields
-    if (!cycleId || !type) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    // Payment date is required — it determines which month the expense is paid in
-    const parsedPaymentDate = paymentDate ? new Date(paymentDate) : null;
-    if (!parsedPaymentDate || isNaN(parsedPaymentDate.getTime())) {
-      return res.status(400).json({ error: 'תאריך תשלום הוא שדה חובה' });
-    }
-
-    let calculatedAmount = amount ? Number(amount) : null;
-    
-    // For materials and wraparound_hours, calculate based on hours and rate
-    if ((type === 'materials' || type === 'wraparound_hours') && hours && instructorId && rateType) {
-      const instructor = await prisma.instructor.findUnique({
-        where: { id: instructorId },
-        select: { ratePreparation: true, rateOnline: true, rateFrontal: true, employmentType: true },
-      });
-      
-      if (!instructor) {
-        return res.status(404).json({ error: 'Instructor not found' });
-      }
-      
-      let rate = 0;
-      switch (rateType) {
-        case 'preparation':
-          rate = Number(instructor.ratePreparation || 0);
-          break;
-        case 'online':
-          rate = Number(instructor.rateOnline || 0);
-          break;
-        case 'frontal':
-          rate = Number(instructor.rateFrontal || 0);
-          break;
-      }
-      
-      calculatedAmount = Number(hours) * rate;
-      
-      // Apply employer cost multiplier (1.3) for employees
-      if (instructor.employmentType === 'employee') {
-        calculatedAmount = calculatedAmount * 1.3;
-      }
-    } else if (isPercentage) {
-      if (!percentage || Number(percentage) <= 0) {
-        return res.status(400).json({ error: 'Percentage must be greater than 0' });
-      }
-      calculatedAmount = null;
-    } else if (!calculatedAmount || calculatedAmount <= 0) {
-      return res.status(400).json({ error: 'Amount must be greater than 0' });
-    }
-
-    const expense = await prisma.cycleExpense.create({
-      data: {
-        cycle: { connect: { id: cycleId } },
-        type,
-        description,
-        amount: isPercentage ? null : calculatedAmount,
-        isPercentage: isPercentage || false,
-        percentage: isPercentage ? Number(percentage) : null,
-        hours: hours ? Number(hours) : null,
-        rateType: rateType || null,
-        paymentDate: parsedPaymentDate,
-        createdBy: { connect: { id: user.userId } },
-        ...(instructorId && { instructor: { connect: { id: instructorId } } }),
-      },
-      include: {
-        instructor: {
-          select: { id: true, name: true, ratePreparation: true, rateOnline: true, rateFrontal: true },
-        },
-      },
-    });
-
-    await logAudit({ action: 'CREATE', entity: 'CycleExpense', entityId: expense.id, newValue: { cycleId, type, amount: expense.amount, description }, req });
-
-    res.status(201).json(expense);
+    const { cycleId, ...body } = req.body ?? {};
+    res.status(201).json(await createCycleExpense(cycleId, body, req));
   } catch (error) {
-    console.error('Error creating cycle expense:', error);
-    res.status(500).json({ error: 'Failed to create expense' });
+    sendServiceError(res, error, 'Failed to create expense', 'Error creating cycle expense:');
   }
 });
 
 // Update cycle expense
 router.put('/cycle/:id', authenticate, managerOrAdmin, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-    const { type, description, amount, instructorId, isPercentage, percentage, hours, rateType, paymentDate } = req.body;
-
-    const existing = await prisma.cycleExpense.findUnique({ where: { id } });
-    if (!existing) return res.status(404).json({ error: 'Expense not found' });
-
-    const parsedPaymentDate = paymentDate ? new Date(paymentDate) : null;
-    if (!parsedPaymentDate || isNaN(parsedPaymentDate.getTime())) {
-      return res.status(400).json({ error: 'תאריך תשלום הוא שדה חובה' });
-    }
-
-    let calculatedAmount = amount ? Number(amount) : null;
-
-    if ((type === 'materials' || type === 'wraparound_hours') && hours && instructorId && rateType) {
-      const instructor = await prisma.instructor.findUnique({
-        where: { id: instructorId },
-        select: { ratePreparation: true, rateOnline: true, rateFrontal: true, employmentType: true },
-      });
-      if (!instructor) return res.status(404).json({ error: 'Instructor not found' });
-      let rate = 0;
-      switch (rateType) {
-        case 'preparation': rate = Number(instructor.ratePreparation || 0); break;
-        case 'online': rate = Number(instructor.rateOnline || 0); break;
-        case 'frontal': rate = Number(instructor.rateFrontal || 0); break;
-      }
-      calculatedAmount = Number(hours) * rate;
-      if (instructor.employmentType === 'employee') calculatedAmount *= 1.3;
-    } else if (isPercentage) {
-      calculatedAmount = null;
-    }
-
-    const updated = await prisma.cycleExpense.update({
-      where: { id },
-      data: {
-        type,
-        description: description || null,
-        amount: isPercentage ? null : calculatedAmount,
-        isPercentage: isPercentage || false,
-        percentage: isPercentage ? Number(percentage) : null,
-        hours: hours ? Number(hours) : null,
-        rateType: rateType || null,
-        paymentDate: parsedPaymentDate,
-        // Editing an expense invalidates any prior approval — back to pending
-        status: 'pending',
-        reviewedBy: { disconnect: true },
-        reviewedAt: null,
-        rejectionReason: null,
-        ...(instructorId ? { instructor: { connect: { id: instructorId } } } : { instructor: { disconnect: true } }),
-      },
-      include: {
-        instructor: { select: { id: true, name: true, ratePreparation: true, rateOnline: true, rateFrontal: true, employmentType: true } },
-      },
-    });
-
-    await logAudit({ action: 'UPDATE', entity: 'CycleExpense', entityId: id, newValue: { type, amount: updated.amount }, req });
-    res.json(updated);
+    res.json(await updateCycleExpense(req.params.id, req.body ?? {}, req));
   } catch (error) {
-    console.error('Error updating cycle expense:', error);
-    res.status(500).json({ error: 'Failed to update expense' });
+    sendServiceError(res, error, 'Failed to update expense', 'Error updating cycle expense:');
   }
 });
 
@@ -262,23 +133,10 @@ router.delete('/cycle/:id', authenticate, managerOrAdmin, async (req: Request, r
     if (!user || (user.role !== 'admin' && user.role !== 'manager')) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
-
-    const { id } = req.params;
-
-    const oldExpense = await prisma.cycleExpense.findUnique({ where: { id } });
-    
-    await prisma.cycleExpense.delete({
-      where: { id },
-    });
-
-    if (oldExpense) {
-      await logAudit({ action: 'DELETE', entity: 'CycleExpense', entityId: id, oldValue: { cycleId: oldExpense.cycleId, type: oldExpense.type, amount: oldExpense.amount }, req });
-    }
-
+    await deleteCycleExpense(req.params.id, req);
     res.status(204).send();
   } catch (error) {
-    console.error('Error deleting cycle expense:', error);
-    res.status(500).json({ error: 'Failed to delete expense' });
+    sendServiceError(res, error, 'Failed to delete expense', 'Error deleting cycle expense:');
   }
 });
 
@@ -289,36 +147,9 @@ router.patch('/cycle/:id/review', authenticate, managerOrAdmin, async (req: Requ
     if (!user || (user.role !== 'admin' && user.role !== 'manager')) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
-
-    const { id } = req.params;
-    const { status, rejectionReason } = req.body;
-
-    if (status !== 'approved' && status !== 'rejected') {
-      return res.status(400).json({ error: 'status must be "approved" or "rejected"' });
-    }
-
-    const existing = await prisma.cycleExpense.findUnique({ where: { id } });
-    if (!existing) return res.status(404).json({ error: 'Expense not found' });
-
-    const updated = await prisma.cycleExpense.update({
-      where: { id },
-      data: {
-        status,
-        reviewedBy: { connect: { id: user.userId } },
-        reviewedAt: new Date(),
-        rejectionReason: status === 'rejected' ? (rejectionReason || null) : null,
-      },
-      include: {
-        instructor: { select: { id: true, name: true } },
-        reviewedBy: { select: { id: true, name: true } },
-      },
-    });
-
-    await logAudit({ action: 'UPDATE', entity: 'CycleExpense', entityId: id, oldValue: { status: existing.status }, newValue: { status }, req });
-    res.json(updated);
+    res.json(await reviewCycleExpense(req.params.id, req.body ?? {}, req));
   } catch (error) {
-    console.error('Error reviewing cycle expense:', error);
-    res.status(500).json({ error: 'Failed to review expense' });
+    sendServiceError(res, error, 'Failed to review expense', 'Error reviewing cycle expense:');
   }
 });
 

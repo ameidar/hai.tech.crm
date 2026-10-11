@@ -17,6 +17,7 @@ import {
 } from '../services/instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
 import { checkAndSendMeetingReportQualityAlert } from '../services/meeting-report-quality-alert.js';
+import { recalcPercentageExpensesSafe } from '../services/cycle-expenses.service.js';
 import {
   assertRegistrationBelongsToCycle,
   ensureTrialMeetingHasRegistration,
@@ -457,6 +458,7 @@ meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
 
     // Adding a meeting may push the cycle past its current end date — resync it.
     await syncCycleEndDate(cycleId);
+    await recalcPercentageExpensesSafe(cycleId, 'meeting-create', req);
 
     // Log audit
     await logAudit({
@@ -673,6 +675,8 @@ meetingsRouter.put('/:id', async (req, res, next) => {
     await recalculateDailyInstructorPaymentsForMeeting(existingMeeting);
     await recalculateDailyInstructorPaymentsForMeeting(meeting);
     await checkAndSendNegativeProfitAlert(meeting.id, 'meeting-update');
+    // Revenue/status may have changed → keep net-revenue-percentage cycle expenses in sync
+    await recalcPercentageExpensesSafe(existingMeeting.cycleId, 'meeting-update', req);
 
     // Sync cycle progress AFTER meeting is updated (accurate DB count)
     if (statusChangedToCompleted || statusChangedFromCompleted) {
@@ -790,6 +794,7 @@ meetingsRouter.post('/:id/postpone', operationsManagerOrAdmin, async (req, res, 
 
     // The replacement meeting may fall after the cycle's current end date — resync it.
     await syncCycleEndDate(existingMeeting.cycleId);
+    await recalcPercentageExpensesSafe(existingMeeting.cycleId, 'meeting-postpone', req);
 
     // Audit log for postponement
     await logAudit({
@@ -936,6 +941,7 @@ meetingsRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) =
       });
       await tx.meeting.delete({ where: { id } });
     });
+    await recalcPercentageExpensesSafe(meeting.cycleId, 'meeting-delete', req);
 
     res.json({ success: true });
   } catch (error) {
@@ -1122,6 +1128,7 @@ meetingsRouter.post('/:id/recalculate', operationsManagerOrAdmin, async (req, re
     });
     await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
     await checkAndSendNegativeProfitAlert(updatedMeeting.id, 'meeting-recalculate');
+    await recalcPercentageExpensesSafe(updatedMeeting.cycleId, 'meeting-recalculate', req);
 
     res.json(updatedMeeting);
   } catch (error) {

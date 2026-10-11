@@ -23,6 +23,7 @@ import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeetin
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
 import { checkAndSendMeetingReportQualityAlert } from '../services/meeting-report-quality-alert.js';
 import { handleInstitutionalAbsenceAlert } from '../services/institutional-absence-alerts.js';
+import { recalcPercentageExpensesSafe } from '../services/cycle-expenses.service.js';
 
 // WhatsApp group for pending meeting requests (postponements, cancellations)
 const ADMIN_PHONE = '120363353459332838@g.us';
@@ -337,6 +338,9 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
       await checkAndSendMeetingReportQualityAlert(meetingId, 'instructor-magic');
     }
 
+    // Revenue/status changed → keep net-revenue-percentage cycle expenses (commission) in sync
+    await recalcPercentageExpensesSafe(meeting.cycleId, 'instructor-magic');
+
     // Create MeetingChangeRequest record so the dashboard shows it
     if (isPendingRequest) {
       try {
@@ -460,6 +464,7 @@ router.post('/approve-request/:meetingId', authenticate, operationsManagerOrAdmi
         notes: adminNotes || meeting.notes,
       },
     });
+    await recalcPercentageExpensesSafe(meeting.cycleId, 'instructor-magic-approval', req);
 
     if (action === 'approve' && isPostponeRequest) {
       const replacementId = await addReplacementMeetingWithRetry(

@@ -5,6 +5,7 @@ import { logAudit } from '../utils/audit.js';
 import { sendEmail } from './email/sender.js';
 import { deleteMeeting as deleteZoomMeeting } from './zoom.js';
 import { googleMeetService } from './google-meet.js';
+import { recalcPercentageExpensesSafe } from './cycle-expenses.service.js';
 
 const APP_URL = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
 const CANCELLATION_ALERT_EMAILS = process.env.CANCELLATION_ALERT_EMAILS || 'info@hai.tech,inna@hai.tech';
@@ -172,6 +173,7 @@ export async function cancelFutureMeetingsForCycle(
   });
 
   console.log(`[CANCEL CASCADE] Cancelled ${cascade.count} future meetings for cycle ${cycleId}`);
+  if (cascade.count > 0) await recalcPercentageExpensesSafe(cycleId, 'cycle-cancel-cascade', options.req);
   return { cancelledMeetings: cascade.count };
 }
 

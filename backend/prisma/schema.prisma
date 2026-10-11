@@ -1176,8 +1176,9 @@ model CycleExpense {
   isPercentage Boolean          @default(false) @map("is_percentage")
   percentage   Decimal?         @db.Decimal(5, 2)
   hours        Decimal?         @db.Decimal(5, 2)
-  rateType     String?          @map("rate_type") // preparation, online, frontal
-  createdById  String           @map("created_by")
+  rateType     String?          @map("rate_type") // preparation, online, frontal | net_revenue_percentage (auto-calculated, see services/cycle-expenses.service.ts)
+  // NULL when created through the v1 API with an API key (machine identity — the audit log has the key)
+  createdById  String?          @map("created_by")
   createdAt    DateTime         @default(now()) @map("created_at")
   updatedAt    DateTime         @default(now()) @map("updated_at")
 
@@ -1195,7 +1196,7 @@ model CycleExpense {
 
   // Relations
   cycle      Cycle       @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  createdBy  User        @relation("CycleExpenseCreator", fields: [createdById], references: [id])
+  createdBy  User?       @relation("CycleExpenseCreator", fields: [createdById], references: [id])
   reviewedBy User?       @relation("CycleExpenseReviewer", fields: [reviewedById], references: [id])
   instructor Instructor? @relation(fields: [instructorId], references: [id])
 

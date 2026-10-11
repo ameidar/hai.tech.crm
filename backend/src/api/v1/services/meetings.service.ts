@@ -16,6 +16,7 @@ import {
 } from '../validators/meetings.js';
 import { meetingRevenueForCycle } from '../../../utils/revenue.js';
 import { syncCycleEndDate } from '../../../utils/cycle-sync.js';
+import { recalcPercentageExpensesSafe } from '../../../services/cycle-expenses.service.js';
 import {
   calculateInstructorPayment,
   recalculateDailyInstructorPaymentsForMeeting,
@@ -101,6 +102,7 @@ export class MeetingsService {
       });
     }
 
+    await recalcPercentageExpensesSafe(meeting.cycleId, 'v1-meeting-create', req);
     return meeting;
   }
 
@@ -179,6 +181,7 @@ export class MeetingsService {
       });
     }
 
+    await recalcPercentageExpensesSafe(existing.cycleId, 'v1-meeting-update', req);
     return meeting;
   }
 
@@ -216,6 +219,8 @@ export class MeetingsService {
         req,
       });
     }
+
+    await recalcPercentageExpensesSafe(existing.cycleId, 'v1-meeting-delete', req);
   }
 
   /**
@@ -282,6 +287,7 @@ export class MeetingsService {
       });
     }
 
+    await recalcPercentageExpensesSafe(existing.cycleId, 'v1-meeting-postpone', req);
     return {
       originalMeeting: { id, status: 'postponed' },
       newMeeting,
@@ -377,6 +383,7 @@ export class MeetingsService {
       });
     }
 
+    await recalcPercentageExpensesSafe(existing.cycleId, 'v1-meeting-complete', req);
     return meeting;
   }
 
@@ -430,6 +437,7 @@ export class MeetingsService {
       });
     }
 
+    await recalcPercentageExpensesSafe(existing.cycleId, 'v1-meeting-cancel', req);
     return meeting;
   }
 
@@ -469,6 +477,7 @@ export class MeetingsService {
       });
     }
 
+    await recalcPercentageExpensesSafe(existing.cycleId, 'v1-meeting-recalculate', req);
     return meeting;
   }
 
@@ -640,6 +649,7 @@ export class MeetingsService {
       });
     }
 
+    await recalcPercentageExpensesSafe(meetings.map((m) => m.cycleId), 'v1-meeting-bulk-delete', req);
     return { success: true, deleted: result.count };
   }
 

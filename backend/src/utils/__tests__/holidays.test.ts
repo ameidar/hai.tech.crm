@@ -23,6 +23,10 @@ describe('holidays', () => {
     expect(holidays.has('2027-04-18')).toBe(true);
   });
 
+  it('treats Knesset election day 2026-10-27 as a no-school day', async () => {
+    await expect(isHoliday(new Date('2026-10-27T00:00:00.000Z'))).resolves.toBe(true);
+  });
+
   it('skips Ministry of Education vacation dates when calculating cycle dates', async () => {
     const result = await calculateCycleEndDate(
       new Date('2026-09-03T00:00:00.000Z'),

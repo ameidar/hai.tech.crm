@@ -39,6 +39,9 @@ export const AVAILABLE_SCOPES = [
   'read:bot_config',        // explicit-only (see EXPLICIT_ONLY_SCOPES)
   'write:bot_config',       // explicit-only
   'read:salary_reports',    // explicit-only
+  // Cycle expenses (v1.63.0) — granted by read:* / write:* like the other ops scopes
+  'read:cycle_expenses',
+  'write:cycle_expenses',
 ] as const;
 
 export type ApiKeyScope = typeof AVAILABLE_SCOPES[number];

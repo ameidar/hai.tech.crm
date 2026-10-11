@@ -16,6 +16,11 @@ export const fixedAdditionParamsSchema = z.object({
   additionId: anyIdSchema,
 });
 
+export const cycleExpenseParamsSchema = z.object({
+  id: anyIdSchema,
+  expenseId: anyIdSchema,
+});
+
 const booleanString = z.enum(['true', 'false']).optional();
 
 const pageQuery = {

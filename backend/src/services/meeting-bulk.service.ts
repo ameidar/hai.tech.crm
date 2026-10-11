@@ -19,6 +19,7 @@ import {
   recalculateDailyInstructorPaymentsForMeeting,
 } from './instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from './negative-profit-alert.js';
+import { recalcPercentageExpensesSafe } from './cycle-expenses.service.js';
 
 export async function assertRegistrationBelongsToCycle(registrationId: string, cycleId: string) {
   const registration = await prisma.registration.findFirst({
@@ -102,6 +103,7 @@ export async function bulkRecalculateMeetings(body: any, req?: Request) {
 
     let recalculated = 0;
     let skipped = 0;
+    const touchedCycleIds = new Set<string>();
     
     for (const id of ids) {
       const meeting = await prisma.meeting.findUnique({
@@ -160,6 +162,7 @@ export async function bulkRecalculateMeetings(body: any, req?: Request) {
       });
       await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
       await checkAndSendNegativeProfitAlert(id, 'meeting-bulk-recalculate');
+      touchedCycleIds.add(meeting.cycleId);
       await logAudit({
         userId: actorUserId(req),
         action: 'UPDATE',
@@ -173,6 +176,7 @@ export async function bulkRecalculateMeetings(body: any, req?: Request) {
       recalculated++;
     }
 
+    await recalcPercentageExpensesSafe(touchedCycleIds, 'meeting-bulk-recalculate', req);
     return { success: true, recalculated, skipped };
   }
 }
@@ -192,6 +196,7 @@ export async function bulkUpdateMeetingStatus(body: any, req?: Request) {
 
     let updated = 0;
     let errors: string[] = [];
+    const touchedCycleIds = new Set<string>();
 
     for (const id of ids) {
       try {
@@ -317,6 +322,7 @@ export async function bulkUpdateMeetingStatus(body: any, req?: Request) {
         await recalculateDailyInstructorPaymentsForMeeting(existingMeeting);
         await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
         await checkAndSendNegativeProfitAlert(id, 'meeting-bulk-status');
+        touchedCycleIds.add(existingMeeting.cycleId);
 
         // Audit log
         await logAudit({
@@ -343,6 +349,7 @@ export async function bulkUpdateMeetingStatus(body: any, req?: Request) {
       }
     }
 
+    await recalcPercentageExpensesSafe(touchedCycleIds, 'meeting-bulk-status', req);
     return { 
       success: true, 
       updated, 
@@ -398,6 +405,7 @@ export async function bulkUpdateMeetings(body: any, req?: Request) {
     let updated = 0;
     let errors: string[] = [];
     const shouldRecalculate = updateData.status === 'completed';
+    const touchedCycleIds = new Set<string>();
 
     for (const id of ids) {
       try {
@@ -466,6 +474,8 @@ export async function bulkUpdateMeetings(body: any, req?: Request) {
           newValue: { ...bulkUpdateSnapshot(savedMeeting), action: 'bulk-update' },
           req,
         });
+        touchedCycleIds.add(existingMeeting.cycleId);
+        touchedCycleIds.add(savedMeeting.cycleId);
 
         // Recalculate financials if status changed to completed
         if (shouldRecalculate && existingMeeting.status !== 'completed') {
@@ -515,6 +525,7 @@ export async function bulkUpdateMeetings(body: any, req?: Request) {
       }
     }
 
+    await recalcPercentageExpensesSafe(touchedCycleIds, 'meeting-bulk-update', req);
     return { 
       success: true, 
       updated, 
@@ -621,6 +632,7 @@ export async function bulkDeleteMeetings(body: any, req?: Request) {
       });
     }
 
+    await recalcPercentageExpensesSafe(meetings.map((m) => m.cycleId), 'meeting-bulk-delete', req);
     return { success: true, deleted: result.count };
   }
 }

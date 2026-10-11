@@ -14,6 +14,7 @@ import { recalculateInstructorPaymentsForCycle } from './instructor-payment.js';
 import { checkAndSendInstitutionalOrderCompletionAlert } from './institutional-order-completion-alert.js';
 import { assertMeetingNotInIssuedPeriod } from './billing-lock.js';
 import { cancelFutureMeetingsForCycle } from './cancellations.js';
+import { recalcPercentageExpensesSafe } from './cycle-expenses.service.js';
 
 // Helper: compute expected revenue per meeting for any cycle type
 export function computeRevenuePerMeeting(cycle: any): number {
@@ -128,6 +129,7 @@ export async function generateMeetingsForCycle(cycleId: string, fromDate?: Date,
 
   if (meetings.length > 0) {
     await prisma.meeting.createMany({ data: meetings });
+    await recalcPercentageExpensesSafe(cycleId, 'generate-meetings');
     
     // Update cycle progress and end date based on the generated schedule.
     const lastMeetingDate = meetings[meetings.length - 1].scheduledDate;
@@ -483,6 +485,9 @@ export async function updateCycle(id: string, body: unknown, req?: Request) {
     if (regenerateMeetings) {
       await regenerateMeetingsForCycle(id);
     }
+
+    // Meetings may have been cancelled / regenerated → keep net-revenue-percentage expenses in sync
+    await recalcPercentageExpensesSafe(id, 'cycle-update', req);
 
     return cycle;
 }

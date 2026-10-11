@@ -13,6 +13,7 @@ import { broadcastWaSSE } from '../services/wa-events.js';
 import { autoRegisterLeadToCycle } from '../services/lead-cycle-registration.js';
 import { extractLeadAttribution } from '../utils/lead-attribution.js';
 import rateLimit from 'express-rate-limit';
+import { recalcPercentageExpensesSafe } from '../services/cycle-expenses.service.js';
 
 // Rate limiter for public lead submission endpoint
 // Max 5 submissions per IP per 10 minutes
@@ -1109,6 +1110,9 @@ webhookRouter.patch('/meetings/:id', async (req, res, next) => {
       if (recalculated) {
         meeting = recalculated;
       }
+    }
+    if (updateData.status !== undefined) {
+      await recalcPercentageExpensesSafe(meeting.cycleId, 'webhook-meeting-patch');
     }
 
     res.json({

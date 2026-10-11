@@ -17,6 +17,7 @@ import { sendWhatsAppMessage } from './notifications.js';
 import { calculateInstructorPayment } from './instructor-payment.js';
 import { meetingRevenueForCycle } from '../utils/revenue.js';
 import { syncCycleEndDate } from '../utils/cycle-sync.js';
+import { recalcPercentageExpensesSafe } from './cycle-expenses.service.js';
 
 const ADMIN_PHONE = process.env.ADMIN_PHONE || '0528746137';
 
@@ -133,6 +134,7 @@ export async function addReplacementMeeting(postponedMeetingId: string, _actorUs
 
   // The replacement always lands at the end of the cycle — extend the cycle's end date.
   await syncCycleEndDate(cycle.id);
+  await recalcPercentageExpensesSafe(cycle.id, 'replacement-meeting');
 
   // Note: totalMeetings and remainingMeetings are NOT modified here.
   // When a meeting is postponed, remainingMeetings is not decremented in the existing code,

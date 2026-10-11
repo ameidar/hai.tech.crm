@@ -117,11 +117,34 @@ const meetingSelectorProps = {
   toDate: { type: 'string', format: 'date', description: 'With cycleId only (inclusive)' },
 };
 
+const cycleExpenseBody = {
+  type: 'object',
+  properties: {
+    type: { type: 'string', enum: ['materials', 'wraparound_hours', 'equipment', 'travel_fixed', 'additional_instructor', 'other'] },
+    description: { type: 'string', nullable: true },
+    amount: { type: 'number', description: 'Fixed amount (> 0). Ignored for hours-based and net_revenue_percentage expenses (calculated).' },
+    instructorId: { type: 'string', nullable: true, description: 'Instructor the expense is paid to (defaults to the cycle instructor in the salary report)' },
+    isPercentage: { type: 'boolean', default: false },
+    percentage: { type: 'number', description: 'Required (> 0) when isPercentage=true; ≤ 100 for net_revenue_percentage' },
+    hours: { type: 'number', description: 'materials / wraparound_hours: hours × instructor rate (× 1.3 for employees)' },
+    rateType: {
+      type: 'string',
+      nullable: true,
+      enum: ['preparation', 'online', 'frontal', 'net_revenue_percentage'],
+      description: 'preparation/online/frontal = hourly rate for hours-based expenses. net_revenue_percentage (with isPercentage=true) = amount is calculated automatically: round2(percentage% × SUM(revenue) of the cycle\'s non-deleted meetings that are not cancelled/postponed), and kept in sync on every meeting change.',
+    },
+    paymentDate: { type: 'string', format: 'date', description: 'Required — month the expense is paid in (salary report)' },
+    status: { type: 'string', enum: ['pending', 'approved', 'rejected'], description: 'POST: optional (default pending; approved/rejected runs the review step). PUT: approved/rejected = review (approve/reject); field edits reset to pending like the CRM UI, applied before the review.' },
+    rejectionReason: { type: 'string', nullable: true, description: 'With status=rejected' },
+  },
+};
+
 export const opsTags = [
   { name: 'Institutional Orders', description: 'הזמנות מוסדיות (ops API)' },
   { name: 'Paying Bodies', description: 'גופים משלמים (ops API)' },
   { name: 'Bot Config', description: 'WhatsApp bot system prompt + knowledge base (explicit-only scopes)' },
   { name: 'Instructor Additions', description: 'תוספות קבועות למדריכים (ops API)' },
+  { name: 'Cycle Expenses', description: 'הוצאות מחזור, incl. automatic % of net revenue (commission)' },
 ];
 
 export const opsPaths = {
@@ -219,6 +242,31 @@ export const opsPaths = {
       description: 'Supports totalMeetings, meetingRevenue, endDate, type, institutionalOrderId, status, … Send regenerateMeetings: true to rebuild the open schedule.',
       parameters: [idParam()],
       requestBody: jsonBody({ type: 'object' }),
+    }),
+  },
+  '/cycles/{id}/expenses': {
+    get: op('Cycle Expenses', 'read:cycle_expenses', 'List cycle expenses', { parameters: [idParam()] }),
+    post: op('Cycle Expenses', 'write:cycle_expenses', 'Create cycle expense (same validation as the CRM UI)', {
+      description: 'Created as pending unless status=approved|rejected is sent. For isPercentage=true + rateType=net_revenue_percentage the amount is calculated from the cycle\'s net revenue (any amount sent is ignored). createdById is null for API-key requests (audit log has the key).',
+      parameters: [idParam()],
+      requestBody: jsonBody({ ...cycleExpenseBody, required: ['type', 'paymentDate'] }),
+    }, 201),
+  },
+  '/cycles/{id}/expenses/recalculate': {
+    post: op('Cycle Expenses', 'write:cycle_expenses', 'Recalculate the cycle\'s net_revenue_percentage expenses now', {
+      description: 'Returns netRevenue and old/new amount per expense. dryRun=true (body or query) computes without writing. Approval status is not changed. Recalculation also runs automatically after meeting create/update/status/delete, bulk operations, cycle update/regenerate and registration-driven revenue changes.',
+      parameters: [idParam(), { name: 'dryRun', in: 'query', schema: { type: 'boolean' } }],
+      requestBody: jsonBody({ type: 'object', properties: { dryRun: { type: 'boolean' } } }, false),
+    }),
+  },
+  '/cycles/{id}/expenses/{expenseId}': {
+    put: op('Cycle Expenses', 'write:cycle_expenses', 'Edit and/or approve/reject a cycle expense', {
+      description: 'Partial: missing fields keep their current value, then the CRM UI rules run (edits reset approval to pending). status=approved|rejected performs the review (reviewedById null for API keys).',
+      parameters: [idParam(), idParam('expenseId', 'Expense id')],
+      requestBody: jsonBody(cycleExpenseBody),
+    }),
+    delete: op('Cycle Expenses', 'write:cycle_expenses', 'Delete cycle expense (hard delete, same as CRM UI)', {
+      parameters: [idParam(), idParam('expenseId', 'Expense id')],
     }),
   },
   '/meetings/bulk-update': {

@@ -6,6 +6,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { sendEmail } from '../services/email/sender.js';
 import { config } from '../config.js';
 import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
+import { recalcPercentageExpensesSafe } from '../services/cycle-expenses.service.js';
 
 export const meetingRequestsRouter = Router();
 
@@ -591,6 +592,9 @@ meetingRequestsRouter.put('/:id/approve', async (req, res, next) => {
       }
     }
     // 'replacement' type — just mark as approved, admin handles manually
+    if (request.type === 'cancel' || request.type === 'postpone') {
+      await recalcPercentageExpensesSafe(request.meeting?.cycleId, 'meeting-request-approval', req);
+    }
 
     const updated = await prisma.meetingChangeRequest.update({
       where: { id: req.params.id },

@@ -11,6 +11,7 @@ import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-ale
 import { checkAndSendMeetingReportQualityAlert } from '../services/meeting-report-quality-alert.js';
 import { handleInstitutionalAbsenceAlert } from '../services/institutional-absence-alerts.js';
 import crypto from 'crypto';
+import { recalcPercentageExpensesSafe } from '../services/cycle-expenses.service.js';
 
 const MEETING_TOKEN_SECRET = process.env.MEETING_TOKEN_SECRET || 'haitech-meeting-status-2026';
 
@@ -145,6 +146,7 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
     await recalculateDailyInstructorPaymentsForMeeting(existingMeeting);
     await recalculateDailyInstructorPaymentsForMeeting(meeting);
     await checkAndSendNegativeProfitAlert(meetingId, 'public-meeting-status');
+    await recalcPercentageExpensesSafe(existingMeeting.cycleId, 'public-meeting-status');
 
     // Sync cycle progress from actual DB counts after meeting update
     if (willStatusChange) {

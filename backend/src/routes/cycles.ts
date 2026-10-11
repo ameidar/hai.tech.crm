@@ -11,6 +11,7 @@ import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
 import { checkAndSendInstitutionalOrderCompletionAlert } from '../services/institutional-order-completion-alert.js';
 import { resolveRegistrationAmountForCycle } from '../utils/registration-amount.js';
 import { cancelFutureMeetingsForCycle } from '../services/cancellations.js';
+import { recalcPercentageExpensesSafe } from '../services/cycle-expenses.service.js';
 import {
   computeRevenuePerMeeting,
   generateMeetingsForCycle,
@@ -1162,6 +1163,7 @@ cyclesRouter.post('/:id/freeze', operationsManagerOrAdmin, async (req, res, next
     });
 
     await logAudit({ req, action: 'UPDATE', entity: 'cycle', entityId: id, newValue: { action: 'freeze', reason, resumeDate, postponedMeetings: postponed.count } });
+    await recalcPercentageExpensesSafe(id, 'cycle-freeze', req);
 
     res.json({ ...updated, postponedMeetings: postponed.count });
   } catch (error) {
@@ -1200,6 +1202,7 @@ cyclesRouter.post('/:id/resume', operationsManagerOrAdmin, async (req, res, next
         });
         rescheduledCount++;
       }
+      await recalcPercentageExpensesSafe(id, 'cycle-resume', req);
     }
 
     // Activate the cycle

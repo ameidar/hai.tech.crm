@@ -406,6 +406,10 @@ export default function CycleDetail() {
     const totalRevenue = meetingRevenue * cycle.totalMeetings;
     
     const totalExpenses = cycleExpenses.reduce((sum: number, expense: CycleExpense) => {
+      // Server-calculated (% of actual net meeting revenue, synced on meeting changes)
+      if (expense.isPercentage && expense.rateType === 'net_revenue_percentage' && expense.amount != null) {
+        return sum + Number(expense.amount);
+      }
       if (expense.isPercentage && expense.percentage) {
         // Calculate percentage of total revenue
         return sum + (totalRevenue * Number(expense.percentage) / 100);

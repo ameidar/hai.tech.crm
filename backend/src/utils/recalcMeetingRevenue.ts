@@ -1,6 +1,7 @@
 import { prisma } from './prisma.js';
 import { meetingRevenueFromRegistrations, roundMoney } from './revenue.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
+import { recalcPercentageExpensesSafe } from '../services/cycle-expenses.service.js';
 
 /**
  * After a registration change (e.g. cancellation), recalculate revenue + profit
@@ -94,4 +95,5 @@ export async function recalcMeetingRevenue(cycleId: string): Promise<void> {
   }
 
   console.log(`[recalcMeetingRevenue] cycle ${cycleId}: ${futureMeetings.length} meetings updated → revenue=${newRevenue}`);
+  if (futureMeetings.length > 0) await recalcPercentageExpensesSafe(cycleId, 'registration-revenue-recalc');
 }

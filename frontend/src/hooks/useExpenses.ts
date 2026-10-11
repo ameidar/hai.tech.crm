@@ -11,7 +11,8 @@ export interface CycleExpense {
   isPercentage?: boolean;
   percentage?: number | null;
   hours?: number | null;
-  rateType?: 'preparation' | 'online' | 'frontal' | null;
+  // net_revenue_percentage: amount is calculated + kept in sync by the server (% of the cycle's net meeting revenue)
+  rateType?: 'preparation' | 'online' | 'frontal' | 'net_revenue_percentage' | null;
   instructorId?: string;
   paymentDate?: string | null;
   status?: 'pending' | 'approved' | 'rejected';

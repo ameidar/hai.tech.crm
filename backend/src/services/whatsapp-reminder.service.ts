@@ -17,6 +17,7 @@ import {
   recalculateDailyInstructorPaymentsForMeeting,
 } from './instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from './negative-profit-alert.js';
+import { recalcPercentageExpensesSafe } from './cycle-expenses.service.js';
 import {
   WhatsAppTemplatePayload,
   WhatsAppCloudResult,
@@ -610,6 +611,7 @@ async function recalculateCompletedMeetingFinancials(meetingId: string): Promise
   });
   await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
   await checkAndSendNegativeProfitAlert(meetingId, 'whatsapp-status-reply');
+  await recalcPercentageExpensesSafe(meeting.cycleId, 'whatsapp-status-reply');
 
   if (
     remainingMeetings <= 0 &&
@@ -693,6 +695,7 @@ export async function handleStatusReply(phone: string, isYes: boolean): Promise<
       });
 
       await syncCycleProgress(r.cycle_id);
+      await recalcPercentageExpensesSafe(r.cycle_id, 'whatsapp-status-reply-no');
 
       await sendOperationsWhatsApp(`🚨 מדריך ${r.instructor_name} דיווח שלא העביר שיעור "${r.cycle_name}" היום — הפגישה עברה לסטטוס בוטל.`);
       await sendWhatsAppCloudText({

@@ -10,8 +10,8 @@
  *   JEV_ROUTING_ENABLED=shadow      → classify + store only, routing unchanged.
  *   JEV_ROUTING_ENABLED=true        → classify + store + route (confidence ≥ 0.7):
  *       new_lead / purchase        → bot continues as today
- *       human / support / job      → no auto-reply, bot stopped, staff callback alert
- *       irrelevant                 → no auto-reply
+ *       human / support / job      → bot stopped, staff callback alert, one callback confirmation reply
+ *       irrelevant                 → bot stopped (no auto-responder loops), one confirmation reply, no alert
  *
  * Fails open: missing key, API error, timeout, malformed response or low
  * confidence all fall back to the current bot behavior.
@@ -29,8 +29,12 @@ export type JevIntent = (typeof JEV_INTENTS)[number];
 
 export type JevMode = 'off' | 'shadow' | 'on';
 
-/** continue = current behavior; escalate = stop bot + staff alert; silence = no auto-reply. */
-export type JevRouteAction = 'continue' | 'escalate' | 'silence';
+/**
+ * continue    = current behavior
+ * escalate    = bot off + staff callback alert + one confirmation reply
+ * acknowledge = bot off + one confirmation reply, no staff alert
+ */
+export type JevRouteAction = 'continue' | 'escalate' | 'acknowledge';
 
 export interface JevClassification {
   intent: JevIntent;
@@ -109,7 +113,7 @@ export function decideJevRoute(result: JevClassification | null, mode: JevMode):
     case 'job':
       return 'escalate';
     case 'irrelevant':
-      return 'silence';
+      return 'acknowledge';
     default:
       return 'continue';
   }
@@ -157,7 +161,7 @@ export async function applyJevRouting(
         intentConfidence: result.confidence,
         intentNeedsHuman: result.needsHuman,
         intentClassifiedAt: new Date(),
-        ...(action === 'escalate' ? { aiEnabled: false } : {}),
+        ...(action !== 'continue' ? { aiEnabled: false } : {}),
       },
     });
 

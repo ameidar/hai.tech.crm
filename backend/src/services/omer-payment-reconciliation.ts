@@ -2,7 +2,9 @@ import { prisma } from '../utils/prisma.js';
 import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
 import { defaultRegistrationAmountForCycle, positiveMoneyOrNull } from '../utils/registration-amount.js';
 
-const OMER_REGISTRATION_SOURCE = 'omer-dafna-registration-form';
+// Prefix shared by both Omer form sources ('omer-dafna-registration-form' and
+// 'omer-dafna-registration-page'); auto-registration notes embed the full source.
+const OMER_REGISTRATION_SOURCE = 'omer-dafna-registration';
 
 export type OmerPaymentReconciliationStatus =
   | 'updated'

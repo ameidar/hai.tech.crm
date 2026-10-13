@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client';
 
 const AUTO_REGISTRATION_SOURCES = new Set([
   'omer-dafna-registration-form',
+  'omer-dafna-registration-page',
 ]);
 
 type AutoRegistrationStatus =

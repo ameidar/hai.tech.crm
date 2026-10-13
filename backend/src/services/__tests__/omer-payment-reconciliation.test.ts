@@ -56,6 +56,23 @@ describe('reconcileOmerRegistrationPayment', () => {
     expect(mockRecalc).toHaveBeenCalledWith('cycle-1');
   });
 
+  it('matches auto-registrations from both the old Omer form and the new registration page', async () => {
+    mockPrisma.payment.findUnique.mockResolvedValue({
+      id: 'payment-1',
+      customerId: 'customer-1',
+      amount: 2980,
+      status: 'paid',
+    } as any);
+    mockPrisma.registration.findMany.mockResolvedValue([] as any);
+
+    await reconcileOmerRegistrationPayment('payment-1');
+
+    const where = (mockPrisma.registration.findMany.mock.calls[0][0] as any).where;
+    const pattern = where.notes.contains as string;
+    expect('נוצר אוטומטית מטופס omer-dafna-registration-form').toContain(pattern);
+    expect('נוצר אוטומטית מטופס omer-dafna-registration-page').toContain(pattern);
+  });
+
   it('marks a single matching Omer registration partial when the payment is below the amount', async () => {
     mockPrisma.payment.findUnique.mockResolvedValue({
       id: 'payment-1',

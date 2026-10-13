@@ -76,6 +76,32 @@ describe('autoRegisterLeadToCycle', () => {
     expect(mockRecalc).toHaveBeenCalledWith('cycle-1');
   });
 
+  it('also auto-registers leads from the new Omer registration page', async () => {
+    mockPrisma.cycle.findFirst.mockResolvedValue({
+      id: 'cycle-1',
+      name: 'עומר - מיינקראפט כיתה ג׳',
+      status: 'active',
+      defaultRegistrationAmount: 3200,
+    } as any);
+    mockPrisma.student.findFirst.mockResolvedValue(null);
+    mockPrisma.student.create.mockResolvedValue({ id: 'student-1' } as any);
+    mockPrisma.registration.findFirst.mockResolvedValue(null);
+    mockPrisma.registration.create.mockResolvedValue({ id: 'registration-1' } as any);
+
+    const result = await autoRegisterLeadToCycle({ ...baseInput, source: 'omer-dafna-registration-page' });
+
+    expect(result.status).toBe('registered');
+    expect(mockPrisma.registration.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        cycleId: 'cycle-1',
+        status: 'registered',
+        paymentStatus: 'unpaid',
+        notes: expect.stringContaining('omer-dafna-registration-page'),
+      }),
+      select: { id: true },
+    });
+  });
+
   it('keeps amount empty when the cycle has no configured price', async () => {
     mockPrisma.cycle.findFirst.mockResolvedValue({
       id: 'cycle-1',

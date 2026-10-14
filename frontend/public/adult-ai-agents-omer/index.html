@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>קורס AI מעשי לבעלי עסקים בעומר | דרך ההייטק</title>
+  <meta name="description" content="קורס פרונטלי מעשי לבעלי עסקים ומבוגרים: בונים סוכני AI, אוטומציות, אתרים ואפליקציות לעסק. 16 מפגשים, שעתיים אקדמיות בכל מפגש, בעומר." />
+  <style>
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: Arial, "Segoe UI", sans-serif;
+      background: #f4f7fa;
+      color: #12263d;
+      line-height: 1.65;
+    }
+    a { color: inherit; }
+    .page {
+      min-height: 100vh;
+      background:
+        linear-gradient(90deg, rgba(15,47,79,0.05) 1px, transparent 1px) 0 0 / 44px 44px,
+        linear-gradient(180deg, #ffffff 0%, #edf4f7 100%);
+    }
+    .wrap { width: min(1140px, calc(100% - 32px)); margin: 0 auto; }
+    .hero {
+      display: grid;
+      grid-template-columns: 1fr 440px;
+      gap: 56px;
+      align-items: center;
+      padding: 54px 0 46px;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      color: #173f75;
+      font-weight: 900;
+      margin-bottom: 22px;
+    }
+    .brand-mark {
+      width: 38px;
+      height: 38px;
+      background: #173f75;
+      color: #fff;
+      display: inline-grid;
+      place-items: center;
+      font-weight: 900;
+    }
+    h1 {
+      font-size: clamp(42px, 6vw, 76px);
+      line-height: 1.02;
+      margin: 0 0 18px;
+      color: #0d2d4e;
+      letter-spacing: 0;
+      max-width: 760px;
+    }
+    .accent { color: #f06b2f; }
+    .lead {
+      font-size: clamp(18px, 2.2vw, 24px);
+      color: #31475e;
+      margin: 0 0 28px;
+      max-width: 760px;
+    }
+    .meta-line {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0;
+      border-top: 2px solid #d6e3ea;
+      border-bottom: 2px solid #d6e3ea;
+      margin: 28px 0;
+    }
+    .meta-line span {
+      padding: 12px 18px;
+      border-left: 2px solid #d6e3ea;
+      font-weight: 900;
+      color: #123653;
+      background: rgba(255,255,255,0.65);
+    }
+    .meta-line span:last-child { border-left: 0; }
+    .proof {
+      border-right: 6px solid #2aae9b;
+      padding: 12px 18px;
+      margin: 0 0 26px;
+      background: rgba(42,174,155,0.08);
+      color: #20364d;
+      font-weight: 700;
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; }
+    .btn {
+      min-height: 52px;
+      padding: 14px 22px;
+      font-size: 17px;
+      font-weight: 900;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px solid transparent;
+    }
+    .btn-primary { background: #f06b2f; color: #fff; }
+    .btn-secondary { background: #102f50; color: #fff; }
+    .visual {
+      border: 2px solid #d7e5ec;
+      background: #fff;
+      box-shadow: 18px 18px 0 #dcecf1;
+      aspect-ratio: 1 / 1;
+    }
+    .visual img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .strip {
+      background: #102f50;
+      color: #fff;
+      padding: 26px 0;
+    }
+    .strip-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 28px;
+    }
+    .strip-item {
+      border-right: 4px solid #2aae9b;
+      padding-right: 16px;
+    }
+    .strip-item strong { display: block; font-size: 20px; margin-bottom: 4px; color: #b7f4e6; }
+    .main {
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      gap: 42px;
+      padding: 46px 0 62px;
+      align-items: start;
+    }
+    .section {
+      padding: 30px 0;
+      border-bottom: 2px solid #dbe6ec;
+    }
+    .section:first-child { padding-top: 0; }
+    h2 {
+      margin: 0 0 18px;
+      color: #102f50;
+      font-size: 34px;
+      line-height: 1.15;
+    }
+    .outputs {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      border-top: 2px solid #dbe6ec;
+      border-right: 2px solid #dbe6ec;
+    }
+    .output {
+      min-height: 122px;
+      padding: 20px;
+      border-left: 2px solid #dbe6ec;
+      border-bottom: 2px solid #dbe6ec;
+      background: rgba(255,255,255,0.55);
+    }
+    .output strong {
+      display: block;
+      color: #102f50;
+      font-size: 20px;
+      margin-bottom: 6px;
+    }
+    .timeline {
+      display: grid;
+      gap: 0;
+      border-top: 2px solid #dbe6ec;
+    }
+    .step {
+      display: grid;
+      grid-template-columns: 84px 1fr;
+      gap: 18px;
+      padding: 18px 0;
+      border-bottom: 2px solid #dbe6ec;
+    }
+    .num {
+      font-size: 34px;
+      line-height: 1;
+      color: #f06b2f;
+      font-weight: 900;
+      border-left: 3px solid #f06b2f;
+      text-align: center;
+    }
+    .step strong { color: #102f50; display: block; font-size: 20px; margin-bottom: 4px; }
+    .examples {
+      columns: 2;
+      column-gap: 34px;
+      margin: 0;
+      padding: 0 22px 0 0;
+    }
+    .examples li { margin-bottom: 11px; break-inside: avoid; }
+    .price-panel {
+      margin-top: 22px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 20px;
+      align-items: center;
+      border-top: 4px solid #102f50;
+      border-bottom: 4px solid #102f50;
+      padding: 22px 0;
+    }
+    .price {
+      font-size: 42px;
+      color: #f06b2f;
+      font-weight: 900;
+      line-height: 1;
+    }
+    .old { color: #7c8da0; text-decoration: line-through; font-weight: 700; }
+    .form-box {
+      position: sticky;
+      top: 18px;
+      background: #ffffff;
+      border-top: 5px solid #f06b2f;
+      box-shadow: 14px 14px 0 #dcecf1;
+      padding: 24px;
+    }
+    .form-box h2 { font-size: 25px; }
+    label { display: block; font-weight: 900; margin: 12px 0 6px; color: #24374d; }
+    input, textarea {
+      width: 100%;
+      border: 0;
+      border-bottom: 2px solid #b9c9d5;
+      padding: 12px 4px;
+      font-size: 16px;
+      font-family: inherit;
+      background: #f7fafc;
+      color: #152033;
+      direction: rtl;
+    }
+    input:focus, textarea:focus { outline: 0; border-bottom-color: #f06b2f; background: #fff; }
+    textarea { min-height: 86px; resize: vertical; }
+    .fine { color: #66788a; font-size: 13px; margin: 10px 0 0; }
+    .status { display: none; margin-top: 12px; padding: 12px; font-weight: 800; }
+    .ok { background: #e9f8f0; color: #116b3f; }
+    .err { background: #fff0ee; color: #9e2b19; }
+    .form-actions { display: grid; gap: 10px; margin-top: 16px; }
+    footer { padding: 28px 0; color: #64758a; font-size: 14px; }
+    @media (max-width: 900px) {
+      .hero, .main { grid-template-columns: 1fr; }
+      .strip-grid, .outputs { grid-template-columns: 1fr; }
+      .form-box { position: static; }
+      .visual { box-shadow: 10px 10px 0 #dcecf1; }
+      .examples { columns: 1; }
+      .price-panel { grid-template-columns: 1fr; }
+      .meta-line span { border-left: 0; border-bottom: 2px solid #d6e3ea; width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="wrap hero">
+      <div>
+        <div class="brand"><span class="brand-mark">AI</span><span>דרך ההייטק | מתחם עומר</span></div>
+        <h1>קורס AI מעשי לבעלי עסקים: <span class="accent">בונים כלים שעובדים</span></h1>
+        <p class="lead">16 מפגשים פרונטליים שבהם בונים סוכני AI, אוטומציות, אתרים ואפליקציות לעסק ולעבודה היומיומית.</p>
+        <div class="meta-line">
+          <span>16 מפגשים</span>
+          <span>שעתיים אקדמיות</span>
+          <span>ימי ראשון 19:30-21:00</span>
+          <span>עד 16 משתתפים</span>
+        </div>
+        <div class="proof"><strong>מבוסס על ניסיון אמיתי:</strong> בניית סוכני AI ואוטומציות ללקוחות, עסקים ומועצות אזוריות.</div>
+        <div class="actions">
+          <a class="btn btn-primary" href="#lead-form">בדיקת התאמה</a>
+          <a class="btn btn-secondary" href="https://crm.orma-ai.com/pl/3rchu">הרשמה ותשלום</a>
+        </div>
+      </div>
+      <div class="visual">
+        <img src="./creative-business.png" alt="קורס AI מעשי לבעלי עסקים בעומר" />
+      </div>
+    </header>
+
+    <section class="strip">
+      <div class="wrap strip-grid">
+        <div class="strip-item"><strong>למידה דרך בנייה</strong>בכל שלב בונים תוצר שאפשר לקחת לעסק או לעבודה.</div>
+        <div class="strip-item"><strong>תוצרים אמיתיים</strong>סוכן עסקי, אוטומציה, אתר קטן, אפליקציה וכלי עבודה אישי.</div>
+        <div class="strip-item"><strong>ליווי פרונטלי</strong>קבוצה קטנה בעומר, עם עבודה מעשית ומענה תוך כדי בנייה.</div>
+      </div>
+    </section>
+
+    <main class="wrap main">
+      <div>
+        <section class="section">
+          <h2>מה בונים בפועל?</h2>
+          <div class="outputs">
+            <div class="output"><strong>סוכן AI עסקי</strong>סוכן שמכיר תהליך עבודה, מקבל הנחיות ומבצע משימות חוזרות בצורה מסודרת.</div>
+            <div class="output"><strong>אוטומציה שחוסכת זמן</strong>חיבור בין טופס, מייל, גיליון/CRM והתראה, עם שליטה אנושית כשצריך.</div>
+            <div class="output"><strong>דף נחיתה או אתר קטן</strong>בניית עמוד שיווקי עובד עם טופס ליד, תוכן, עיצוב וקישור פרסום.</div>
+            <div class="output"><strong>אפליקציה או כלי פנימי</strong>כלי פשוט שמרכז מידע, עוזר לקבל החלטות או מטפל בתהליך יומיומי.</div>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>המסע בקורס</h2>
+          <div class="timeline">
+            <div class="step"><div class="num">01</div><div><strong>יסודות עבודה עם AI</strong>איך לחשוב עם הכלים, להגדיר משימות, לבדוק תוצרים ולבנות תהליך עבודה נכון.</div></div>
+            <div class="step"><div class="num">02</div><div><strong>סוכני AI לעסק</strong>בניית סוכן עם תפקיד, ידע, הוראות וכללי פעולה שמתאימים לצורך אמיתי.</div></div>
+            <div class="step"><div class="num">03</div><div><strong>אוטומציות</strong>חיבור כלים ותהליכים: טפסים, מיילים, גיליונות, CRM והתראות.</div></div>
+            <div class="step"><div class="num">04</div><div><strong>אתרים ודפי נחיתה</strong>שימוש ב־Claude Code, Codex וכלי AI נוספים כדי לבנות עמודים וכלים במהירות.</div></div>
+            <div class="step"><div class="num">05</div><div><strong>אפליקציות וכלים פנימיים</strong>בניית כלי פשוט שעונה על צורך אישי או עסקי.</div></div>
+            <div class="step"><div class="num">06</div><div><strong>פרויקט מסכם</strong>כל משתתף בונה פתרון משלו ומקבל כיוון להמשך פיתוח עצמאי.</div></div>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>דוגמאות למה שאפשר לבנות</h2>
+          <ul class="examples">
+            <li>סוכן טיפול בלידים שמסכם פניות ומציע תגובה.</li>
+            <li>אוטומציה שמחברת טופס, מייל, CRM והתראות.</li>
+            <li>מחולל תוכן שיווקי לפוסטים, מיילים ודפי נחיתה.</li>
+            <li>דשבורד ניהולי קטן שמרכז נתונים במקום אחד.</li>
+            <li>דף נחיתה עם טופס ליד וקישור תשלום.</li>
+            <li>כלי פנימי שמרכז ידע ותהליכים לעסק.</li>
+          </ul>
+        </section>
+
+        <section class="section">
+          <h2>למי זה מתאים?</h2>
+          <div class="outputs">
+            <div class="output"><strong>בעלי עסקים ועצמאיים</strong>מי שרוצה לבנות לעצמו כלים שחוסכים זמן ומקדמים תהליכים בעסק.</div>
+            <div class="output"><strong>מנהלים ואנשי מקצוע</strong>מי שרוצה להכניס AI לעבודה היומיומית בצורה מסודרת, מעשית ובטוחה.</div>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>מבנה הקורס</h2>
+          <ul>
+            <li>פתיחה: יום ראשון, 25.10.2026.</li>
+            <li>שעות: 19:30-21:00.</li>
+            <li>16 מפגשים פרונטליים במתחם דרך ההייטק בעומר, שעתיים אקדמיות בכל מפגש.</li>
+            <li>מדריך: עמי מידר.</li>
+            <li>קיבולת מקסימלית: 16 משתתפים.</li>
+          </ul>
+          <div class="price-panel">
+            <div>
+              <strong>מחיר פתיחה</strong><br>
+              במקום <span class="old">₪9,000</span> | אפשרות עד 6 תשלומים שווים
+            </div>
+            <div class="price">₪5,900</div>
+          </div>
+        </section>
+      </div>
+
+      <aside class="form-box" id="lead-form">
+        <h2>רוצה שנחזור אליך?</h2>
+        <form id="leadForm">
+          <label for="name">שם מלא *</label>
+          <input id="name" name="name" autocomplete="name" required />
+          <label for="phone">טלפון *</label>
+          <input id="phone" name="phone" autocomplete="tel" required />
+          <label for="email">מייל</label>
+          <input id="email" name="email" type="email" autocomplete="email" />
+          <label for="interest">מה חשוב לך לבנות?</label>
+          <textarea id="interest" name="interest" placeholder="לדוגמה: סוכן לעסק, אוטומציות, אתר, אפליקציה..."></textarea>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit">שליחת פרטים</button>
+            <a class="btn btn-secondary" href="https://crm.orma-ai.com/pl/3rchu">מעבר לתשלום</a>
+          </div>
+          <p class="fine">השארת פרטים לא מחייבת תשלום. אפשר לשלם מיד כדי לשריין מקום.</p>
+          <div id="ok" class="status ok">הפרטים התקבלו. נחזור אליך בהקדם.</div>
+          <div id="err" class="status err">לא הצלחנו לשלוח כרגע. אפשר לנסות שוב או לפנות בוואטסאפ.</div>
+        </form>
+      </aside>
+    </main>
+    <footer class="wrap">דרך ההייטק | קורסים מעשיים בטכנולוגיה, תכנות ובינה מלאכותית</footer>
+  </div>
+  <script>
+    const form = document.getElementById('leadForm');
+    const ok = document.getElementById('ok');
+    const err = document.getElementById('err');
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      ok.style.display = 'none';
+      err.style.display = 'none';
+      const data = new FormData(form);
+      const params = new URLSearchParams(location.search);
+      const payload = {
+        campaignId: 'adult-ai-agents-omer-20261025',
+        name: String(data.get('name') || '').trim(),
+        phone: String(data.get('phone') || '').trim(),
+        email: String(data.get('email') || '').trim(),
+        interest: String(data.get('interest') || 'קורס AI מעשי למבוגרים בעומר').trim() || 'קורס AI מעשי למבוגרים בעומר',
+        utm_source: params.get('utm_source') || 'landing',
+        utm_medium: params.get('utm_medium') || 'organic',
+        utm_campaign: params.get('utm_campaign') || 'adult_ai_agents_omer_20261025'
+      };
+      try {
+        const res = await fetch('/api/campaign-leads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('lead failed');
+        form.reset();
+        ok.style.display = 'block';
+      } catch (e) {
+        err.style.display = 'block';
+      }
+    });
+  </script>
+<!-- ============================================================
+     orma-ai · 3D Motion Layer
+     הדביקו את הבלוק הזה בשלמותו ממש לפני </body> בדף הנחיתה.
+     לא נדרש שינוי ב-HTML הקיים — הסקריפט מתלבש על המחלקות שכבר בדף.
+     ============================================================ -->
+<style>
+  /* --- floating 3D background orbs --- */
+  .o3d-orb{position:fixed;border-radius:50%;pointer-events:none;z-index:0;filter:blur(2px);will-change:transform}
+  .o3d-orb.a{width:210px;height:210px;top:6%;left:4%;
+    background:radial-gradient(circle at 32% 30%,rgba(42,174,155,.35),rgba(42,174,155,.08) 65%,transparent)}
+  .o3d-orb.b{width:150px;height:150px;top:44%;right:5%;
+    background:radial-gradient(circle at 32% 30%,rgba(240,107,47,.32),rgba(240,107,47,.07) 65%,transparent)}
+  .o3d-orb.c{width:110px;height:110px;bottom:9%;left:12%;
+    background:radial-gradient(circle at 32% 30%,rgba(16,47,80,.25),rgba(16,47,80,.05) 65%,transparent)}
+  .page{position:relative;z-index:1}
+
+  /* --- 3D ring behind the hero visual --- */
+  .visual{position:relative;transform-style:preserve-3d;perspective:900px}
+  .o3d-ring{position:absolute;inset:-34px;border-radius:50%;pointer-events:none;z-index:-1;
+    border:2.5px solid rgba(42,174,155,.55);border-left-color:transparent;border-right-color:transparent;
+    animation:o3dspin 9s linear infinite}
+  .o3d-ring.two{inset:-52px;border-color:rgba(240,107,47,.45);border-top-color:transparent;border-bottom-color:transparent;
+    animation:o3dspin2 13s linear infinite}
+  @keyframes o3dspin{from{transform:rotateX(64deg) rotateZ(0)}to{transform:rotateX(64deg) rotateZ(360deg)}}
+  @keyframes o3dspin2{from{transform:rotateX(70deg) rotateZ(360deg)}to{transform:rotateX(70deg) rotateZ(0)}}
+
+  /* --- 3D tilt cards --- */
+  .o3d-tilt{transition:transform .18s ease-out, box-shadow .25s ease;transform-style:preserve-3d;will-change:transform}
+  .o3d-tilt:hover{box-shadow:0 22px 44px rgba(16,47,80,.18)}
+  .o3d-tilt > *{transform:translateZ(24px)}
+
+  /* --- scroll reveal with depth --- */
+  .o3d-reveal{opacity:0;transform:perspective(900px) translateY(36px) rotateX(9deg)}
+  .o3d-reveal.o3d-in{opacity:1;transform:perspective(900px) translateY(0) rotateX(0);
+    transition:opacity .7s ease, transform .8s cubic-bezier(.16,1,.3,1)}
+
+  /* --- hero headline gentle float --- */
+  .hero h1{animation:o3dfloat 6s ease-in-out infinite}
+  @keyframes o3dfloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+
+  @media (prefers-reduced-motion: reduce){
+    .o3d-orb,.o3d-ring,.o3d-ring.two,.hero h1{animation:none}
+    .o3d-tilt{transition:none}
+    .o3d-reveal{opacity:1;transform:none}
+  }
+</style>
+
+<div class="o3d-orb a"></div>
+<div class="o3d-orb b"></div>
+<div class="o3d-orb c"></div>
+
+<script>
+(function(){
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  /* 3D rings around the hero visual */
+  var vis = document.querySelector('.visual');
+  if (vis){
+    var r1=document.createElement('div');r1.className='o3d-ring';
+    var r2=document.createElement('div');r2.className='o3d-ring two';
+    vis.appendChild(r1);vis.appendChild(r2);
+  }
+
+  /* mouse-parallax on background orbs + hero visual tilt */
+  var orbs=[].slice.call(document.querySelectorAll('.o3d-orb'));
+  var img = vis ? vis.querySelector('img') : null;
+  if (img){ img.style.transition='transform .25s ease-out'; img.style.willChange='transform'; }
+  var mx=0,my=0,tx=0,ty=0;
+  document.addEventListener('mousemove',function(e){
+    tx=(e.clientX/innerWidth-0.5); ty=(e.clientY/innerHeight-0.5);
+  },{passive:true});
+  (function loop(){
+    mx+=(tx-mx)*0.06; my+=(ty-my)*0.06;
+    orbs.forEach(function(o,i){
+      var d=(i+1)*14;
+      o.style.transform='translate3d('+(-mx*d)+'px,'+(-my*d)+'px,0)';
+    });
+    if (img) img.style.transform='perspective(900px) rotateY('+(mx*7)+'deg) rotateX('+(-my*5)+'deg)';
+    requestAnimationFrame(loop);
+  })();
+
+  /* 3D tilt on cards — strip items, outputs, modules, price panel */
+  var tiltSel='.strip-item,.output,.module,.price-box,.price-panel > div,.section .outputs > div';
+  [].slice.call(document.querySelectorAll(tiltSel)).forEach(function(el){
+    el.classList.add('o3d-tilt');
+    el.addEventListener('mousemove',function(e){
+      var r=el.getBoundingClientRect();
+      var px=(e.clientX-r.left)/r.width-0.5, py=(e.clientY-r.top)/r.height-0.5;
+      el.style.transform='perspective(700px) rotateY('+(px*8)+'deg) rotateX('+(-py*7)+'deg) translateY(-3px)';
+    });
+    el.addEventListener('mouseleave',function(){
+      el.style.transform='perspective(700px) rotateY(0) rotateX(0) translateY(0)';
+    });
+  });
+
+  /* depth reveal on scroll */
+  var revSel='.section,.strip-item,.output,.module,.price-panel,.lead-form,form';
+  var toReveal=[].slice.call(document.querySelectorAll(revSel));
+  toReveal.forEach(function(el){el.classList.add('o3d-reveal')});
+  var io=new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      if(en.isIntersecting){en.target.classList.add('o3d-in');io.unobserve(en.target);}
+    });
+  },{threshold:0.12});
+  toReveal.forEach(function(el){io.observe(el)});
+})();
+</script>
+<!-- ============================ end 3D layer ============================ -->
+
+</body>
+</html>

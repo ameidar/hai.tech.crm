@@ -11,7 +11,7 @@ export type RegistrationStatus = 'registered' | 'active' | 'completed' | 'pendin
 export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
 export type PaymentMethod = 'credit' | 'transfer' | 'cash' | 'standing_order' | 'institutional';
 export type AttendanceStatus = 'present' | 'absent' | 'late';
-export type UserRole = 'admin' | 'manager' | 'instructor' | 'sales' | 'operations' | 'operations_control' | 'operations_manager';
+export type UserRole = 'admin' | 'manager' | 'instructor' | 'sales' | 'operations' | 'operations_control' | 'operations_manager' | 'viewer';
 export type ActivityType = 'online' | 'frontal' | 'private_lesson';
 export type TaskStatus = 'new' | 'in_progress' | 'waiting_info' | 'completed';
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
@@ -32,6 +32,8 @@ export interface User {
   name: string;
   phone?: string;
   role: UserRole;
+  /** Read-only viewer: UI behaves like admin, writes are blocked. */
+  isViewer?: boolean;
   isActive: boolean;
   lastLogin?: string;
   createdAt: string;

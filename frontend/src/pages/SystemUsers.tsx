@@ -32,6 +32,7 @@ const ROLE_LABELS: Record<string, string> = {
   operations: 'מנהל/ת תפעול',
   operations_control: 'שימור / מגדל שליטה',
   operations_manager: 'מנהלת תפעול',
+  viewer: 'צפייה בלבד',
 };
 
 const ROLE_COLORS: Record<string, string> = {
@@ -41,9 +42,10 @@ const ROLE_COLORS: Record<string, string> = {
   operations: 'bg-teal-100 text-teal-700',
   operations_control: 'bg-violet-100 text-violet-700',
   operations_manager: 'bg-cyan-100 text-cyan-700',
+  viewer: 'bg-amber-100 text-amber-700',
 };
 
-type ManagedRole = 'admin' | 'manager' | 'sales' | 'operations' | 'operations_control' | 'operations_manager';
+type ManagedRole = 'admin' | 'manager' | 'sales' | 'operations' | 'operations_control' | 'operations_manager' | 'viewer';
 
 // ===== Invite / Reset Modal =====
 interface LinkModalProps {
@@ -525,6 +527,7 @@ export default function SystemUsers() {
                 <option value="operations">מנהל/ת תפעול</option>
                 <option value="operations_control">שימור / מגדל שליטה</option>
                 <option value="operations_manager">מנהלת תפעול</option>
+                <option value="viewer">צפייה בלבד (רואה הכל, ללא שינויים)</option>
               </select>
               <p className="text-xs text-slate-400 mt-1">
                 מנהל מערכת — ניהול מלא. מנהל — גישה לכל. <strong>מכירות</strong> — יומן לידים, WhatsApp ולינק לתשלום.

@@ -2,6 +2,17 @@ import { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import api from '../api/client';
 import type { User, LoginResponse } from '../types';
+import { READ_ONLY_FLAG } from '../api/client';
+
+// A `viewer` sees everything an admin sees; writes are blocked (client + server).
+function toEffectiveUser(user: User): User {
+  if (user.role === 'viewer') {
+    localStorage.setItem(READ_ONLY_FLAG, '1');
+    return { ...user, role: 'admin', isViewer: true };
+  }
+  localStorage.removeItem(READ_ONLY_FLAG);
+  return user;
+}
 
 interface AuthContextType {
   user: User | null;
@@ -23,7 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (token) {
         try {
           const response = await api.get<User>('/auth/me');
-          setUser(response.data);
+          setUser(toEffectiveUser(response.data));
         } catch (error) {
           localStorage.removeItem('accessToken');
           localStorage.removeItem('refreshToken');
@@ -44,12 +55,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { accessToken, refreshToken, user } = response.data;
     localStorage.setItem('accessToken', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
-    setUser(user);
+    setUser(toEffectiveUser(user));
   };
 
   const logout = () => {
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
+    localStorage.removeItem(READ_ONLY_FLAG);
     setUser(null);
   };
 

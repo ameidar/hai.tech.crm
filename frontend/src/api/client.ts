@@ -9,11 +9,33 @@ export const api = axios.create({
   },
 });
 
+export const READ_ONLY_FLAG = 'crmReadOnly';
+export const READ_ONLY_MESSAGE = 'משתמש לצפייה בלבד — אין הרשאה לבצע שינויים';
+
+const WRITE_METHODS = new Set(['post', 'put', 'patch', 'delete']);
+const READ_ONLY_ALLOWED = ['/auth/login', '/auth/refresh', '/auth/logout'];
+
 // Request interceptor to add auth token
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('accessToken');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+
+  // Read-only (viewer) users: block writes before they reach the server
+  const method = (config.method || 'get').toLowerCase();
+  if (
+    localStorage.getItem(READ_ONLY_FLAG) === '1' &&
+    WRITE_METHODS.has(method) &&
+    !READ_ONLY_ALLOWED.some((p) => (config.url || '').startsWith(p))
+  ) {
+    window.alert(READ_ONLY_MESSAGE);
+    return Promise.reject(
+      Object.assign(new Error(READ_ONLY_MESSAGE), {
+        config,
+        response: { status: 403, data: { error: READ_ONLY_MESSAGE, code: 'READ_ONLY_USER' } },
+      })
+    );
   }
   return config;
 });

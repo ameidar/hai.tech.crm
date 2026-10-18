@@ -6,6 +6,11 @@ services:
   db:
     image: postgres:16-alpine
     container_name: haitech-db
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     restart: unless-stopped
     environment:
       POSTGRES_USER: haitech
@@ -14,7 +19,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U haitech -d haitech_crm"]
       interval: 10s
@@ -32,6 +37,11 @@ services:
         GIT_BRANCH: ${GIT_BRANCH:-}
         BUILD_TIME: ${BUILD_TIME:-}
     container_name: haitech-api
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     restart: unless-stopped
     depends_on:
       db:
@@ -147,10 +157,15 @@ services:
   redis:
     image: redis:7-alpine
     container_name: haitech-redis
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     restart: unless-stopped
     command: redis-server --save 60 1 --replicaof no one
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:

@@ -69,5 +69,7 @@ export const config = {
     apiSecret: process.env.MORNING_API_SECRET || '',
     businessId: process.env.MORNING_BUSINESS_ID || '',
     baseUrl: process.env.MORNING_BASE_URL || 'https://api.greeninvoice.co.il',
+    // OAuth token issuer (moved off api.greeninvoice.co.il in Morning's 2026 API update)
+    tokenUrl: process.env.MORNING_TOKEN_URL || 'https://api.morning.co/idp/v1/oauth/token',
   },
 };

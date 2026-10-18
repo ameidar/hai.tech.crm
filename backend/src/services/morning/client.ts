@@ -19,12 +19,31 @@ const BASE = normalizeMorningBaseUrl(config.morning.baseUrl);
 let cachedToken: { token: string; expiresAt: number } | null = null;
 const TOKEN_BUFFER_SECONDS = 60; // refresh 60s before expiry
 
+// Morning's 2026 API update retired POST {BASE}/api/v1/account/token (now 404).
+// Tokens come from the IDP host as standard OAuth2 client credentials; resource
+// calls stay on BASE with the returned bearer token.
 export function buildMorningTokenRequestBody(apiKeyId: string, apiSecret: string) {
   return {
-    id: apiKeyId,
-    secret: apiSecret,
     grant_type: 'client_credentials',
+    client_id: apiKeyId,
+    client_secret: apiSecret,
   };
+}
+
+type MorningTokenResponse = {
+  accessToken?: string;
+  access_token?: string;
+  expiresAt?: number; // unix seconds
+  expires_in?: number; // seconds from now
+};
+
+export function parseMorningTokenResponse(data: MorningTokenResponse, nowMs = Date.now()) {
+  const token = data.accessToken ?? data.access_token;
+  if (!token) throw new Error('Morning auth failed: token missing in response');
+  const expiresAt = data.expiresAt
+    ? data.expiresAt * 1000
+    : nowMs + (data.expires_in ?? 3500) * 1000;
+  return { token, expiresAt };
 }
 
 async function fetchToken(): Promise<string> {
@@ -32,7 +51,7 @@ async function fetchToken(): Promise<string> {
     throw new Error('Morning API credentials are not configured');
   }
 
-  const res = await fetch(`${BASE}/api/v1/account/token`, {
+  const res = await fetch(config.morning.tokenUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(buildMorningTokenRequestBody(config.morning.apiKeyId, config.morning.apiSecret)),
@@ -43,14 +62,8 @@ async function fetchToken(): Promise<string> {
     throw new Error(`Morning auth failed: ${res.status} ${body}`);
   }
 
-  const data = (await res.json()) as { token: string; expires?: number };
-  // Decode JWT to get exp
-  const [, payload] = data.token.split('.');
-  const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString());
-  const expiresAt = (decoded.exp ?? Math.floor(Date.now() / 1000) + 3500) * 1000;
-
-  cachedToken = { token: data.token, expiresAt };
-  return data.token;
+  cachedToken = parseMorningTokenResponse((await res.json()) as MorningTokenResponse);
+  return cachedToken.token;
 }
 
 async function getToken(): Promise<string> {

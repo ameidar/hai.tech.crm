@@ -4,6 +4,7 @@ import { config } from '../../../config.js';
 import { UnauthorizedError, ForbiddenError } from '../../../common/errors/index.js';
 import { UserRole } from '@prisma/client';
 import { apiKeysService, ValidatedApiKey } from '../services/api-keys.service.js';
+import { asEffectiveUser } from '../../../middleware/auth.js';
 import { applyIdentityRateLimit, applyAnonymousRateLimit, hasCredentials } from './rate-limit.js';
 
 /**
@@ -99,7 +100,7 @@ const authenticateCore = async (
     }
 
     // Otherwise, treat as JWT
-    const decoded = jwt.verify(token, config.jwt.secret) as JwtPayload;
+    const decoded = asEffectiveUser(jwt.verify(token, config.jwt.secret) as JwtPayload);
     req.user = decoded;
     (req as AuthRequest).authType = 'jwt';
     res.locals.userId = decoded.userId;
@@ -210,7 +211,7 @@ const optionalAuthCore = async (
     }
 
     // Try JWT
-    const decoded = jwt.verify(token, config.jwt.secret) as JwtPayload;
+    const decoded = asEffectiveUser(jwt.verify(token, config.jwt.secret) as JwtPayload);
     req.user = decoded;
     (req as AuthRequest).authType = 'jwt';
     res.locals.userId = decoded.userId;

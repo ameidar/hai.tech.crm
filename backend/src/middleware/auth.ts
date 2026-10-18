@@ -23,6 +23,14 @@ declare global {
   }
 }
 
+/**
+ * The read-only `viewer` role sees everything an admin sees. Writes are blocked
+ * globally by `viewerReadOnly`, so for authorization purposes a viewer acts as admin.
+ */
+export function asEffectiveUser<T extends { role: UserRole }>(decoded: T): T {
+  return decoded.role === 'viewer' ? { ...decoded, role: 'admin' } : decoded;
+}
+
 export const authenticate = (
   req: Request,
   _res: Response,
@@ -38,7 +46,7 @@ export const authenticate = (
 
   try {
     const decoded = jwt.verify(token, config.jwt.secret) as JwtPayload;
-    req.user = decoded;
+    req.user = asEffectiveUser(decoded);
 
     // Update last_active (throttled: once per 60s per user, fire-and-forget)
     const now = Date.now();

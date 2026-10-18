@@ -385,6 +385,11 @@ export default function Layout() {
 
       {/* Main content */}
       <main className="flex-1 flex flex-col min-h-0">
+        {user?.isViewer && (
+          <div className="bg-amber-100 border-b border-amber-300 text-amber-800 text-sm text-center py-1.5">
+            👁️ מצב צפייה בלבד — ניתן לראות את כל הנתונים, ללא אפשרות לבצע שינויים
+          </div>
+        )}
         <Outlet />
       </main>
 

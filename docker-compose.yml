@@ -144,7 +144,7 @@ services:
       - ./backend/uploads:/app/uploads
       - ./backend/credentials:/app/credentials:ro
     ports:
-      - "3001:3001"
+      - "172.18.0.1:3001:3001"  # only reachable by Caddy (n8n-docker-caddy_default gateway)
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:

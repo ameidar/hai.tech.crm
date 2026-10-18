@@ -6,7 +6,7 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma.js';
-import { authenticate } from '../middleware/auth.js';
+import { asEffectiveUser, authenticate } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { config } from '../config.js';
 
@@ -199,7 +199,7 @@ filesRouter.get('/download/:id', async (req: Request, res: Response, next: NextF
     if (req.query.token) {
       try {
         const decoded = jwt.verify(req.query.token as string, config.jwt.secret) as any;
-        (req as any).user = decoded;
+        (req as any).user = asEffectiveUser(decoded);
       } catch {
         throw new AppError(401, 'טוקן לא תקין');
       }
@@ -210,7 +210,7 @@ filesRouter.get('/download/:id', async (req: Request, res: Response, next: NextF
       }
       try {
         const decoded = jwt.verify(authHeader.substring(7), config.jwt.secret) as any;
-        (req as any).user = decoded;
+        (req as any).user = asEffectiveUser(decoded);
       } catch {
         throw new AppError(401, 'טוקן לא תקין');
       }

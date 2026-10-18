@@ -74,6 +74,7 @@ import linkedinRouter from './routes/linkedin.js';
 import socialRouter from './routes/social.js';
 import { googleAdsRouter } from './routes/google-ads.js';
 import { devReadOnly } from './middleware/devReadOnly.js';
+import { viewerReadOnly } from './middleware/viewerReadOnly.js';
 
 // API v1 Router
 import { apiV1Router } from './api/v1/index.js';
@@ -155,6 +156,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Dev read-only protection: non-admin users cannot write in non-production environments
 app.use(devReadOnly);
+app.use(viewerReadOnly);
 
 // =============================================================================
 // API v1 Routes (new versioned API layer)

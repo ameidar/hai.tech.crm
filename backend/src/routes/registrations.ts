@@ -4,6 +4,7 @@ import { prisma } from '../utils/prisma.js';
 import { authenticate, cycleRosterOrAdmin, managerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
+import { registrationAffectsRevenue } from '../utils/revenue.js';
 import { updateRegistrationSchema, uuidSchema } from '../types/schemas.js';
 import { z } from 'zod';
 import { parsePaginationParams, paginatedResponse } from '../utils/pagination.js';
@@ -161,8 +162,9 @@ registrationsRouter.put('/:id', cycleRosterOrAdmin, async (req, res, next) => {
       );
     }
 
-    if (data.status === 'cancelled' || data.status === 'pending_cancellation') {
-      // Recalculate future meeting revenues based on new student count
+    if (registrationAffectsRevenue(oldRegistration, data)) {
+      // Recalculate future meeting revenues: student count (cancellation) or the
+      // registration amount (late payment) changed.
       recalcMeetingRevenue(registration.cycle.id).catch(err =>
         console.error('[RECALC REVENUE] Error:', err)
       );

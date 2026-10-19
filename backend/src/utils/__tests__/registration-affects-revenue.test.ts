@@ -25,3 +25,27 @@ describe('registrationAffectsRevenue', () => {
     expect(registrationAffectsRevenue({ ...old, amount: '2980.00' }, { amount: 2980 })).toBe(false);
   });
 });
+
+import { meetingRevenueFromRegistrations } from '../revenue.js';
+
+describe('group revenue counts paid registrations only', () => {
+  const regs = [
+    { amount: 2980, status: 'registered', paymentStatus: 'paid' },
+    { amount: 2980, status: 'registered', paymentStatus: 'unpaid' }, // form price, not paid yet
+    { amount: 2980, status: 'registered', paymentStatus: 'partial' },
+    { amount: 0, status: 'registered', paymentStatus: 'unpaid' },
+  ];
+
+  it('ignores unpaid registrations in group cycles', () => {
+    // 2 × 2980 / 1.18 / 32
+    expect(meetingRevenueFromRegistrations(regs, 32, 'group')).toBe(157.84);
+  });
+
+  it('keeps legacy behavior for private cycles', () => {
+    expect(meetingRevenueFromRegistrations(regs, 32, 'private')).toBe(236.76);
+  });
+
+  it('keeps registrations when paymentStatus was not loaded', () => {
+    expect(meetingRevenueFromRegistrations([{ amount: 2980, status: 'registered' }], 32, 'group')).toBe(78.92);
+  });
+});

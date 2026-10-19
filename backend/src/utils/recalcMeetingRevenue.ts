@@ -16,7 +16,7 @@ export async function recalcMeetingRevenue(cycleId: string): Promise<void> {
       totalMeetings: true,
       registrations: {
         where: { status: { notIn: ['cancelled', 'pending_cancellation'] } },
-        select: { amount: true },
+        select: { amount: true, paymentStatus: true },
       },
     },
   });

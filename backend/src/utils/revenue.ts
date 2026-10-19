@@ -42,6 +42,7 @@ export function netAmount(
 type RegistrationLike = {
   amount?: number | string | { toString(): string } | null;
   status?: string | null;
+  paymentStatus?: string | null;
   deletedAt?: Date | string | null;
 };
 
@@ -71,6 +72,23 @@ export function revenueRegistrationCount(registrations: RegistrationLike[]): num
   return revenueRegistrations(registrations).length;
 }
 
+const PAID_STATUSES = new Set(['paid', 'partial']);
+
+/**
+ * Group cycles recognize revenue only from registrations that were actually paid:
+ * a registration form stores the full course price as `amount` before the parent pays,
+ * which inflated meeting revenue. When paymentStatus wasn't loaded (undefined) the
+ * registration is kept, so callers that don't select it keep their old behavior.
+ */
+export function isPaidForGroupRevenue(
+  registration: RegistrationLike,
+  cycleType: string | null | undefined
+): boolean {
+  if (String(cycleType) !== 'group') return true;
+  if (registration.paymentStatus === undefined) return true;
+  return PAID_STATUSES.has(String(registration.paymentStatus));
+}
+
 /**
  * Sum revenue-bearing registration amounts and return the net per-meeting revenue.
  * Completed registrations still count because cycle completion marks paid/active
@@ -83,7 +101,9 @@ export function meetingRevenueFromRegistrations(
   cycleType: string | null | undefined
 ): number {
   if (!totalMeetings || totalMeetings <= 0) return 0;
-  const gross = revenueRegistrations(registrations).reduce(
+  const gross = revenueRegistrations(registrations)
+    .filter((r) => isPaidForGroupRevenue(r, cycleType))
+    .reduce(
     (sum, r) => sum + (r.amount ? Number(r.amount) : 0),
     0
   );

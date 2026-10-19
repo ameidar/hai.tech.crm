@@ -130,3 +130,21 @@ export function meetingRevenueForMeeting(
   if (meeting?.nature === 'no_revenue') return 0;
   return meetingRevenueForCycle(cycle);
 }
+
+/**
+ * Whether a registration update changes the cycle's meeting revenue: a status change
+ * (cancellation alters the student count) or a new amount / payment status (a parent
+ * who pays after registering). Previously only cancellations triggered a recalc, so
+ * late payments left group meetings priced by the old number of payers.
+ */
+export function registrationAffectsRevenue(
+  old: { status?: string | null; amount?: unknown; paymentStatus?: string | null } | null,
+  data: { status?: string | null; amount?: unknown; paymentStatus?: string | null }
+): boolean {
+  if (data.status === 'cancelled' || data.status === 'pending_cancellation') return true;
+  if (!old) return false;
+  if (data.status !== undefined && data.status !== old.status) return true;
+  if (data.amount !== undefined && Number(data.amount ?? 0) !== Number(old.amount ?? 0)) return true;
+  if (data.paymentStatus !== undefined && data.paymentStatus !== old.paymentStatus) return true;
+  return false;
+}

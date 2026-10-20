@@ -92,4 +92,21 @@ describe('GET /api/instructors', () => {
       ],
     });
   });
+
+  it('limits to instructors with meetings around today when workingWithinDays is set', async () => {
+    await request(app).get('/api/instructors?isActive=true&workingWithinDays=45');
+
+    const where = (mockPrisma.instructor.findMany.mock.calls[0][0] as any).where;
+    expect(where.isActive).toBe(true);
+    const range = where.meetings.some.scheduledDate;
+    const days = (range.lte.getTime() - range.gte.getTime()) / 86_400_000;
+    expect(Math.round(days)).toBe(90);
+    expect(where.meetings.some.deletedAt).toBeNull();
+  });
+
+  it('does not add a meetings filter by default', async () => {
+    await request(app).get('/api/instructors?isActive=true');
+    const where = (mockPrisma.instructor.findMany.mock.calls[0][0] as any).where;
+    expect(where.meetings).toBeUndefined();
+  });
 });

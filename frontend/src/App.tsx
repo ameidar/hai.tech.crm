@@ -14,6 +14,7 @@ import Instructors from './pages/Instructors';
 import Cycles from './pages/Cycles';
 import CycleDetail from './pages/CycleDetail';
 import Meetings from './pages/Meetings';
+import MeetingsCalendar from './pages/MeetingsCalendar';
 import MeetingChangeLog from './pages/MeetingChangeLog';
 import InternalZoom from './pages/InternalZoom';
 import Reports from './pages/Reports';
@@ -214,6 +215,7 @@ function AppRoutes() {
             <Route path="cycles" element={<CycleRosterRoute><Cycles /></CycleRosterRoute>} />
             <Route path="cycles/:id" element={<CycleRosterRoute><CycleDetail /></CycleRosterRoute>} />
             <Route path="meetings" element={<ManagementRoute><Meetings /></ManagementRoute>} />
+            <Route path="calendar" element={<ManagementRoute><MeetingsCalendar /></ManagementRoute>} />
             <Route path="meetings/:id" element={<ManagementRoute><MeetingRedirect /></ManagementRoute>} />
             <Route path="meeting-change-log" element={<RoleRoute allowed={['admin', 'manager', 'operations_control', 'operations_manager']}><MeetingChangeLog /></RoleRoute>} />
             <Route path="zoom-requests" element={<ManagementRoute><InternalZoom /></ManagementRoute>} />

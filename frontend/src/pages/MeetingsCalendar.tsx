@@ -85,7 +85,7 @@ export default function MeetingsCalendar() {
     limit: 3000,
   });
   const { data: branches } = useBranches();
-  const { data: instructors } = useInstructors({ isActive: true });
+  const { data: instructors } = useInstructors({ isActive: true, workingWithinDays: 45 });
 
   const items = useMemo<CalItem[]>(() => {
     const q = search.trim();

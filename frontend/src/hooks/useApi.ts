@@ -384,10 +384,11 @@ export const syncPayingBodyMorning = async (
 };
 
 // ==================== Instructors ====================
-export const useInstructors = (params?: { isActive?: boolean | ''; search?: string }) => {
+export const useInstructors = (params?: { isActive?: boolean | ''; search?: string; workingWithinDays?: number }) => {
   const queryString = new URLSearchParams();
   queryString.set('limit', '300');
   if (params?.isActive !== undefined && params.isActive !== '') queryString.set('isActive', String(params.isActive));
+  if (params?.workingWithinDays) queryString.set('workingWithinDays', String(params.workingWithinDays));
   if (params?.search) queryString.set('search', params.search);
   return useQuery({
     queryKey: ['instructors', params],

@@ -26,6 +26,23 @@ instructorsRouter.get('/', async (req, res, next) => {
     const search = req.query.search as string | undefined;
     const isActive = req.query.isActive === 'true' ? true : req.query.isActive === 'false' ? false : undefined;
     const kind = req.query.kind as string | undefined; // 'instructor' | 'operations'
+    // Only instructors actually working now: a non-cancelled meeting within ±N days.
+    // Many instructors keep isActive=true after their last cycle ends.
+    const workingWithinDays = Number(req.query.workingWithinDays) || 0;
+    const workingFilter = workingWithinDays > 0
+      ? {
+        meetings: {
+          some: {
+            deletedAt: null,
+            status: { not: 'cancelled' as const },
+            scheduledDate: {
+              gte: new Date(Date.now() - workingWithinDays * 86_400_000),
+              lte: new Date(Date.now() + workingWithinDays * 86_400_000),
+            },
+          },
+        },
+      }
+      : undefined;
 
     const searchFilter = search
       ? {
@@ -55,6 +72,7 @@ instructorsRouter.get('/', async (req, res, next) => {
       ...(searchFilter && { AND: [searchFilter, kindFilter] }),
       ...(!searchFilter && kindFilter),
       ...(isActive !== undefined && { isActive }),
+      ...workingFilter,
     };
 
     const [instructors, total] = await Promise.all([

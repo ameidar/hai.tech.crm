@@ -152,7 +152,7 @@ export default function MeetingsCalendar() {
         }
       />
 
-      <div className="px-6 py-3 bg-white border-b flex flex-wrap items-center gap-3">
+      <div className="relative z-40 px-6 py-3 bg-white border-b flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1">
           <button onClick={() => goTo(view, shiftAnchor(view, anchor, -1))} className="p-2 rounded-lg hover:bg-gray-100" title="הקודם">
             <ChevronRight size={20} />

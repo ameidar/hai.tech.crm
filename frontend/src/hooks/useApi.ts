@@ -1457,6 +1457,9 @@ interface MonthlyData {
   instructorPayments: number;
   cycleExpenses: number;
   meetingExpenses: number;
+  fixedInstructorAdditions?: number;
+  companyFixedCosts?: number;
+  fixedCostItems?: { label: string; amount: number; source: 'instructor_addition' | 'company' }[];
   totalExpenses: number;
   profit: number;
   meetingCount: number;
@@ -1489,6 +1492,56 @@ interface ForecastResult {
   patterns: ExpensePattern[];
   summary: ForecastSummary;
 }
+
+// ==================== Company fixed costs ====================
+
+export interface CompanyFixedCost {
+  id: string;
+  name: string;
+  category: string;
+  amount: number;
+  startMonth: string; // YYYY-MM
+  endMonth: string | null;
+  monthOverrides: Record<string, number> | null;
+  notes: string | null;
+}
+
+export type CompanyFixedCostInput = Partial<Omit<CompanyFixedCost, 'id' | 'category'>>;
+
+export const useCompanyFixedCosts = () =>
+  useQuery({
+    queryKey: ['companyFixedCosts'],
+    queryFn: () => fetchData<CompanyFixedCost[]>('/company-fixed-costs'),
+  });
+
+const invalidateFixedCosts = (queryClient: ReturnType<typeof useQueryClient>) => {
+  queryClient.invalidateQueries({ queryKey: ['companyFixedCosts'] });
+  queryClient.invalidateQueries({ queryKey: ['forecast'] });
+  queryClient.invalidateQueries({ queryKey: ['morningFinancials'] });
+};
+
+export const useSaveCompanyFixedCost = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id?: string; data: CompanyFixedCostInput }) => {
+      const res = id
+        ? await api.put<CompanyFixedCost>(`/company-fixed-costs/${id}`, data)
+        : await api.post<CompanyFixedCost>('/company-fixed-costs', data);
+      return res.data;
+    },
+    onSuccess: () => invalidateFixedCosts(queryClient),
+  });
+};
+
+export const useDeleteCompanyFixedCost = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/company-fixed-costs/${id}`);
+    },
+    onSuccess: () => invalidateFixedCosts(queryClient),
+  });
+};
 
 export const useForecast = (historicalMonths = 6, forecastMonths = 3) => {
   return useQuery({

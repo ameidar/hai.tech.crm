@@ -27,6 +27,7 @@ import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import MeetingDetailModal from '../components/MeetingDetailModal';
 import ForecastChart from '../components/ForecastChart';
+import FixedCostsPanel from '../components/FixedCostsPanel';
 import MorningRevenueChart from '../components/MorningRevenueChart';
 import PayingBodyReconciliationTable from '../components/PayingBodyReconciliationTable';
 import { meetingStatusHebrew, dayOfWeekHebrew } from '../types';
@@ -236,6 +237,9 @@ export default function Dashboard() {
 
             {/* Financial Forecast Chart */}
             <ForecastChart />
+
+            {/* Fixed monthly costs (staff salaries + coordination) */}
+            {(user?.role === 'admin' || user?.role === 'manager') && <FixedCostsPanel />}
 
             {/* Real Morning Revenue Chart */}
             <MorningRevenueChart />

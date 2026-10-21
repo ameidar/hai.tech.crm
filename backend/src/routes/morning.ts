@@ -10,17 +10,23 @@ import { prodPrisma as prisma } from '../utils/prodPrisma.js';
 import { calculateInstructorPayment } from '../services/instructor-payment.js';
 import { fixedAdditionMonthlyCost, isFixedAdditionActiveInMonth } from '../services/instructor-fixed-additions.js';
 import { buildProformaSnapshotFromMorningDocument } from '../services/billing.js';
+import { companyFixedCostForMonth, type CompanyFixedCostLike } from '../services/company-fixed-costs.js';
 
-// Fixed monthly salaries for global employees (not paid via Morning or per-meeting).
-// `monthOverrides` lets specific months override the default (e.g. partial month,
-// reduced pay, unpaid leave = 0).
-const GLOBAL_MONTHLY_SALARIES: { name: string; amount: number; monthOverrides?: Record<string, number> }[] = [
-  { name: 'הילה', amount: 13000, monthOverrides: { '2026-03': 8000, '2026-04': 3000 } },
-  { name: 'אור', amount: 13000, monthOverrides: { '2026-03': 8000, '2026-04': 8000 } },
+// Fixed monthly salaries for global employees (not paid via Morning or per-meeting) now live
+// in the company_fixed_costs table (editable from the dashboard). This list is only the
+// fallback when that table is unavailable (e.g. dev reading a prod DB before the migration).
+const LEGACY_GLOBAL_MONTHLY_SALARIES = [
+  { name: 'הילה', amount: 13000, startMonth: new Date(Date.UTC(2020, 0, 1)), endMonth: null, monthOverrides: { '2026-03': 8000, '2026-04': 3000 } },
+  { name: 'אור', amount: 13000, startMonth: new Date(Date.UTC(2020, 0, 1)), endMonth: null, monthOverrides: { '2026-03': 8000, '2026-04': 8000 } },
 ];
 
-function salaryForMonth(emp: typeof GLOBAL_MONTHLY_SALARIES[number], month: string): number {
-  return emp.monthOverrides?.[month] ?? emp.amount;
+async function loadCompanyFixedCosts(): Promise<CompanyFixedCostLike[]> {
+  try {
+    return await prisma.companyFixedCost.findMany({ where: { deletedAt: null }, orderBy: { name: 'asc' } });
+  } catch (err) {
+    console.warn('[morning/financials] company fixed costs unavailable:', (err as Error)?.message);
+    return LEGACY_GLOBAL_MONTHLY_SALARIES;
+  }
 }
 
 // Instructor fixed monthly additions (תוספות קבועות, e.g. ריכוז) are fixed monthly pay, so
@@ -368,14 +374,16 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
       new Date(Date.UTC(fy, fm - 1, 1)),
       new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 1)),
     );
+    const companyFixedCosts = await loadCompanyFixedCosts();
+    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
     const result = Array.from(monthMap.entries()).map(([key, data]) => {
       const [year, month] = key.split('-').map(Number);
       const morningExp = Math.round(data.morningExpenses);
       const instructorPay = Math.round(data.instructorPayments);
       // Sum global salaries for this month, applying any per-month overrides.
-      const globalSalariesMonthly = GLOBAL_MONTHLY_SALARIES.reduce(
-        (s, e) => s + salaryForMonth(e, key),
+      const globalSalariesMonthly = companyFixedCosts.reduce(
+        (s, e) => s + companyFixedCostForMonth(e, key),
         0,
       ) + fixedAdditionItems
         .filter((i) => isFixedAdditionActiveInMonth(i.addition, key))
@@ -398,7 +406,9 @@ morningRouter.get('/financials', managerOrAdmin, async (req, res, next) => {
     res.json({
       months: result,
       hasExpenses: allExpenses.length > 0,
-      globalEmployees: GLOBAL_MONTHLY_SALARIES,
+      globalEmployees: companyFixedCosts
+        .filter((e) => companyFixedCostForMonth(e, currentMonthKey) > 0)
+        .map((e) => ({ name: e.name, amount: companyFixedCostForMonth(e, currentMonthKey) })),
     });
   } catch (err: any) {
     if (err.body) {
@@ -546,7 +556,7 @@ morningRouter.get('/financials/details', managerOrAdmin, async (req, res, next) 
         new Date(Date.UTC(yearN, monthN, 1)),
       );
       const items = [
-        ...GLOBAL_MONTHLY_SALARIES.map((e) => ({ name: e.name, amount: salaryForMonth(e, month) })),
+        ...(await loadCompanyFixedCosts()).map((e) => ({ name: e.name, amount: companyFixedCostForMonth(e, month) })),
         ...fixedAdditionItems
           .filter((i) => isFixedAdditionActiveInMonth(i.addition, month))
           .map((i) => ({ name: i.name, amount: i.cost })),

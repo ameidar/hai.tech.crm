@@ -42,6 +42,7 @@ import { initMorningReceiptSyncScheduler } from './services/morning-receipt-sync
 import { initGoogleMeetArtifactsScheduler } from './services/google-meet-artifacts-scheduler.js';
 import { reconcileOmerRegistrationPayment } from './services/omer-payment-reconciliation.js';
 import { forecastRouter } from './routes/forecast.js';
+import { companyFixedCostsRouter } from './routes/company-fixed-costs.js';
 import { quotesRouter } from './routes/quotes.js';
 import { publicQuoteRouter } from './routes/public-quote.js';
 import { publicCancelRouter } from './routes/public-cancel.js';
@@ -222,6 +223,7 @@ app.use('/api/parent', parentAppRouter); // Parent mobile app API
 app.use('/api/expenses', expensesRouter); // Expense tracking
 app.use('/api/email', emailRouter); // Email service
 app.use('/api/forecast', forecastRouter); // Financial forecasting
+app.use('/api/company-fixed-costs', companyFixedCostsRouter); // Fixed monthly company costs (staff)
 app.use('/api/public/quotes', publicQuoteRouter); // Public quote view (no auth)
 app.use('/api/public/cancel', publicCancelRouter); // Public cancellation form (no auth)
 app.use('/api/quotes', quotesRouter); // Quote management

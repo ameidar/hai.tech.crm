@@ -3,6 +3,7 @@ import { prisma } from '../utils/prisma.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { Decimal } from '@prisma/client/runtime/library';
 import { fixedAdditionMonthlyCost, isFixedAdditionActiveInMonth } from '../services/instructor-fixed-additions.js';
+import { companyFixedCostForMonth } from '../services/company-fixed-costs.js';
 
 export const forecastRouter = Router();
 
@@ -56,6 +57,8 @@ interface MonthlyData {
   cycleExpenses: number;
   meetingExpenses: number;
   fixedInstructorAdditions?: number; // recurring instructor fixed additions (תוספות קבועות) — monthly cost
+  companyFixedCosts?: number; // company-level fixed monthly costs (e.g. salaried staff)
+  fixedCostItems?: { label: string; amount: number; source: 'instructor_addition' | 'company' }[];
   totalExpenses: number;
   profit: number;
   meetingCount: number;
@@ -678,17 +681,38 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
         startMonth: { lt: forecastEnd },
         OR: [{ endMonth: null }, { endMonth: { gte: historicalStart } }],
       },
-      include: { instructor: { select: { employmentType: true } } },
+      include: { instructor: { select: { employmentType: true, name: true } } },
     });
-    if (fixedAdditions.length > 0) {
-      for (const data of [...historicalByMonth.values(), ...forecastByMonth.values()]) {
-        const cost = fixedAdditions
-          .filter((a) => isFixedAdditionActiveInMonth(a, data.month))
-          .reduce((sum, a) => sum + fixedAdditionMonthlyCost(a, a.instructor.employmentType), 0);
-        data.fixedInstructorAdditions = cost;
-        data.totalExpenses += cost;
-        data.profit -= cost;
+    // Company-level fixed costs (e.g. salaried staff) — counted as entered (employer cost).
+    const companyFixedCosts = await prisma.companyFixedCost.findMany({
+      where: {
+        deletedAt: null,
+        startMonth: { lt: forecastEnd },
+        OR: [{ endMonth: null }, { endMonth: { gte: historicalStart } }],
+      },
+      orderBy: { name: 'asc' },
+    });
+    for (const data of [...historicalByMonth.values(), ...forecastByMonth.values()]) {
+      const items: NonNullable<MonthlyData['fixedCostItems']> = [];
+      let additionsCost = 0;
+      for (const a of fixedAdditions) {
+        if (!isFixedAdditionActiveInMonth(a, data.month)) continue;
+        const amount = fixedAdditionMonthlyCost(a, a.instructor.employmentType);
+        additionsCost += amount;
+        items.push({ label: `${a.instructor.name} - ${a.description}`, amount, source: 'instructor_addition' });
       }
+      let companyCost = 0;
+      for (const c of companyFixedCosts) {
+        const amount = companyFixedCostForMonth(c, data.month);
+        if (amount <= 0) continue;
+        companyCost += amount;
+        items.push({ label: c.name, amount, source: 'company' });
+      }
+      data.fixedInstructorAdditions = additionsCost;
+      data.companyFixedCosts = companyCost;
+      data.fixedCostItems = items;
+      data.totalExpenses += additionsCost + companyCost;
+      data.profit -= additionsCost + companyCost;
     }
 
     // ============================================

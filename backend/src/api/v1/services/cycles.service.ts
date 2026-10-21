@@ -11,6 +11,7 @@ import {
 } from '../validators/cycles.js';
 import { fetchHolidays, dayNameToNumber } from '../../../utils/holidays.js';
 import { resolveRegistrationAmount } from '../../../utils/registration-amount.js';
+import { meetingRevenueForCycle } from '../../../utils/revenue.js';
 
 /**
  * Cycles Service - Business logic layer
@@ -138,12 +139,21 @@ export class CyclesService {
   async generateMeetings(cycleId: string, req?: Request) {
     const cycle = await prisma.cycle.findUnique({
       where: { id: cycleId },
-      include: { meetings: { where: { deletedAt: null } } },
+      include: {
+        meetings: { where: { deletedAt: null } },
+        registrations: {
+          where: { deletedAt: null },
+          select: { amount: true, status: true, paymentStatus: true, deletedAt: true },
+        },
+      },
     });
 
     if (!cycle) {
       throw new NotFoundError('Cycle', cycleId);
     }
+
+    // New meetings start with the cycle's expected revenue (not 0).
+    const expectedRevenue = meetingRevenueForCycle(cycle);
 
     // Calculate how many new meetings to generate
     const existingCount = cycle.meetings.length;
@@ -200,6 +210,8 @@ export class CyclesService {
           endTime: cycle.endTime,
           status: 'scheduled' as const,
           activityType: cycle.activityType,
+          revenue: expectedRevenue,
+          profit: expectedRevenue,
         });
       }
 

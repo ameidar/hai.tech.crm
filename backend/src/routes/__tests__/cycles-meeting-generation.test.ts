@@ -161,6 +161,43 @@ describe('cycle meeting generation', () => {
     expect(response.body.generated).toBe(2);
   });
 
+  it.each([
+    {
+      label: 'institutional_fixed uses the cycle meeting revenue',
+      cycle: { type: 'institutional_fixed', meetingRevenue: 750, registrations: [] },
+      expected: 750,
+    },
+    {
+      label: 'institutional_per_child multiplies price by active registrations',
+      cycle: {
+        type: 'institutional_per_child',
+        pricePerStudent: 55,
+        registrations: [
+          { amount: null, status: 'active', paymentStatus: 'unpaid', deletedAt: null },
+          { amount: null, status: 'active', paymentStatus: 'unpaid', deletedAt: null },
+          { amount: null, status: 'cancelled', paymentStatus: 'unpaid', deletedAt: null },
+        ],
+      },
+      expected: 110,
+    },
+  ])('sets expected revenue on generated meetings: $label', async ({ cycle, expected }) => {
+    const withMeetings = { ...baseCycle, ...cycle, meetings: [] };
+    mockPrisma.cycle.findUnique
+      .mockResolvedValueOnce(withMeetings as any)
+      .mockResolvedValueOnce(withMeetings as any)
+      .mockResolvedValueOnce(withMeetings as any);
+
+    const response = await request(app).post('/api/cycles/cycle-1/generate-meetings');
+
+    expect(response.status).toBe(200);
+    const data = mockPrisma.meeting.createMany.mock.calls[0][0].data as any[];
+    expect(data.length).toBeGreaterThan(0);
+    for (const meeting of data) {
+      expect(meeting.revenue).toBe(expected);
+      expect(meeting.profit).toBe(expected);
+    }
+  });
+
   it('regenerates editable meetings while preserving completed and cancelled meetings', async () => {
     const existing = {
       ...baseCycle,

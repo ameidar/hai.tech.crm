@@ -40,6 +40,10 @@ const expenseTypeLabels: Record<string, string> = {
 
 type ViewMode = 'all' | 'historical' | 'forecast';
 
+// Fixed monthly costs = company fixed costs (staff salaries) + instructor fixed additions.
+const fixedCostsOf = (row: { fixedInstructorAdditions?: number; companyFixedCosts?: number }) =>
+  (row.fixedInstructorAdditions ?? 0) + (row.companyFixedCosts ?? 0);
+
 export default function ForecastChart() {
   const [historicalMonths, setHistoricalMonths] = useState(6);
   const [forecastMonths, setForecastMonths] = useState(3);
@@ -375,6 +379,7 @@ export default function ForecastChart() {
                   <th className="text-right py-3 px-2 font-semibold text-rose-600">תשלום מדריכים</th>
                   <th className="text-right py-3 px-2 font-semibold text-rose-600">הוצאות מחזור</th>
                   <th className="text-right py-3 px-2 font-semibold text-rose-600">הוצאות פגישה</th>
+                  <th className="text-right py-3 px-2 font-semibold text-rose-600">הוצאות קבועות</th>
                   <th className="text-right py-3 px-2 font-semibold text-rose-700">סה״כ הוצאות</th>
                   <th className="text-right py-3 px-2 font-semibold text-sky-600">רווח</th>
                 </tr>
@@ -410,6 +415,14 @@ export default function ForecastChart() {
                     <td className="py-3 px-2 text-rose-500">₪{Math.round(row.instructorPayments).toLocaleString()}</td>
                     <td className="py-3 px-2 text-rose-500">₪{Math.round(row.cycleExpenses).toLocaleString()}</td>
                     <td className="py-3 px-2 text-rose-500">₪{Math.round(row.meetingExpenses).toLocaleString()}</td>
+                    <td
+                      className="py-3 px-2 text-rose-500 cursor-help"
+                      title={(row.fixedCostItems ?? [])
+                        .map((i: { label: string; amount: number }) => `${i.label}: ₪${Math.round(i.amount).toLocaleString()}`)
+                        .join('\n')}
+                    >
+                      ₪{Math.round(fixedCostsOf(row)).toLocaleString()}
+                    </td>
                     <td className="py-3 px-2 text-rose-600 font-medium">₪{Math.round(row.totalExpenses).toLocaleString()}</td>
                     <td className={`py-3 px-2 font-bold ${row.profit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                       ₪{Math.round(row.profit).toLocaleString()}
@@ -435,6 +448,9 @@ export default function ForecastChart() {
                   </td>
                   <td className="py-3 px-2 text-rose-500">
                     ₪{Math.round(chartData.reduce((sum, r) => sum + r.meetingExpenses, 0)).toLocaleString()}
+                  </td>
+                  <td className="py-3 px-2 text-rose-500">
+                    ₪{Math.round(chartData.reduce((sum, r) => sum + fixedCostsOf(r), 0)).toLocaleString()}
                   </td>
                   <td className="py-3 px-2 text-rose-600">
                     ₪{Math.round(chartData.reduce((sum, r) => sum + r.totalExpenses, 0)).toLocaleString()}
@@ -485,6 +501,7 @@ export default function ForecastChart() {
                   <li>• <strong>תשלום מדריכים:</strong> לפי תעריף × שעות לכל פגישה</li>
                   <li>• <strong>הוצאות מחזור:</strong> חומרים, ציוד - מחולק על פני הפגישות</li>
                   <li>• <strong>הוצאות פגישה:</strong> נסיעות, מדריך נוסף, כיבוד</li>
+                  <li>• <strong>הוצאות קבועות:</strong> משכורות קבועות (הילה, אור) ותוספות קבועות למדריכים (ריכוז) — פירוט במעבר עכבר ובכרטיס ״הוצאות קבועות לפי חודש״</li>
                 </ul>
               </div>
             </div>

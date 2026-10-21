@@ -9,7 +9,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { createCycleSchema, updateCycleSchema } from '../types/schemas.js';
 import { fetchHolidays, dayNameToNumber, calculateCycleEndDate } from '../utils/holidays.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
-import { meetingRevenueFromRegistrations, netAmount, revenueRegistrations, roundMoney } from '../utils/revenue.js';
+import { meetingRevenueForCycle, meetingRevenueFromRegistrations, netAmount, revenueRegistrations, roundMoney } from '../utils/revenue.js';
 import { recalculateInstructorPaymentsForCycle } from './instructor-payment.js';
 import { checkAndSendInstitutionalOrderCompletionAlert } from './institutional-order-completion-alert.js';
 import { assertMeetingNotInIssuedPeriod } from './billing-lock.js';
@@ -65,10 +65,18 @@ export async function generateMeetingsForCycle(cycleId: string, fromDate?: Date,
         where: { deletedAt: null },
         select: { id: true, scheduledDate: true, status: true },
       },
+      registrations: {
+        where: { deletedAt: null },
+        select: { amount: true, status: true, paymentStatus: true, deletedAt: true },
+      },
     },
   });
 
   if (!cycle) return;
+
+  // New meetings start with the cycle's expected revenue so forecasts don't show
+  // them as 0 until they are completed or a registration changes.
+  const expectedRevenue = meetingRevenueForCycle(cycle);
 
   const meetings = [];
   const targetDay = dayNameToNumber(cycle.dayOfWeek);
@@ -119,6 +127,8 @@ export async function generateMeetingsForCycle(cycleId: string, fromDate?: Date,
         status: 'scheduled' as const,
         recallBotEnabled: cycle.recallBotEnabled,
         activityType: cycle.activityType,
+        revenue: expectedRevenue,
+        profit: expectedRevenue,
       });
     }
     

@@ -498,6 +498,27 @@ model InstructorFixedAddition {
   @@map("instructor_fixed_additions")
 }
 
+// Company-level fixed monthly costs not tied to meetings (e.g. salaried office staff).
+// Amount is the full monthly cost to the company (employer cost), counted as-is in the
+// forecast. Months are stored as the first day of the month; end_month inclusive, NULL = open.
+model CompanyFixedCost {
+  id         String    @id @default(uuid())
+  name       String
+  category   String    @default("staff")
+  amount     Decimal   @db.Decimal(10, 2)
+  startMonth DateTime  @map("start_month") @db.Date
+  endMonth   DateTime? @map("end_month") @db.Date
+  // Optional per-month amount overrides, e.g. {"2026-03": 8000} (partial month / leave = 0).
+  monthOverrides Json? @map("month_overrides")
+  notes      String?
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  @@index([startMonth])
+  @@map("company_fixed_costs")
+}
+
 // Self-reported work hours for operations staff (Instructor.kind = "operations").
 // Each row is one (date, hours) report by the staff member; it flows into the monthly
 // salary report once an admin/manager approves it.

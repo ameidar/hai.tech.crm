@@ -17,12 +17,21 @@ function meeting(overrides: Partial<ZoomConflictMeeting>): ZoomConflictMeeting {
     endTime: overrides.endTime || dbTime('10:45'),
     zoomHostEmail: overrides.zoomHostEmail || 'inna@hai.tech',
     zoomMeetingId: overrides.zoomMeetingId || '123',
+    videoProvider: overrides.videoProvider ?? 'zoom',
     cycle: overrides.cycle || { name: 'שיעור ניסיון' },
     instructor: overrides.instructor || { name: 'ניר ברמן' },
   };
 }
 
 describe('zoom host conflicts', () => {
+  it('ignores overlapping Google Meet rooms on the same host account', () => {
+    const conflicts = findZoomHostConflictGroups([
+      meeting({ id: 'ort-a', zoomHostEmail: 'hila@hai.tech', zoomMeetingId: 'tvo-ersj-wid', videoProvider: 'google_meet' }),
+      meeting({ id: 'ort-b', zoomHostEmail: 'hila@hai.tech', zoomMeetingId: 'brj-gzsq-ftr', videoProvider: 'google_meet' }),
+    ]);
+    expect(conflicts).toEqual([]);
+  });
+
   it('groups overlapping tomorrow meetings on the same Zoom host', () => {
     const conflicts = findZoomHostConflictGroups([
       meeting({

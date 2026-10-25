@@ -18,10 +18,20 @@ const createRequestSchema = z.object({
   reason: z.string().min(1, 'סיבה היא שדה חובה'),
 });
 
+const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
 const reviewRequestSchema = z.object({
   reviewNotes: z.string().trim().max(1000).optional(),
   reason: z.string().trim().max(1000).optional(),
+  // Postpone approval: when the instructor asked for a specific new slot, the admin can
+  // reschedule the same meeting to it instead of adding a replacement at the end of the cycle.
+  newDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  newStartTime: z.string().regex(timeRegex).optional(),
+}).refine((d) => !d.newStartTime || d.newDate, {
+  message: 'שעה חדשה דורשת תאריך חדש',
+  path: ['newDate'],
 });
+
+const timeOfDay = (hhmm: string) => new Date(`1970-01-01T${hhmm}:00.000Z`);
 
 const logQuerySchema = z.object({
   instructorId: z.string().min(1).optional(),
@@ -567,6 +577,23 @@ meetingRequestsRouter.put('/:id/approve', async (req, res, next) => {
         where: { id: request.meetingId },
         data: {
           status: 'cancelled',
+          statusUpdatedAt: new Date(),
+          statusUpdatedById: req.user!.userId,
+        },
+      });
+    } else if (request.type === 'postpone' && review.newDate) {
+      // Reschedule the same meeting to the requested slot; it stays scheduled so the
+      // instructor gets reminders, and no replacement meeting is added.
+      const meeting = request.meeting;
+      const start = review.newStartTime ? timeOfDay(review.newStartTime) : meeting.startTime;
+      const durationMs = meeting.endTime.getTime() - meeting.startTime.getTime();
+      await prisma.meeting.update({
+        where: { id: request.meetingId },
+        data: {
+          scheduledDate: new Date(`${review.newDate}T00:00:00.000Z`),
+          startTime: start,
+          endTime: new Date(start.getTime() + durationMs),
+          status: 'scheduled',
           statusUpdatedAt: new Date(),
           statusUpdatedById: req.user!.userId,
         },

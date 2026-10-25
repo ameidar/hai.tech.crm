@@ -9,6 +9,7 @@ export type ZoomConflictMeeting = {
   endTime: DateLike;
   zoomHostEmail: string | null;
   zoomMeetingId: string | null;
+  videoProvider?: string | null;
   cycle?: {
     name?: string | null;
     course?: { name?: string | null } | null;
@@ -49,6 +50,8 @@ export function findZoomHostConflictGroups(meetings: ZoomConflictMeeting[]): Zoo
   const byHost = new Map<string, ZoomConflictMeeting[]>();
 
   for (const meeting of meetings) {
+    // A Google Meet account can run several rooms at once, so only Zoom hosts can conflict.
+    if (meeting.videoProvider === 'google_meet') continue;
     if (!meeting.zoomHostEmail) continue;
     const key = meeting.zoomHostEmail.trim().toLowerCase();
     if (!key) continue;
@@ -105,6 +108,7 @@ export async function findZoomHostConflictsForDate(scheduledDate: Date): Promise
       deletedAt: null,
       status: { notIn: ['cancelled', 'postponed'] },
       zoomHostEmail: { not: null },
+      videoProvider: { not: 'google_meet' },
     },
     include: {
       cycle: { include: { course: true } },

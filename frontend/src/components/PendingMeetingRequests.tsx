@@ -30,10 +30,23 @@ async function fetchRiskSummary(): Promise<MeetingRequestRisk[]> {
   return res.data.risks ?? [];
 }
 
-async function approveRequest(id: string) {
-  const res = await api.put(`/meeting-requests/${id}/approve`);
+interface ApprovePayload {
+  reviewNotes?: string;
+  newDate?: string;
+  newStartTime?: string;
+}
+
+async function approveRequest(id: string, payload: ApprovePayload) {
+  const res = await api.put(`/meeting-requests/${id}/approve`, payload);
   return res.data;
 }
+
+// Meeting times are stored as 1970-01-01T<HH:MM>Z; format in UTC so the wall-clock time
+// is shown as-is (local formatting shifted it by the 1970 Israel offset).
+const formatTime = (iso: string) => {
+  const d = new Date(iso);
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+};
 
 async function rejectRequest(id: string, reason?: string) {
   const res = await api.put(`/meeting-requests/${id}/reject`, { reason });
@@ -71,6 +84,7 @@ export default function PendingMeetingRequests({
   const [expanded, setExpanded] = useState(true);
   const [adminNotes, setAdminNotes] = useState<Record<string, string>>({});
   const [processing, setProcessing] = useState<string | null>(null);
+  const [newSlots, setNewSlots] = useState<Record<string, { date: string; time: string }>>({});
 
   const { data: requests = [], isLoading } = useQuery({
     queryKey: ['pending-meeting-requests'],
@@ -87,7 +101,7 @@ export default function PendingMeetingRequests({
   });
 
   const approveMutation = useMutation({
-    mutationFn: (id: string) => approveRequest(id),
+    mutationFn: ({ id, payload }: { id: string; payload: ApprovePayload }) => approveRequest(id, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pending-meeting-requests'] });
       queryClient.invalidateQueries({ queryKey: ['meetings'] });
@@ -105,7 +119,15 @@ export default function PendingMeetingRequests({
   const handleApprove = async (id: string) => {
     setProcessing(id + 'approve');
     try {
-      await approveMutation.mutateAsync(id);
+      const slot = newSlots[id];
+      await approveMutation.mutateAsync({
+        id,
+        payload: {
+          reviewNotes: adminNotes[id] || undefined,
+          newDate: slot?.date || undefined,
+          newStartTime: slot?.date && slot?.time ? slot.time : undefined,
+        },
+      });
     } finally {
       setProcessing(null);
     }
@@ -218,12 +240,33 @@ export default function PendingMeetingRequests({
                       <div className="text-sm text-gray-500 mt-0.5">
                         {req.meeting.cycle?.branch?.name && `${req.meeting.cycle.branch.name} • `}
                         {formatDate(req.meeting.scheduledDate)}
-                        {req.meeting.startTime && ` • ${new Date(req.meeting.startTime).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`}
+                        {req.meeting.startTime && ` • ${formatTime(req.meeting.startTime)}`}
                       </div>
                     )}
                     {req.reason && (
                       <div className="text-sm text-gray-700 mt-1 bg-gray-50 rounded-lg px-2 py-1">
                         💬 {req.reason}
+                      </div>
+                    )}
+
+                    {req.type === 'postpone' && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                        <span className="text-gray-600">מועד חדש:</span>
+                        <input
+                          type="date"
+                          value={newSlots[req.id]?.date || ''}
+                          onChange={(e) => setNewSlots(prev => ({ ...prev, [req.id]: { time: prev[req.id]?.time || (req.meeting?.startTime ? formatTime(req.meeting.startTime) : ''), date: e.target.value } }))}
+                          className="px-2 py-1 border border-gray-200 rounded-lg"
+                        />
+                        <input
+                          type="time"
+                          value={newSlots[req.id]?.time || ''}
+                          onChange={(e) => setNewSlots(prev => ({ ...prev, [req.id]: { date: prev[req.id]?.date || '', time: e.target.value } }))}
+                          className="px-2 py-1 border border-gray-200 rounded-lg"
+                        />
+                        <span className="text-xs text-gray-500">
+                          {newSlots[req.id]?.date ? 'השיעור יועבר למועד הזה' : 'ריק = שיעור השלמה בסוף המחזור'}
+                        </span>
                       </div>
                     )}
 

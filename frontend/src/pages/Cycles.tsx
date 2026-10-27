@@ -1118,7 +1118,11 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
           <label className="form-label">סוג מחזור *</label>
           <select
             value={formData.type}
-            onChange={(e) => setFormData({ ...formData, type: e.target.value as CycleType })}
+            onChange={(e) => {
+              const type = e.target.value as CycleType;
+              // Per-meeting institutional cycles (schools) have no paying parent — reminders default off.
+              setFormData({ ...formData, type, sendParentReminders: type !== 'institutional_fixed' });
+            }}
             className="form-input"
           >
             <option value="private">פרטי</option>

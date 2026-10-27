@@ -5,6 +5,7 @@
 
 import type { Request } from 'express';
 import { prisma } from '../utils/prisma.js';
+import { resolveSendParentReminders } from './reminder-eligibility.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createCycleSchema, updateCycleSchema } from '../types/schemas.js';
 import { fetchHolidays, dayNameToNumber, calculateCycleEndDate } from '../utils/holidays.js';
@@ -300,7 +301,7 @@ export async function createCycle(body: unknown, req?: Request) {
       studentCount: data.studentCount,
       maxStudents: data.maxStudents,
       minimumStudentsThreshold: data.minimumStudentsThreshold,
-      sendParentReminders: data.sendParentReminders,
+      sendParentReminders: resolveSendParentReminders(data.type, data.sendParentReminders),
       recallBotEnabled: data.recallBotEnabled ?? false,
       isOnline: data.activityType === 'online',
       activityType: data.activityType,

@@ -90,7 +90,7 @@ export const createCycleSchema = z.object({
   instructorDailyRate: z.number().nonnegative().optional().nullable(),
   studentCount: z.number().int().nonnegative().optional(),
   maxStudents: z.number().int().positive().optional(),
-  sendParentReminders: z.boolean().optional().default(true),
+  sendParentReminders: z.boolean().optional(), // default depends on cycle type — see resolveSendParentReminders
   recallBotEnabled: z.boolean().optional().default(false),
   activityType: activityTypeEnum.optional().default('frontal'),
   location: z.string().trim().optional().nullable(),

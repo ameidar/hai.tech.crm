@@ -1,6 +1,7 @@
 import { prisma } from '../../../utils/prisma.js';
 import { Prisma } from '@prisma/client';
 import { CycleQuery, CreateCycleInput, UpdateCycleInput, CreateCycleRegistrationInput } from '../validators/cycles.js';
+import { resolveSendParentReminders } from '../../../services/reminder-eligibility.js';
 
 /**
  * Cycles Repository - Data access layer
@@ -170,7 +171,7 @@ export class CyclesRepository {
         instructorDailyRate: data.instructorPaymentMode === 'daily' ? data.instructorDailyRate : null,
         studentCount: data.studentCount,
         maxStudents: data.maxStudents,
-        sendParentReminders: data.sendParentReminders,
+        sendParentReminders: resolveSendParentReminders(data.type, data.sendParentReminders),
         recallBotEnabled: data.recallBotEnabled,
         isOnline: data.activityType === 'online',
         activityType: data.activityType,

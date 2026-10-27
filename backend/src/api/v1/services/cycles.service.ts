@@ -12,6 +12,7 @@ import {
 import { fetchHolidays, dayNameToNumber } from '../../../utils/holidays.js';
 import { resolveRegistrationAmount } from '../../../utils/registration-amount.js';
 import { meetingRevenueForCycle } from '../../../utils/revenue.js';
+import { resolveSendParentReminders } from '../../../services/reminder-eligibility.js';
 
 /**
  * Cycles Service - Business logic layer
@@ -373,7 +374,7 @@ export class CyclesService {
         meetingRevenue: original.meetingRevenue,
         studentCount: original.studentCount,
         maxStudents: original.maxStudents,
-        sendParentReminders: original.sendParentReminders,
+        sendParentReminders: resolveSendParentReminders(original.type, original.sendParentReminders),
         isOnline: original.isOnline,
         activityType: original.activityType,
         location: original.location,

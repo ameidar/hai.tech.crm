@@ -32,17 +32,15 @@ export function reminderEligibleMeetingWhereForDate(
   return extra ? { AND: [base, extra] } : base;
 }
 
-// Institutional cycles billed per meeting (schools etc.) have no paying parent — the kids come
-// through the institution — so parents must never get lesson reminders for them. Cycles billed
-// per child (institutional_per_child, private, group) do have a parent customer and keep them.
-export const PARENT_REMINDER_EXCLUDED_CYCLE_TYPES = ['institutional_fixed'] as const;
-
-export function cycleTypeAllowsParentReminders(type?: string | null): boolean {
-  return !(PARENT_REMINDER_EXCLUDED_CYCLE_TYPES as readonly string[]).includes(type ?? '');
+// Institutional cycles billed per meeting (schools etc.) usually have no paying parent — the kids
+// come through the institution — so parent reminders default to OFF for them. Staff can still turn
+// them on explicitly per cycle. Cycles billed per child (institutional_per_child, private, group)
+// have a parent customer and default to ON.
+export function defaultSendParentReminders(type?: string | null): boolean {
+  return type !== 'institutional_fixed';
 }
 
-/** Effective sendParentReminders value for a cycle of the given type. */
+/** sendParentReminders for a new cycle: an explicit choice wins, otherwise the type default. */
 export function resolveSendParentReminders(type: string | null | undefined, requested?: boolean | null): boolean {
-  if (!cycleTypeAllowsParentReminders(type)) return false;
-  return requested ?? true;
+  return requested ?? defaultSendParentReminders(type);
 }

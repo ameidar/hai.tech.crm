@@ -158,7 +158,7 @@ const cycleBaseSchema = z.object({
   studentCount: z.number().int().nonnegative().optional().nullable(),
   maxStudents: z.number().int().nonnegative().optional().nullable(),
   minimumStudentsThreshold: z.number().int().nonnegative().optional().nullable(),
-  sendParentReminders: z.boolean().default(true),
+  sendParentReminders: z.boolean().optional(), // default depends on cycle type — see resolveSendParentReminders
   recallBotEnabled: z.boolean().optional().default(false),
   isOnline: z.boolean().default(false),
   activityType: z.enum(['online', 'frontal', 'private_lesson']).default('frontal'),

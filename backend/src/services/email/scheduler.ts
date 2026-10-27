@@ -16,7 +16,7 @@ import {
 import { buildInstructorMonthlyReport, getPreviousMonth } from '../instructorReport.service.js';
 import { generateInstructorReportExcel } from '../../utils/excelReportGenerator.js';
 import { sendInstructorMonthlyReportEmail } from './instructorReportEmail.js';
-import { PARENT_REMINDER_EXCLUDED_CYCLE_TYPES, reminderEligibleMeetingWhereForDate } from '../reminder-eligibility.js';
+import { reminderEligibleMeetingWhereForDate } from '../reminder-eligibility.js';
 import {
   findZoomHostConflictsForDate,
   formatZoomHostConflictAlert,
@@ -146,10 +146,7 @@ const sendParentReminders = async () => {
     // Get tomorrow's meetings with students
     const meetings = await prisma.meeting.findMany({
       where: reminderEligibleMeetingWhereForDate(tomorrow, {
-        cycle: {
-          sendParentReminders: true,
-          type: { notIn: [...PARENT_REMINDER_EXCLUDED_CYCLE_TYPES] },
-        },
+        cycle: { sendParentReminders: true },
       }),
       include: {
         cycle: {

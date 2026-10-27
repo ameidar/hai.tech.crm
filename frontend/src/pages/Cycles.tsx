@@ -1118,7 +1118,11 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
           <label className="form-label">סוג מחזור *</label>
           <select
             value={formData.type}
-            onChange={(e) => setFormData({ ...formData, type: e.target.value as CycleType })}
+            onChange={(e) => {
+              const type = e.target.value as CycleType;
+              // Per-meeting institutional cycles (schools) have no paying parent — reminders default off.
+              setFormData({ ...formData, type, sendParentReminders: type !== 'institutional_fixed' });
+            }}
             className="form-input"
           >
             <option value="private">פרטי</option>
@@ -1385,7 +1389,6 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
         )}
 
         <div className="flex items-center gap-6 mt-4">
-          {formData.type !== 'institutional_fixed' && (
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
@@ -1395,7 +1398,6 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
             />
             <span className="text-sm text-gray-700">שלח תזכורות להורים</span>
           </label>
-          )}
         </div>
 
         {(formData.activityType === 'online' || formData.activityType === 'private_lesson') && (
@@ -1855,7 +1857,6 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
         )}
 
         <div className="flex items-center gap-6 mt-4">
-          {formData.type !== 'institutional_fixed' && (
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
@@ -1865,7 +1866,6 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
             />
             <span className="text-sm text-gray-700">שלח תזכורות להורים</span>
           </label>
-          )}
         </div>
 
         {(formData.activityType === 'online' || formData.activityType === 'private_lesson') && (

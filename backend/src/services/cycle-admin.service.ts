@@ -5,6 +5,7 @@
 
 import type { Request } from 'express';
 import { prisma } from '../utils/prisma.js';
+import { cycleTypeAllowsParentReminders, resolveSendParentReminders } from './reminder-eligibility.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createCycleSchema, updateCycleSchema } from '../types/schemas.js';
 import { fetchHolidays, dayNameToNumber, calculateCycleEndDate } from '../utils/holidays.js';
@@ -300,7 +301,7 @@ export async function createCycle(body: unknown, req?: Request) {
       studentCount: data.studentCount,
       maxStudents: data.maxStudents,
       minimumStudentsThreshold: data.minimumStudentsThreshold,
-      sendParentReminders: data.sendParentReminders,
+      sendParentReminders: resolveSendParentReminders(data.type, data.sendParentReminders),
       recallBotEnabled: data.recallBotEnabled ?? false,
       isOnline: data.activityType === 'online',
       activityType: data.activityType,
@@ -381,6 +382,9 @@ export async function updateCycle(id: string, body: unknown, req?: Request) {
     if (data.endTime) updateData.endTime = new Date(`1970-01-01T${data.endTime}:00Z`);
     if (data.instructorPaymentMode === 'hourly') {
       updateData.instructorDailyRate = null;
+    }
+    if (!cycleTypeAllowsParentReminders(effectiveType)) {
+      updateData.sendParentReminders = false;
     }
 
     // If totalMeetings or completedMeetings changed, recalculate remainingMeetings

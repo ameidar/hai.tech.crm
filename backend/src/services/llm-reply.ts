@@ -159,8 +159,9 @@ function rejectsTemperature(model: string): boolean {
   return /^claude-(sonnet|opus|fable|mythos)-5/.test(model);
 }
 
-// SDK 1.x types no longer list `temperature`; Haiku 4.5 still accepts it (offline run used 0.7, matching gpt-4o).
-export type AnthropicReplyRequest = Anthropic.MessageCreateParamsNonStreaming & { temperature?: number };
+// SDK 1.x no longer supports `temperature`: prod requests to claude-haiku-4-5 that carried it were rejected with
+// 400 "temperature: Extra inputs are not permitted" (29/10/2026), so it is never sent to Anthropic.
+export type AnthropicReplyRequest = Anthropic.MessageCreateParamsNonStreaming;
 
 export function buildAnthropicRequest(params: GenerateReplyParams, model: string): AnthropicReplyRequest {
   const body: AnthropicReplyRequest = {
@@ -173,7 +174,6 @@ export function buildAnthropicRequest(params: GenerateReplyParams, model: string
     messages: toAnthropicMessages(params.history),
   };
   if (rejectsTemperature(model)) body.thinking = { type: 'disabled' };
-  else body.temperature = LLM_REPLY_TEMPERATURE;
   return body;
 }
 

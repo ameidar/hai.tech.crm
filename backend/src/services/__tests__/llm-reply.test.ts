@@ -124,9 +124,9 @@ describe('llm-reply', () => {
       expect(CLAUDE_WHATSAPP_FORMAT_NOTE).toContain('WhatsApp formatting: no Markdown');
     });
 
-    it('Haiku 4.5: temperature 0.7, no thinking param', () => {
+    it('Haiku 4.5: no temperature (rejected by the API via SDK 1.x), no thinking param', () => {
       const req = buildAnthropicRequest({ system, history }, 'claude-haiku-4-5');
-      expect(req.temperature).toBe(0.7);
+      expect(req).not.toHaveProperty('temperature');
       expect(req).not.toHaveProperty('thinking');
     });
   });
@@ -195,7 +195,7 @@ describe('llm-reply', () => {
       h.anthropicCreate.mockResolvedValue(anthropicOk());
       const res = await generateReply({ system, history, tier: 'fast' });
       expect(res.model).toBe('claude-haiku-4-5-20251001');
-      expect(h.anthropicCreate.mock.calls[0][0].temperature).toBe(0.7);
+      expect(h.anthropicCreate.mock.calls[0][0]).not.toHaveProperty("temperature");
     });
 
     it('refusal with fallback off → throws, no OpenAI call', async () => {

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../utils/prisma.js';
-import { authenticate, managerOrAdmin } from '../middleware/auth.js';
+import { authenticate, operationsManagerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { sendWhatsApp, sendEmail, replacePlaceholders, formatTimeForDisplay } from '../services/messaging.js';
 import {
@@ -17,7 +17,8 @@ import { z } from 'zod';
 export const messagingRouter = Router();
 
 messagingRouter.use(authenticate);
-messagingRouter.use(managerOrAdmin);
+// Operations managers message instructors day-to-day (templates, send, logs).
+messagingRouter.use(operationsManagerOrAdmin);
 
 // Schema for send message request
 const sendMessageSchema = z.object({

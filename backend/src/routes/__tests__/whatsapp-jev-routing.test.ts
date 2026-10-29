@@ -48,6 +48,12 @@ vi.mock('../../utils/lead-dedup.js', () => ({ findOrCreateLeadAppointment: vi.fn
 vi.mock('../../services/jev-intent.js', () => ({
   getJevMode: h.getJevMode,
   applyJevRouting: h.applyJevRouting,
+  // Reply-complexity routing (JEV_MODEL_ROUTING) stays off here; covered in whatsapp-llm-routing.test.ts.
+  getJevModelRoutingMode: () => 'off',
+  getJevModelRoutingHumanMode: () => 'reply',
+  buildComplexityState: () => null,
+  classifyReplyComplexity: async () => null,
+  decideModelTier: () => ({ tier: 'strong', escalate: false }),
 }));
 
 import whatsappRouter from '../whatsapp.js';

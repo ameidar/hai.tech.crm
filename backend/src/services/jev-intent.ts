@@ -119,6 +119,134 @@ export function decideJevRoute(result: JevClassification | null, mode: JevMode):
   }
 }
 
+// ---------------------------------------------------------------------------
+// Reply-complexity routing (which LLM tier answers the LATEST message)
+//
+//   JEV_MODEL_ROUTING unset/off → no API call; strong model (today's behavior).
+//   JEV_MODEL_ROUTING=shadow    → classify + log/store only; model unchanged.
+//   JEV_MODEL_ROUTING=on        → simple → fast tier (Haiku), complex → strong (Sonnet),
+//                                 human → escalate only when JEV_MODEL_ROUTING_HUMAN=escalate (default: reply).
+// Fails open to the strong model: missing key, error, timeout, bad payload, confidence < 0.7.
+// ---------------------------------------------------------------------------
+
+export const JEV_COMPLEXITY_CLASSES = ['simple', 'complex', 'human'] as const;
+export type JevComplexity = (typeof JEV_COMPLEXITY_CLASSES)[number];
+
+export type JevModelRoutingHumanMode = 'reply' | 'escalate';
+
+export interface JevComplexityResult {
+  complexity: JevComplexity;
+  confidence: number;
+}
+
+export interface ModelTierDecision {
+  tier: 'strong' | 'fast';
+  escalate: boolean;
+}
+
+// From hai.tech.crm-bot-compare (scripts/run_compare.template.mjs). Instructions and `human` are verbatim; `simple`
+// is narrowed to small talk only (Haiku made factual mistakes on schedule/trial/program questions in the offline
+// run), so every factual question now falls under `complex` → strong model.
+export const JEV_COMPLEXITY_QUESTION = {
+  complexity: {
+    type: 'choice',
+    instructions:
+      "A WhatsApp sales bot for 'Derech HaHaitech' (HaiTech: coding, AI and Minecraft/Roblox courses for kids and " +
+      "teens) must answer the customer's LATEST message, given the recent conversation. How should that latest " +
+      'message be handled?',
+    criteria: {
+      simple:
+        'Small talk only: a greeting, thanks, ok, emoji, or a short acknowledgement of the bot. Contains no question ' +
+        'and needs no course information',
+      complex:
+        'Needs course facts or judgment: any factual question (price, age, schedule, dates, location, trial lesson, ' +
+        'program details), several questions at once, an objection or hesitation, advice on which course suits a ' +
+        'specific child, an ambiguous or unclear message, or steering the customer toward registration',
+      human:
+        'Should go to a human: asks for a person / representative / callback, an existing customer with a problem ' +
+        '(access, payment, refund, cancellation, lesson logistics), a complaint, or a job / partnership offer',
+    },
+  },
+};
+
+export function getJevModelRoutingMode(): JevMode {
+  const raw = (process.env.JEV_MODEL_ROUTING || '').trim().toLowerCase();
+  if (raw === 'shadow') return 'shadow';
+  if (raw === 'on' || raw === 'true' || raw === '1') return 'on';
+  return 'off';
+}
+
+export function getJevModelRoutingHumanMode(): JevModelRoutingHumanMode {
+  return (process.env.JEV_MODEL_ROUTING_HUMAN || '').trim().toLowerCase() === 'escalate' ? 'escalate' : 'reply';
+}
+
+interface ComplexityStateMessage {
+  direction: string;
+  content: string;
+}
+
+/** Up to 6 messages before the latest inbound one + the latest inbound (same shape as the offline comparison). */
+export function buildComplexityState(messages: ComplexityStateMessage[]): string | null {
+  let latestIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].direction === 'inbound') {
+      latestIdx = i;
+      break;
+    }
+  }
+  if (latestIdx < 0 || !messages[latestIdx].content.trim()) return null;
+  const last = messages
+    .slice(Math.max(0, latestIdx - 6), latestIdx)
+    .map((m) => `${m.direction === 'inbound' ? 'Customer' : 'Bot'}: ${m.content.slice(0, 400)}`)
+    .join('\n');
+  return `Recent conversation (oldest first):\n${last || '(no earlier messages)'}\n\nLATEST customer message:\n${messages[latestIdx].content.slice(0, 800)}`;
+}
+
+/** Returns null on any failure (missing key, network error, timeout, unexpected payload). */
+export async function classifyReplyComplexity(state: string | null): Promise<JevComplexityResult | null> {
+  const apiKey = process.env.TYPESAFE_API_KEY;
+  if (!apiKey || !state?.trim()) return null;
+
+  try {
+    const res = await axios.post(
+      JEV_API_URL,
+      { model: JEV_MODEL, state, questions: JEV_COMPLEXITY_QUESTION },
+      {
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        timeout: JEV_TIMEOUT_MS,
+      },
+    );
+    const answer = res.data?.answers?.complexity;
+    const complexity = answer?.choice;
+    const confidence = answer?.confidence;
+    if (!JEV_COMPLEXITY_CLASSES.includes(complexity) || typeof confidence !== 'number' || !Number.isFinite(confidence)) {
+      console.warn('[WA][Jev] Unexpected complexity response shape');
+      return null;
+    }
+    return { complexity, confidence };
+  } catch (err: any) {
+    console.warn('[WA][Jev] Complexity classification failed, using strong model:', err?.code || err?.response?.status || err?.message);
+    return null;
+  }
+}
+
+export function decideModelTier(
+  result: JevComplexityResult | null,
+  mode: JevMode,
+  humanMode: JevModelRoutingHumanMode = 'reply',
+): ModelTierDecision {
+  const strong: ModelTierDecision = { tier: 'strong', escalate: false };
+  if (mode !== 'on' || !result || result.confidence < JEV_CONFIDENCE_THRESHOLD) return strong;
+  switch (result.complexity) {
+    case 'simple':
+      return { tier: 'fast', escalate: false };
+    case 'human':
+      return humanMode === 'escalate' ? { tier: 'strong', escalate: true } : strong;
+    default:
+      return strong;
+  }
+}
+
 interface JevConversationRef {
   id: string;
   aiEnabled: boolean;

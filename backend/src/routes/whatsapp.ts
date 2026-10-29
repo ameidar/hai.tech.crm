@@ -17,7 +17,24 @@ import { sendWhatsAppToChat } from '../services/messaging.js';
 import { handleStatusReply, parseInstructorStatusReply } from '../services/whatsapp-reminder.service.js';
 import { addWaSseClient, broadcastWaSSE as broadcastSSE, removeWaSseClient } from '../services/wa-events.js';
 import { sanitizeLeadEmail, shouldSendPromisedEmailAlert } from '../utils/wa-lead-extraction.js';
-import { applyJevRouting, getJevMode } from '../services/jev-intent.js';
+import {
+  applyJevRouting,
+  getJevMode,
+  buildComplexityState,
+  classifyReplyComplexity,
+  decideModelTier,
+  getJevModelRoutingHumanMode,
+  getJevModelRoutingMode,
+  type JevComplexityResult,
+  type ModelTierDecision,
+} from '../services/jev-intent.js';
+import {
+  generateReply,
+  isAnthropicCreditError,
+  LlmBothProvidersFailedError,
+  type ChatTurn,
+  type SystemParts,
+} from '../services/llm-reply.js';
 import { extractInboundText } from '../utils/wa-inbound-text.js';
 import { AppError } from '../middleware/errorHandler.js';
 import {
@@ -54,8 +71,6 @@ const WA_QUIET_WAKEUP_HOURS = parseFloat(process.env.WA_QUIET_WAKEUP_HOURS || '3
 const WA_INBOUND_ALERT_GROUP_ID = process.env.WA_INBOUND_ALERT_GROUP_ID || '120363308669020817@g.us';
 const WA_AI_FAILURE_ALERT_COOLDOWN_MINUTES = parseInt(process.env.WA_AI_FAILURE_ALERT_COOLDOWN_MINUTES || '30', 10);
 const APP_URL = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
-
-let lastOpenAICreditAlertAt = 0;
 
 // Multi-number support: phoneNumberId → wabaId mapping
 const PHONE_WABA_MAP: Record<string, string> = {
@@ -329,34 +344,52 @@ function isOpenAICreditError(error: unknown): boolean {
   );
 }
 
-async function alertOpenAICreditIssue(params: {
+interface CreditAlertParams {
   conversationId: string;
   phone: string;
   displayName?: string | null;
   inboundText?: string | null;
   error: unknown;
-}): Promise<void> {
+}
+
+const CREDIT_ALERT_PROVIDERS = {
+  openai: {
+    label: 'OpenAI',
+    defaultError: 'OpenAI 429 / no credits remaining',
+    billingUrl: 'https://platform.openai.com/settings/organization/billing/overview',
+  },
+  anthropic: {
+    label: 'Anthropic',
+    defaultError: 'Anthropic credit balance too low',
+    billingUrl: 'https://console.anthropic.com/settings/billing',
+  },
+} as const;
+
+const lastCreditAlertAt: Record<keyof typeof CREDIT_ALERT_PROVIDERS, number> = { openai: 0, anthropic: 0 };
+
+async function alertProviderCreditIssue(provider: keyof typeof CREDIT_ALERT_PROVIDERS, params: CreditAlertParams): Promise<void> {
   if (!WA_INBOUND_ALERT_GROUP_ID) return;
+  const { label, defaultError, billingUrl } = CREDIT_ALERT_PROVIDERS[provider];
 
   const now = Date.now();
   const cooldownMs = Math.max(WA_AI_FAILURE_ALERT_COOLDOWN_MINUTES, 1) * 60 * 1000;
-  if (now - lastOpenAICreditAlertAt < cooldownMs) {
-    console.warn(`[WA] OpenAI credit alert throttled for conv ${params.conversationId}`);
+  if (now - lastCreditAlertAt[provider] < cooldownMs) {
+    console.warn(`[WA] ${label} credit alert throttled for conv ${params.conversationId}`);
     return;
   }
-  lastOpenAICreditAlertAt = now;
+  lastCreditAlertAt[provider] = now;
 
   const link = `${APP_URL}/whatsapp?conv=${params.conversationId}`;
   const snippet = (params.inboundText || '').trim();
   const shortSnippet = snippet.length > 200 ? snippet.slice(0, 200) + '…' : snippet;
-  const errorMessage = ((params.error as { message?: string } | null)?.message || 'OpenAI 429 / no credits remaining')
+  const errorMessage = ((params.error as { message?: string } | null)?.message || defaultError)
     .replace(/\s+/g, ' ')
     .slice(0, 220);
 
   const message = [
     '🚨 תקלה קריטית בבוט הוואטסאפ',
     '',
-    'הבוט קיבל הודעה מלקוח אבל לא הצליח לייצר תגובה אוטומטית כי OpenAI החזיר שאין קרדיטים/מכסה זמינה.',
+    `הבוט קיבל הודעה מלקוח אבל לא הצליח לייצר תגובה אוטומטית כי ${label} החזיר שאין קרדיטים/מכסה זמינה.`,
     '',
     `לקוח: ${params.displayName || params.phone}`,
     `טלפון: ${params.phone}`,
@@ -364,15 +397,23 @@ async function alertOpenAICreditIssue(params: {
     `שיחה ב-CRM: ${link}`,
     '',
     `שגיאה: ${errorMessage}`,
-    'לטיפול בבילינג: https://platform.openai.com/settings/organization/billing/overview',
+    `לטיפול בבילינג: ${billingUrl}`,
   ].filter(Boolean).join('\n');
 
   const result = await sendWhatsAppToChat(WA_INBOUND_ALERT_GROUP_ID, message);
   if (!result.success) {
-    console.error(`[WA] OpenAI credit alert send failed: ${result.error}`);
+    console.error(`[WA] ${label} credit alert send failed: ${result.error}`);
   } else {
-    console.log(`[WA] OpenAI credit alert sent for conv ${params.conversationId}`);
+    console.log(`[WA] ${label} credit alert sent for conv ${params.conversationId}`);
   }
+}
+
+function alertOpenAICreditIssue(params: CreditAlertParams): Promise<void> {
+  return alertProviderCreditIssue('openai', params);
+}
+
+function alertAnthropicCreditIssue(params: CreditAlertParams): Promise<void> {
+  return alertProviderCreditIssue('anthropic', params);
 }
 
 // ============================================================
@@ -452,26 +493,21 @@ ${parts.join('\n')}
 // ============================================================
 // AI Response generation (mirrors bot logic)
 // ============================================================
-async function generateAIReply(conversationId: string): Promise<string | null> {
-  const messages = await prisma.waMessage.findMany({
-    where: { conversationId },
-    orderBy: { createdAt: 'desc' },
-    take: 15
-  });
-  messages.reverse(); // Now newest 15 messages in chronological order
-
-  const conv = await prisma.waConversation.findUnique({ where: { id: conversationId } });
-  if (!conv) return null;
-
+/**
+ * System prompt split into a static prefix (prompt + KB, cacheable) and the per-conversation tail.
+ * head + tail is byte-identical to the single system prompt the bot has always sent to gpt-4o.
+ */
+function buildBotSystemParts(conv: any): SystemParts {
   const systemPrompt = getSystemPrompt();
   const knowledgeBase = getKnowledgeBase();
-  const fullSystemPrompt = `${systemPrompt}
+  const head = `${systemPrompt}
 
 ---
 ## Knowledge Base (מידע על דרך ההייטק)
 
 ${JSON.stringify(knowledgeBase, null, 2)}
-
+`;
+  const tail = `
 ---
 ## הקשר שיחה
 
@@ -485,6 +521,42 @@ ${buildReferralPromptContext(conv)}
 ## כלל אנטי-לופ (חובה!)
 אל תחזור על תשובה שכבר נתת בשיחה הזו. אם שאלתם אותך משהו שכבר ענית עליו — ענה אחרת או הפנה לנציג. אם הלקוח אמר שלא שאל על נושא מסוים — אל תחזור לאותו נושא. הסתכל על ההיסטוריה ותן תשובה שלא כבר נאמרה.
 `;
+  return { head, tail };
+}
+
+/** Bot reply plus what produced it (stored on the outbound wa_messages row). */
+interface AIReplyText {
+  kind: 'reply';
+  text: string | null;
+  model: string;
+  tokensUsed: number | null;
+  route: string | null;
+}
+
+/** Jev complexity routing said `human` with JEV_MODEL_ROUTING_HUMAN=escalate → no bot reply, staff callback instead. */
+interface AIReplyEscalate {
+  kind: 'escalate';
+}
+
+type AIReplyOutcome = AIReplyText | AIReplyEscalate;
+
+function describeJevRoute(mode: string, result: JevComplexityResult | null, decision: ModelTierDecision): string {
+  const jev = result ? `${result.complexity}@${result.confidence.toFixed(2)}` : 'none';
+  return `routing=${mode} jev=${jev} tier=${decision.tier}${decision.escalate ? ' escalate' : ''}`;
+}
+
+async function generateAIReply(conversationId: string): Promise<AIReplyOutcome | null> {
+  const messages = await prisma.waMessage.findMany({
+    where: { conversationId },
+    orderBy: { createdAt: 'desc' },
+    take: 15
+  });
+  messages.reverse(); // Now newest 15 messages in chronological order
+
+  const conv = await prisma.waConversation.findUnique({ where: { id: conversationId } });
+  if (!conv) return null;
+
+  const system = buildBotSystemParts(conv);
 
   // Messages to exclude from GPT history to prevent looping
   const BOT_SKIP_PHRASES = [
@@ -492,7 +564,7 @@ ${buildReferralPromptContext(conv)}
     'קיבלנו את בקשתך 😊 נציג מדרך ההייטק יחזור'
   ];
 
-  const chatMessages: any[] = [{ role: 'system', content: fullSystemPrompt }];
+  const chatMessages: ChatTurn[] = [];
   const seenOutboundContents = new Set<string>();
 
   for (const m of messages) {
@@ -513,14 +585,36 @@ ${buildReferralPromptContext(conv)}
     });
   }
 
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o',
-    messages: chatMessages,
-    max_tokens: 500,
-    temperature: 0.7
-  });
+  // Jev complexity routing (JEV_MODEL_ROUTING). off → no call; shadow → classify in parallel, log only;
+  // on → classify first, then pick the tier / escalate. Any failure → strong model.
+  const routingMode = getJevModelRoutingMode();
+  let decision: ModelTierDecision = { tier: 'strong', escalate: false };
+  let route: string | null = null;
+  let shadowClassification: Promise<JevComplexityResult | null> | null = null;
 
-  let replyText = completion.choices[0].message.content || null;
+  if (routingMode === 'on') {
+    // A message queued behind an escalation (reply lock) must not reply or escalate again.
+    if (!conv.aiEnabled) return null;
+    const result = await classifyReplyComplexity(buildComplexityState(messages));
+    decision = decideModelTier(result, routingMode, getJevModelRoutingHumanMode());
+    route = describeJevRoute(routingMode, result, decision);
+    console.log(`[WA][Jev] conv=${conversationId} ${route}`);
+    if (decision.escalate) return { kind: 'escalate' };
+  } else if (routingMode === 'shadow') {
+    shadowClassification = classifyReplyComplexity(buildComplexityState(messages));
+  }
+
+  const llm = await generateReply({ system, history: chatMessages, tier: decision.tier });
+
+  if (shadowClassification) {
+    const result = await shadowClassification;
+    const wouldBe = decideModelTier(result, 'on', getJevModelRoutingHumanMode());
+    route = `${describeJevRoute('shadow', result, { tier: 'strong', escalate: false })} would=${wouldBe.tier}${wouldBe.escalate ? '+escalate' : ''}`;
+    console.log(`[WA][Jev] conv=${conversationId} ${route}`);
+  }
+  if (llm.fellBack) route = `${route ? `${route} ` : ''}fellBack=${llm.provider}`;
+
+  let replyText = llm.text;
   const latestInboundText = [...messages].reverse().find(m => m.direction === 'inbound')?.content || '';
 
   if (replyText && containsContactLoopReferral(replyText) && isExistingCustomerSupportRequest(latestInboundText)) {
@@ -528,7 +622,8 @@ ${buildReferralPromptContext(conv)}
     replyText = buildHumanEscalationReply(latestInboundText);
   }
 
-  return replyText;
+  const tokensUsed = llm.usage ? llm.usage.inputTokens + llm.usage.outputTokens : null;
+  return { kind: 'reply', text: replyText, model: llm.model, tokensUsed, route };
 }
 
 // ============================================================
@@ -1056,8 +1151,17 @@ router.post('/webhook', async (req: Request, res: Response) => {
             const prevLock = replyLocks.get(conv.id) || Promise.resolve();
             const currentLock = prevLock.then(async () => {
               try {
-                const reply = await generateAIReply(conv.id);
-                if (reply) {
+                const outcome = await generateAIReply(conv.id);
+                if (outcome?.kind === 'escalate') {
+                  // Jev complexity said `human` (JEV_MODEL_ROUTING=on + JEV_MODEL_ROUTING_HUMAN=escalate):
+                  // same path as Jev intent `escalate` — bot off, staff callback alert, one confirmation reply.
+                  await prisma.waConversation.update({ where: { id: conv.id }, data: { aiEnabled: false } });
+                  handleCallbackRequest(conv, text);
+                  await sendCallbackConfirmation(conv, phone);
+                  return;
+                }
+                const reply = outcome?.text;
+                if (outcome && reply) {
                   const waId = await sendWhatsAppMessage(phone, reply, conv.phoneNumberId);
                   const botMsg = await prisma.waMessage.create({
                     data: {
@@ -1066,7 +1170,10 @@ router.post('/webhook', async (req: Request, res: Response) => {
                       content: reply,
                       waMessageId: waId || undefined,
                       status: 'sent',
-                      isAiGenerated: true
+                      isAiGenerated: true,
+                      tokensUsed: outcome.tokensUsed,
+                      aiModel: outcome.model,
+                      aiRoute: outcome.route,
                     }
                   });
                   await prisma.waConversation.update({
@@ -1081,15 +1188,24 @@ router.post('/webhook', async (req: Request, res: Response) => {
                 }
               } catch (e) {
                 console.error('[WA] AI reply error:', e);
-                if (isOpenAICreditError(e)) {
-                  alertOpenAICreditIssue({
-                    conversationId: conv.id,
-                    phone,
-                    displayName: contactName || conv.contactName,
-                    inboundText: text,
-                    error: e,
-                  }).catch((alertError) => {
+                // Reaching here means no provider produced a reply (with fallback on, both failed).
+                const providerErrors = e instanceof LlmBothProvidersFailedError ? [e.primaryError, e.fallbackError] : [e];
+                const alertParams = {
+                  conversationId: conv.id,
+                  phone,
+                  displayName: contactName || conv.contactName,
+                  inboundText: text,
+                };
+                const openaiCreditError = providerErrors.find(isOpenAICreditError);
+                if (openaiCreditError) {
+                  alertOpenAICreditIssue({ ...alertParams, error: openaiCreditError }).catch((alertError) => {
                     console.error('[WA] OpenAI credit alert failed:', alertError);
+                  });
+                }
+                const anthropicCreditError = providerErrors.find(isAnthropicCreditError);
+                if (anthropicCreditError) {
+                  alertAnthropicCreditIssue({ ...alertParams, error: anthropicCreditError }).catch((alertError) => {
+                    console.error('[WA] Anthropic credit alert failed:', alertError);
                   });
                 }
               }

@@ -285,6 +285,8 @@ export function buildInstructorPreLessonTemplatePayload(meeting: any, meetingLin
       templateText(buildMeetingTitleWithProgress(meeting, extras), 'שיעור'),
       templateText(meeting.cycle?.branch?.name || (meeting.zoomJoinUrl ? 'אונליין' : ''), 'אונליין'),
       templateText(formatTimeFromDate(meeting.startTime), 'השעה תעודכן בהמשך'),
+      // {{5}} online video link (Zoom / Google Meet) — the approved template has a dedicated slot for it.
+      templateText(meeting.zoomJoinUrl || meeting.cycle?.zoomJoinUrl, 'אין – שיעור פרונטלי'),
       meetingLink,
     ],
     preview: `[תבנית: ${process.env.INSTRUCTOR_PRE_LESSON_WA_TEMPLATE_NAME || 'instructor_pre_lesson_60m'}] ${message}`,

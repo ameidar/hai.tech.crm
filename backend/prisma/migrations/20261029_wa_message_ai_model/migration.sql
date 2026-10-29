@@ -1,0 +1,3 @@
+ALTER TABLE "wa_messages"
+  ADD COLUMN IF NOT EXISTS "ai_model" TEXT,
+  ADD COLUMN IF NOT EXISTS "ai_route" TEXT;

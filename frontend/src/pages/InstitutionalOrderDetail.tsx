@@ -121,6 +121,9 @@ export default function InstitutionalOrderDetail() {
       salesperson: o.salesperson || '',
       orderType: o.orderType || '',
       createdBy: o.createdBy || '',
+      billingMode: o.billingMode || 'per_meeting',
+      monthlyAmounts: o.monthlyAmounts ?? null,
+      monthlyAmountsIncludeVat: o.monthlyAmountsIncludeVat ?? true,
     });
   };
 
@@ -243,6 +246,7 @@ export default function InstitutionalOrderDetail() {
               <Field label="נוצר על ידי" value={order.createdBy} />
               <Field label="תאריך פולואפ" value={formatDate(order.followUpDate)} />
               <Field label="תנאי תשלום" value={order.paymentTermsDays != null ? `שוטף + ${order.paymentTermsDays}` : '-'} />
+              <Field label="אופן חיוב" value={order.billingMode === 'monthly_fixed' ? `תשלום חודשי קבוע (${Object.keys(order.monthlyAmounts || {}).length} חודשים)` : 'לפי פגישה'} />
             </div>
           </div>
 

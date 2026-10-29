@@ -13,6 +13,7 @@ import { fetchHolidays, dayNameToNumber } from '../../../utils/holidays.js';
 import { resolveRegistrationAmount } from '../../../utils/registration-amount.js';
 import { meetingRevenueForCycle } from '../../../utils/revenue.js';
 import { resolveSendParentReminders } from '../../../services/reminder-eligibility.js';
+import { syncMonthlyFixedForCycle } from '../../../services/monthly-fixed-billing.js';
 
 /**
  * Cycles Service - Business logic layer
@@ -221,6 +222,8 @@ export class CyclesService {
 
     if (meetings.length > 0) {
       await prisma.meeting.createMany({ data: meetings });
+      // Monthly-fixed orders: the new meetings join their months' split.
+      await syncMonthlyFixedForCycle(cycleId, meetings.map((m) => m.scheduledDate));
 
       // Update cycle end date and remaining meetings
       const lastMeetingDate = meetings[meetings.length - 1].scheduledDate;

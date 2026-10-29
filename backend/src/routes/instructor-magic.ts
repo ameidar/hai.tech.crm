@@ -23,6 +23,7 @@ import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeetin
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
 import { checkAndSendMeetingReportQualityAlert } from '../services/meeting-report-quality-alert.js';
 import { handleInstitutionalAbsenceAlert } from '../services/institutional-absence-alerts.js';
+import { syncMonthlyFixedForMeetings } from '../services/monthly-fixed-billing.js';
 
 // WhatsApp group for pending meeting requests (postponements, cancellations)
 const ADMIN_PHONE = '120363353459332838@g.us';
@@ -251,6 +252,9 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
         where: { id: meetingId },
         data: updates,
       });
+      // Monthly-fixed orders: non-completion status changes alter the month split
+      // (the completion path below re-syncs after recalculating financials).
+      if (status && status !== 'completed') await syncMonthlyFixedForMeetings([meetingId]);
     }
     
     // Update attendance (only for completed meetings)
@@ -313,6 +317,8 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
             data: { revenue, instructorPayment, profit },
           });
           await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
+          // Monthly-fixed orders: restore the month split the per-meeting revenue overwrote.
+          await syncMonthlyFixedForMeetings([meetingId]);
           await checkAndSendNegativeProfitAlert(meetingId, 'instructor-magic');
 
           // Sync counters from actual meetings. If this instructor report completed the
@@ -460,6 +466,8 @@ router.post('/approve-request/:meetingId', authenticate, operationsManagerOrAdmi
         notes: adminNotes || meeting.notes,
       },
     });
+    // Monthly-fixed orders: an approved cancel/postpone drops the meeting from its month's split.
+    await syncMonthlyFixedForMeetings([meetingId]);
 
     if (action === 'approve' && isPostponeRequest) {
       const replacementId = await addReplacementMeetingWithRetry(

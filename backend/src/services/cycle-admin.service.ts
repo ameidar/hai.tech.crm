@@ -15,6 +15,7 @@ import { recalculateInstructorPaymentsForCycle } from './instructor-payment.js';
 import { checkAndSendInstitutionalOrderCompletionAlert } from './institutional-order-completion-alert.js';
 import { assertMeetingNotInIssuedPeriod } from './billing-lock.js';
 import { cancelFutureMeetingsForCycle } from './cancellations.js';
+import { redistributeMonthlyFixedRevenue, syncMonthlyFixedForCycle } from './monthly-fixed-billing.js';
 
 // Helper: compute expected revenue per meeting for any cycle type
 export function computeRevenuePerMeeting(cycle: any): number {
@@ -139,6 +140,8 @@ export async function generateMeetingsForCycle(cycleId: string, fromDate?: Date,
 
   if (meetings.length > 0) {
     await prisma.meeting.createMany({ data: meetings });
+    // Monthly-fixed orders: the new meetings join their months' split.
+    await syncMonthlyFixedForCycle(cycleId, meetings.map((m) => m.scheduledDate));
     
     // Update cycle progress and end date based on the generated schedule.
     const lastMeetingDate = meetings[meetings.length - 1].scheduledDate;
@@ -220,6 +223,9 @@ export async function regenerateMeetingsForCycle(cycleId: string) {
       remainingMeetings: remainingCount,
     },
   });
+
+  // Monthly-fixed orders: deleted meetings leave their months' split (generation syncs new ones).
+  await syncMonthlyFixedForCycle(cycleId, meetingsToDelete.map((m) => m.scheduledDate));
 
   if (remainingCount <= 0) {
     return { deleted: meetingsToDelete.length, generated: 0, completedCount };
@@ -434,6 +440,16 @@ export async function updateCycle(id: string, body: unknown, req?: Request) {
     }
 
     await recalculateInstructorPaymentsForCycle(id);
+
+    // Monthly-fixed orders: a cycle update (order link, revenue, instructor pay) can change
+    // every month — redistribute all months of the current order, and of the previous one
+    // when the cycle moved between orders.
+    await syncMonthlyFixedForCycle(id);
+    if (existingCycle.institutionalOrderId && existingCycle.institutionalOrderId !== cycle.institutionalOrderId) {
+      await redistributeMonthlyFixedRevenue(existingCycle.institutionalOrderId).catch((err) =>
+        console.error('[monthly-fixed-billing] previous order redistribution failed:', err)
+      );
+    }
 
     // Audit log for cycle update
     const oldRecord = {

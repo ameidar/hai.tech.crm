@@ -1946,6 +1946,9 @@ export interface InstitutionalOrderData {
   salesperson?: string | null;
   orderType?: string | null;
   createdBy?: string | null;
+  billingMode?: 'per_meeting' | 'monthly_fixed';
+  monthlyAmounts?: Record<string, number> | null;
+  monthlyAmountsIncludeVat?: boolean;
 }
 
 export const useInstitutionalOrders = (params?: { status?: string; page?: number; limit?: number; withCycles?: boolean; withRelevantCycles?: boolean; search?: string }) => {

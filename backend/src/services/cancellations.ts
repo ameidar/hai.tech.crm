@@ -5,6 +5,7 @@ import { logAudit } from '../utils/audit.js';
 import { sendEmail } from './email/sender.js';
 import { deleteMeeting as deleteZoomMeeting } from './zoom.js';
 import { googleMeetService } from './google-meet.js';
+import { syncMonthlyFixedForCycle } from './monthly-fixed-billing.js';
 
 const APP_URL = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
 const CANCELLATION_ALERT_EMAILS = process.env.CANCELLATION_ALERT_EMAILS || 'info@hai.tech,inna@hai.tech';
@@ -105,6 +106,7 @@ export async function cancelFutureMeetingsForCycle(
     },
     select: {
       id: true,
+      scheduledDate: true,
       zoomMeetingId: true,
       zoomJoinUrl: true,
       zoomStartUrl: true,
@@ -170,6 +172,11 @@ export async function cancelFutureMeetingsForCycle(
     },
     req: options.req,
   });
+
+  // Monthly-fixed orders: cancelled meetings drop out of their month's split.
+  if (cascade.count > 0) {
+    await syncMonthlyFixedForCycle(cycleId, futureMeetings.map((meeting) => meeting.scheduledDate));
+  }
 
   console.log(`[CANCEL CASCADE] Cancelled ${cascade.count} future meetings for cycle ${cycleId}`);
   return { cancelledMeetings: cascade.count };

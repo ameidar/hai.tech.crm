@@ -3,6 +3,7 @@ import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { syncCycleProgress } from '../utils/cycle-sync.js';
 import { meetingRevenueForMeeting } from '../utils/revenue.js';
+import { syncMonthlyFixedForMeetings } from '../services/monthly-fixed-billing.js';
 import {
   calculateInstructorPayment,
   recalculateDailyInstructorPaymentsForMeeting,
@@ -144,6 +145,8 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
     });
     await recalculateDailyInstructorPaymentsForMeeting(existingMeeting);
     await recalculateDailyInstructorPaymentsForMeeting(meeting);
+    // Monthly-fixed orders: status changes alter the month split.
+    await syncMonthlyFixedForMeetings([meetingId]);
     await checkAndSendNegativeProfitAlert(meetingId, 'public-meeting-status');
 
     // Sync cycle progress from actual DB counts after meeting update

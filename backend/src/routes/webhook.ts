@@ -9,6 +9,7 @@ import { logAudit } from '../utils/audit.js';
 import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
 import { meetingRevenueForMeeting } from '../utils/revenue.js';
 import { calculateInstructorPayment, recalculateDailyInstructorPaymentsForMeeting } from '../services/instructor-payment.js';
+import { syncMonthlyFixedForMeetings } from '../services/monthly-fixed-billing.js';
 import { broadcastWaSSE } from '../services/wa-events.js';
 import { autoRegisterLeadToCycle } from '../services/lead-cycle-registration.js';
 import { extractLeadAttribution } from '../utils/lead-attribution.js';
@@ -1073,6 +1074,8 @@ async function recalculateMeetingFinancials(meetingId: string) {
     },
   });
   await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
+  // Monthly-fixed orders: restore the month split the per-meeting revenue overwrote.
+  await syncMonthlyFixedForMeetings([meetingId]);
   return updatedMeeting;
 }
 
@@ -1109,6 +1112,9 @@ webhookRouter.patch('/meetings/:id', async (req, res, next) => {
       if (recalculated) {
         meeting = recalculated;
       }
+    } else if (updateData.status) {
+      // Monthly-fixed orders: cancel/postpone/reschedule changes the month split.
+      await syncMonthlyFixedForMeetings([meetingId]);
     }
 
     res.json({

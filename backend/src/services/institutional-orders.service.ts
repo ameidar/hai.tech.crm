@@ -4,10 +4,19 @@
 
 import type { Request } from 'express';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { paginationSchema } from '../types/schemas.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
+import { BILLING_MODES, MONTH_KEY_RE, redistributeMonthlyFixedRevenue } from './monthly-fixed-billing.js';
+
+// "YYYY-MM" -> non-negative amount, as entered (incl. or excl. VAT per monthlyAmountsIncludeVat).
+export const monthlyAmountsSchema = z
+  .record(z.string(), z.coerce.number().nonnegative('סכום חודשי חייב להיות 0 או יותר'))
+  .refine((obj) => Object.keys(obj).every((k) => MONTH_KEY_RE.test(k)), {
+    message: 'מפתח חודש חייב להיות בפורמט YYYY-MM',
+  });
 
 export const orderSchema = z.object({
   branchId: z.string().optional().nullable(),
@@ -42,6 +51,10 @@ export const orderSchema = z.object({
   address: z.string().optional().nullable(),
   city: z.string().optional().nullable(),
   zip: z.string().optional().nullable(),
+  // Monthly fixed billing (services/monthly-fixed-billing.ts)
+  billingMode: z.enum(BILLING_MODES).optional(),
+  monthlyAmounts: monthlyAmountsSchema.optional().nullable(),
+  monthlyAmountsIncludeVat: z.boolean().optional(),
 });
 
 // New institutional orders must be tied to a branch AND a paying body. Existing orders
@@ -207,6 +220,9 @@ export async function createInstitutionalOrder(body: unknown, req?: Request) {
         address: data.address ?? null,
         city: data.city ?? null,
         zip: data.zip ?? null,
+        billingMode: data.billingMode ?? 'per_meeting',
+        monthlyAmounts: data.monthlyAmounts ?? Prisma.DbNull,
+        monthlyAmountsIncludeVat: data.monthlyAmountsIncludeVat ?? true,
       },
       include: {
         branch: { select: { id: true, name: true, city: true, type: true } },
@@ -264,6 +280,9 @@ export async function updateInstitutionalOrder(id: string, body: unknown, req?: 
         ...(data.address !== undefined && { address: data.address }),
         ...(data.city !== undefined && { city: data.city }),
         ...(data.zip !== undefined && { zip: data.zip }),
+        ...(data.billingMode !== undefined && { billingMode: data.billingMode }),
+        ...(data.monthlyAmounts !== undefined && { monthlyAmounts: data.monthlyAmounts ?? Prisma.DbNull }),
+        ...(data.monthlyAmountsIncludeVat !== undefined && { monthlyAmountsIncludeVat: data.monthlyAmountsIncludeVat }),
       },
       include: {
         branch: { select: { id: true, name: true, city: true, type: true } },
@@ -278,6 +297,18 @@ export async function updateInstitutionalOrder(id: string, body: unknown, req?: 
       newRecord: auditOrder(order),
       req,
     });
+
+    // Switching to monthly_fixed or changing its amounts re-splits every month. Fail-safe:
+    // the order update itself already succeeded.
+    const billingChanged =
+      existing.billingMode !== order.billingMode ||
+      existing.monthlyAmountsIncludeVat !== order.monthlyAmountsIncludeVat ||
+      JSON.stringify(existing.monthlyAmounts ?? null) !== JSON.stringify(order.monthlyAmounts ?? null);
+    if (billingChanged && order.billingMode === 'monthly_fixed') {
+      await redistributeMonthlyFixedRevenue(id).catch((err) =>
+        console.error(`[monthly-fixed-billing] redistribution after order ${id} update failed:`, err)
+      );
+    }
     return order;
 }
 
@@ -289,11 +320,13 @@ function auditOrder(o: Record<string, any>) {
     'contactEmail', 'status', 'fireberryStatus', 'notes', 'totalAmount', 'invoiceNumber',
     'invoiceLink', 'paymentStatus', 'paidAmount', 'payingBody', 'paymentTermsDays', 'followUpDate',
     'salesperson', 'orderType', 'taxId', 'address', 'city', 'zip',
+    'billingMode', 'monthlyAmounts', 'monthlyAmountsIncludeVat',
   ];
   const out: Record<string, any> = {};
   for (const f of fields) {
     const v = o[f];
     if (v === undefined) continue;
+    if (f === 'monthlyAmounts') { out[f] = v === null ? null : JSON.stringify(v); continue; }
     out[f] = v instanceof Date ? v.toISOString() : (v !== null && typeof v === 'object' ? v.toString() : v);
   }
   return out;

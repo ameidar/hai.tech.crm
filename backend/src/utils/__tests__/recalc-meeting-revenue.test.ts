@@ -11,7 +11,12 @@ vi.mock('../../services/negative-profit-alert.js', () => ({
   checkAndSendNegativeProfitAlert: vi.fn(),
 }));
 
+vi.mock('../../services/monthly-fixed-billing.js', () => ({
+  redistributeMonthlyFixedRevenue: vi.fn(),
+}));
+
 import { recalcMeetingRevenue } from '../recalcMeetingRevenue.js';
+import { redistributeMonthlyFixedRevenue } from '../../services/monthly-fixed-billing.js';
 import { prisma } from '../prisma.js';
 
 const mockPrisma = vi.mocked(prisma) as any;
@@ -25,6 +30,42 @@ beforeEach(() => {
 });
 
 describe('recalcMeetingRevenue', () => {
+  it('delegates monthly_fixed orders to the month redistribution and never writes cycle.meetingRevenue', async () => {
+    mockPrisma.cycle.findUnique.mockResolvedValue({
+      type: 'institutional_per_child',
+      pricePerStudent: 100,
+      meetingRevenue: 500,
+      totalMeetings: 10,
+      institutionalOrder: { id: 'o1', billingMode: 'monthly_fixed' },
+      registrations: [{ amount: 0 }],
+    });
+
+    await recalcMeetingRevenue('c1');
+
+    expect(redistributeMonthlyFixedRevenue).toHaveBeenCalledWith('o1');
+    expect(mockPrisma.cycle.update).not.toHaveBeenCalled();
+    expect(mockPrisma.meeting.update).not.toHaveBeenCalled();
+  });
+
+  it('keeps per_meeting orders on the per-meeting path', async () => {
+    mockPrisma.cycle.findUnique.mockResolvedValue({
+      type: 'institutional_per_child',
+      pricePerStudent: 100,
+      meetingRevenue: 0,
+      totalMeetings: 10,
+      institutionalOrder: { id: 'o1', billingMode: 'per_meeting' },
+      registrations: [{ amount: 0 }, { amount: 0 }],
+    });
+
+    await recalcMeetingRevenue('c1');
+
+    expect(redistributeMonthlyFixedRevenue).not.toHaveBeenCalled();
+    expect(mockPrisma.meeting.update).toHaveBeenCalledWith({
+      where: { id: 'm1' },
+      data: { revenue: 200, profit: 100 },
+    });
+  });
+
   it('recomputes group revenue from all registrations even when meetingRevenue is already set', async () => {
     mockPrisma.cycle.findUnique.mockResolvedValue({
       type: 'group',

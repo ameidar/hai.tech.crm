@@ -21,6 +21,7 @@ import {
   recalculateDailyInstructorPaymentsForMeeting,
 } from '../../../services/instructor-payment.js';
 import { handleInstitutionalAbsenceAlert } from '../../../services/institutional-absence-alerts.js';
+import { snapshotMeetingRefs, syncMonthlyFixedForCycle, syncMonthlyFixedForMeetings } from '../../../services/monthly-fixed-billing.js';
 
 /**
  * Meetings Service - Business logic layer
@@ -84,6 +85,9 @@ export class MeetingsService {
 
     // Adding a meeting may push the cycle past its current end date — resync it.
     await syncCycleEndDate(data.cycleId);
+
+    // Monthly-fixed orders: keep the month split in sync (no-op for per_meeting orders).
+    await syncMonthlyFixedForCycle(data.cycleId, [meeting.scheduledDate]);
 
     // Audit log
     if (req) {
@@ -166,6 +170,9 @@ export class MeetingsService {
       scheduledDate: meeting.scheduledDate,
     });
 
+    // Monthly-fixed orders: keep the month split in sync (no-op for per_meeting orders).
+    await syncMonthlyFixedForCycle(existing.cycleId, [existing.scheduledDate, meeting.scheduledDate]);
+
     // Audit log
     if (req) {
       await logAudit({
@@ -204,6 +211,8 @@ export class MeetingsService {
     }
 
     await this.repository.softDelete(id, req?.user?.userId);
+    // Monthly-fixed orders: keep the month split in sync (no-op for per_meeting orders).
+    await syncMonthlyFixedForCycle(existing.cycleId, [existing.scheduledDate]);
 
     // Audit log
     if (req) {
@@ -268,6 +277,8 @@ export class MeetingsService {
 
     // The rescheduled meeting may fall after the cycle's current end date — resync it.
     await syncCycleEndDate(existing.cycleId);
+    // Monthly-fixed orders: keep the month split in sync (no-op for per_meeting orders).
+    await syncMonthlyFixedForCycle(existing.cycleId, [existing.scheduledDate, newMeeting?.scheduledDate]);
 
     // Audit log
     if (req) {
@@ -364,6 +375,9 @@ export class MeetingsService {
       },
     });
 
+    // Monthly-fixed orders: keep the month split in sync (no-op for per_meeting orders).
+    await syncMonthlyFixedForCycle(existing.cycleId, [existing.scheduledDate]);
+
     // Audit log
     if (req) {
       await logAudit({
@@ -417,6 +431,9 @@ export class MeetingsService {
     );
     await recalculateDailyInstructorPaymentsForMeeting(existing);
 
+    // Monthly-fixed orders: keep the month split in sync (no-op for per_meeting orders).
+    await syncMonthlyFixedForCycle(existing.cycleId, [existing.scheduledDate]);
+
     // Audit log
     if (req) {
       await logAudit({
@@ -451,6 +468,9 @@ export class MeetingsService {
 
     const meeting = await this.repository.update(id, financials, req?.user?.userId);
     await recalculateDailyInstructorPaymentsForMeeting(meeting);
+
+    // Monthly-fixed orders: keep the month split in sync (no-op for per_meeting orders).
+    await syncMonthlyFixedForCycle(existing.cycleId, [existing.scheduledDate]);
 
     // Audit log
     if (req) {
@@ -495,6 +515,9 @@ export class MeetingsService {
         errors.push(`Meeting ${id}: ${message}`);
       }
     }
+
+    // Monthly-fixed orders: keep the month split in sync (no-op for per_meeting orders).
+    await syncMonthlyFixedForMeetings(input.ids);
 
     // Audit log
     if (req) {
@@ -575,6 +598,9 @@ export class MeetingsService {
       }
     }
 
+    // Monthly-fixed orders: keep the month split in sync (no-op for per_meeting orders).
+    await syncMonthlyFixedForMeetings(input.ids);
+
     // Audit log
     if (req) {
       await logAudit({
@@ -599,6 +625,7 @@ export class MeetingsService {
       where: { id: { in: input.ids }, deletedAt: null },
       select: { id: true, cycleId: true, status: true },
     });
+    const refsBefore = await snapshotMeetingRefs(input.ids);
 
     // Group completed meetings by cycle to update counters
     const completedByCycle = meetings
@@ -627,6 +654,9 @@ export class MeetingsService {
         deletedBy: req?.user?.userId,
       },
     });
+
+    // Monthly-fixed orders: keep the month split in sync (no-op for per_meeting orders).
+    await syncMonthlyFixedForMeetings(input.ids, refsBefore);
 
     // Audit log
     if (req) {

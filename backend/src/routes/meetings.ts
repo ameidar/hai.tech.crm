@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { syncMonthlyFixedForCycle, syncMonthlyFixedForMeetings } from '../services/monthly-fixed-billing.js';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, operationsManagerOrAdmin } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -468,6 +469,9 @@ meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
       req,
     });
 
+    // Monthly-fixed orders: a new meeting changes the month's split.
+    await syncMonthlyFixedForCycle(cycleId, [meeting.scheduledDate]);
+
     res.status(201).json(meeting);
   } catch (error) {
     next(error);
@@ -724,6 +728,9 @@ meetingsRouter.put('/:id', async (req, res, next) => {
       }
     }
 
+    // Monthly-fixed orders: status/date/nature changes alter the month split (old + new month).
+    await syncMonthlyFixedForCycle(existingMeeting.cycleId, [existingMeeting.scheduledDate, meeting.scheduledDate]);
+
     await logUpdateAudit({
       entity: 'Meeting',
       entityId: meeting.id,
@@ -787,6 +794,7 @@ meetingsRouter.post('/:id/postpone', operationsManagerOrAdmin, async (req, res, 
       },
     });
     await checkAndSendNegativeProfitAlert(postponedMeeting.id, 'meeting-postpone');
+    await syncMonthlyFixedForCycle(existingMeeting.cycleId, [existingMeeting.scheduledDate, newMeeting.scheduledDate]);
 
     // The replacement meeting may fall after the cycle's current end date — resync it.
     await syncCycleEndDate(existingMeeting.cycleId);
@@ -874,6 +882,7 @@ meetingsRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) =
       where: { id },
       select: {
         cycleId: true,
+        scheduledDate: true,
         status: true,
         zoomMeetingId: true,
         videoProvider: true,
@@ -936,6 +945,7 @@ meetingsRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) =
       });
       await tx.meeting.delete({ where: { id } });
     });
+    await syncMonthlyFixedForCycle(meeting.cycleId, [meeting.scheduledDate]);
 
     res.json({ success: true });
   } catch (error) {
@@ -1122,6 +1132,8 @@ meetingsRouter.post('/:id/recalculate', operationsManagerOrAdmin, async (req, re
     });
     await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
     await checkAndSendNegativeProfitAlert(updatedMeeting.id, 'meeting-recalculate');
+    // Monthly-fixed orders: per-meeting recalculation would overwrite the month split.
+    await syncMonthlyFixedForMeetings([id]);
 
     res.json(updatedMeeting);
   } catch (error) {

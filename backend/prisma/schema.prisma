@@ -608,6 +608,12 @@ model InstitutionalOrder {
   salesperson           String?
   orderType             String?        @map("order_type")
   completionAlertSentAt DateTime?      @map("completion_alert_sent_at")
+  // 'per_meeting' (default): revenue = cycle.meetingRevenue per meeting.
+  // 'monthly_fixed': a fixed amount per month ("YYYY-MM" -> amount in monthlyAmounts),
+  // split equally across the month's active meetings (services/monthly-fixed-billing.ts).
+  billingMode              String   @default("per_meeting") @map("billing_mode")
+  monthlyAmounts           Json?    @map("monthly_amounts")
+  monthlyAmountsIncludeVat Boolean  @default(true) @map("monthly_amounts_include_vat")
   createdBy             String?        @map("created_by")
   createdAt             DateTime       @default(now()) @map("created_at")
   updatedAt             DateTime       @updatedAt @map("updated_at")

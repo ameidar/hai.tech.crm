@@ -1,6 +1,7 @@
 import { prisma } from './prisma.js';
 import { meetingRevenueFromRegistrations, roundMoney } from './revenue.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
+import { redistributeMonthlyFixedRevenue } from '../services/monthly-fixed-billing.js';
 
 /**
  * After a registration change (e.g. cancellation), recalculate revenue + profit
@@ -14,6 +15,7 @@ export async function recalcMeetingRevenue(cycleId: string): Promise<void> {
       pricePerStudent: true,
       meetingRevenue: true,
       totalMeetings: true,
+      institutionalOrder: { select: { id: true, billingMode: true } },
       registrations: {
         where: { status: { notIn: ['cancelled', 'pending_cancellation'] } },
         select: { amount: true, paymentStatus: true },
@@ -22,6 +24,12 @@ export async function recalcMeetingRevenue(cycleId: string): Promise<void> {
   });
 
   if (!cycle) return;
+  // Monthly-fixed orders: revenue comes from the order's month amounts, never from
+  // cycle.meetingRevenue — delegate to the month redistribution instead.
+  if (cycle.institutionalOrder?.billingMode === 'monthly_fixed') {
+    await redistributeMonthlyFixedRevenue(cycle.institutionalOrder.id);
+    return;
+  }
   if (cycle.type === 'institutional_fixed') return; // fixed revenue, unchanged
 
   let newRevenue = 0;

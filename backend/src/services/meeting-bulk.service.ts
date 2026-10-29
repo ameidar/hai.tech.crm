@@ -4,6 +4,7 @@
 // audit stay identical. Also hosts the trial-registration helpers used by PUT /meetings/:id.
 
 import type { Request } from 'express';
+import { snapshotMeetingRefs, syncMonthlyFixedForMeetings, syncMonthlyFixedForRefs } from './monthly-fixed-billing.js';
 import { prisma } from '../utils/prisma.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { addReplacementMeetingWithRetry } from './replacement-meeting.js';
@@ -173,6 +174,9 @@ export async function bulkRecalculateMeetings(body: any, req?: Request) {
       recalculated++;
     }
 
+    // Monthly-fixed orders: restore the month split the per-meeting recalc overwrote.
+    await syncMonthlyFixedForMeetings(ids);
+
     return { success: true, recalculated, skipped };
   }
 }
@@ -192,6 +196,7 @@ export async function bulkUpdateMeetingStatus(body: any, req?: Request) {
 
     let updated = 0;
     let errors: string[] = [];
+    const refsBefore = await snapshotMeetingRefs(ids);
 
     for (const id of ids) {
       try {
@@ -343,6 +348,9 @@ export async function bulkUpdateMeetingStatus(body: any, req?: Request) {
       }
     }
 
+    // Monthly-fixed orders: status/date changes alter the split of old + new months.
+    await syncMonthlyFixedForMeetings(ids, refsBefore);
+
     return { 
       success: true, 
       updated, 
@@ -398,6 +406,7 @@ export async function bulkUpdateMeetings(body: any, req?: Request) {
     let updated = 0;
     let errors: string[] = [];
     const shouldRecalculate = updateData.status === 'completed';
+    const refsBefore = await snapshotMeetingRefs(ids);
 
     for (const id of ids) {
       try {
@@ -515,6 +524,9 @@ export async function bulkUpdateMeetings(body: any, req?: Request) {
       }
     }
 
+    // Monthly-fixed orders: status/date changes alter the split of old + new months.
+    await syncMonthlyFixedForMeetings(ids, refsBefore);
+
     return { 
       success: true, 
       updated, 
@@ -620,6 +632,8 @@ export async function bulkDeleteMeetings(body: any, req?: Request) {
         req,
       });
     }
+
+    await syncMonthlyFixedForRefs(meetings);
 
     return { success: true, deleted: result.count };
   }

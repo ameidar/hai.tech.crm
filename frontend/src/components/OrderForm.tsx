@@ -1,4 +1,5 @@
-import { HelpCircle } from 'lucide-react';
+import { useState } from 'react';
+import { HelpCircle, Plus, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import SearchableSelect from './ui/SearchableSelect';
 import type { InstitutionalOrderData } from '../hooks/useApi';
@@ -15,6 +16,120 @@ interface OrderFormProps {
   saving?: boolean;
   onSubmit: () => void;
   onCancel: () => void;
+}
+
+const VAT_RATE = 0.18;
+
+const fmtMoney = (n: number) =>
+  `₪${n.toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const monthLabel = (key: string) => {
+  const [y, m] = key.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('he-IL', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+};
+
+/** Month → fixed amount table for billingMode = 'monthly_fixed'. */
+function MonthlyAmountsEditor({
+  amounts,
+  includeVat,
+  onChange,
+  onIncludeVatChange,
+}: {
+  amounts: Record<string, number>;
+  includeVat: boolean;
+  onChange: (next: Record<string, number>) => void;
+  onIncludeVatChange: (v: boolean) => void;
+}) {
+  const [newMonth, setNewMonth] = useState('');
+  const months = Object.keys(amounts).sort();
+
+  const addMonth = () => {
+    if (!/^\d{4}-\d{2}$/.test(newMonth) || newMonth in amounts) return;
+    // Pre-fill with the last month's amount — contracts usually repeat the same sum.
+    const last = months.length ? amounts[months[months.length - 1]] : 0;
+    onChange({ ...amounts, [newMonth]: last });
+    setNewMonth('');
+  };
+
+  const removeMonth = (key: string) => {
+    const next = { ...amounts };
+    delete next[key];
+    onChange(next);
+  };
+
+  const gross = (n: number) => (includeVat ? n : n * (1 + VAT_RATE));
+  const net = (n: number) => (includeVat ? n / (1 + VAT_RATE) : n);
+  const totalNet = months.reduce((sum, k) => sum + net(Number(amounts[k] || 0)), 0);
+
+  return (
+    <div className="col-span-2 space-y-3">
+      <label className="flex items-center gap-2 text-sm text-gray-700">
+        <input type="checkbox" checked={includeVat} onChange={e => onIncludeVatChange(e.target.checked)} />
+        הסכומים כוללים מע"מ
+      </label>
+      <div className="border rounded overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 text-gray-600">
+            <tr>
+              <th className="p-2 text-right font-medium">חודש</th>
+              <th className="p-2 text-right font-medium">סכום (₪)</th>
+              <th className="p-2 text-right font-medium">כולל מע"מ</th>
+              <th className="p-2 text-right font-medium">לפני מע"מ</th>
+              <th className="p-2" />
+            </tr>
+          </thead>
+          <tbody>
+            {months.length === 0 && (
+              <tr><td colSpan={5} className="p-3 text-center text-gray-400">לא הוגדרו חודשים</td></tr>
+            )}
+            {months.map(key => {
+              const amount = Number(amounts[key] || 0);
+              return (
+                <tr key={key} className="border-t">
+                  <td className="p-2">{monthLabel(key)}</td>
+                  <td className="p-2">
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className="form-input w-32"
+                      value={amounts[key] ?? ''}
+                      onChange={e => onChange({ ...amounts, [key]: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) })}
+                    />
+                  </td>
+                  <td className="p-2 text-gray-600">{fmtMoney(gross(amount))}</td>
+                  <td className="p-2 text-gray-600">{fmtMoney(net(amount))}</td>
+                  <td className="p-2 text-left">
+                    <button type="button" className="text-red-500 hover:text-red-700" title="הסר חודש" onClick={() => removeMonth(key)}>
+                      <Trash2 size={16} />
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          {months.length > 0 && (
+            <tfoot className="bg-gray-50 border-t">
+              <tr>
+                <td className="p-2 font-medium" colSpan={3}>סה"כ לפני מע"מ</td>
+                <td className="p-2 font-medium">{fmtMoney(totalNet)}</td>
+                <td />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+      <div className="flex items-center gap-2">
+        <input type="month" className="form-input" dir="ltr" value={newMonth} onChange={e => setNewMonth(e.target.value)} />
+        <button type="button" className="btn btn-secondary flex items-center gap-1" onClick={addMonth} disabled={!newMonth || newMonth in amounts}>
+          <Plus size={16} /> הוסף חודש
+        </button>
+      </div>
+      <p className="text-xs text-gray-500">
+        הסכום החודשי (לפני מע"מ) מתחלק שווה בשווה בין הפגישות הפעילות של החודש בכל המחזורים של ההזמנה. חודש ללא סכום — הכנסה 0.
+      </p>
+    </div>
+  );
 }
 
 const lbl = (text: string, help?: string) => (
@@ -196,6 +311,30 @@ export default function OrderForm({
           {lbl('תאריך סיום')}
           <input type="date" className="form-input w-full" value={form.endDate || ''} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
         </div>
+      </div>
+
+      {/* Section: אופן חיוב */}
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-2">אופן חיוב</div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          {lbl('אופן חיוב', 'לפי פגישה: כל פגישה מקבלת את ההכנסה לפגישה של המחזור. תשלום חודשי קבוע: סכום קבוע לכל חודש שמתחלק בין פגישות החודש.')}
+          <select
+            className="form-input w-full"
+            value={form.billingMode || 'per_meeting'}
+            onChange={e => setForm(f => ({ ...f, billingMode: e.target.value as InstitutionalOrderData['billingMode'] }))}
+          >
+            <option value="per_meeting">לפי פגישה</option>
+            <option value="monthly_fixed">תשלום חודשי קבוע</option>
+          </select>
+        </div>
+        {form.billingMode === 'monthly_fixed' && (
+          <MonthlyAmountsEditor
+            amounts={form.monthlyAmounts || {}}
+            includeVat={form.monthlyAmountsIncludeVat ?? true}
+            onChange={next => setForm(f => ({ ...f, monthlyAmounts: next }))}
+            onIncludeVatChange={v => setForm(f => ({ ...f, monthlyAmountsIncludeVat: v }))}
+          />
+        )}
       </div>
 
       {/* Section: הערות */}

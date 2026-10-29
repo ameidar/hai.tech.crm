@@ -72,6 +72,11 @@ vi.mock('../../utils/recalcMeetingRevenue.js', () => ({
   recalcMeetingRevenue: vi.fn(),
 }));
 
+vi.mock('../../services/monthly-fixed-billing.js', () => ({
+  syncMonthlyFixedForCycle: vi.fn(),
+  redistributeMonthlyFixedRevenue: vi.fn().mockResolvedValue({ skipped: true, months: [], updated: 0 }),
+}));
+
 import { cyclesRouter } from '../cycles.js';
 import { prisma } from '../../utils/prisma.js';
 import { errorHandler } from '../../middleware/errorHandler.js';

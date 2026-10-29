@@ -43,6 +43,9 @@ interface InstitutionalOrderRow {
   salesperson?: string;
   orderType?: string;
   createdBy?: string;
+  billingMode?: 'per_meeting' | 'monthly_fixed';
+  monthlyAmounts?: Record<string, number> | null;
+  monthlyAmountsIncludeVat?: boolean;
   createdAt: string;
   branch?: { id: string; name: string; city?: string; type: string };
   _count?: { cycles: number };
@@ -107,6 +110,9 @@ const EMPTY_FORM: Partial<InstitutionalOrderData> = {
   salesperson: '',
   orderType: '',
   createdBy: '',
+  billingMode: 'per_meeting',
+  monthlyAmounts: null,
+  monthlyAmountsIncludeVat: true,
 };
 
 export function getInstitutionalOrdersListParams(statusFilter: string, page: number, search?: string) {
@@ -255,6 +261,9 @@ export default function InstitutionalOrders() {
       salesperson: o.salesperson || '',
       orderType: o.orderType || '',
       createdBy: o.createdBy || '',
+      billingMode: o.billingMode || 'per_meeting',
+      monthlyAmounts: o.monthlyAmounts ?? null,
+      monthlyAmountsIncludeVat: o.monthlyAmountsIncludeVat ?? true,
     });
     setEditItem(o);
   };

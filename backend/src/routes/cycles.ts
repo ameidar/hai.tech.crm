@@ -11,6 +11,7 @@ import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
 import { checkAndSendInstitutionalOrderCompletionAlert } from '../services/institutional-order-completion-alert.js';
 import { resolveRegistrationAmountForCycle } from '../utils/registration-amount.js';
 import { cancelFutureMeetingsForCycle } from '../services/cancellations.js';
+import { redistributeMonthlyFixedRevenue, syncMonthlyFixedForCycle } from '../services/monthly-fixed-billing.js';
 import {
   computeRevenuePerMeeting,
   generateMeetingsForCycle,
@@ -600,6 +601,13 @@ cyclesRouter.delete('/:id', operationsManagerOrAdmin, async (req, res, next) => 
 
     console.log(`[Cycle Delete] Deleted cycle ${cycle.name} (${id}) with ${cycle.meetings.length} meetings`);
 
+    // Monthly-fixed orders: the order's remaining cycles now share each month's amount.
+    if (cycle.institutionalOrderId) {
+      await redistributeMonthlyFixedRevenue(cycle.institutionalOrderId).catch((err) =>
+        console.error('[monthly-fixed-billing] redistribution after cycle delete failed:', err)
+      );
+    }
+
     // Delete Zoom meetings in background (fire and forget)
     if (zoomMeetingIds.length > 0) {
       setImmediate(async () => {
@@ -1161,6 +1169,9 @@ cyclesRouter.post('/:id/freeze', operationsManagerOrAdmin, async (req, res, next
       },
     });
 
+    // Monthly-fixed orders: postponed meetings drop out of their months' split.
+    await syncMonthlyFixedForCycle(id);
+
     await logAudit({ req, action: 'UPDATE', entity: 'cycle', entityId: id, newValue: { action: 'freeze', reason, resumeDate, postponedMeetings: postponed.count } });
 
     res.json({ ...updated, postponedMeetings: postponed.count });
@@ -1217,6 +1228,9 @@ cyclesRouter.post('/:id/resume', operationsManagerOrAdmin, async (req, res, next
         instructor: { select: { id: true, name: true } },
       },
     });
+
+    // Monthly-fixed orders: rescheduled meetings rejoin (possibly different) months.
+    await syncMonthlyFixedForCycle(id);
 
     await logAudit({ req, action: 'UPDATE', entity: 'cycle', entityId: id, newValue: { action: 'resume', newStartDate, rescheduledMeetings: rescheduledCount } });
 

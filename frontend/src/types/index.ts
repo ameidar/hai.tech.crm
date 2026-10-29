@@ -242,6 +242,9 @@ export interface InstitutionalOrder {
   salesperson?: string;
   orderType?: string;
   createdBy?: string;
+  billingMode?: 'per_meeting' | 'monthly_fixed';
+  monthlyAmounts?: Record<string, number> | null;
+  monthlyAmountsIncludeVat?: boolean;
   createdAt: string;
   branch?: Branch;
 }

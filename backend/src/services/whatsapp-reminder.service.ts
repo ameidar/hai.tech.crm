@@ -8,6 +8,7 @@
 
 import { prisma } from '../utils/prisma.js';
 import { meetingRevenueForMeeting } from '../utils/revenue.js';
+import { syncMonthlyFixedForMeetings } from './monthly-fixed-billing.js';
 import { shouldAutoCompleteCycle, syncCycleProgress } from '../utils/cycle-sync.js';
 import { handleCycleCompletion } from './cycle-completion.js';
 import { generateMeetingMagicLink } from './instructor-reminder.service.js';
@@ -611,6 +612,8 @@ async function recalculateCompletedMeetingFinancials(meetingId: string): Promise
     data: { revenue, instructorPayment, profit },
   });
   await recalculateDailyInstructorPaymentsForMeeting(updatedMeeting);
+  // Monthly-fixed orders: restore the month split the per-meeting revenue overwrote.
+  await syncMonthlyFixedForMeetings([meetingId]);
   await checkAndSendNegativeProfitAlert(meetingId, 'whatsapp-status-reply');
 
   if (
@@ -693,6 +696,8 @@ export async function handleStatusReply(phone: string, isYes: boolean): Promise<
         where: { id: r.meeting_id },
         data: { status: 'cancelled', notes: cancelNotes },
       });
+      // Monthly-fixed orders: the cancelled meeting drops out of its month's split.
+      await syncMonthlyFixedForMeetings([r.meeting_id]);
 
       await syncCycleProgress(r.cycle_id);
 

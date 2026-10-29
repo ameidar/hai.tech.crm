@@ -23,6 +23,12 @@ import {
   JEV_MODEL,
   JEV_QUESTIONS,
   JEV_TIMEOUT_MS,
+  JEV_COMPLEXITY_QUESTION,
+  buildComplexityState,
+  classifyReplyComplexity,
+  decideModelTier,
+  getJevModelRoutingHumanMode,
+  getJevModelRoutingMode,
 } from '../jev-intent.js';
 
 function jevResponse(choice: string, confidence: number, noul = 0.5) {
@@ -241,6 +247,123 @@ describe('Jev WhatsApp intent routing', () => {
       mockPost.mockResolvedValue(jevResponse('irrelevant', 0.99));
       expect(await applyJevRouting({ ...conv, aiEnabled: false }, 'msg', 'msg-1')).toBe('continue');
       expect(mockUpdate.mock.calls[0][0].data).toMatchObject({ intent: 'irrelevant' });
+    });
+  });
+});
+
+describe('Jev reply-complexity routing (JEV_MODEL_ROUTING)', () => {
+  const savedEnv = { ...process.env };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.TYPESAFE_API_KEY = 'test-key';
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    process.env = { ...savedEnv };
+    vi.restoreAllMocks();
+  });
+
+  function complexityResponse(choice: string, confidence: number) {
+    return { data: { answers: { complexity: { type: 'choice', choice, confidence } } } };
+  }
+
+  describe('modes', () => {
+    it('JEV_MODEL_ROUTING defaults to off; parses shadow/on', () => {
+      delete process.env.JEV_MODEL_ROUTING;
+      expect(getJevModelRoutingMode()).toBe('off');
+      process.env.JEV_MODEL_ROUTING = 'shadow';
+      expect(getJevModelRoutingMode()).toBe('shadow');
+      process.env.JEV_MODEL_ROUTING = 'ON';
+      expect(getJevModelRoutingMode()).toBe('on');
+      process.env.JEV_MODEL_ROUTING = 'nonsense';
+      expect(getJevModelRoutingMode()).toBe('off');
+    });
+
+    it('JEV_MODEL_ROUTING_HUMAN defaults to reply', () => {
+      delete process.env.JEV_MODEL_ROUTING_HUMAN;
+      expect(getJevModelRoutingHumanMode()).toBe('reply');
+      process.env.JEV_MODEL_ROUTING_HUMAN = 'escalate';
+      expect(getJevModelRoutingHumanMode()).toBe('escalate');
+    });
+  });
+
+  describe('decideModelTier', () => {
+    const strong = { tier: 'strong', escalate: false };
+    it('simple → fast, complex → strong (mode on)', () => {
+      expect(decideModelTier({ complexity: 'simple', confidence: 0.9 }, 'on')).toEqual({ tier: 'fast', escalate: false });
+      expect(decideModelTier({ complexity: 'complex', confidence: 0.9 }, 'on')).toEqual(strong);
+    });
+
+    it('human → escalate only when JEV_MODEL_ROUTING_HUMAN=escalate', () => {
+      expect(decideModelTier({ complexity: 'human', confidence: 0.9 }, 'on', 'reply')).toEqual(strong);
+      expect(decideModelTier({ complexity: 'human', confidence: 0.9 }, 'on')).toEqual(strong);
+      expect(decideModelTier({ complexity: 'human', confidence: 0.9 }, 'on', 'escalate')).toEqual({ tier: 'strong', escalate: true });
+    });
+
+    it('confidence < 0.7 or null → strong', () => {
+      expect(decideModelTier({ complexity: 'simple', confidence: 0.69 }, 'on')).toEqual(strong);
+      expect(decideModelTier({ complexity: 'human', confidence: 0.5 }, 'on', 'escalate')).toEqual(strong);
+      expect(decideModelTier(null, 'on', 'escalate')).toEqual(strong);
+    });
+
+    it('off / shadow never change the model', () => {
+      for (const mode of ['off', 'shadow'] as const) {
+        expect(decideModelTier({ complexity: 'simple', confidence: 0.99 }, mode)).toEqual(strong);
+        expect(decideModelTier({ complexity: 'human', confidence: 0.99 }, mode, 'escalate')).toEqual(strong);
+      }
+    });
+  });
+
+  describe('buildComplexityState', () => {
+    it('last 6 messages before the latest inbound + the latest inbound', () => {
+      const msgs = Array.from({ length: 9 }, (_, i) => ({ direction: i % 2 ? 'outbound' : 'inbound', content: `m${i}` }));
+      const state = buildComplexityState(msgs)!;
+      expect(state).toBe(
+        'Recent conversation (oldest first):\n' +
+          'Customer: m2\nBot: m3\nCustomer: m4\nBot: m5\nCustomer: m6\nBot: m7' +
+          '\n\nLATEST customer message:\nm8',
+      );
+    });
+
+    it('first message → no earlier messages; no inbound → null', () => {
+      expect(buildComplexityState([{ direction: 'inbound', content: 'היי' }])).toBe(
+        'Recent conversation (oldest first):\n(no earlier messages)\n\nLATEST customer message:\nהיי',
+      );
+      expect(buildComplexityState([{ direction: 'outbound', content: 'x' }])).toBeNull();
+    });
+  });
+
+  describe('classifyReplyComplexity', () => {
+    it('pinned model, complexity question, 3s timeout', async () => {
+      mockPost.mockResolvedValue(complexityResponse('simple', 0.93));
+      expect(await classifyReplyComplexity('state')).toEqual({ complexity: 'simple', confidence: 0.93 });
+      expect(mockPost).toHaveBeenCalledWith(
+        JEV_API_URL,
+        { model: 'jev-1.13.0', state: 'state', questions: JEV_COMPLEXITY_QUESTION },
+        expect.objectContaining({ timeout: JEV_TIMEOUT_MS }),
+      );
+    });
+
+    it('simple criterion is small talk only — factual questions belong to complex', () => {
+      const { simple, complex } = JEV_COMPLEXITY_QUESTION.complexity.criteria;
+      expect(simple).toMatch(/greeting, thanks, ok, emoji/);
+      expect(simple).not.toMatch(/price|schedule|trial/);
+      expect(complex).toMatch(/any factual question \(price, age, schedule/);
+    });
+
+    it('fails open: no key, error, bad payload → null', async () => {
+      delete process.env.TYPESAFE_API_KEY;
+      expect(await classifyReplyComplexity('state')).toBeNull();
+      expect(mockPost).not.toHaveBeenCalled();
+
+      process.env.TYPESAFE_API_KEY = 'k';
+      mockPost.mockRejectedValueOnce(Object.assign(new Error('timeout'), { code: 'ECONNABORTED' }));
+      expect(await classifyReplyComplexity('state')).toBeNull();
+      mockPost.mockResolvedValueOnce(complexityResponse('weird', 0.9));
+      expect(await classifyReplyComplexity('state')).toBeNull();
+      expect(await classifyReplyComplexity(null)).toBeNull();
     });
   });
 });

@@ -1556,6 +1556,8 @@ model WaMessage {
   status         String             @default("sent") // sent/delivered/read/failed
   tokensUsed     Int?               @map("tokens_used")
   isAiGenerated  Boolean            @default(false) @map("is_ai_generated")
+  aiModel        String?            @map("ai_model") // LLM that produced the bot reply (e.g. gpt-4o, claude-sonnet-5)
+  aiRoute        String?            @map("ai_route") // Jev complexity routing / fallback trace for the reply
   createdAt      DateTime           @default(now()) @map("created_at")
 
   conversation WaConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)

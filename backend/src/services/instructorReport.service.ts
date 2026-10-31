@@ -698,6 +698,13 @@ export async function buildInstructorMonthlyReport(
 
   const summaryTotalOperationsPayment = operationsStaff.reduce((s, o) => s + o.approvedPayment, 0);
 
+  // Drop people with nothing to pay or reimburse (e.g. partner-school teachers like Kugel's, who are set up as
+  // ₪0 instructors only so their classes appear in the system) — they are noise in the payroll report.
+  for (let i = instructors.length - 1; i >= 0; i--) {
+    const r = instructors[i];
+    if (r.grandTotal === 0 && r.pendingCycleExpensesTotal === 0) instructors.splice(i, 1);
+  }
+
   // 4. Grand totals
   const fixedManagementSalaries = FIXED_MANAGEMENT_SALARIES;
   const summaryTotalFixedSalaries = fixedManagementSalaries.reduce((s, i) => s + i.amount, 0);

@@ -598,6 +598,53 @@ webhookRouter.get('/cycles/:id/meetings', async (req, res, next) => {
   }
 });
 
+// LMS signups and checkout leads come from someone already mid-flow on the site;
+// the generic chatbot welcome ("ask me about ages, prices...") doesn't fit them.
+const NO_WELCOME_SOURCES = new Set(['website-lms', 'purchase-form']);
+// An LMS signup is usually followed seconds later by a purchase-form lead for the same
+// person. Hold the signup alert briefly so only one (the richer purchase) alert goes out.
+const LMS_SIGNUP_NOTIFY_DELAY_MS = 2 * 60 * 1000;
+// Repeat submissions merged into a lead touched within this window don't re-alert
+// (checkout leads always alert - they signal intent to pay).
+const REPEAT_NOTIFY_WINDOW_MS = 60 * 60 * 1000;
+
+function notifyAdminWebsiteLead(
+  data: Parameters<typeof notifyAdminNewLead>[0],
+  ctx: { source: string; lead: { id: string; updatedAt?: Date | null }; previousUpdatedAt?: Date | null },
+) {
+  const { source, lead, previousUpdatedAt } = ctx;
+  if (
+    source !== 'purchase-form' &&
+    previousUpdatedAt &&
+    Date.now() - new Date(previousUpdatedAt).getTime() < REPEAT_NOTIFY_WINDOW_MS
+  ) {
+    console.log(`[WEBHOOK] Skipping admin alert for lead ${lead.id} (${source}) - same lead alerted within the last hour`);
+    return;
+  }
+
+  const send = () =>
+    notifyAdminNewLead(data).catch(err => console.error('[WEBHOOK] Failed to notify admin:', err));
+
+  if (source !== 'website-lms') {
+    send();
+    return;
+  }
+
+  const touchedAt = lead.updatedAt ? new Date(lead.updatedAt).getTime() : 0;
+  setTimeout(async () => {
+    try {
+      const current = await prisma.leadAppointment.findUnique({ where: { id: lead.id }, select: { updatedAt: true } });
+      if (current?.updatedAt && current.updatedAt.getTime() > touchedAt) {
+        console.log(`[WEBHOOK] Skipping LMS signup alert for lead ${lead.id} - a later submission already alerted`);
+        return;
+      }
+    } catch (err) {
+      console.error('[WEBHOOK] LMS signup alert check failed, sending anyway:', err);
+    }
+    send();
+  }, LMS_SIGNUP_NOTIFY_DELAY_MS).unref?.();
+}
+
 // Create a lead/customer from external website
 // POST /api/webhook/leads
 webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
@@ -707,7 +754,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       }
 
       // Existing customers should still create/merge a lead record just like new leads
-      const { lead, isDuplicate } = await findOrCreateLeadAppointment({
+      const { lead, isDuplicate, previousUpdatedAt } = await findOrCreateLeadAppointment({
         customerId: customer.id,
         customerName: customer.name,
         customerPhone: customer.phone || phone || '',
@@ -737,13 +784,13 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       });
 
       // Send welcome template also for returning customers (every new lead submission)
-      if (customer.phone) {
+      if (customer.phone && !NO_WELCOME_SOURCES.has(source)) {
         sendLeadWelcomeTemplate(customer.phone, customer.name, interest)
           .catch(err => console.error('[WEBHOOK] welcome template error (existing customer):', err));
       }
 
       // Notify admin about returning lead
-      notifyAdminNewLead({
+      notifyAdminWebsiteLead({
         name: customer.name,
         phone: customer.phone,
         email: customer.email,
@@ -752,7 +799,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
         source,
         customerId: customer.id,
         leadAppointmentId: lead.id,
-      }).catch(err => console.error('[WEBHOOK] Failed to notify admin (existing customer):', err));
+      }, { source, lead, previousUpdatedAt: isDuplicate ? previousUpdatedAt : null });
 
 
       // Create audit log for repeat website lead activity as well
@@ -868,20 +915,22 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
     });
 
     // Send welcome notifications (async, don't block response)
-    sendWelcomeNotifications({
-      name: customer.name,
-      phone: customer.phone,
-      email: customer.email,
-    }).catch(err => console.error('[WEBHOOK] Failed to send welcome notifications:', err));
+    if (!NO_WELCOME_SOURCES.has(source)) {
+      sendWelcomeNotifications({
+        name: customer.name,
+        phone: customer.phone,
+        email: customer.email,
+      }).catch(err => console.error('[WEBHOOK] Failed to send welcome notifications:', err));
+    }
 
     // Auto-send WhatsApp welcome template to new leads (feature flag gated)
-    if (customer.phone) {
+    if (customer.phone && !NO_WELCOME_SOURCES.has(source)) {
       sendLeadWelcomeTemplate(customer.phone, customer.name, interest)
         .catch(err => console.error('[WEBHOOK] welcome template error:', err));
     }
 
     // Notify admin about new lead
-    notifyAdminNewLead({
+    notifyAdminWebsiteLead({
       name: customer.name,
       phone: customer.phone,
       email: customer.email,
@@ -890,7 +939,7 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       source,
       customerId: customer.id,
       leadAppointmentId: lead.id,
-    }).catch(err => console.error('[WEBHOOK] Failed to notify admin:', err));
+    }, { source, lead });
 
 
     // Create audit log (includes IP + user-agent via req)

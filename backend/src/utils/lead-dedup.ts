@@ -52,6 +52,7 @@ export type LeadRecord = any; // full Prisma LeadAppointment shape
 export interface LeadAppointmentResult {
   lead: LeadRecord;
   isDuplicate: boolean; // true = existing record was updated, false = new record created
+  previousUpdatedAt?: Date | null; // when a merged (duplicate) lead was last touched before this merge
 }
 
 /**
@@ -76,8 +77,8 @@ export async function findOrCreateLeadAppointment(
 
   // Find existing open lead with same phone in the dedup window
   // Note: deleted_at column may not exist in all deployments — omit it from WHERE
-  const existing = await prisma.$queryRaw<{ id: string; source: string; appointment_status: string; appointment_notes: string | null; sales_status: string | null }[]>`
-    SELECT id, source, appointment_status, appointment_notes, sales_status
+  const existing = await prisma.$queryRaw<{ id: string; source: string; appointment_status: string; appointment_notes: string | null; sales_status: string | null; updated_at: Date | null }[]>`
+    SELECT id, source, appointment_status, appointment_notes, sales_status, updated_at
     FROM lead_appointments
     WHERE appointment_status NOT IN ('completed', 'done', 'cancelled', 'rejected')
       AND COALESCE(sales_status, 'new') NOT IN ('converted', 'not_relevant')
@@ -139,7 +140,7 @@ export async function findOrCreateLeadAppointment(
     console.log(`[lead-dedup] Merged duplicate lead — existing ${found.id} (${found.source}) + new source ${source} for phone ...${phoneLast9}`);
 
     const updated = await prisma.leadAppointment.findUnique({ where: { id: found.id } });
-    return { lead: updated as any, isDuplicate: true };
+    return { lead: updated as any, isDuplicate: true, previousUpdatedAt: found.updated_at ?? null };
   }
 
   // No existing lead — create new

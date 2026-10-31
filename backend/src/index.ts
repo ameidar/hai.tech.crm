@@ -46,6 +46,7 @@ import { companyFixedCostsRouter } from './routes/company-fixed-costs.js';
 import { quotesRouter } from './routes/quotes.js';
 import { publicQuoteRouter } from './routes/public-quote.js';
 import { publicCancelRouter } from './routes/public-cancel.js';
+import { publicWaClickRouter } from './routes/public-wa-click.js';
 import { vapiWebhookRouter } from './routes/vapi-webhook.js';
 import { morningWebhookRouter } from './routes/morning-webhook.js';
 import { morningRouter } from './routes/morning.js';
@@ -90,6 +91,10 @@ app.use(helmet({
   crossOriginOpenerPolicy: false,
   crossOriginResourcePolicy: false,
 }));
+// hai.tech WhatsApp-button click beacon (no auth). Mounted before the global CORS / rate limiter /
+// body parsers: it has its own origin allow-list, per-IP limit and text/plain (sendBeacon) parsing.
+app.use('/api/public/wa-click', publicWaClickRouter);
+
 // Permissive CORS for Vapi webhook (no auth)
 app.use('/api/vapi-webhook', cors({
   origin: '*',

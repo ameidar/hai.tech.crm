@@ -205,3 +205,20 @@ describe('buildInstructorMonthlyReport — manual payment overrides', () => {
     expect(i.totalPayment).toBe(500);
   });
 });
+
+describe('buildInstructorMonthlyReport — zero-pay instructors', () => {
+  it('leaves out instructors with nothing to pay or reimburse (e.g. partner-school teachers at ₪0)', async () => {
+    const teacher = {
+      id: 'kugel', name: 'חני – מורת קוגל', email: null, employmentType: 'freelancer', kind: 'instructor',
+      rateFrontal: 0, rateOnline: 0, ratePrivate: null, ratePreparation: null,
+    };
+    setup({
+      meetings: [
+        meeting({ id: 'm1', instructorPayment: 260 }),
+        meeting({ id: 'm2', instructorId: 'kugel', instructor: teacher, cycle: cycle({ instructorId: 'kugel' }), instructorPayment: 0 }),
+      ],
+    });
+    const report = await buildInstructorMonthlyReport('2026-09');
+    expect(report.instructors.map(i => i.instructorName)).toEqual(['קים נוה']);
+  });
+});

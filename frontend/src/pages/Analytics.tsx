@@ -4,6 +4,7 @@ import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
+import LeadSourcesCard from '../components/LeadSourcesCard';
 import { TrendingUp, Users, Eye, Globe, Monitor, RefreshCw, ExternalLink, MapPin, Wifi } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
@@ -134,6 +135,9 @@ export default function Analytics() {
           </button>
         </div>
       </div>
+
+      {/* WhatsApp lead sources (CRM data — independent of GA, so shown even if GA fails) */}
+      <LeadSourcesCard days={days} />
 
       {error && (
         <div className="alert alert-error mb-6">

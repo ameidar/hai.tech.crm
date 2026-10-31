@@ -36,6 +36,13 @@ import {
   type SystemParts,
 } from '../services/llm-reply.js';
 import { extractInboundText } from '../utils/wa-inbound-text.js';
+import {
+  aggregateLeadSources,
+  applyWebsiteAttribution,
+  fetchLeadSourceRows,
+  safeDecodeURIComponent,
+  splitWaRefCode,
+} from '../services/wa-lead-source.js';
 import { AppError } from '../middleware/errorHandler.js';
 import {
   initBotConfigFromDB,
@@ -450,6 +457,15 @@ function buildHumanEscalationReply(userText: string | null | undefined): string 
   return 'אני מבין/ה, זה באמת מתסכל.\nאני מעביר/ה את זה לנציג אנושי לבדיקה — אין צורך לפנות שוב לוואטסאפ, זה כבר הערוץ הנכון.\n\nכדי שנאתר את החשבון מהר: מה המייל שאיתו נרשמת לקורס?';
 }
 
+function websitePageForPrompt(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.hostname}${safeDecodeURIComponent(u.pathname)}`;
+  } catch {
+    return safeDecodeURIComponent(url).slice(0, 200);
+  }
+}
+
 function extractReferralContext(msg: any) {
   const referral = msg?.referral;
   if (!referral || typeof referral !== 'object') return null;
@@ -465,6 +481,16 @@ function extractReferralContext(msg: any) {
 }
 
 function buildReferralPromptContext(conv: any): string {
+  // Website click (hai.tech WhatsApp button): not a Meta ad — give the bot only the page the lead came from
+  // (never the ref code / utm internals).
+  if (conv.referralSourceType === 'website') {
+    if (!conv.referralSourceUrl) return '';
+    return `
+הקשר: הלקוח לחץ על כפתור וואטסאפ באתר דרך ההייטק בעמוד: ${websitePageForPrompt(conv.referralSourceUrl)}
+אם הלקוח שואל "על זה" / "אפשר פרטים?" — התייחס לנושא של העמוד הזה כהקשר המרכזי, בלי להמציא פרטים שלא נמצאים ב-Knowledge Base.
+`;
+  }
+
   const parts = [
     conv.referralHeadline ? `כותרת מודעה: ${conv.referralHeadline}` : null,
     conv.referralBody ? `טקסט מודעה: ${conv.referralBody}` : null,
@@ -1003,13 +1029,18 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
         for (const msg of value.messages || []) {
           // Text, plus quick-reply button taps (template buttons / interactive replies).
-          const text = extractInboundText(msg);
-          if (text === null) continue;
+          const rawText = extractInboundText(msg);
+          if (rawText === null) continue;
+          // hai.tech appends "🔹CODE" (website click ref) to the prefilled text. Pull it out so the
+          // stored message, the bot and lead extraction never see/echo it; the code drives attribution.
+          const { code: waRefCode, text } = splitWaRefCode(rawText);
 
           const phone = msg.from;
           const waMessageId = msg.id;
           const rawContactName = value.contacts?.[0]?.profile?.name;
           const referralContext = extractReferralContext(msg);
+          // Meta Click-to-WhatsApp ad → the webhook carries msg.referral.
+          const referralData = referralContext ? { ...referralContext, leadSourceChannel: 'meta_ctwa' } : null;
 
           // Dedup
           const existing = await prisma.waMessage.findUnique({ where: { waMessageId } });
@@ -1029,7 +1060,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
                 contactName: await resolveWhatsAppContactName(phone, rawContactName),
                 businessPhone,
                 phoneNumberId: bizPhoneNumberId,
-                ...(referralContext || {})
+                ...(referralData || {})
               }
             });
             isNewConversation = true;
@@ -1038,9 +1069,23 @@ router.post('/webhook', async (req: Request, res: Response) => {
               where: { id: conv.id },
               data: {
                 ...(!conv.businessPhone && businessPhone ? { businessPhone, phoneNumberId: bizPhoneNumberId } : {}),
-                ...(referralContext || {})
+                ...(referralData || {})
               }
             });
+          }
+
+          // Website click attribution (only when there's no Meta referral on the conversation).
+          let websiteSource: Awaited<ReturnType<typeof applyWebsiteAttribution>> = null;
+          if (waRefCode && !conv.referralSourceType) {
+            try {
+              websiteSource = await applyWebsiteAttribution(conv, waRefCode);
+              if (websiteSource) {
+                conv = { ...conv, ...websiteSource };
+                console.log(`[WA] Website source ${websiteSource.leadSourceChannel} matched for conv ${conv.id} (ref ${waRefCode})`);
+              }
+            } catch (e) {
+              console.error('[WA] Website attribution error:', e);
+            }
           }
 
           const contactName = await resolveWhatsAppContactName(phone, rawContactName, conv.contactName);
@@ -1072,6 +1117,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
                   referralContext?.referralHeadline ? `כותרת מודעה: ${referralContext.referralHeadline}` : null,
                   referralContext?.referralBody ? `טקסט מודעה: ${referralContext.referralBody}` : null,
                   referralContext?.referralSourceUrl ? `קישור מקור: ${referralContext.referralSourceUrl}` : null,
+                  websiteSource ? `מקור מהאתר: ${websiteSource.referralBody}` : null,
+                  websiteSource?.referralSourceUrl ? `עמוד באתר: ${websiteSource.referralSourceUrl}` : null,
                 ].filter(Boolean).join('\n'),
                 appointmentStatus: 'pending',
               });
@@ -1793,6 +1840,32 @@ router.get('/customer/:customerId', authenticate, async (req: Request, res: Resp
   } catch (err) {
     console.error('[WA] customer thread error:', err);
     res.status(500).json({ error: 'Failed to fetch customer WhatsApp thread' });
+  }
+});
+
+// ── GET /api/wa/lead-sources?from=YYYY-MM-DD&to=YYYY-MM-DD — new WA conversations per lead-source channel
+// (+ how many became registered customers, best-effort phone join), top campaigns and website pages.
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+function israelDay(d: Date): string {
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
+}
+router.get('/lead-sources', authenticate, async (req: Request, res: Response) => {
+  try {
+    const to = typeof req.query.to === 'string' && req.query.to ? req.query.to : israelDay(new Date());
+    const from = typeof req.query.from === 'string' && req.query.from
+      ? req.query.from
+      : israelDay(new Date(Date.now() - 29 * 24 * 60 * 60 * 1000));
+    if (!ISO_DAY.test(from) || !ISO_DAY.test(to) || Number.isNaN(Date.parse(from)) || Number.isNaN(Date.parse(to))) {
+      return res.status(400).json({ error: 'from/to must be YYYY-MM-DD' });
+    }
+    if (from > to) return res.status(400).json({ error: 'from must be <= to' });
+
+    const instructorPhones = new Set(await getInstructorConversationPhones());
+    const rows = (await fetchLeadSourceRows(from, to)).filter(r => !instructorPhones.has(r.phone));
+    res.json(aggregateLeadSources(rows, from, to));
+  } catch (err) {
+    console.error('[WA] lead-sources report error:', err);
+    res.status(500).json({ error: 'Failed to build lead-source report' });
   }
 });
 

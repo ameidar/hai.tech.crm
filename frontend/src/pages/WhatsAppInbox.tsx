@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { MessageCircle, Send, Bot, User, RefreshCw, Check, CheckCheck, Clock, PhoneCall, X, FileText, ChevronDown, ChevronUp, ChevronRight, Search, PenSquare, Plus, CheckCircle, AlertCircle, CreditCard, Settings, Save, ExternalLink } from 'lucide-react';
 import WaSendModal from '../components/WaSendModal';
 import WooPayModal from '../components/WooPayModal';
+import { leadSourceLabel, sourcePagePath } from '../utils/leadSource';
 import { useAuth } from '../context/AuthContext';
 
 // ─── Notification sound — singleton AudioContext ──────────────────────────────
@@ -68,6 +69,11 @@ interface WaConversation {
   summary?: string;
   intent?: string | null;
   intentConfidence?: number | null;
+  referralSourceType?: string | null;
+  referralSourceId?: string | null;
+  referralHeadline?: string | null;
+  referralSourceUrl?: string | null;
+  leadSourceChannel?: string | null;
   aiEnabled: boolean;
   businessPhone?: string;
   phoneNumberId?: string;
@@ -1581,12 +1587,19 @@ export default function WhatsAppInbox() {
           </div>
 
           {/* Lead info strip */}
-          {(selected.leadName || selected.childName || selected.summary || selected.intent) && (
+          {(selected.leadName || selected.childName || selected.summary || selected.intent || selected.leadSourceChannel || selected.referralSourceType) && (
             <div className="bg-yellow-50 border-b border-yellow-200 px-4 py-2 text-xs text-yellow-800 flex flex-wrap gap-3">
               {selected.intent && (
                 <span title="סיווג כוונה אוטומטי (Jev) של ההודעה הראשונה">
                   🏷️ {WA_INTENT_LABELS[selected.intent] || selected.intent}
                   {typeof selected.intentConfidence === 'number' ? ` (${Math.round(selected.intentConfidence * 100)}%)` : ''}
+                </span>
+              )}
+              {(selected.leadSourceChannel || selected.referralSourceType) && (
+                <span title={selected.referralSourceUrl || undefined}>
+                  📍 מקור: {leadSourceLabel(selected.leadSourceChannel || (selected.referralSourceType && selected.referralSourceType !== 'website' ? 'meta_ctwa' : null))}
+                  {selected.referralHeadline ? ` · ${selected.referralHeadline}` : ''}
+                  {selected.referralSourceType === 'website' && selected.referralSourceUrl ? ` · ${sourcePagePath(selected.referralSourceUrl)}` : ''}
                 </span>
               )}
               {selected.leadName && <span>👤 {selected.leadName}</span>}

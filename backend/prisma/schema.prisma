@@ -1539,6 +1539,8 @@ model WaConversation {
   referralBody       String?              @map("referral_body")
   referralSourceUrl  String?              @map("referral_source_url")
   referralClickId    String?              @map("referral_click_id")
+  // Normalized lead source (google_ads | meta_ads | meta_ctwa | google_organic | social_organic | email | whatsapp | referral | direct)
+  leadSourceChannel  String?              @map("lead_source_channel")
   // Jev (TypeSafe System One) intent classification of the first inbound message
   intent             String? // new_lead | purchase | human | support | job | irrelevant
   intentConfidence   Float?               @map("intent_confidence")
@@ -1547,10 +1549,47 @@ model WaConversation {
   createdAt          DateTime             @default(now()) @map("created_at")
   updatedAt          DateTime             @updatedAt @map("updated_at")
 
-  messages WaMessage[]
+  messages  WaMessage[]
+  clickRefs WaClickRef[]
 
   @@unique([phone, phoneNumberId])
   @@map("wa_conversations")
+}
+
+// Website WhatsApp-button click (hai.tech beacon → POST /api/public/wa-click).
+// The 6-char code is appended to the prefilled WA text ("🔹CODE") and matched on the first inbound message.
+model WaClickRef {
+  id                    String    @id @default(uuid())
+  code                  String    @unique
+  pageUrl               String?   @map("page_url")
+  pagePath              String?   @map("page_path")
+  pageTitle             String?   @map("page_title")
+  waNumber              String?   @map("wa_number")
+  prefill               String?
+  utmSource             String?   @map("utm_source")
+  utmMedium             String?   @map("utm_medium")
+  utmCampaign           String?   @map("utm_campaign")
+  utmContent            String?   @map("utm_content")
+  utmTerm               String?   @map("utm_term")
+  gclid                 String?
+  gbraid                String?
+  wbraid                String?
+  fbclid                String?
+  referrer              String?
+  landingPath           String?   @map("landing_path")
+  firstTouch            Json?     @map("first_touch")
+  clickedAt             DateTime? @map("clicked_at")
+  ipHash                String?   @map("ip_hash")
+  userAgent             String?   @map("user_agent")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  matchedConversationId String?   @map("matched_conversation_id")
+  matchedAt             DateTime? @map("matched_at")
+
+  matchedConversation WaConversation? @relation(fields: [matchedConversationId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([matchedConversationId])
+  @@map("wa_click_refs")
 }
 
 model WaMessage {

@@ -9,6 +9,11 @@ vi.mock('../../utils/prisma.js', () => ({
     customer: {
       findMany: vi.fn(),
     },
+    registration: {
+      findFirst: vi.fn(),
+      findMany: vi.fn(),
+      update: vi.fn(),
+    },
   },
 }));
 
@@ -59,6 +64,8 @@ describe('processMorningReceipt', () => {
     mockFindRegs.mockResolvedValue([{ id: 'registration-1' }] as any);
     mockPrisma.payment.create.mockResolvedValue({ id: 'payment-1' } as any);
     mockReconcile.mockResolvedValue({ status: 'updated', registrationId: 'registration-1', paymentStatus: 'paid' });
+    mockPrisma.registration.findFirst.mockResolvedValue(null);
+    mockPrisma.registration.findMany.mockResolvedValue([]);
   });
 
   it('records the receipt and reconciles the single unpaid Omer registration', async () => {
@@ -106,6 +113,67 @@ describe('processMorningReceipt', () => {
     expect((await processMorningReceipt(receipt as any)).outcome).toBe('ambiguous_customer');
 
     expect(mockPrisma.payment.create).not.toHaveBeenCalled();
+  });
+
+  it('links the receipt as invoice of the single same-amount registration without one (non-Omer / already paid)', async () => {
+    mockFindRegs.mockResolvedValueOnce([]);
+    mockPrisma.registration.findMany.mockResolvedValueOnce([
+      { id: 'reg-paid', amount: 2980, paymentStatus: 'paid' },
+      { id: 'reg-other', amount: 1400, paymentStatus: 'unpaid' },
+    ] as any);
+
+    const result = await processMorningReceipt(receipt as any);
+
+    expect(result).toEqual({ outcome: 'linked_invoice', registrationId: 'reg-paid' });
+    expect(mockPrisma.registration.update).toHaveBeenCalledWith({
+      where: { id: 'reg-paid' },
+      data: { invoiceLink: 'https://app.greeninvoice.co.il/incomes/documents/doc-uuid-1' },
+    });
+    expect(mockPrisma.payment.create).not.toHaveBeenCalled();
+  });
+
+  it('marks an unpaid registration paid when linking its invoice; dry-run writes nothing', async () => {
+    mockFindRegs.mockResolvedValue([]);
+    mockPrisma.registration.findMany.mockResolvedValue([{ id: 'reg-1', amount: 2980, paymentStatus: 'unpaid' }] as any);
+
+    expect(await processMorningReceipt(receipt as any, { dryRun: true })).toEqual({ outcome: 'would_link_invoice', registrationId: 'reg-1' });
+    expect(mockPrisma.registration.update).not.toHaveBeenCalled();
+
+    await processMorningReceipt(receipt as any);
+    expect(mockPrisma.registration.update).toHaveBeenCalledWith({
+      where: { id: 'reg-1' },
+      data: { invoiceLink: 'https://app.greeninvoice.co.il/incomes/documents/doc-uuid-1', paymentStatus: 'paid' },
+    });
+  });
+
+  it('leaves ambiguous same-amount registrations alone', async () => {
+    mockFindRegs.mockResolvedValueOnce([]);
+    mockPrisma.registration.findMany.mockResolvedValueOnce([
+      { id: 'r1', amount: 2980, paymentStatus: 'paid' },
+      { id: 'r2', amount: 2980, paymentStatus: 'paid' },
+    ] as any);
+
+    expect((await processMorningReceipt(receipt as any)).outcome).toBe('ambiguous_registrations');
+    expect(mockPrisma.registration.update).not.toHaveBeenCalled();
+  });
+
+  it('skips a document already linked to a registration', async () => {
+    mockPrisma.registration.findFirst.mockResolvedValueOnce({ id: 'reg-x' } as any);
+
+    expect(await processMorningReceipt(receipt as any)).toEqual({ outcome: 'already_recorded', registrationId: 'reg-x' });
+    expect(mockPrisma.customer.findMany).not.toHaveBeenCalled();
+  });
+
+  it('falls back to matching the customer by email when there is no phone', async () => {
+    mockPrisma.customer.findMany.mockResolvedValueOnce([{ id: 'customer-2', name: 'x', phone: null }] as any);
+    mockFindRegs.mockResolvedValueOnce([]);
+    const noPhone = { ...receipt, client: { name: 'עודד', emails: ['Office@Example.com'] } };
+
+    await processMorningReceipt(noPhone as any, { dryRun: true });
+
+    expect(mockPrisma.customer.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { deletedAt: null, email: { equals: 'office@example.com', mode: 'insensitive' } },
+    }));
   });
 
   it('skips receipts of customers without exactly one unpaid Omer registration', async () => {

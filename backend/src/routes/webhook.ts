@@ -666,7 +666,9 @@ webhookRouter.post('/leads', leadsRateLimiter, async (req, res, next) => {
       message,
     } = req.body;
     const cycleId = String(req.body.cycleId || req.body.cycle_id || req.body.selectedCycleId || '').trim();
-    const attribution = extractLeadAttribution(req.body);
+    // hai.tech forms (via the LMS lead proxy) send UTM/gclid nested under `utm`; top-level fields win.
+    const nestedUtm = req.body.utm && typeof req.body.utm === 'object' && !Array.isArray(req.body.utm) ? req.body.utm : {};
+    const attribution = extractLeadAttribution({ ...nestedUtm, ...req.body });
 
     if (!name) {
       throw new AppError(400, 'name is required');

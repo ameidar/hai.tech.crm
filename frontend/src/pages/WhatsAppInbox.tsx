@@ -103,9 +103,21 @@ interface WaMessage {
   content: string;
   waMessageId?: string;
   status: string;
+  errorCode?: number | null;
+  errorMessage?: string | null;
   tokensUsed?: number;
   isAiGenerated: boolean;
   createdAt: string;
+}
+
+interface FailedWaMessage {
+  id: string;
+  conversationId: string;
+  content: string;
+  errorCode?: number | null;
+  errorMessage?: string | null;
+  createdAt: string;
+  conversation: { phone: string; contactName?: string | null; leadName?: string | null };
 }
 
 interface WaTemplateComponent {
@@ -175,7 +187,24 @@ function StatusIcon({ status }: { status: string }) {
   if (status === 'read') return <CheckCheck size={14} className="text-blue-400" />;
   if (status === 'delivered') return <CheckCheck size={14} className="text-gray-400" />;
   if (status === 'sent') return <Check size={14} className="text-gray-400" />;
+  if (status === 'failed') return <AlertCircle size={14} className="text-red-500" />;
   return <Clock size={14} className="text-gray-300" />;
+}
+
+// Meta error codes we see in practice → short Hebrew explanation.
+const META_ERROR_HE: Record<number, string> = {
+  131049: 'מטא חסמה את ההודעה השיווקית (מגבלת הודעות שיווקיות ללקוח)',
+  131026: 'הנמען לא יכול לקבל את ההודעה (אין וואטסאפ / גרסה ישנה / חסם)',
+  131047: 'עברו יותר מ-24 שעות מההודעה האחרונה של הלקוח — צריך תבנית',
+  131050: 'הלקוח ביקש להפסיק לקבל הודעות שיווקיות',
+  131053: 'שגיאה בהעלאת המדיה',
+  132000: 'מספר הפרמטרים לא תואם לתבנית',
+  132001: 'התבנית לא קיימת / לא מאושרת בשפה הזו',
+};
+
+function failureReason(code?: number | null, message?: string | null): string {
+  if (code && META_ERROR_HE[code]) return META_ERROR_HE[code];
+  return message || 'סיבה לא ידועה';
 }
 
 function isGreenMessage(messageId?: string | null): boolean {
@@ -203,7 +232,7 @@ export default function WhatsAppInbox() {
   const [templateVars, setTemplateVars] = useState<string[]>([]);
   const [expandedTemplate, setExpandedTemplate] = useState<string | null>(null);
   // Top-level view mode
-  const [viewMode, setViewMode] = useState<'inbox' | 'templates' | 'callbacks' | 'bot-settings' | 'broadcast'>('inbox');
+  const [viewMode, setViewMode] = useState<'inbox' | 'templates' | 'callbacks' | 'failed' | 'bot-settings' | 'broadcast'>('inbox');
   // Broadcast state
   const [broadcastTemplate, setBroadcastTemplate] = useState<WaTemplate | null>(null);
   const [broadcastTemplates, setBroadcastTemplates] = useState<WaTemplate[]>([]);
@@ -226,6 +255,8 @@ export default function WhatsAppInbox() {
   // Callback requests
   const [callbackRequests, setCallbackRequests] = useState<any[]>([]);
   const [callbackPending, setCallbackPending] = useState(0);
+  const [failedMessages, setFailedMessages] = useState<FailedWaMessage[]>([]);
+  const [loadingFailed, setLoadingFailed] = useState(false);
   const [loadingCallbacks, setLoadingCallbacks] = useState(false);
   // Audio unlock state
   const [audioReady, setAudioReady] = useState(false);
@@ -346,8 +377,9 @@ export default function WhatsAppInbox() {
     });
 
     es.addEventListener('message_status', (e: MessageEvent) => {
-      const { waMessageId, status } = JSON.parse(e.data);
-      setMessages(prev => prev.map(m => m.waMessageId === waMessageId ? { ...m, status } : m));
+      const { waMessageId, status, errorMessage } = JSON.parse(e.data);
+      setMessages(prev => prev.map(m => m.waMessageId === waMessageId ? { ...m, status, ...(errorMessage !== undefined ? { errorMessage } : {}) } : m));
+      if (status === 'failed') loadFailedMessages();
     });
 
     es.addEventListener('callback_request', () => {
@@ -370,6 +402,17 @@ export default function WhatsAppInbox() {
       console.error('Failed to load callbacks', e);
     } finally {
       setLoadingCallbacks(false);
+    }
+  }, []);
+
+  const loadFailedMessages = useCallback(async () => {
+    setLoadingFailed(true);
+    try {
+      setFailedMessages(await api('/failed-messages?days=30'));
+    } catch (e) {
+      console.error('Failed to load failed messages', e);
+    } finally {
+      setLoadingFailed(false);
     }
   }, []);
 
@@ -531,7 +574,7 @@ export default function WhatsAppInbox() {
     }
   };
 
-  useEffect(() => { loadConversations(); loadCallbacks(); }, [loadConversations, loadCallbacks]);
+  useEffect(() => { loadConversations(); loadCallbacks(); loadFailedMessages(); }, [loadConversations, loadCallbacks, loadFailedMessages]);
 
   // Auto-select conversation from URL param (?conv=<id>)
   useEffect(() => {
@@ -816,6 +859,17 @@ export default function WhatsAppInbox() {
           )}
         </button>
 
+        <button
+          onClick={() => { setViewMode('failed'); loadFailedMessages(); }}
+          className={`flex items-center gap-1.5 px-3 md:px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${viewMode === 'failed' ? 'border-red-500 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          <AlertCircle size={16} />
+          הודעות שנכשלו
+          {failedMessages.length > 0 && (
+            <span className="bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">{failedMessages.length}</span>
+          )}
+        </button>
+
         {/* Broadcast tab */}
         <button
           onClick={() => { setViewMode('broadcast'); if (broadcastRecipients.length === 0) loadBroadcastRecipients(); if (broadcastTemplates.length === 0) loadBroadcastTemplates(); }}
@@ -1096,6 +1150,49 @@ export default function WhatsAppInbox() {
                         סמן כטופל ✓
                       </button>
                     )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Failed Messages View ── */}
+      {viewMode === 'failed' && (
+        <div className="flex-1 overflow-y-auto p-6" dir="rtl">
+          <div className="max-w-3xl mx-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-800">הודעות שלא נמסרו (30 ימים אחרונים)</h2>
+              <button onClick={() => loadFailedMessages()} className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium flex items-center gap-1">
+                <RefreshCw size={12} /> רענון
+              </button>
+            </div>
+            {loadingFailed ? (
+              <div className="text-center text-gray-400 py-12">טוען...</div>
+            ) : failedMessages.length === 0 ? (
+              <div className="text-center text-gray-400 py-12">אין הודעות שנכשלו 🎉</div>
+            ) : (
+              <div className="space-y-3">
+                {failedMessages.map(f => (
+                  <div key={f.id} className="bg-white rounded-xl border border-red-200 shadow-sm p-4">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <AlertCircle size={16} className="text-red-500" />
+                      <span className="font-semibold text-gray-800">{f.conversation.leadName || f.conversation.contactName || f.conversation.phone}</span>
+                      <span className="text-gray-400 text-sm" dir="ltr">{f.conversation.phone}</span>
+                    </div>
+                    <p className="text-gray-600 text-sm mt-2 bg-gray-50 rounded-lg px-3 py-2 border-r-4 border-red-300 whitespace-pre-wrap">{f.content}</p>
+                    <p className="text-red-600 text-sm mt-2">❌ {failureReason(f.errorCode, f.errorMessage)}</p>
+                    {f.errorMessage && f.errorCode && META_ERROR_HE[f.errorCode] && (
+                      <p className="text-xs text-gray-400 mt-0.5" dir="ltr">{f.errorMessage}</p>
+                    )}
+                    <div className="flex items-center gap-3 mt-2 flex-wrap">
+                      <span className="text-xs text-gray-400">{new Date(f.createdAt).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' })}</span>
+                      <button
+                        onClick={() => { setViewMode('inbox'); const conv = conversations.find(c => c.id === f.conversationId); if (conv) selectConversation(conv); }}
+                        className="text-xs text-blue-600 hover:underline"
+                      >פתח שיחה →</button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1697,6 +1794,11 @@ export default function WhatsAppInbox() {
                     <span className="text-xs">{formatTime(msg.createdAt)}</span>
                     {msg.direction === 'outbound' && <StatusIcon status={msg.status} />}
                   </div>
+                  {msg.direction === 'outbound' && msg.status === 'failed' && (
+                    <div className="mt-1 text-xs bg-red-50 text-red-700 rounded px-2 py-1">
+                      לא נמסרה: {failureReason(msg.errorCode, msg.errorMessage)}
+                    </div>
+                  )}
                 </div>
               </div>
               );

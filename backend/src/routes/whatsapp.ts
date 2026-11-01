@@ -13,6 +13,8 @@ import jwt from 'jsonwebtoken';
 import OpenAI from 'openai';
 import axios from 'axios';
 import { sendEmail } from '../services/email/sender.js';
+import { notifyLeadWelcomeFailed } from '../services/notifications.js';
+import { describeMetaStatusError } from '../utils/meta-status-error.js';
 import { sendWhatsAppToChat } from '../services/messaging.js';
 import { handleStatusReply, parseInstructorStatusReply } from '../services/whatsapp-reminder.service.js';
 import { addWaSseClient, broadcastWaSSE as broadcastSSE, removeWaSseClient } from '../services/wa-events.js';
@@ -1000,6 +1002,30 @@ router.get('/webhook', (req: Request, res: Response) => {
 });
 
 // ── POST /api/wa/webhook — Incoming messages from Meta
+async function recordFailedMessageStatus(status: any) {
+  const { code, message } = describeMetaStatusError(status);
+  const existing = await prisma.waMessage.findFirst({
+    where: { waMessageId: status.id },
+    select: { id: true, status: true, content: true, conversationId: true, conversation: { select: { phone: true, contactName: true } } },
+  });
+  await prisma.waMessage.updateMany({
+    where: { waMessageId: status.id },
+    data: { status: 'failed', errorCode: code, errorMessage: message },
+  });
+  broadcastSSE('message_status', { waMessageId: status.id, status: 'failed', errorMessage: message });
+  console.warn(`[WA] Message ${status.id} failed: ${message || 'no reason'}`);
+
+  // The automatic welcome to a new lead didn't arrive — make sure someone calls instead.
+  if (existing && existing.status !== 'failed' && existing.content.startsWith('[תבנית: lead_welcome')) {
+    notifyLeadWelcomeFailed({
+      phone: existing.conversation.phone,
+      name: existing.conversation.contactName,
+      reason: message,
+      conversationId: existing.conversationId,
+    }).catch(err => console.error('[WA] lead welcome failure alert error:', err));
+  }
+}
+
 router.post('/webhook', async (req: Request, res: Response) => {
   res.sendStatus(200); // Respond immediately to Meta
 
@@ -1016,6 +1042,10 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
         // Status updates (delivered/read)
         for (const status of value.statuses || []) {
+          if (status.status === 'failed') {
+            await recordFailedMessageStatus(status);
+            continue;
+          }
           await prisma.waMessage.updateMany({
             where: { waMessageId: status.id },
             data: { status: status.status }
@@ -1272,6 +1302,30 @@ router.post('/webhook', async (req: Request, res: Response) => {
     }
   } catch (err) {
     console.error('[WA] Webhook error:', err);
+  }
+});
+
+// ── GET /api/wa/failed-messages — Outbound messages Meta reported as failed (latest first)
+router.get('/failed-messages', authenticate, async (req: Request, res: Response) => {
+  try {
+    const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 180);
+    const rows = await prisma.waMessage.findMany({
+      where: {
+        direction: 'outbound',
+        status: 'failed',
+        createdAt: { gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      select: {
+        id: true, conversationId: true, content: true, errorCode: true, errorMessage: true, createdAt: true,
+        conversation: { select: { phone: true, contactName: true, leadName: true } },
+      },
+    });
+    res.json(rows);
+  } catch (err) {
+    console.error('[WA] Failed messages list error:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

@@ -227,6 +227,33 @@ async function sendLeadAdminTemplateNotifications(lead: LeadAdminNotification, l
   }));
 }
 
+// Alert when the automatic WhatsApp welcome to a new lead was not delivered,
+// so someone reaches out by phone instead.
+export async function notifyLeadWelcomeFailed(params: {
+  phone: string;
+  name?: string | null;
+  reason?: string | null;
+  conversationId?: string | null;
+}): Promise<void> {
+  const baseUrl = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
+  const local = params.phone.replace(/\D/g, '').replace(/^972/, '0');
+  const message = `⚠️ *הודעת פתיחה לליד לא נמסרה*
+
+👤 *שם:* ${params.name || 'לא צוין'}
+📞 *טלפון:* ${local}
+❌ *סיבה:* ${params.reason || 'לא ידועה'}
+
+צריך לחזור אליו בטלפון.
+🔗 ${baseUrl}/whatsapp${params.conversationId ? `?conv=${params.conversationId}` : ''}`;
+
+  await Promise.all([ADMIN_PHONE, SALES_GROUP_CHAT_ID].map(to =>
+    sendWhatsAppMessage(to, message).catch(err => {
+      console.error('[NOTIFICATION] lead welcome failure alert error:', err);
+      return false;
+    })
+  ));
+}
+
 // Notify admin about new lead
 export async function notifyAdminNewLead(lead: LeadAdminNotification): Promise<void> {
   const baseUrl = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';

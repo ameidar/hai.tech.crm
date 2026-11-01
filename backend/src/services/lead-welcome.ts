@@ -10,6 +10,7 @@
  */
 import axios from 'axios';
 import { prisma } from '../utils/prisma.js';
+import { notifyLeadWelcomeFailed } from './notifications.js';
 
 type LeadWelcomeTemplate = {
   name: string;
@@ -75,6 +76,8 @@ export async function sendLeadWelcomeTemplate(phone: string, name: string, inter
   if (process.env.LEAD_WELCOME_WA_ENABLED !== 'true') return;
   if (!phone) return;
 
+  let convId: string | null = null;
+  let attemptedContent: string | null = null;
   try {
     const normalizedPhone = phone.replace(/\D/g, '').replace(/^0/, '972');
     const { phoneNumberId: waPhoneId, businessPhone } = resolveLeadWelcomePhone();
@@ -103,6 +106,9 @@ export async function sendLeadWelcomeTemplate(phone: string, name: string, inter
         data: { phoneNumberId: waPhoneId, businessPhone },
       });
     }
+
+    convId = conv.id;
+    attemptedContent = template.preview(firstName, interest);
 
     // Send template via Meta Cloud API
     const resp = await axios.post(
@@ -150,5 +156,27 @@ export async function sendLeadWelcomeTemplate(phone: string, name: string, inter
     console.log(`[LeadWelcome] Template '${template.name}' sent to ${normalizedPhone} via ${waPhoneId}`);
   } catch (err: any) {
     console.error('[LeadWelcome] Failed to send template:', err.response?.data || err.message);
+    // Meta rejected the send outright — keep it visible in the inbox and alert the team.
+    if (convId && attemptedContent) {
+      const metaErr = err.response?.data?.error;
+      const code = Number.isFinite(Number(metaErr?.code)) ? Number(metaErr.code) : null;
+      const reason = metaErr?.error_data?.details || metaErr?.message || err.message || null;
+      try {
+        await prisma.waMessage.create({
+          data: {
+            conversationId: convId,
+            direction: 'outbound',
+            content: attemptedContent,
+            status: 'failed',
+            errorCode: code,
+            errorMessage: reason ? `${code ? `${code}: ` : ''}${reason}` : null,
+            isAiGenerated: false,
+          },
+        });
+        await notifyLeadWelcomeFailed({ phone, name, reason, conversationId: convId });
+      } catch (recordErr) {
+        console.error('[LeadWelcome] Failed to record send failure:', recordErr);
+      }
+    }
   }
 }

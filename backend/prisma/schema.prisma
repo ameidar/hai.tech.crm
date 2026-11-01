@@ -1599,6 +1599,8 @@ model WaMessage {
   content        String
   waMessageId    String?            @unique @map("wa_message_id") // Meta message ID (dedup)
   status         String             @default("sent") // sent/delivered/read/failed
+  errorCode      Int?               @map("error_code") // Meta error code when status=failed (e.g. 131049)
+  errorMessage   String?            @map("error_message") // Meta error title/details when status=failed
   tokensUsed     Int?               @map("tokens_used")
   isAiGenerated  Boolean            @default(false) @map("is_ai_generated")
   aiModel        String?            @map("ai_model") // LLM that produced the bot reply (e.g. gpt-4o, claude-sonnet-5)

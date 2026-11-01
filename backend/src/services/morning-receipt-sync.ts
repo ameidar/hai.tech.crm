@@ -11,6 +11,10 @@
  * records a CRM payment and runs the existing Omer reconciliation. Everything
  * else is skipped so a receipt is never applied to the wrong child/cycle and
  * payments already recorded via payment links / Woo are not duplicated.
+ *
+ * Receipts that don't fit the Omer flow (any cycle, incl. registrations already
+ * marked paid by hand) are linked as the registration's invoice when exactly one
+ * of the customer's registrations has no invoice yet and the same amount.
  */
 
 import { prisma } from '../utils/prisma.js';
@@ -38,7 +42,9 @@ export type ReceiptSyncOutcome =
   | 'ambiguous_customer'
   | 'no_matching_registration'
   | 'ambiguous_registrations'
-  | 'similar_payment_exists';
+  | 'similar_payment_exists'
+  | 'would_link_invoice'
+  | 'linked_invoice';
 
 export interface ReceiptSyncResult {
   days: number;
@@ -55,6 +61,52 @@ export function morningDocMarker(docId: string): string {
 function last9Digits(phone: string | undefined): string {
   const digits = String(phone || '').replace(/\D/g, '');
   return digits.length >= 9 ? digits.slice(-9) : '';
+}
+
+const INVOICE_URL_BASE = 'https://app.greeninvoice.co.il/incomes/documents/';
+const AMOUNT_TOLERANCE = 1; // ₪ — rounding differences between CRM and Morning
+
+export function morningInvoiceUrl(docId: string): string {
+  return `${INVOICE_URL_BASE}${docId}`;
+}
+
+/**
+ * Attach a receipt to the customer's single matching registration (no invoice yet,
+ * same amount). Marks it paid if it wasn't. Ambiguous matches are left for a human.
+ */
+async function linkReceiptToRegistration(
+  doc: MorningDocument,
+  customerId: string,
+  amount: number,
+  opts: { dryRun?: boolean },
+): Promise<{ outcome: ReceiptSyncOutcome; registrationId?: string }> {
+  const candidates = await prisma.registration.findMany({
+    where: {
+      deletedAt: null,
+      status: { not: 'cancelled' },
+      student: { customerId },
+      OR: [{ invoiceLink: null }, { invoiceLink: '' }],
+    },
+    select: { id: true, amount: true, paymentStatus: true },
+  });
+  const matches = candidates.filter(
+    r => r.amount != null && Math.abs(Number(r.amount) - amount) < AMOUNT_TOLERANCE,
+  );
+  if (matches.length === 0) return { outcome: 'no_matching_registration' };
+  if (matches.length > 1) return { outcome: 'ambiguous_registrations' };
+
+  const registration = matches[0];
+  if (opts.dryRun) return { outcome: 'would_link_invoice', registrationId: registration.id };
+
+  await prisma.registration.update({
+    where: { id: registration.id },
+    data: {
+      invoiceLink: morningInvoiceUrl(doc.id),
+      ...(registration.paymentStatus !== 'paid' ? { paymentStatus: 'paid' as const } : {}),
+    },
+  });
+  console.log(`[MorningReceiptSync] doc #${doc.number} linked as invoice of registration ${registration.id}`);
+  return { outcome: 'linked_invoice', registrationId: registration.id };
 }
 
 function isoDate(d: Date): string {
@@ -78,24 +130,39 @@ export async function processMorningReceipt(
     select: { id: true },
   });
   if (existing) return { outcome: 'already_recorded' };
+  const alreadyLinked = await prisma.registration.findFirst({
+    where: { invoiceLink: { contains: doc.id } },
+    select: { id: true },
+  });
+  if (alreadyLinked) return { outcome: 'already_recorded', registrationId: alreadyLinked.id };
 
   const amount = Number(doc.amount || 0);
   if (!(amount > 0)) return { outcome: 'invalid_amount' };
 
   const last9 = last9Digits(doc.client?.mobile || doc.client?.phone);
-  if (!last9) return { outcome: 'no_phone' };
+  const email = doc.client?.emails?.find(Boolean)?.trim().toLowerCase();
+  if (!last9 && !email) return { outcome: 'no_phone' };
 
-  const customers = await prisma.customer.findMany({
-    where: { deletedAt: null, phone: { contains: last9 } },
-    select: { id: true, name: true, phone: true },
-    take: 2,
-  });
+  let customers = last9
+    ? await prisma.customer.findMany({
+        where: { deletedAt: null, phone: { contains: last9 } },
+        select: { id: true, name: true, phone: true },
+        take: 2,
+      })
+    : [];
+  if (customers.length === 0 && email) {
+    customers = await prisma.customer.findMany({
+      where: { deletedAt: null, email: { equals: email, mode: 'insensitive' } },
+      select: { id: true, name: true, phone: true },
+      take: 2,
+    });
+  }
   if (customers.length === 0) return { outcome: 'no_customer' };
   if (customers.length > 1) return { outcome: 'ambiguous_customer' };
   const customer = customers[0];
 
   const registrations = await findReconcilableOmerRegistrations(customer.id);
-  if (registrations.length === 0) return { outcome: 'no_matching_registration' };
+  if (registrations.length === 0) return linkReceiptToRegistration(doc, customer.id, amount, opts);
   if (registrations.length > 1) return { outcome: 'ambiguous_registrations' };
   const registrationId = registrations[0].id;
 

@@ -11,6 +11,8 @@ import { prisma } from '../utils/prisma.js';
 import { sendWhatsAppMessage } from '../services/notifications.js';
 import { handlePostPaymentPlacement } from '../services/trial-placement.js';
 import { reconcileOmerRegistrationPayment } from '../services/omer-payment-reconciliation.js';
+import { processMorningReceipt, RECEIPT_DOC_TYPES } from '../services/morning-receipt-sync.js';
+import type { MorningDocument } from '../services/morning/documents.js';
 
 export const morningWebhookRouter = Router();
 
@@ -49,10 +51,50 @@ function firstText(...values: Array<unknown>): string {
   return '';
 }
 
+/**
+ * Morning's current webhook posts the bare document (no `event` field, numeric `type`,
+ * client under `recipient`, gross amount in `total`). Map it to the API document shape.
+ */
+export function isBareMorningDocument(payload: any): boolean {
+  return !!payload && !payload.event && !!payload.id && typeof payload.type === 'number' && payload.number != null;
+}
+
+export function morningDocumentFromWebhook(payload: any): MorningDocument {
+  const recipient = payload.recipient || payload.client || {};
+  return {
+    id: String(payload.id),
+    number: Number(payload.number),
+    type: Number(payload.type),
+    documentDate: payload.date || payload.documentDate,
+    status: Number(payload.status ?? 0),
+    amount: Number(payload.total ?? payload.amount ?? 0),
+    url: payload.url,
+    client: {
+      name: recipient.name,
+      phone: recipient.phone,
+      mobile: recipient.mobile,
+      emails: Array.isArray(recipient.emails) ? recipient.emails : (recipient.email ? [recipient.email] : []),
+    },
+    income: Array.isArray(payload.items)
+      ? payload.items.map((i: any) => ({ description: i.description, quantity: i.quantity, price: i.price }))
+      : payload.income,
+  };
+}
+
 morningWebhookRouter.post('/', async (req, res) => {
   try {
     const payload = req.body;
     console.log('[Morning Webhook] Received:', JSON.stringify(payload, null, 2));
+
+    if (isBareMorningDocument(payload)) {
+      if (!RECEIPT_DOC_TYPES.includes(payload.type)) {
+        console.log('[Morning Webhook] Ignoring non-receipt document type:', payload.type);
+        return res.json({ ok: true, ignored: true });
+      }
+      const result = await processMorningReceipt(morningDocumentFromWebhook(payload));
+      console.log(`[Morning Webhook] doc #${payload.number} (${payload.type}) → ${result.outcome}`);
+      return res.json({ ok: true, ...result });
+    }
 
     const event: string = payload.event || payload.type || '';
     const data = payload.data || payload;

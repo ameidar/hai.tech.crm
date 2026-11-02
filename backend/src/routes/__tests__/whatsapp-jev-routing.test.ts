@@ -131,6 +131,24 @@ describe('WhatsApp webhook — Jev intent routing', () => {
     expect(h.prisma.waCallbackRequest.create).not.toHaveBeenCalled();
   });
 
+  it('AI reply that promises a human handoff opens a callback request + group alert', async () => {
+    const promise = 'תודה! רשמתי את המייל שלך ואעביר את הבקשה לנציג שישלח לך דוגמאות.';
+    h.openaiCreate.mockResolvedValue({ choices: [{ message: { content: promise } }] });
+    await post('אפשר לקבל דוגמאות של משחקים?');
+    expect(sentTexts()).toEqual([promise]);
+    expect(h.prisma.waCallbackRequest.create).toHaveBeenCalledTimes(1);
+    expect(h.prisma.waCallbackRequest.create.mock.calls[0][0].data.message).toContain(promise);
+    await vi.waitFor(() =>
+      expect(h.sendWhatsAppToChat).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('הבוט הבטיח'))
+    );
+  });
+
+  it('AI reply that only offers a handoff (question) does not open a callback request', async () => {
+    h.openaiCreate.mockResolvedValue({ choices: [{ message: { content: 'רוצה שנציג יחזור אליך בהקדם?' } }] });
+    await post('מה יש לכם לגיל 9?');
+    expect(h.prisma.waCallbackRequest.create).not.toHaveBeenCalled();
+  });
+
   it('continue (new_lead/purchase, shadow, low confidence, errors): bot replies as today', async () => {
     h.getJevMode.mockReturnValue('on');
     h.applyJevRouting.mockResolvedValue('continue');
@@ -148,6 +166,12 @@ describe('WhatsApp webhook — Jev intent routing', () => {
     expect(sentTexts()).toEqual([CONFIRMATION]);
     expect(h.prisma.waCallbackRequest.create).toHaveBeenCalledTimes(1);
     expect(h.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'info@hai.tech' }));
+    await vi.waitFor(() =>
+      expect(h.sendWhatsAppToChat).toHaveBeenCalledWith(
+        expect.stringMatching(/@g\.us$/),
+        expect.stringContaining('הבוט העביר שיחה לנציג')
+      )
+    );
   });
 
   it('escalate + callback keyword in the same message: confirmation sent exactly once', async () => {

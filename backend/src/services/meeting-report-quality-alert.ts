@@ -1,7 +1,12 @@
 import { prisma } from '../utils/prisma.js';
 import { sendOperationsWhatsApp } from './operations-notifications.js';
+import { generateMeetingMagicLink } from './instructor-reminder.service.js';
+import { sendWhatsAppCloudTemplate } from './whatsapp-cloud-templates.js';
 
 const TZ = 'Asia/Jerusalem';
+const APP_URL = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
+// Approved free-text template (1 body param, single line) — works outside the 24h window.
+const INSTRUCTOR_NUDGE_TEMPLATE = process.env.INSTRUCTOR_REPORT_NUDGE_WA_TEMPLATE_NAME || 'send_free_text';
 
 function formatDbDate(date: Date): string {
   return date.toLocaleDateString('he-IL', { timeZone: TZ });
@@ -23,7 +28,7 @@ export async function checkAndSendMeetingReportQualityAlert(
   const meeting = await prisma.meeting.findUnique({
     where: { id: meetingId },
     include: {
-      instructor: { select: { name: true } },
+      instructor: { select: { id: true, name: true, phone: true } },
       attendance: { select: { id: true } },
       cycle: {
         include: {
@@ -57,6 +62,9 @@ export async function checkAndSendMeetingReportQualityAlert(
 
   if (issues.length === 0) return;
 
+  const missingTopic = !hasText(meeting.topic);
+  const missingAttendance = isGroupMeeting && meeting.attendance.length === 0;
+
   const message = `⚠️ דיווח פגישה חסר
 
 📅 תאריך: ${formatDbDate(meeting.scheduledDate)}
@@ -74,8 +82,64 @@ ${issues.map((issue) => `• ${issue}`).join('\n')}
   const failed = results.filter((result) => !result.success);
   if (failed.length === results.length) {
     console.error(`[MeetingReportQuality] send failed for meeting ${meetingId}: ${failed.map((result) => result.error).join('; ')}`);
-    return;
+  } else {
+    console.log(`[MeetingReportQuality] alert sent for meeting ${meetingId} from ${source}`);
   }
 
-  console.log(`[MeetingReportQuality] alert sent for meeting ${meetingId} from ${source}`);
+  await sendInstructorReportNudge(meeting, { missingTopic, missingAttendance }).catch((err) => {
+    console.error(`[MeetingReportQuality] instructor nudge failed for meeting ${meetingId}:`, err);
+  });
+}
+
+function nudgeMarker(meetingId: string): string {
+  return `[report-nudge:${meetingId}]`;
+}
+
+export function buildInstructorReportNudgeText(
+  meeting: { scheduledDate: Date; startTime: Date | null; instructor?: { name?: string | null } | null; cycle: { name: string } },
+  missing: { missingTopic: boolean; missingAttendance: boolean },
+  link: string,
+): string {
+  const parts: string[] = [];
+  if (missing.missingTopic) parts.push('מה היה בשיעור');
+  if (missing.missingAttendance) parts.push('נוכחות');
+  const firstName = (meeting.instructor?.name || '').trim().split(/\s+/)[0] || '';
+  const greeting = firstName ? `היי ${firstName}` : 'היי';
+  const time = formatDbTime(meeting.startTime);
+  return `${greeting}, סימנת שהשיעור "${meeting.cycle.name}" ב-${formatDbDate(meeting.scheduledDate)}${time ? ` ${time}` : ''} התקיים, אבל חסר בדיווח: ${parts.join(' ו')}. ` +
+    'חשוב לנו שתמלא/י את זה אחרי כל שיעור – כך נוכל לעקוב אחרי ההתקדמות של הקבוצה, לעדכן את ההורים ולהמשיך מהנקודה הנכונה בשיעור הבא. ' +
+    `אפשר להשלים כאן: ${link} תודה! 🙏`;
+}
+
+// One reminder per meeting: alerts can fire on every save, the instructor should get a single nudge.
+async function sendInstructorReportNudge(
+  meeting: any,
+  missing: { missingTopic: boolean; missingAttendance: boolean },
+): Promise<void> {
+  if (process.env.INSTRUCTOR_REPORT_NUDGE === 'off') return;
+  if (!missing.missingTopic && !missing.missingAttendance) return;
+  const instructor = meeting.instructor;
+  if (!instructor?.id || !instructor.phone) return;
+
+  const marker = nudgeMarker(meeting.id);
+  const already = await prisma.waMessage.findFirst({
+    where: { direction: 'outbound', content: { contains: marker } },
+    select: { id: true },
+  });
+  if (already) return;
+
+  const link = generateMeetingMagicLink(instructor.id, meeting.id, APP_URL);
+  const text = buildInstructorReportNudgeText(meeting, missing, link);
+  const result = await sendWhatsAppCloudTemplate({
+    phone: instructor.phone,
+    contactName: instructor.name,
+    templateName: INSTRUCTOR_NUDGE_TEMPLATE,
+    bodyParameters: [text],
+    preview: `${marker} ${text}`,
+  });
+  if (!result.success) {
+    console.error(`[MeetingReportQuality] instructor nudge send failed for meeting ${meeting.id}: ${result.error}`);
+    return;
+  }
+  console.log(`[MeetingReportQuality] instructor nudge sent for meeting ${meeting.id}`);
 }

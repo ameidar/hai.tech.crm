@@ -16,6 +16,7 @@ import { sendEmail } from '../services/email/sender.js';
 import { notifyLeadWelcomeFailed } from '../services/notifications.js';
 import { describeMetaStatusError } from '../utils/meta-status-error.js';
 import { sendWhatsAppToChat } from '../services/messaging.js';
+import { detectHandoffPromise, buildCallbackGroupAlert } from '../services/wa-handoff-promise.js';
 import { handleStatusReply, parseInstructorStatusReply } from '../services/whatsapp-reminder.service.js';
 import { addWaSseClient, broadcastWaSSE as broadcastSSE, removeWaSseClient } from '../services/wa-events.js';
 import { sanitizeLeadEmail, shouldSendPromisedEmailAlert } from '../utils/wa-lead-extraction.js';
@@ -78,6 +79,8 @@ const WA_INBOUND_FORWARD_TIMEOUT_MS = parseInt(process.env.WA_INBOUND_FORWARD_TI
 // (or it's a brand-new conversation). Prevents alert spam during active back-and-forth.
 const WA_QUIET_WAKEUP_HOURS = parseFloat(process.env.WA_QUIET_WAKEUP_HOURS || '3');
 const WA_INBOUND_ALERT_GROUP_ID = process.env.WA_INBOUND_ALERT_GROUP_ID || '120363308669020817@g.us';
+// Callback requests (customer asked / bot escalated / bot promised a human) — set to '' to disable.
+const WA_CALLBACK_ALERT_CHAT_ID = process.env.WA_CALLBACK_ALERT_CHAT_ID ?? WA_INBOUND_ALERT_GROUP_ID;
 const WA_AI_FAILURE_ALERT_COOLDOWN_MINUTES = parseInt(process.env.WA_AI_FAILURE_ALERT_COOLDOWN_MINUTES || '30', 10);
 const APP_URL = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
 
@@ -914,7 +917,14 @@ async function sendCallbackConfirmation(conv: any, phone: string): Promise<void>
   }
 }
 
-async function handleCallbackRequest(conv: any, messageText: string): Promise<void> {
+type CallbackReason = 'customer_request' | 'escalation' | 'bot_promise';
+
+async function handleCallbackRequest(
+  conv: any,
+  messageText: string,
+  opts: { reason?: CallbackReason; botReply?: string } = {}
+): Promise<void> {
+  const reason = opts.reason ?? 'customer_request';
   try {
     // Check if there's already a pending callback request for this conversation in the last 24h
     const recent = await (prisma as any).waCallbackRequest.findFirst({
@@ -932,10 +942,26 @@ async function handleCallbackRequest(conv: any, messageText: string): Promise<vo
         conversationId: conv.id,
         phone: conv.phone,
         contactName: conv.contactName || null,
-        message: messageText,
+        message: opts.botReply ? `${messageText}\n\n[הבוט ענה: ${opts.botReply}]` : messageText,
         status: 'pending'
       }
     });
+
+    // WhatsApp alert to the coordination group — email alone was being missed.
+    if (WA_CALLBACK_ALERT_CHAT_ID) {
+      const alert = buildCallbackGroupAlert({
+        contactName: conv.leadName || conv.contactName,
+        phone: conv.phone,
+        customerText: messageText,
+        botReply: opts.botReply,
+        link: `${APP_URL}/whatsapp?conv=${conv.id}`,
+        reason,
+      });
+      Promise.resolve()
+        .then(() => sendWhatsAppToChat(WA_CALLBACK_ALERT_CHAT_ID, alert))
+        .then((r) => { if (r && !r.success) console.error(`[WA] callback group alert failed: ${r.error}`); })
+        .catch((e) => console.error('[WA] callback group alert failed:', e));
+    }
 
     // Send email to info@hai.tech
     const convLink = `https://crm.orma-ai.com/whatsapp?conv=${conv.id}`;
@@ -1210,7 +1236,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           if (jevAction === 'escalate') {
             // human / support / job: bot already stopped (aiEnabled=false) — raise the staff callback alert
             // and send the callback confirmation once. Exclusive with the keyword branch below → never sent twice.
-            handleCallbackRequest(conv, text);
+            handleCallbackRequest(conv, text, { reason: 'escalation' });
             await sendCallbackConfirmation(conv, phone);
           } else if (jevAction === 'acknowledge') {
             // irrelevant (spam / other business's auto-responder): bot already stopped (aiEnabled=false) so an
@@ -1233,7 +1259,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
                   // Jev complexity said `human` (JEV_MODEL_ROUTING=on + JEV_MODEL_ROUTING_HUMAN=escalate):
                   // same path as Jev intent `escalate` — bot off, staff callback alert, one confirmation reply.
                   await prisma.waConversation.update({ where: { id: conv.id }, data: { aiEnabled: false } });
-                  handleCallbackRequest(conv, text);
+                  handleCallbackRequest(conv, text, { reason: 'escalation' });
                   await sendCallbackConfirmation(conv, phone);
                   return;
                 }
@@ -1262,6 +1288,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
                     }
                   });
                   broadcastSSE('new_message', { conversationId: conv.id, message: botMsg });
+
+                  // The bot told the customer it will pass things on to a human — make that real.
+                  if (detectHandoffPromise(reply)) {
+                    console.log(`[WA] bot promised human handoff conv=${conv.id} → callback request`);
+                    handleCallbackRequest(conv, text, { reason: 'bot_promise', botReply: reply });
+                  }
                 }
               } catch (e) {
                 console.error('[WA] AI reply error:', e);

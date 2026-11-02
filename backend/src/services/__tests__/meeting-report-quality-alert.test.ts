@@ -99,13 +99,16 @@ describe('checkAndSendMeetingReportQualityAlert', () => {
       expect(sendWhatsAppCloudTemplate).toHaveBeenCalledTimes(1);
       const payload = (sendWhatsAppCloudTemplate as any).mock.calls[0][0];
       expect(payload.phone).toBe('0501234567');
-      expect(payload.templateName).toBe('send_free_text');
-      expect(payload.bodyParameters).toHaveLength(1);
-      expect(payload.bodyParameters[0]).toContain('היי נועה');
-      expect(payload.bodyParameters[0]).toContain('מה היה בשיעור');
-      expect(payload.bodyParameters[0]).toContain('https://crm.orma-ai.com/i/meeting-1/tok');
-      expect(payload.bodyParameters[0]).not.toContain('\n');
+      expect(payload.templateName).toBe('instructor_report_missing');
+      expect(payload.bodyParameters).toEqual([
+        'נועה',
+        'רובלוקס קבוצה',
+        expect.stringContaining('10:30'),
+        'מה היה בשיעור',
+        'https://crm.orma-ai.com/i/meeting-1/tok',
+      ]);
       expect(payload.preview).toContain('[report-nudge:meeting-1]');
+      expect(payload.preview).toContain('היי נועה');
     });
 
     it('does not nudge twice for the same meeting', async () => {

@@ -5,7 +5,18 @@ vi.mock('../../utils/prisma.js', () => ({
     meeting: {
       findUnique: vi.fn(),
     },
+    waMessage: {
+      findFirst: vi.fn(),
+    },
   },
+}));
+
+vi.mock('../whatsapp-cloud-templates.js', () => ({
+  sendWhatsAppCloudTemplate: vi.fn().mockResolvedValue({ success: true, messageId: 'wa-1' }),
+}));
+
+vi.mock('../instructor-reminder.service.js', () => ({
+  generateMeetingMagicLink: vi.fn(() => 'https://crm.orma-ai.com/i/meeting-1/tok'),
 }));
 
 vi.mock('../operations-notifications.js', () => ({
@@ -17,7 +28,8 @@ vi.mock('../operations-notifications.js', () => ({
 
 import { prisma } from '../../utils/prisma.js';
 import { sendOperationsWhatsApp } from '../operations-notifications.js';
-import { checkAndSendMeetingReportQualityAlert } from '../meeting-report-quality-alert.js';
+import { sendWhatsAppCloudTemplate } from '../whatsapp-cloud-templates.js';
+import { checkAndSendMeetingReportQualityAlert, buildInstructorReportNudgeText } from '../meeting-report-quality-alert.js';
 
 function completedMeeting(overrides: Record<string, any> = {}) {
   return {
@@ -26,7 +38,7 @@ function completedMeeting(overrides: Record<string, any> = {}) {
     scheduledDate: new Date('2026-08-12T00:00:00Z'),
     startTime: new Date('1970-01-01T10:30:00Z'),
     topic: 'למדנו לולאות',
-    instructor: { name: 'נועה' },
+    instructor: { id: 'inst-1', name: 'נועה כהן', phone: '0501234567' },
     attendance: [{ id: 'att-1' }],
     cycle: {
       name: 'רובלוקס קבוצה',
@@ -41,6 +53,7 @@ function completedMeeting(overrides: Record<string, any> = {}) {
 describe('checkAndSendMeetingReportQualityAlert', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (prisma.waMessage.findFirst as any).mockResolvedValue(null);
   });
 
   it('alerts when a completed instructor report has no topic', async () => {
@@ -75,5 +88,63 @@ describe('checkAndSendMeetingReportQualityAlert', () => {
     await checkAndSendMeetingReportQualityAlert('meeting-1', 'test');
 
     expect(sendOperationsWhatsApp).not.toHaveBeenCalled();
+  });
+
+  describe('instructor nudge', () => {
+    it('sends the instructor one template message with the magic link when the topic is missing', async () => {
+      (prisma.meeting.findUnique as any).mockResolvedValue(completedMeeting({ topic: '' }));
+
+      await checkAndSendMeetingReportQualityAlert('meeting-1', 'instructor-magic');
+
+      expect(sendWhatsAppCloudTemplate).toHaveBeenCalledTimes(1);
+      const payload = (sendWhatsAppCloudTemplate as any).mock.calls[0][0];
+      expect(payload.phone).toBe('0501234567');
+      expect(payload.templateName).toBe('send_free_text');
+      expect(payload.bodyParameters).toHaveLength(1);
+      expect(payload.bodyParameters[0]).toContain('היי נועה');
+      expect(payload.bodyParameters[0]).toContain('מה היה בשיעור');
+      expect(payload.bodyParameters[0]).toContain('https://crm.orma-ai.com/i/meeting-1/tok');
+      expect(payload.bodyParameters[0]).not.toContain('\n');
+      expect(payload.preview).toContain('[report-nudge:meeting-1]');
+    });
+
+    it('does not nudge twice for the same meeting', async () => {
+      (prisma.meeting.findUnique as any).mockResolvedValue(completedMeeting({ topic: '' }));
+      (prisma.waMessage.findFirst as any).mockResolvedValue({ id: 'prev' });
+
+      await checkAndSendMeetingReportQualityAlert('meeting-1', 'instructor-magic');
+
+      expect(sendOperationsWhatsApp).toHaveBeenCalledTimes(1);
+      expect(sendWhatsAppCloudTemplate).not.toHaveBeenCalled();
+    });
+
+    it('does not nudge when the report is complete', async () => {
+      (prisma.meeting.findUnique as any).mockResolvedValue(completedMeeting());
+
+      await checkAndSendMeetingReportQualityAlert('meeting-1', 'instructor-magic');
+
+      expect(sendWhatsAppCloudTemplate).not.toHaveBeenCalled();
+    });
+
+    it('skips instructors without a phone', async () => {
+      (prisma.meeting.findUnique as any).mockResolvedValue(
+        completedMeeting({ topic: '', instructor: { id: 'inst-1', name: 'נועה', phone: null } }),
+      );
+
+      await checkAndSendMeetingReportQualityAlert('meeting-1', 'instructor-magic');
+
+      expect(sendWhatsAppCloudTemplate).not.toHaveBeenCalled();
+    });
+
+    it('nudge text lists both missing parts', () => {
+      const text = buildInstructorReportNudgeText(
+        completedMeeting() as any,
+        { missingTopic: true, missingAttendance: true },
+        'LINK',
+      );
+      expect(text).toContain('מה היה בשיעור ונוכחות');
+      expect(text).toContain('10:30');
+      expect(text).toContain('LINK');
+    });
   });
 });

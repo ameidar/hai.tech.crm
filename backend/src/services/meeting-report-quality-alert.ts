@@ -5,8 +5,8 @@ import { sendWhatsAppCloudTemplate } from './whatsapp-cloud-templates.js';
 
 const TZ = 'Asia/Jerusalem';
 const APP_URL = process.env.FRONTEND_URL || 'https://crm.orma-ai.com';
-// Approved free-text template (1 body param, single line) — works outside the 24h window.
-const INSTRUCTOR_NUDGE_TEMPLATE = process.env.INSTRUCTOR_REPORT_NUDGE_WA_TEMPLATE_NAME || 'send_free_text';
+// Dedicated UTILITY template: {{1}} first name, {{2}} cycle, {{3}} date+time, {{4}} missing parts, {{5}} link.
+const INSTRUCTOR_NUDGE_TEMPLATE = process.env.INSTRUCTOR_REPORT_NUDGE_WA_TEMPLATE_NAME || 'instructor_report_missing';
 
 function formatDbDate(date: Date): string {
   return date.toLocaleDateString('he-IL', { timeZone: TZ });
@@ -95,6 +95,25 @@ function nudgeMarker(meetingId: string): string {
   return `[report-nudge:${meetingId}]`;
 }
 
+export function buildInstructorReportNudgeParams(
+  meeting: { scheduledDate: Date; startTime: Date | null; instructor?: { name?: string | null } | null; cycle: { name: string } },
+  missing: { missingTopic: boolean; missingAttendance: boolean },
+  link: string,
+): string[] {
+  const parts: string[] = [];
+  if (missing.missingTopic) parts.push('מה היה בשיעור');
+  if (missing.missingAttendance) parts.push('נוכחות');
+  const firstName = (meeting.instructor?.name || '').trim().split(/\s+/)[0] || 'מדריך/ה';
+  const time = formatDbTime(meeting.startTime);
+  return [
+    firstName,
+    meeting.cycle.name,
+    `${formatDbDate(meeting.scheduledDate)}${time ? ` ${time}` : ''}`,
+    parts.join(' ו'),
+    link,
+  ];
+}
+
 export function buildInstructorReportNudgeText(
   meeting: { scheduledDate: Date; startTime: Date | null; instructor?: { name?: string | null } | null; cycle: { name: string } },
   missing: { missingTopic: boolean; missingAttendance: boolean },
@@ -134,7 +153,7 @@ async function sendInstructorReportNudge(
     phone: instructor.phone,
     contactName: instructor.name,
     templateName: INSTRUCTOR_NUDGE_TEMPLATE,
-    bodyParameters: [text],
+    bodyParameters: buildInstructorReportNudgeParams(meeting, missing, link),
     preview: `${marker} ${text}`,
   });
   if (!result.success) {

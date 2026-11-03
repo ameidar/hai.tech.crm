@@ -140,8 +140,57 @@ async function computeBillingLines(
     },
   });
 
+  // Monthly-fixed orders (billingMode = 'monthly_fixed') bill the agreed monthly amount,
+  // which monthly-fixed-billing.ts already split across the month's active meetings.
+  // Bill the sum of that stored revenue — every active meeting in the range, held or not —
+  // instead of meetings × cycle.meetingRevenue.
+  const order = await prisma.institutionalOrder.findUnique({
+    where: { id: institutionalOrderId },
+    select: { billingMode: true },
+  });
+  const monthlyByCycle = new Map<string, { total: number; meetings: number; meetingIds: string[] }>();
+  if (order?.billingMode === 'monthly_fixed') {
+    const rows = await prisma.meeting.findMany({
+      where: {
+        cycle: { institutionalOrderId },
+        deletedAt: null,
+        status: { notIn: ['cancelled', 'postponed'] },
+        scheduledDate: { gte: start, lt: endExclusive },
+        revenue: { gt: 0 },
+      },
+      select: { id: true, cycleId: true, revenue: true },
+    });
+    for (const r of rows) {
+      const agg = monthlyByCycle.get(r.cycleId) ?? { total: 0, meetings: 0, meetingIds: [] };
+      agg.total += Number(r.revenue ?? 0);
+      agg.meetings += 1;
+      agg.meetingIds.push(r.id);
+      monthlyByCycle.set(r.cycleId, agg);
+    }
+  }
+
   const summaries: CycleBillingSummary[] = [];
   for (const cycle of cycles) {
+    if (order?.billingMode === 'monthly_fixed' && cycle.type === 'institutional_fixed') {
+      const agg = monthlyByCycle.get(cycle.id);
+      if (!agg || agg.meetings === 0) continue;
+      const total = Math.round(agg.total * 100) / 100;
+      summaries.push({
+        cycleId: cycle.id,
+        cycleName: cycle.name,
+        cycleType: cycle.type,
+        pricePerMeeting: Number(cycle.meetingRevenue ?? 0),
+        studentCount: cycle.studentCount ?? 0,
+        completedMeetings: agg.meetings,
+        unitPrice: total,
+        quantity: 1,
+        total,
+        description: `${cycle.name} — ${hebrewLabel} (תשלום חודשי קבוע, ${agg.meetings} מפגשים)`,
+        meetingIds: agg.meetingIds,
+      });
+      continue;
+    }
+
     const completedMeetings = cycle.meetings.length;
     if (completedMeetings === 0) continue;
 

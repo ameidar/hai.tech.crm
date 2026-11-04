@@ -44,3 +44,19 @@ describe('reminder eligibility filters', () => {
     });
   });
 });
+
+describe('reminder registration eligibility', () => {
+  it('includes active and trial registrations, excluding deleted ones', async () => {
+    const { reminderEligibleRegistrationWhere } = await import('../reminder-eligibility.js');
+    expect(reminderEligibleRegistrationWhere()).toEqual({
+      status: { in: ['active', 'trial'] },
+      deletedAt: null,
+    });
+  });
+
+  it('keeps trial registrations out of revenue', async () => {
+    const { isRevenueRegistration } = await import('../../utils/revenue.js');
+    expect(isRevenueRegistration({ status: 'trial' })).toBe(false);
+    expect(isRevenueRegistration({ status: 'active' })).toBe(true);
+  });
+});

@@ -47,6 +47,8 @@ export async function checkAndSendMeetingReportQualityAlert(
   });
 
   if (!meeting || meeting.status !== 'completed') return;
+  // Teaching-assistant cycles ("תומכת הוראה", "תומכים") mirror the lead instructor's lesson — no report expected.
+  if (isTeachingAssistantCycle(meeting.cycle.name)) return;
 
   const registrationCount = meeting.cycle.registrations.length;
   const isGroupMeeting = registrationCount > 1;
@@ -89,6 +91,10 @@ ${issues.map((issue) => `• ${issue}`).join('\n')}
   await sendInstructorReportNudge(meeting, { missingTopic, missingAttendance }).catch((err) => {
     console.error(`[MeetingReportQuality] instructor nudge failed for meeting ${meetingId}:`, err);
   });
+}
+
+export function isTeachingAssistantCycle(cycleName: string | null | undefined): boolean {
+  return /תומכ(ת|ים|ות)?(\s+הוראה)?/.test(cycleName || '');
 }
 
 function nudgeMarker(meetingId: string): string {

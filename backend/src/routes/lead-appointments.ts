@@ -5,6 +5,7 @@ import { authenticate, managerOrAdmin, salesOrAbove } from '../middleware/auth.j
 import { findOrCreateCustomer } from '../utils/lead-customer.js';
 import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
 import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
+import { assertLeadConversionAllowed, isConvertRequest } from '../services/lead-payment-evidence.js';
 
 export const leadAppointmentsRouter = Router();
 leadAppointmentsRouter.use(authenticate);
@@ -50,6 +51,34 @@ function parseNullableDate(value: unknown) {
 
 function requestUserId(req: Request) {
   return (req.user as any)?.userId || (req.user as any)?.id || null;
+}
+
+function requestUserRole(req: Request): string | null {
+  return (req.user as any)?.role || null;
+}
+
+function joinNotes(...notes: Array<string | null | undefined>) {
+  const parts = notes.map((n) => (typeof n === 'string' ? n.trim() : '')).filter(Boolean);
+  return parts.length ? parts.join('\n') : null;
+}
+
+/**
+ * Guard for marking an existing lead 'converted'. Returns the admin-override note to
+ * record (or null). Throws 404/409.
+ */
+async function guardLeadConversion(req: Request, leadId: string, input: { salesStatus?: unknown; result?: unknown }) {
+  if (!isConvertRequest(input)) return null;
+  const lead = await prisma.leadAppointment.findUnique({
+    where: { id: leadId },
+    select: { id: true, customerId: true, customerPhone: true, customerEmail: true, createdAt: true, salesStatus: true },
+  });
+  if (!lead) throw new AppError(404, 'Lead appointment not found');
+  const { overrideNote } = await assertLeadConversionAllowed({
+    lead,
+    role: requestUserRole(req),
+    overrideReason: req.body?.overrideReason,
+  });
+  return overrideNote;
 }
 
 function buildLeadSearchClauses(search: string) {
@@ -242,6 +271,15 @@ leadAppointmentsRouter.post('/', async (req: Request, res: Response, next: NextF
       childName,
     });
 
+    let createOverrideNote: string | null = null;
+    if (isConvertRequest({ salesStatus })) {
+      ({ overrideNote: createOverrideNote } = await assertLeadConversionAllowed({
+        lead: { customerId: customerId || null, customerPhone, customerEmail, createdAt: new Date() },
+        role: requestUserRole(req),
+        overrideReason: req.body?.overrideReason,
+      }));
+    }
+
     const { lead } = await findOrCreateLeadAppointment({
       customerId: customerId || null,
       customerName: customerName || customerPhone || 'לא ידוע',
@@ -258,6 +296,18 @@ leadAppointmentsRouter.post('/', async (req: Request, res: Response, next: NextF
       assignedToId: assignedToId || null,
       nextFollowUpAt: nextFollowUpAt ? new Date(nextFollowUpAt) : null,
     });
+
+    if (createOverrideNote) {
+      await prisma.leadActivity.create({
+        data: {
+          leadAppointmentId: lead.id,
+          userId: requestUserId(req),
+          type: 'note',
+          result: 'converted',
+          note: createOverrideNote,
+        },
+      });
+    }
 
     const item = await prisma.leadAppointment.findUnique({
       where: { id: lead.id },
@@ -326,6 +376,8 @@ leadAppointmentsRouter.patch('/:id', async (req: Request, res: Response, next: N
       data.lastContactedAt = lastContactResult ? new Date() : null;
     }
 
+    const overrideNote = await guardLeadConversion(req, req.params.id, { salesStatus, result: lastContactResult });
+
     const item = await prisma.$transaction(async (tx) => {
       const updated = await tx.leadAppointment.update({
         where: { id: req.params.id },
@@ -333,14 +385,14 @@ leadAppointmentsRouter.patch('/:id', async (req: Request, res: Response, next: N
         include: LEAD_DETAIL_INCLUDE,
       });
 
-      if (activityType || activityNote || lastContactResult) {
+      if (activityType || activityNote || lastContactResult || overrideNote) {
         await tx.leadActivity.create({
           data: {
             leadAppointmentId: req.params.id,
             userId: requestUserId(req),
             type: activityType || 'note',
-            result: lastContactResult || null,
-            note: activityNote || appointmentNotes || null,
+            result: lastContactResult || (overrideNote ? 'converted' : null),
+            note: overrideNote ? joinNotes(activityNote || appointmentNotes, overrideNote) : (activityNote || appointmentNotes || null),
             nextFollowUpAt: parsedNextFollowUpAt === undefined ? null : parsedNextFollowUpAt,
           },
         });
@@ -360,6 +412,7 @@ leadAppointmentsRouter.post('/:id/activities', async (req: Request, res: Respons
   try {
     const { type = 'note', result, note, nextFollowUpAt, salesStatus } = req.body;
     const parsedNextFollowUpAt = parseNullableDate(nextFollowUpAt);
+    const overrideNote = await guardLeadConversion(req, req.params.id, { salesStatus, result });
 
     const item = await prisma.$transaction(async (tx) => {
       const activity = await tx.leadActivity.create({
@@ -368,7 +421,7 @@ leadAppointmentsRouter.post('/:id/activities', async (req: Request, res: Respons
           userId: requestUserId(req),
           type,
           result: result || null,
-          note: note || null,
+          note: overrideNote ? joinNotes(note, overrideNote) : (note || null),
           nextFollowUpAt: parsedNextFollowUpAt === undefined ? null : parsedNextFollowUpAt,
         },
         include: { user: { select: { id: true, name: true, email: true, role: true } } },

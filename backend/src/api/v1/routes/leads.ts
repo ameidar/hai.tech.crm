@@ -5,7 +5,8 @@ import { authenticate, AuthRequest } from '../middleware/auth.js';
 import { requireScope } from '../middleware/scope-check.js';
 import { validateParams, validateQuery, validateBody } from '../middleware/validate.js';
 import { idParamSchema } from '../validators/common.js';
-import { ForbiddenError } from '../../../common/errors/index.js';
+import { ForbiddenError, NotFoundError } from '../../../common/errors/index.js';
+import { assertLeadConversionAllowed, isConvertRequest } from '../../../services/lead-payment-evidence.js';
 
 const router = Router();
 
@@ -29,6 +30,7 @@ const updateLeadSchema = z.object({
   lastContactResult: z.string().nullable().optional(),
   activityType: z.string().optional(),
   activityNote: z.string().nullable().optional(),
+  overrideReason: z.string().optional(),
 }).strict();
 
 const createActivitySchema = z.object({
@@ -37,10 +39,35 @@ const createActivitySchema = z.object({
   note: z.string().nullable().optional(),
   nextFollowUpAt: z.string().datetime().nullable().optional(),
   salesStatus: z.string().optional(),
+  overrideReason: z.string().optional(),
 }).strict();
 
 function userId(req: AuthRequest) {
   return req.user?.userId || null;
+}
+
+function joinNotes(...notes: Array<string | null | undefined>) {
+  const parts = notes.map((n) => (typeof n === 'string' ? n.trim() : '')).filter(Boolean);
+  return parts.length ? parts.join('\n') : null;
+}
+
+/** Returns the admin-override note to record (or null); throws 404/409. */
+async function guardLeadConversion(
+  req: AuthRequest,
+  input: { salesStatus?: string | null; result?: string | null; overrideReason?: string },
+) {
+  if (!isConvertRequest(input)) return null;
+  const lead = await prisma.leadAppointment.findUnique({
+    where: { id: req.params.id },
+    select: { id: true, customerId: true, customerPhone: true, customerEmail: true, createdAt: true, salesStatus: true },
+  });
+  if (!lead) throw new NotFoundError('Lead', req.params.id);
+  const { overrideNote } = await assertLeadConversionAllowed({
+    lead,
+    role: req.user?.role,
+    overrideReason: input.overrideReason,
+  });
+  return overrideNote;
 }
 
 function canReadPayments(req: AuthRequest) {
@@ -237,6 +264,12 @@ router.patch(
           ? new Date(body.nextFollowUpAt)
           : null;
 
+      const overrideNote = await guardLeadConversion(req, {
+        salesStatus: body.salesStatus,
+        result: body.lastContactResult,
+        overrideReason: body.overrideReason,
+      });
+
       const item = await prisma.$transaction(async (tx) => {
         const updated = await tx.leadAppointment.update({
           where: { id: req.params.id },
@@ -252,14 +285,14 @@ router.patch(
           include: leadInclude(true),
         });
 
-        if (body.activityType || body.activityNote || body.lastContactResult) {
+        if (body.activityType || body.activityNote || body.lastContactResult || overrideNote) {
           await tx.leadActivity.create({
             data: {
               leadAppointmentId: req.params.id,
               userId: userId(req),
               type: body.activityType || 'note',
-              result: body.lastContactResult || null,
-              note: body.activityNote || null,
+              result: body.lastContactResult || (overrideNote ? 'converted' : null),
+              note: overrideNote ? joinNotes(body.activityNote, overrideNote) : (body.activityNote || null),
               nextFollowUpAt: nextFollowUpAt === undefined ? null : nextFollowUpAt,
             },
           });
@@ -284,6 +317,7 @@ router.post(
     try {
       const body = req.body as z.infer<typeof createActivitySchema>;
       const nextFollowUpAt = body.nextFollowUpAt ? new Date(body.nextFollowUpAt) : null;
+      const overrideNote = await guardLeadConversion(req, body);
 
       const activity = await prisma.$transaction(async (tx) => {
         const created = await tx.leadActivity.create({
@@ -292,7 +326,7 @@ router.post(
             userId: userId(req),
             type: body.type,
             result: body.result || null,
-            note: body.note || null,
+            note: overrideNote ? joinNotes(body.note, overrideNote) : (body.note || null),
             nextFollowUpAt,
           },
           include: { user: { select: { id: true, name: true, email: true, role: true } } },

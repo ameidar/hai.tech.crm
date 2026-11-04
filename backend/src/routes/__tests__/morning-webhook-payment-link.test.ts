@@ -29,6 +29,11 @@ vi.mock('../../services/trial-placement.js', () => ({
   handlePostPaymentPlacement: vi.fn(),
 }));
 
+vi.mock('../../services/lead-payment-evidence.js', () => ({
+  autoConvertLeadsForPayment: vi.fn(),
+  autoConvertLeadsForRegistration: vi.fn(),
+}));
+
 vi.mock('../../services/omer-payment-reconciliation.js', () => ({
   reconcileOmerRegistrationPayment: vi.fn(),
 }));

@@ -41,6 +41,7 @@ import { initWooBackupSyncScheduler } from './services/woo-sync-scheduler.js';
 import { initMorningReceiptSyncScheduler } from './services/morning-receipt-sync-scheduler.js';
 import { initGoogleMeetArtifactsScheduler } from './services/google-meet-artifacts-scheduler.js';
 import { reconcileOmerRegistrationPayment } from './services/omer-payment-reconciliation.js';
+import { autoConvertLeadsForPayment } from './services/lead-payment-evidence.js';
 import { forecastRouter } from './routes/forecast.js';
 import { companyFixedCostsRouter } from './routes/company-fixed-costs.js';
 import { quotesRouter } from './routes/quotes.js';
@@ -348,6 +349,7 @@ async function recordPaidPaymentLink(code: string) {
   });
 
   await reconcileOmerRegistrationPayment(payment.id);
+  await autoConvertLeadsForPayment(payment.id);
 
   return { link, payment, customer, created: createdCustomer, duplicate: false };
 }

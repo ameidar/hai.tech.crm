@@ -5,6 +5,7 @@ import { config } from '../config.js';
 import { prisma } from '../utils/prisma.js';
 import { handlePostPaymentPlacement } from '../services/trial-placement.js';
 import { reconcileOmerRegistrationPayment } from '../services/omer-payment-reconciliation.js';
+import { autoConvertLeadsForPayment } from '../services/lead-payment-evidence.js';
 import { extractGreenInvoice, syncRecentWooPayments, upsertWooOrderPayment } from '../services/woo-sync.js';
 import { createWooPaymentLink, inferDigitalCourseProductId } from '../services/woo-payment-link.js';
 
@@ -318,6 +319,7 @@ router.post('/manual', authenticate, async (req: any, res) => {
   // Trial-lesson placement automation (non-digital payments → flag + notify).
   await reconcileOmerRegistrationPayment(payment.id);
   await handlePostPaymentPlacement(payment.id);
+  await autoConvertLeadsForPayment(payment.id);
 
   return res.status(201).json(payment);
 });
@@ -377,6 +379,7 @@ router.patch('/:id', authenticate, async (req, res) => {
 
   try {
     const updated = await prisma.payment.update({ where: { id }, data: updateData });
+    if (status === 'paid') await autoConvertLeadsForPayment(updated.id);
     return res.json(updated);
   } catch (e: any) {
     if (e?.code === 'P2025') return res.status(404).json({ error: 'לא נמצא' });

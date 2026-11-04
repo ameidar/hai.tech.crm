@@ -11,6 +11,7 @@ import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
 import { checkAndSendInstitutionalOrderCompletionAlert } from '../services/institutional-order-completion-alert.js';
 import { resolveRegistrationAmountForCycle } from '../utils/registration-amount.js';
 import { cancelFutureMeetingsForCycle } from '../services/cancellations.js';
+import { autoConvertLeadsForRegistration } from '../services/lead-payment-evidence.js';
 import { redistributeMonthlyFixedRevenue, syncMonthlyFixedForCycle } from '../services/monthly-fixed-billing.js';
 import {
   computeRevenuePerMeeting,
@@ -1007,6 +1008,9 @@ cyclesRouter.post('/:id/registrations', cycleRosterOrAdmin, async (req, res, nex
           cycle: { select: { id: true, name: true } },
         },
       });
+      if (data.paymentStatus === 'paid' || data.paymentStatus === 'partial') {
+        await autoConvertLeadsForRegistration(reactivated.id);
+      }
       return res.status(200).json(reactivated);
     }
 
@@ -1035,6 +1039,10 @@ cyclesRouter.post('/:id/registrations', cycleRosterOrAdmin, async (req, res, nex
     recalcMeetingRevenue(cycleId).catch(err =>
       console.error('[RECALC REVENUE] Error after registration create:', err)
     );
+
+    if (data.paymentStatus === 'paid' || data.paymentStatus === 'partial') {
+      await autoConvertLeadsForRegistration(registration.id);
+    }
 
     res.status(201).json(registration);
   } catch (error) {

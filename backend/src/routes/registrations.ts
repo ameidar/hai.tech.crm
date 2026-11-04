@@ -11,6 +11,12 @@ import { parsePaginationParams, paginatedResponse } from '../utils/pagination.js
 import { sendEmail, sendWhatsAppMessage } from '../services/notifications.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { cancelFutureMeetingsForCycle } from '../services/cancellations.js';
+import { autoConvertLeadsForRegistration } from '../services/lead-payment-evidence.js';
+
+const PAID_STATUSES = ['paid', 'partial'];
+function becamePaid(oldStatus: string | null | undefined, newStatus: string | null | undefined) {
+  return !!newStatus && PAID_STATUSES.includes(newStatus) && !PAID_STATUSES.includes(oldStatus || '');
+}
 
 async function hasActiveRegistrations(cycleId: string): Promise<boolean> {
   const activeCount = await prisma.registration.count({
@@ -168,6 +174,10 @@ registrationsRouter.put('/:id', cycleRosterOrAdmin, async (req, res, next) => {
       recalcMeetingRevenue(registration.cycle.id).catch(err =>
         console.error('[RECALC REVENUE] Error:', err)
       );
+    }
+
+    if (becamePaid(oldRegistration?.paymentStatus, updateData.paymentStatus)) {
+      await autoConvertLeadsForRegistration(registration.id);
     }
 
     res.json(registration);
@@ -413,6 +423,10 @@ registrationsRouter.post('/:id/payment', managerOrAdmin, async (req, res, next) 
     // Audit log
     if (oldRegistration) {
       await logUpdateAudit({ entity: 'Registration', entityId: id, oldRecord: oldRegistration, newRecord: registration, req });
+    }
+
+    if (becamePaid(oldRegistration?.paymentStatus, data.paymentStatus)) {
+      await autoConvertLeadsForRegistration(registration.id);
     }
 
     res.json(registration);

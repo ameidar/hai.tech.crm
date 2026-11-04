@@ -17,6 +17,11 @@ vi.mock('../../utils/prisma.js', () => ({
   },
 }));
 
+vi.mock('../lead-payment-evidence.js', () => ({
+  autoConvertLeadsForPayment: vi.fn(),
+  autoConvertLeadsForRegistration: vi.fn(),
+}));
+
 vi.mock('../omer-payment-reconciliation.js', () => ({
   findReconcilableOmerRegistrations: vi.fn(),
   reconcileOmerRegistrationPayment: vi.fn(),

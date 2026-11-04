@@ -4,6 +4,7 @@ import { createMorningClient, findClientForCustomer } from './morning/clients.js
 import { DOCUMENT_TYPES, searchMorningDocuments, type MorningDocument } from './morning/documents.js';
 import { reconcileOmerRegistrationPayment } from './omer-payment-reconciliation.js';
 import { handlePostPaymentPlacement } from './trial-placement.js';
+import { autoConvertLeadsForPayment } from './lead-payment-evidence.js';
 
 type WooMeta = { key?: string; value?: any };
 
@@ -320,6 +321,7 @@ export async function upsertWooOrderPayment(
       const linkedCustomerId = customerPatch.customerId || existing.customerId;
       if (linkedCustomerId) await ensureMorningClientForCustomer(linkedCustomerId);
       await reconcileOmerRegistrationPayment(existing.id);
+      await autoConvertLeadsForPayment(existing.id);
     }
     return {
       action: 'updated',
@@ -361,6 +363,7 @@ export async function upsertWooOrderPayment(
   }
 
   await reconcileOmerRegistrationPayment(createdPayment.id);
+  await autoConvertLeadsForPayment(createdPayment.id);
 
   return { action: 'created', orderId, paymentId: createdPayment.id, invoiceUrl: invoiceUrl || null, invoiceNumber: invoiceNumber || null, invoiceSource };
 }

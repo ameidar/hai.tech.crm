@@ -24,6 +24,10 @@ vi.mock('../omer-payment-reconciliation.js', () => ({
   reconcileOmerRegistrationPayment: vi.fn(),
 }));
 
+vi.mock('../lead-payment-evidence.js', () => ({
+  autoConvertLeadsForPayment: vi.fn(),
+}));
+
 vi.mock('../morning/clients.js', () => ({
   findClientForCustomer: vi.fn(),
   createMorningClient: vi.fn(),
@@ -44,6 +48,7 @@ import { searchMorningDocuments } from '../morning/documents.js';
 import { handlePostPaymentPlacement } from '../trial-placement.js';
 import { reconcileOmerRegistrationPayment } from '../omer-payment-reconciliation.js';
 import { syncRecentWooPayments, upsertWooOrderPayment } from '../woo-sync.js';
+import { autoConvertLeadsForPayment } from '../lead-payment-evidence.js';
 
 const mockPrisma = vi.mocked(prisma);
 const mockPlacement = vi.mocked(handlePostPaymentPlacement);
@@ -120,6 +125,8 @@ describe('Woo payment sync', () => {
     });
     expect(mockPlacement).not.toHaveBeenCalled();
     expect(mockReconcileOmerRegistrationPayment).toHaveBeenCalledWith('payment-id');
+    // Website/LMS purchase closes the customer's open leads as converted
+    expect(vi.mocked(autoConvertLeadsForPayment)).toHaveBeenCalledWith('payment-id');
   });
 
   it('creates and stores a Morning client for a paid Woo order customer when missing', async () => {

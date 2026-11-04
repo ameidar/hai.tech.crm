@@ -16,7 +16,8 @@ export type OperationsAlertType =
   | 'student_absence_risk'
   | 'instructor_change_risk'
   | 'cycle_churn_risk'
-  | 'low_enrollment';
+  | 'low_enrollment'
+  | 'lead_follow_up';
 export type FreshnessStatus = 'fresh' | 'stale' | 'error';
 export type OverallStatus = 'ok' | 'watch' | 'urgent' | 'data_error';
 
@@ -25,7 +26,7 @@ export interface OperationsAlert {
   priority: OperationsAlertPriority;
   type: OperationsAlertType;
   title: string;
-  entityType: 'meeting' | 'cycle' | 'task' | 'instructor';
+  entityType: 'meeting' | 'cycle' | 'task' | 'instructor' | 'lead';
   entityId: string;
   entityUrl: string;
   clientName: string | null;
@@ -71,6 +72,22 @@ type TaskWithRelations = Prisma.TaskGetPayload<{
   include: {
     assignee: { select: { id: true; name: true; role: true } };
     createdBy: { select: { id: true; name: true; role: true } };
+  };
+}>;
+
+type LeadAppointmentWithRelations = Prisma.LeadAppointmentGetPayload<{
+  include: {
+    assignedTo: { select: { id: true; name: true; role: true } };
+    customer: { select: { id: true; name: true } };
+    activities: {
+      select: {
+        type: true;
+        result: true;
+        note: true;
+        nextFollowUpAt: true;
+        createdAt: true;
+      };
+    };
   };
 }>;
 
@@ -200,6 +217,10 @@ function instructorUrl(name: string) {
 
 function customerUrl(id: string) {
   return `/customers/${id}`;
+}
+
+function leadUrl(id: string) {
+  return `/lead-appointments?id=${encodeURIComponent(id)}`;
 }
 
 function buildPastScheduledAlerts(meetings: MeetingWithRelations[], context: {
@@ -507,6 +528,57 @@ function buildLowEnrollmentAlerts(cycles: CycleWithRegistrationRisk[], detectedA
   });
 }
 
+function leadHasManualEmailActivity(lead: LeadAppointmentWithRelations) {
+  return lead.activities.some((activity) => {
+    const note = activity.note || '';
+    return activity.type === 'manual_email_required'
+      || activity.result === 'manual_email_required'
+      || note.includes('תשובה ידנית')
+      || note.includes('נדרשת תשובה ידנית');
+  });
+}
+
+function buildLeadFollowUpAlerts(leads: LeadAppointmentWithRelations[], context: {
+  detectedAt: string;
+  now: Date;
+}): AlertCandidate[] {
+  return leads
+    .filter((lead) => leadHasManualEmailActivity(lead) || !lead.nextFollowUpAt || lead.nextFollowUpAt <= context.now)
+    .map((lead) => {
+      const manualEmailRequired = leadHasManualEmailActivity(lead);
+      const priority: OperationsAlertPriority = manualEmailRequired ? 'high' : 'normal';
+      const customerName = lead.customerName || lead.customer?.name || null;
+      const emailText = lead.customerEmail ? ` מייל: ${lead.customerEmail}.` : '';
+      const phoneText = lead.customerPhone ? ` טלפון: ${lead.customerPhone}.` : '';
+      const followUpText = lead.nextFollowUpAt
+        ? ` מועד מעקב: ${lead.nextFollowUpAt.toLocaleString('he-IL', { timeZone: TZ })}.`
+        : ' אין מועד מעקב מוגדר.';
+
+      return {
+        id: `lead-follow-up:${lead.id}`,
+        priority,
+        type: 'lead_follow_up',
+        title: manualEmailRequired ? 'ליד דורש תשובה ידנית' : 'ליד פתוח למעקב',
+        entityType: 'lead',
+        entityId: lead.id,
+        entityUrl: leadUrl(lead.id),
+        clientName: customerName,
+        cycleName: null,
+        instructorName: lead.assignedTo?.name || null,
+        description: manualEmailRequired
+          ? `הבוט סימן שליד זה צריך מענה אנושי לפני שליחת מייל ללקוח.${emailText}${phoneText}`
+          : `ליד פתוח שמועד המעקב שלו הגיע או לא הוגדר.${followUpText}${phoneText}`,
+        recommendedAction: manualEmailRequired
+          ? 'לפתוח את הליד, לשלוח ללקוח מייל ידני עם המידע המדויק, ואז לסגור את ההתראה.'
+          : 'לבדוק את סטטוס הליד ולעדכן תוצאת קשר או מועד מעקב הבא.',
+        detectedAt: context.detectedAt,
+        taskId: null,
+        contactName: customerName,
+        contactUrl: lead.customerId ? customerUrl(lead.customerId) : null,
+      } satisfies AlertCandidate;
+    });
+}
+
 export function filterAndSortAlerts<T extends AlertCandidate>(
   alerts: T[],
   filters: Pick<OperationsControlFilters, 'priority' | 'type'>,
@@ -522,6 +594,7 @@ export function buildOperationsAlerts(data: {
   pastScheduledMeetings: MeetingWithRelations[];
   recentCompletedMeetings: MeetingWithRelations[];
   overdueTasks: TaskWithRelations[];
+  followUpLeads: LeadAppointmentWithRelations[];
   recentAbsences: AbsenceRiskRecord[];
   recentChangeRequests: MeetingChangeRequestWithRelations[];
   activeCycles: CycleWithRegistrationRisk[];
@@ -539,6 +612,10 @@ export function buildOperationsAlerts(data: {
     ...buildMissingTopicAlerts(data.recentCompletedMeetings, data.detectedAt),
     ...buildMissingAttendanceAlerts(data.recentCompletedMeetings, data.detectedAt),
     ...buildOverdueTaskAlerts(data.overdueTasks, data.detectedAt),
+    ...buildLeadFollowUpAlerts(data.followUpLeads, {
+      detectedAt: data.detectedAt,
+      now: new Date(data.detectedAt),
+    }),
     ...buildLowProfitAlerts(data.recentCompletedMeetings, data.detectedAt),
     ...buildStudentAbsenceRiskAlerts(data.recentAbsences, data.detectedAt),
     ...buildInstructorChangeRiskAlerts(data.recentChangeRequests, data.detectedAt),
@@ -683,7 +760,23 @@ export async function getOperationsControlToday(filters: OperationsControlFilter
     createdBy: { select: { id: true, name: true, role: true } },
   } satisfies Prisma.TaskInclude;
 
-  const [todayMeetings, recentCompletedMeetings, pastScheduledMeetings, weekMeetings, overdueTasks, openTasks, openTaskCount, recentAbsences, recentChangeRequests, activeCycles] = await Promise.all([
+  const leadInclude = {
+    assignedTo: { select: { id: true, name: true, role: true } },
+    customer: { select: { id: true, name: true } },
+    activities: {
+      select: {
+        type: true,
+        result: true,
+        note: true,
+        nextFollowUpAt: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    },
+  } satisfies Prisma.LeadAppointmentInclude;
+
+  const [todayMeetings, recentCompletedMeetings, pastScheduledMeetings, weekMeetings, overdueTasks, openTasks, openTaskCount, followUpLeads, recentAbsences, recentChangeRequests, activeCycles] = await Promise.all([
     prisma.meeting.findMany({
       where: { scheduledDate: todayDate, deletedAt: null },
       include: meetingInclude,
@@ -745,6 +838,33 @@ export async function getOperationsControlToday(filters: OperationsControlFilter
     prisma.task.count({
       where: { deletedAt: null, status: { not: 'completed' } },
     }),
+    prisma.leadAppointment.findMany({
+      where: {
+        assignedTo: {
+          role: { in: ['operations', 'operations_control', 'operations_manager'] },
+        },
+        salesStatus: { notIn: ['converted', 'not_relevant'] },
+        appointmentStatus: { notIn: ['completed', 'cancelled', 'converted', 'not_relevant'] },
+        OR: [
+          { nextFollowUpAt: null },
+          { nextFollowUpAt: { lte: generatedAt } },
+          {
+            activities: {
+              some: {
+                OR: [
+                  { type: 'manual_email_required' },
+                  { result: 'manual_email_required' },
+                  { note: { contains: 'תשובה ידנית' } },
+                ],
+              },
+            },
+          },
+        ],
+      },
+      include: leadInclude,
+      orderBy: [{ nextFollowUpAt: 'asc' }, { updatedAt: 'desc' }],
+      take: 50,
+    }),
     prisma.attendance.findMany({
       where: {
         status: 'absent',
@@ -800,6 +920,7 @@ export async function getOperationsControlToday(filters: OperationsControlFilter
     pastScheduledMeetings,
     recentCompletedMeetings,
     overdueTasks,
+    followUpLeads,
     recentAbsences,
     recentChangeRequests,
     activeCycles,
@@ -905,6 +1026,7 @@ export const __operationsControlTestUtils = {
   buildInstructorChangeRiskAlerts,
   buildCycleChurnRiskAlerts,
   buildLowEnrollmentAlerts,
+  buildLeadFollowUpAlerts,
   applyIssueStates,
   dateFromDateString,
 };

@@ -85,6 +85,7 @@ const salesStatusColors: Record<string, string> = {
   no_answer: 'bg-orange-100 text-orange-800',
   interested: 'bg-indigo-100 text-indigo-800',
   not_relevant: 'bg-gray-100 text-gray-700',
+  pending_payment: 'bg-yellow-100 text-yellow-800',
   converted: 'bg-emerald-100 text-emerald-800',
 };
 
@@ -95,10 +96,11 @@ const salesStatusLabels: Record<string, string> = {
   no_answer: 'לא ענה',
   interested: 'מתעניין',
   not_relevant: 'לא רלוונטי',
+  pending_payment: 'נרשם – ממתין לתשלום',
   converted: 'נסגר להרשמה',
 };
 
-const allSalesStatuses = ['new', 'follow_up', 'scheduled', 'no_answer', 'interested', 'not_relevant', 'converted'];
+const allSalesStatuses = ['new', 'follow_up', 'scheduled', 'no_answer', 'interested', 'not_relevant', 'pending_payment', 'converted'];
 
 const contactResultLabels: Record<string, string> = {
   called: 'התקשרתי',
@@ -1086,37 +1088,52 @@ function LeadDetailModal({
   const [showTranscript, setShowTranscript] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Set when the server refuses 'converted' because no payment is recorded.
+  const [paymentRequired, setPaymentRequired] = useState<{ canOverride: boolean } | null>(null);
+  const [overrideReason, setOverrideReason] = useState('');
 
-  const handleSave = async () => {
+  const handleSave = async (overrides: { salesStatus?: string; contactResult?: string } = {}) => {
     if (!nextFollowUpAt) {
       setError('יש למלא תאריך חזרה לפני שמירת הליד');
       return;
     }
 
+    const nextSalesStatus = overrides.salesStatus ?? salesStatus;
+    const nextContactResult = overrides.contactResult ?? contactResult;
     setError('');
     setSaving(true);
     try {
       await api.patch(`/lead-appointments/${lead.id}`, {
         appointmentStatus: status,
-        salesStatus,
+        salesStatus: nextSalesStatus,
         appointmentDate: date || null,
         appointmentTime: time || null,
         nextFollowUpAt: nextFollowUpAt || null,
-        lastContactResult: contactResult || undefined,
-        activityType: contactResult ? 'contact' : activityNote.trim() ? 'note' : undefined,
+        lastContactResult: nextContactResult || undefined,
+        activityType: nextContactResult ? 'contact' : activityNote.trim() ? 'note' : undefined,
         activityNote: activityNote.trim() || undefined,
         appointmentNotes: notes,
+        overrideReason: overrideReason.trim() || undefined,
       });
       onSaved();
     } catch (err: unknown) {
       console.error('Failed to save:', err);
-      const message = typeof err === 'object' && err && 'response' in err
-        ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
+      const data = typeof err === 'object' && err && 'response' in err
+        ? (err as { response?: { data?: { message?: string; data?: { code?: string; canOverride?: boolean } } } }).response?.data
         : undefined;
-      setError(message || 'שגיאה בשמירת הליד');
+      setPaymentRequired(data?.data?.code === 'PAYMENT_REQUIRED' ? { canOverride: !!data.data.canOverride } : null);
+      setError(data?.message || 'שגיאה בשמירת הליד');
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSaveAsPendingPayment = () => {
+    setSalesStatus('pending_payment');
+    const nextContactResult = contactResult === 'converted' ? '' : contactResult;
+    setContactResult(nextContactResult);
+    setPaymentRequired(null);
+    handleSave({ salesStatus: 'pending_payment', contactResult: nextContactResult });
   };
 
   const handleTakeOwnership = async () => {
@@ -1439,6 +1456,31 @@ function LeadDetailModal({
             </div>
           )}
 
+          {paymentRequired && (
+            <div className="space-y-2 rounded-md border border-yellow-200 bg-yellow-50 p-3 text-sm">
+              <button
+                onClick={handleSaveAsPendingPayment}
+                disabled={saving}
+                className="rounded-md bg-yellow-500 px-3 py-1.5 font-medium text-white hover:bg-yellow-600 disabled:opacity-50"
+              >
+                שמור כ"{salesStatusLabels.pending_payment}"
+              </button>
+              {paymentRequired.canOverride && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">סיבת אישור מנהל לסגירה ללא תשלום</label>
+                  <input
+                    type="text"
+                    value={overrideReason}
+                    onChange={(e) => setOverrideReason(e.target.value)}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                    placeholder="למשל: שולם בהעברה בנקאית, טרם נקלט במערכת"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">מלא סיבה ולחץ "שמור" כדי לסגור להרשמה בכל זאת.</p>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex justify-between gap-2">
             <button
               onClick={handleTakeOwnership}
@@ -1449,7 +1491,7 @@ function LeadDetailModal({
               קח אחריות
             </button>
             <button
-              onClick={handleSave}
+              onClick={() => handleSave()}
               disabled={saving}
               className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm"
             >

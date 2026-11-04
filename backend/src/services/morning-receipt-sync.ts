@@ -17,6 +17,7 @@
  * of the customer's registrations has no invoice yet and the same amount.
  */
 
+import { autoConvertLeadsForPayment, autoConvertLeadsForRegistration } from './lead-payment-evidence.js';
 import { prisma } from '../utils/prisma.js';
 import { isMorningConfigured } from './morning/client.js';
 import { searchMorningDocuments, type MorningDocument } from './morning/documents.js';
@@ -106,6 +107,7 @@ async function linkReceiptToRegistration(
     },
   });
   console.log(`[MorningReceiptSync] doc #${doc.number} linked as invoice of registration ${registration.id}`);
+  await autoConvertLeadsForRegistration(registration.id);
   return { outcome: 'linked_invoice', registrationId: registration.id };
 }
 
@@ -204,6 +206,7 @@ export async function processMorningReceipt(
   });
 
   const reconciliation = await reconcileOmerRegistrationPayment(payment.id);
+  await autoConvertLeadsForPayment(payment.id);
   console.log(
     `[MorningReceiptSync] doc #${doc.number} → payment ${payment.id}, reconciliation=${reconciliation.status}` +
       (reconciliation.reason ? ` (${reconciliation.reason})` : ''),

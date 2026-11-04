@@ -15,6 +15,10 @@ vi.mock('../../../utils/prisma.js', () => ({
     },
     payment: {
       findMany: vi.fn(),
+      findFirst: vi.fn(),
+    },
+    registration: {
+      findFirst: vi.fn(),
     },
     $transaction: vi.fn(),
   },
@@ -72,6 +76,28 @@ describe('API v1 leads', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (mockPrisma.$transaction as any).mockImplementation(async (cb: any) => cb(mockPrisma));
+    (mockPrisma.payment.findFirst as any).mockResolvedValue(null);
+    (mockPrisma.registration.findFirst as any).mockResolvedValue(null);
+  });
+
+  it('rejects marking a lead converted without payment evidence', async () => {
+    mockPrisma.leadAppointment.findUnique.mockResolvedValue({
+      id: leadId, customerId: 'cust-1', customerPhone: '0501234567', customerEmail: null,
+      createdAt: new Date(), salesStatus: 'interested',
+    } as any);
+
+    const res = await request(app)
+      .patch(`/api/v1/leads/${leadId}`)
+      .send({ salesStatus: 'converted', lastContactResult: 'converted' });
+
+    expect(res.status).toBe(409);
+    expect(mockPrisma.leadAppointment.update).not.toHaveBeenCalled();
+
+    const activityRes = await request(app)
+      .post(`/api/v1/leads/${leadId}/activities`)
+      .send({ type: 'call', result: 'converted', overrideReason: 'sales cannot override' });
+    expect(activityRes.status).toBe(409);
+    expect(mockPrisma.leadActivity.create).not.toHaveBeenCalled();
   });
 
   it('lists leads for API-key clients with sales filters', async () => {

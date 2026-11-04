@@ -1028,6 +1028,21 @@ router.get('/webhook', (req: Request, res: Response) => {
 });
 
 // ── POST /api/wa/webhook — Incoming messages from Meta
+export async function applyMessageStatuses(statuses: any[]): Promise<void> {
+  for (const status of statuses) {
+    if (!status?.id) continue;
+    if (status.status === 'failed') {
+      await recordFailedMessageStatus(status);
+      continue;
+    }
+    await prisma.waMessage.updateMany({
+      where: { waMessageId: status.id },
+      data: { status: status.status }
+    });
+    broadcastSSE('message_status', { waMessageId: status.id, status: status.status });
+  }
+}
+
 async function recordFailedMessageStatus(status: any) {
   const { code, message } = describeMetaStatusError(status);
   const existing = await prisma.waMessage.findFirst({
@@ -1063,21 +1078,15 @@ router.post('/webhook', async (req: Request, res: Response) => {
       for (const change of entry.changes || []) {
         const value = change.value;
 
-        // Route selected phone-number traffic to an external agent and skip CRM handling.
-        if (await forwardInboundWebhookChangeToAgent(body, entry, change)) continue;
+        // Route selected phone-number traffic to an external agent. Inbound messages are the
+        // agent's to handle, but delivery statuses still belong to messages the CRM sent from that
+        // number (instructor reminders, report nudges…), so keep applying them here.
+        const forwardedToAgent = await forwardInboundWebhookChangeToAgent(body, entry, change);
 
-        // Status updates (delivered/read)
-        for (const status of value.statuses || []) {
-          if (status.status === 'failed') {
-            await recordFailedMessageStatus(status);
-            continue;
-          }
-          await prisma.waMessage.updateMany({
-            where: { waMessageId: status.id },
-            data: { status: status.status }
-          });
-          broadcastSSE('message_status', { waMessageId: status.id, status: status.status });
-        }
+        // Status updates (delivered/read/failed)
+        await applyMessageStatuses(value.statuses || []);
+
+        if (forwardedToAgent) continue;
 
         // Incoming messages
         const businessPhone = value.metadata?.display_phone_number ? '+' + value.metadata.display_phone_number.replace(/\D/g, '') : undefined;

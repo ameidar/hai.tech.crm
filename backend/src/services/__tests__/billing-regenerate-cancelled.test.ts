@@ -12,6 +12,12 @@ const prismaMock = vi.hoisted(() => ({
   cycle: {
     findMany: vi.fn(),
   },
+  institutionalOrder: {
+    findUnique: vi.fn(),
+  },
+  meeting: {
+    findMany: vi.fn(),
+  },
 }));
 
 vi.mock('../../utils/prisma.js', () => ({ prisma: prismaMock }));
@@ -24,6 +30,8 @@ describe('generateBillingPeriod cancelled periods', () => {
     prismaMock.billingPeriod.findFirst.mockResolvedValue(null);
     prismaMock.billingPeriodLine.deleteMany.mockResolvedValue({ count: 1 });
     prismaMock.cycle.findMany.mockResolvedValue([]);
+    prismaMock.institutionalOrder.findUnique.mockResolvedValue({ billingMode: 'per_meeting' });
+    prismaMock.meeting.findMany.mockResolvedValue([]);
   });
 
   it('revives a cancelled period as a fresh draft and clears old Morning proforma links', async () => {

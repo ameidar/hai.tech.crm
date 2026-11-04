@@ -40,6 +40,7 @@ import { initTaskReminderScheduler } from './services/task-reminders.js';
 import { initWooBackupSyncScheduler } from './services/woo-sync-scheduler.js';
 import { initMorningReceiptSyncScheduler } from './services/morning-receipt-sync-scheduler.js';
 import { initGoogleMeetArtifactsScheduler } from './services/google-meet-artifacts-scheduler.js';
+import { initLmsSignupNudgeScheduler } from './services/lms-signup-nudge.js';
 import { reconcileOmerRegistrationPayment } from './services/omer-payment-reconciliation.js';
 import { autoConvertLeadsForPayment } from './services/lead-payment-evidence.js';
 import { forecastRouter } from './routes/forecast.js';
@@ -656,6 +657,7 @@ const start = async () => {
       initWooBackupSyncScheduler();
       initMorningReceiptSyncScheduler();
       initGoogleMeetArtifactsScheduler();
+      initLmsSignupNudgeScheduler();
     }
 
     app.listen(config.port, () => {

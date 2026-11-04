@@ -4,6 +4,7 @@ import { logAudit } from '../../../utils/audit.js';
 import { prisma } from '../../../utils/prisma.js';
 import { resolveRegistrationAmount } from '../../../utils/registration-amount.js';
 import { Request } from 'express';
+import { autoConvertLeadsForRegistration } from '../../../services/lead-payment-evidence.js';
 import {
   RegistrationQuery,
   CreateRegistrationInput,
@@ -202,6 +203,11 @@ export class RegistrationsService {
       data.amount,
       data.invoiceLink
     );
+
+    const paidStatuses = ['paid', 'partial'];
+    if (paidStatuses.includes(data.paymentStatus) && !paidStatuses.includes(existing.paymentStatus || '')) {
+      await autoConvertLeadsForRegistration(registration.id);
+    }
 
     // Audit log
     if (req) {

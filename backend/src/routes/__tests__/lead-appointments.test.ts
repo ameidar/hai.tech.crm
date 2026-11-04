@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 
+const authState = vi.hoisted(() => ({ role: 'sales' }));
+
 // Mock prisma
 vi.mock('../../utils/prisma.js', () => ({
   prisma: {
@@ -16,6 +18,12 @@ vi.mock('../../utils/prisma.js', () => ({
     leadActivity: {
       create: vi.fn(),
     },
+    payment: {
+      findFirst: vi.fn(),
+    },
+    registration: {
+      findFirst: vi.fn(),
+    },
     $queryRaw: vi.fn(),
     $executeRaw: vi.fn(),
     $transaction: vi.fn(),
@@ -25,7 +33,7 @@ vi.mock('../../utils/prisma.js', () => ({
 // Mock authenticate as passthrough
 vi.mock('../../middleware/auth.js', () => ({
   authenticate: (req: any, _res: any, next: any) => {
-    req.user = { userId: 'user-1', id: 'user-1', role: 'sales' };
+    req.user = { userId: 'user-1', id: 'user-1', role: authState.role };
     next();
   },
   salesOrAbove: (_req: any, _res: any, next: any) => next(),
@@ -70,6 +78,9 @@ app.use((err: any, _req: any, res: any, _next: any) => {
 describe('Lead Appointments API', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authState.role = 'sales';
+    (mockPrisma.payment.findFirst as any).mockResolvedValue(null);
+    (mockPrisma.registration.findFirst as any).mockResolvedValue(null);
     (mockPrisma.$transaction as any).mockImplementation(async (cb: any) => cb(mockPrisma));
     (mockPrisma.$queryRaw as any).mockResolvedValue([]);
     (mockPrisma.$executeRaw as any).mockResolvedValue(undefined);
@@ -465,6 +476,125 @@ describe('Lead Appointments API', () => {
           nextFollowUpAt: new Date('2026-07-06T08:00:00.000Z'),
         }),
       });
+    });
+  });
+
+  describe('converting a lead requires payment', () => {
+    const existingLead = {
+      id: 'abc',
+      customerId: 'customer-1',
+      customerPhone: '0501234567',
+      customerEmail: null,
+      createdAt: new Date('2026-11-04T08:00:00Z'),
+      salesStatus: 'interested',
+    };
+    const blockedMessage = "אי אפשר לסמן 'נסגר להרשמה' בלי תשלום במערכת. סמן 'נרשם – ממתין לתשלום' או בקש אישור מנהל";
+
+    it('blocks PATCH to converted when the customer has no payment', async () => {
+      mockPrisma.leadAppointment.findUnique.mockResolvedValue(existingLead as any);
+
+      const res = await request(app)
+        .patch('/api/lead-appointments/abc')
+        .send({ salesStatus: 'converted', nextFollowUpAt: '2026-11-05T08:00:00.000Z' });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe(blockedMessage);
+      expect(mockPrisma.leadAppointment.update).not.toHaveBeenCalled();
+      expect(mockPrisma.leadActivity.create).not.toHaveBeenCalled();
+    });
+
+    it('blocks a converted contact result recorded as an activity', async () => {
+      mockPrisma.leadAppointment.findUnique.mockResolvedValue(existingLead as any);
+
+      const res = await request(app)
+        .post('/api/lead-appointments/abc/activities')
+        .send({ type: 'call', result: 'converted' });
+
+      expect(res.status).toBe(409);
+      expect(mockPrisma.leadActivity.create).not.toHaveBeenCalled();
+    });
+
+    it('allows conversion when a paid payment exists', async () => {
+      mockPrisma.leadAppointment.findUnique.mockResolvedValue(existingLead as any);
+      (mockPrisma.payment.findFirst as any).mockResolvedValue({ id: 'pay-1' });
+      mockPrisma.leadAppointment.update.mockResolvedValue({ id: 'abc', salesStatus: 'converted' } as any);
+
+      const res = await request(app)
+        .patch('/api/lead-appointments/abc')
+        .send({ salesStatus: 'converted', lastContactResult: 'converted' });
+
+      expect(res.status).toBe(200);
+      expect(mockPrisma.leadAppointment.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ salesStatus: 'converted' }),
+      }));
+    });
+
+    it('allows pending_payment without any payment', async () => {
+      mockPrisma.leadAppointment.update.mockResolvedValue({ id: 'abc', salesStatus: 'pending_payment' } as any);
+
+      const res = await request(app)
+        .patch('/api/lead-appointments/abc')
+        .send({ salesStatus: 'pending_payment' });
+
+      expect(res.status).toBe(200);
+      expect(mockPrisma.payment.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('does not re-check when saving a lead that is already converted', async () => {
+      mockPrisma.leadAppointment.findUnique.mockResolvedValue({ ...existingLead, salesStatus: 'converted' } as any);
+      mockPrisma.leadAppointment.update.mockResolvedValue({ id: 'abc' } as any);
+
+      const res = await request(app)
+        .patch('/api/lead-appointments/abc')
+        .send({ salesStatus: 'converted', activityNote: 'עדכון' });
+
+      expect(res.status).toBe(200);
+      expect(mockPrisma.payment.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('ignores overrideReason from a sales rep', async () => {
+      mockPrisma.leadAppointment.findUnique.mockResolvedValue(existingLead as any);
+
+      const res = await request(app)
+        .patch('/api/lead-appointments/abc')
+        .send({ salesStatus: 'converted', overrideReason: 'ישלם מחר' });
+
+      expect(res.status).toBe(409);
+      expect(mockPrisma.leadAppointment.update).not.toHaveBeenCalled();
+    });
+
+    it('lets an admin override only with a reason, and records it on the activity', async () => {
+      authState.role = 'admin';
+      mockPrisma.leadAppointment.findUnique.mockResolvedValue(existingLead as any);
+      mockPrisma.leadAppointment.update.mockResolvedValue({ id: 'abc', salesStatus: 'converted' } as any);
+
+      const noReason = await request(app)
+        .patch('/api/lead-appointments/abc')
+        .send({ salesStatus: 'converted' });
+      expect(noReason.status).toBe(409);
+      expect(mockPrisma.leadAppointment.update).not.toHaveBeenCalled();
+
+      const res = await request(app)
+        .patch('/api/lead-appointments/abc')
+        .send({ salesStatus: 'converted', overrideReason: 'שולם בהעברה, טרם נקלט' });
+
+      expect(res.status).toBe(200);
+      expect(mockPrisma.leadActivity.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          leadAppointmentId: 'abc',
+          result: 'converted',
+          note: 'אישור מנהל לסגירה ללא תשלום: שולם בהעברה, טרם נקלט',
+        }),
+      });
+    });
+
+    it('blocks creating a lead directly as converted without payment', async () => {
+      const res = await request(app)
+        .post('/api/lead-appointments')
+        .send({ customerName: 'אייל קשת', customerPhone: '0501234567', salesStatus: 'converted' });
+
+      expect(res.status).toBe(409);
+      expect(mockPrisma.leadAppointment.create).not.toHaveBeenCalled();
     });
   });
 

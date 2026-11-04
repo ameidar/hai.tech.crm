@@ -11,6 +11,7 @@ import { prisma } from '../utils/prisma.js';
 import { sendWhatsAppMessage } from '../services/notifications.js';
 import { handlePostPaymentPlacement } from '../services/trial-placement.js';
 import { reconcileOmerRegistrationPayment } from '../services/omer-payment-reconciliation.js';
+import { autoConvertLeadsForPayment } from '../services/lead-payment-evidence.js';
 import { processMorningReceipt, RECEIPT_DOC_TYPES } from '../services/morning-receipt-sync.js';
 import type { MorningDocument } from '../services/morning/documents.js';
 
@@ -250,6 +251,7 @@ morningWebhookRouter.post('/', async (req, res) => {
     console.log('[Morning Webhook] Created payment:', payment.id);
 
     await reconcileOmerRegistrationPayment(payment.id);
+    await autoConvertLeadsForPayment(payment.id);
 
     // Trial-lesson placement automation (non-digital payments → flag + notify).
     await handlePostPaymentPlacement(payment.id);

@@ -29,7 +29,7 @@ vi.mock('../operations-notifications.js', () => ({
 import { prisma } from '../../utils/prisma.js';
 import { sendOperationsWhatsApp } from '../operations-notifications.js';
 import { sendWhatsAppCloudTemplate } from '../whatsapp-cloud-templates.js';
-import { checkAndSendMeetingReportQualityAlert, buildInstructorReportNudgeText } from '../meeting-report-quality-alert.js';
+import { checkAndSendMeetingReportQualityAlert, buildInstructorReportNudgeText, isTeachingAssistantCycle } from '../meeting-report-quality-alert.js';
 
 function completedMeeting(overrides: Record<string, any> = {}) {
   return {
@@ -63,6 +63,26 @@ describe('checkAndSendMeetingReportQualityAlert', () => {
 
     expect(sendOperationsWhatsApp).toHaveBeenCalledTimes(1);
     expect(sendOperationsWhatsApp).toHaveBeenCalledWith(expect.stringContaining('לא כתב מה היה בשיעור'));
+  });
+
+  it('skips teaching-assistant cycles entirely (no ops alert, no instructor nudge)', async () => {
+    (prisma.meeting.findUnique as any).mockResolvedValue(completedMeeting({
+      topic: '',
+      attendance: [],
+      cycle: { ...completedMeeting().cycle, name: 'סקופ חולון ימי שלישי קבוצה 1 - תומכת הוראה' },
+    }));
+
+    await checkAndSendMeetingReportQualityAlert('meeting-1', 'test');
+
+    expect(sendOperationsWhatsApp).not.toHaveBeenCalled();
+    expect(sendWhatsAppCloudTemplate).not.toHaveBeenCalled();
+  });
+
+  it('recognizes teaching-assistant cycle names', () => {
+    expect(isTeachingAssistantCycle('סקופ חולון ימי חמישי קבוצה 2 - תומכת הוראה')).toBe(true);
+    expect(isTeachingAssistantCycle('מיינקראפט ו-AI - ב׳ קבוצה 2 תומכים - סקו״פ חולון')).toBe(true);
+    expect(isTeachingAssistantCycle('אורט - סייבר - 14:30 - קבוצה 2')).toBe(false);
+    expect(isTeachingAssistantCycle(null)).toBe(false);
   });
 
   it('alerts when a completed group meeting has no attendance', async () => {

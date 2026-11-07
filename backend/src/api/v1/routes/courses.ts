@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { coursesController } from '../controllers/courses.controller.js';
 import { authenticate, adminOnly } from '../middleware/auth.js';
+import { requireApiKeyScope } from '../middleware/scope-check.js';
 import { validate, validateBody, validateQuery, validateParams } from '../middleware/validate.js';
 import { idParamSchema } from '../validators/common.js';
 import { courseQuerySchema, createCourseSchema, updateCourseSchema } from '../validators/courses.js';
@@ -30,7 +31,7 @@ router.get('/:id', validateParams(idParamSchema), (req, res, next) => {
  * POST /courses
  * Create new course (admin only)
  */
-router.post('/', adminOnly, validateBody(createCourseSchema), (req, res, next) => {
+router.post('/', requireApiKeyScope('write:courses'), adminOnly, validateBody(createCourseSchema), (req, res, next) => {
   coursesController.create(req, res, next);
 });
 
@@ -40,6 +41,7 @@ router.post('/', adminOnly, validateBody(createCourseSchema), (req, res, next) =
  */
 router.put(
   '/:id',
+  requireApiKeyScope('write:courses'),
   adminOnly,
   validate({ params: idParamSchema, body: updateCourseSchema }),
   (req, res, next) => {
@@ -51,7 +53,7 @@ router.put(
  * DELETE /courses/:id
  * Delete course (admin only)
  */
-router.delete('/:id', adminOnly, validateParams(idParamSchema), (req, res, next) => {
+router.delete('/:id', requireApiKeyScope('write:courses'), adminOnly, validateParams(idParamSchema), (req, res, next) => {
   coursesController.delete(req, res, next);
 });
 

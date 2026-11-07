@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { attendanceController } from '../controllers/attendance.controller.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { validate, validateBody, validateQuery, validateParams } from '../middleware/validate.js';
+import { requireApiKeyScope } from '../middleware/scope-check.js';
 import { idParamSchema } from '../validators/common.js';
 import {
   attendanceQuerySchema,
@@ -35,7 +36,7 @@ router.get('/:id', validateParams(idParamSchema), (req, res, next) => {
  * POST /attendance
  * Create attendance record (manager, admin, or instructor)
  */
-router.post('/', validateBody(createAttendanceSchema), (req, res, next) => {
+router.post('/', requireApiKeyScope('write:attendance'), validateBody(createAttendanceSchema), (req, res, next) => {
   attendanceController.create(req, res, next);
 });
 
@@ -45,6 +46,7 @@ router.post('/', validateBody(createAttendanceSchema), (req, res, next) => {
  */
 router.put(
   '/:id',
+  requireApiKeyScope('write:attendance'),
   validate({ params: idParamSchema, body: updateAttendanceSchema }),
   (req, res, next) => {
     attendanceController.update(req, res, next);
@@ -55,7 +57,7 @@ router.put(
  * DELETE /attendance/:id
  * Delete attendance record (manager or admin only)
  */
-router.delete('/:id', managerOrAdmin, validateParams(idParamSchema), (req, res, next) => {
+router.delete('/:id', requireApiKeyScope('write:attendance'), managerOrAdmin, validateParams(idParamSchema), (req, res, next) => {
   attendanceController.delete(req, res, next);
 });
 
@@ -63,7 +65,7 @@ router.delete('/:id', managerOrAdmin, validateParams(idParamSchema), (req, res, 
  * POST /attendance/bulk
  * Bulk create/update attendance records (manager, admin, or instructor)
  */
-router.post('/bulk', validateBody(bulkAttendanceSchema), (req, res, next) => {
+router.post('/bulk', requireApiKeyScope('write:attendance'), validateBody(bulkAttendanceSchema), (req, res, next) => {
   attendanceController.bulkUpdate(req, res, next);
 });
 

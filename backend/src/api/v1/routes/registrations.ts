@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import { registrationsController } from '../controllers/registrations.controller.js';
-import { authenticate, managerOrAdmin } from '../middleware/auth.js';
+import { authenticate } from '../middleware/auth.js';
+import { requireScopeOrRole } from '../middleware/scope-check.js';
+
+// Same roles as the former canWriteRegistrations; API keys are decided by their own 'write:registrations' scope.
+const REGISTRATION_WRITE_ROLES = ['admin', 'manager', 'operations_manager'] as const;
+const canWriteRegistrations = requireScopeOrRole('write:registrations', REGISTRATION_WRITE_ROLES);
 import { validate, validateBody, validateQuery, validateParams } from '../middleware/validate.js';
 import { idParamSchema } from '../validators/common.js';
 import {
@@ -36,7 +41,7 @@ router.get('/:id', validateParams(idParamSchema), (req, res, next) => {
  * POST /registrations
  * Create new registration (manager or admin only)
  */
-router.post('/', managerOrAdmin, validateBody(createRegistrationSchema), (req, res, next) => {
+router.post('/', canWriteRegistrations, validateBody(createRegistrationSchema), (req, res, next) => {
   registrationsController.create(req, res, next);
 });
 
@@ -46,7 +51,7 @@ router.post('/', managerOrAdmin, validateBody(createRegistrationSchema), (req, r
  */
 router.put(
   '/:id',
-  managerOrAdmin,
+  canWriteRegistrations,
   validate({ params: idParamSchema, body: updateRegistrationSchema }),
   (req, res, next) => {
     registrationsController.update(req, res, next);
@@ -57,7 +62,7 @@ router.put(
  * DELETE /registrations/:id
  * Soft delete registration (manager or admin only)
  */
-router.delete('/:id', managerOrAdmin, validateParams(idParamSchema), (req, res, next) => {
+router.delete('/:id', canWriteRegistrations, validateParams(idParamSchema), (req, res, next) => {
   registrationsController.delete(req, res, next);
 });
 
@@ -75,7 +80,7 @@ router.get('/:id/attendance', validateParams(idParamSchema), (req, res, next) =>
  */
 router.post(
   '/:id/cancel',
-  managerOrAdmin,
+  canWriteRegistrations,
   validate({ params: idParamSchema, body: cancelRegistrationSchema }),
   (req, res, next) => {
     registrationsController.cancel(req, res, next);
@@ -88,7 +93,7 @@ router.post(
  */
 router.post(
   '/:id/payment',
-  managerOrAdmin,
+  canWriteRegistrations,
   validate({ params: idParamSchema, body: updatePaymentSchema }),
   (req, res, next) => {
     registrationsController.updatePayment(req, res, next);

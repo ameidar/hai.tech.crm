@@ -9,7 +9,7 @@ import {
   updateInstructorSchema,
   instructorMeetingsQuerySchema 
 } from '../validators/instructors.js';
-import { requireScopeOrRole } from '../middleware/scope-check.js';
+import { requireScopeOrRole, requireApiKeyScope } from '../middleware/scope-check.js';
 import { opsIdParamSchema, fixedAdditionParamsSchema } from '../validators/ops.js';
 import { sendSuccess, sendCreated, sendNoContent } from '../../../common/utils/response.js';
 import {
@@ -44,7 +44,7 @@ router.get('/:id', validateParams(idParamSchema), (req, res, next) => {
  * POST /instructors
  * Create new instructor (admin only)
  */
-router.post('/', adminOnly, validateBody(createInstructorSchema), (req, res, next) => {
+router.post('/', requireApiKeyScope('write:instructors'), adminOnly, validateBody(createInstructorSchema), (req, res, next) => {
   instructorsController.create(req, res, next);
 });
 
@@ -54,6 +54,7 @@ router.post('/', adminOnly, validateBody(createInstructorSchema), (req, res, nex
  */
 router.put(
   '/:id',
+  requireApiKeyScope('write:instructors'),
   managerOrAdmin,
   validate({ params: idParamSchema, body: updateInstructorSchema }),
   (req, res, next) => {
@@ -65,7 +66,7 @@ router.put(
  * DELETE /instructors/:id
  * Delete instructor (admin only)
  */
-router.delete('/:id', adminOnly, validateParams(idParamSchema), (req, res, next) => {
+router.delete('/:id', requireApiKeyScope('write:instructors'), adminOnly, validateParams(idParamSchema), (req, res, next) => {
   instructorsController.delete(req, res, next);
 });
 

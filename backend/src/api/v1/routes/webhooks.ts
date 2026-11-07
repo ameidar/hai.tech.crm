@@ -10,11 +10,13 @@ import {
   getAvailableEvents,
 } from '../controllers/webhooks.controller.js';
 import { authenticate } from '../middleware/auth.js';
+import { rejectApiKeyAuth } from '../middleware/scope-check.js';
 
 const router = Router();
 
 // All routes require authentication
 router.use(authenticate);
+router.use(rejectApiKeyAuth);
 
 /**
  * @route   GET /api/v1/webhooks

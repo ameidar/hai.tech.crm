@@ -3,7 +3,7 @@ import { cyclesController } from '../controllers/cycles.controller.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { validate, validateBody, validateQuery, validateParams } from '../middleware/validate.js';
 import { idParamSchema } from '../validators/common.js';
-import { requireScopeOrRole } from '../middleware/scope-check.js';
+import { requireScopeOrRole, requireApiKeyScope } from '../middleware/scope-check.js';
 import { opsIdParamSchema } from '../validators/ops.js';
 import { sendCreated, sendSuccess } from '../../../common/utils/response.js';
 import { createCycle, updateCycle } from '../../../services/cycle-admin.service.js';
@@ -78,7 +78,7 @@ router.put(
  * DELETE /cycles/:id
  * Soft delete cycle (manager or admin only)
  */
-router.delete('/:id', managerOrAdmin, validateParams(idParamSchema), (req, res, next) => {
+router.delete('/:id', requireApiKeyScope('write:cycles'), managerOrAdmin, validateParams(idParamSchema), (req, res, next) => {
   cyclesController.delete(req, res, next);
 });
 
@@ -104,6 +104,7 @@ router.get('/:id/registrations', validateParams(idParamSchema), (req, res, next)
  */
 router.post(
   '/:id/registrations',
+  requireApiKeyScope('write:registrations'),
   managerOrAdmin,
   validate({ params: idParamSchema, body: createCycleRegistrationSchema }),
   (req, res, next) => {
@@ -117,6 +118,7 @@ router.post(
  */
 router.post(
   '/:id/generate-meetings',
+  requireApiKeyScope('write:cycles'),
   managerOrAdmin,
   validateParams(idParamSchema),
   (req, res, next) => {
@@ -130,6 +132,7 @@ router.post(
  */
 router.post(
   '/:id/sync-progress',
+  requireApiKeyScope('write:cycles'),
   managerOrAdmin,
   validateParams(idParamSchema),
   (req, res, next) => {
@@ -143,6 +146,7 @@ router.post(
  */
 router.post(
   '/:id/duplicate',
+  requireApiKeyScope('write:cycles'),
   managerOrAdmin,
   validate({ params: idParamSchema, body: duplicateCycleSchema }),
   (req, res, next) => {
@@ -156,6 +160,7 @@ router.post(
  */
 router.post(
   '/bulk-update',
+  requireApiKeyScope('write:cycles'),
   managerOrAdmin,
   validateBody(bulkUpdateCyclesSchema),
   (req, res, next) => {

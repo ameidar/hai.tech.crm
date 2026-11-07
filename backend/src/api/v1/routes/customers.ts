@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { customersController } from '../controllers/customers.controller.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
+import { requireApiKeyScope } from '../middleware/scope-check.js';
 import { validate, validateBody, validateQuery, validateParams } from '../middleware/validate.js';
 import { idParamSchema } from '../validators/common.js';
 import { 
@@ -35,7 +36,7 @@ router.get('/:id', validateParams(idParamSchema), (req, res, next) => {
  * POST /customers
  * Create new customer (manager or admin only)
  */
-router.post('/', managerOrAdmin, validateBody(createCustomerSchema), (req, res, next) => {
+router.post('/', requireApiKeyScope('write:customers'), managerOrAdmin, validateBody(createCustomerSchema), (req, res, next) => {
   customersController.create(req, res, next);
 });
 
@@ -45,6 +46,7 @@ router.post('/', managerOrAdmin, validateBody(createCustomerSchema), (req, res, 
  */
 router.put(
   '/:id', 
+  requireApiKeyScope('write:customers'), 
   managerOrAdmin, 
   validate({ params: idParamSchema, body: updateCustomerSchema }), 
   (req, res, next) => {
@@ -56,7 +58,7 @@ router.put(
  * DELETE /customers/:id
  * Soft delete customer (manager or admin only)
  */
-router.delete('/:id', managerOrAdmin, validateParams(idParamSchema), (req, res, next) => {
+router.delete('/:id', requireApiKeyScope('write:customers'), managerOrAdmin, validateParams(idParamSchema), (req, res, next) => {
   customersController.delete(req, res, next);
 });
 
@@ -74,6 +76,7 @@ router.get('/:id/students', validateParams(idParamSchema), (req, res, next) => {
  */
 router.post(
   '/:id/students', 
+  requireApiKeyScope('write:students'), 
   managerOrAdmin, 
   validate({ params: idParamSchema, body: createStudentForCustomerSchema }), 
   (req, res, next) => {

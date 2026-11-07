@@ -103,6 +103,32 @@ export function requireScopeOrRole(scope: ApiKeyScope, roles: readonly UserRole[
 }
 
 /**
+ * API-key-only scope gate. API keys must carry `scope`; JWT users pass through unchanged
+ * (their access stays whatever the route's role checks already allow — the UI behaves as before).
+ * Use on write routes that previously had no check for API keys at all.
+ */
+export function requireApiKeyScope(scope: ApiKeyScope) {
+  return (req: AuthRequest, _res: Response, next: NextFunction) => {
+    if (req.apiKey && !scopesGrant(req.apiKey.scopes, scope)) {
+      return next(new ForbiddenError(`Missing required scope: ${scope}`));
+    }
+    return next();
+  };
+}
+
+/**
+ * Block API-key callers entirely (user login only). For managing credentials and outbound
+ * webhooks: a key must never mint other keys or register data-exporting webhooks, regardless
+ * of its scopes or its creator's role.
+ */
+export function rejectApiKeyAuth(req: AuthRequest, _res: Response, next: NextFunction) {
+  if (req.apiKey) {
+    return next(new ForbiddenError('This endpoint requires a user login; API keys are not accepted'));
+  }
+  return next();
+}
+
+/**
  * Middleware to require any of the given scopes
  */
 export function requireAnyScope(...scopes: ApiKeyScope[]) {

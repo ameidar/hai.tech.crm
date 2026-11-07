@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { branchesController } from '../controllers/branches.controller.js';
 import { authenticate, adminOnly, managerOrAdmin } from '../middleware/auth.js';
+import { requireApiKeyScope } from '../middleware/scope-check.js';
 import { validate, validateBody, validateQuery, validateParams } from '../middleware/validate.js';
 import { idParamSchema } from '../validators/common.js';
 import { branchQuerySchema, createBranchSchema, updateBranchSchema } from '../validators/branches.js';
@@ -30,7 +31,7 @@ router.get('/:id', validateParams(idParamSchema), (req, res, next) => {
  * POST /branches
  * Create new branch (admin only)
  */
-router.post('/', adminOnly, validateBody(createBranchSchema), (req, res, next) => {
+router.post('/', requireApiKeyScope('write:branches'), adminOnly, validateBody(createBranchSchema), (req, res, next) => {
   branchesController.create(req, res, next);
 });
 
@@ -40,6 +41,7 @@ router.post('/', adminOnly, validateBody(createBranchSchema), (req, res, next) =
  */
 router.put(
   '/:id',
+  requireApiKeyScope('write:branches'),
   managerOrAdmin,
   validate({ params: idParamSchema, body: updateBranchSchema }),
   (req, res, next) => {
@@ -51,7 +53,7 @@ router.put(
  * DELETE /branches/:id
  * Delete branch (admin only)
  */
-router.delete('/:id', adminOnly, validateParams(idParamSchema), (req, res, next) => {
+router.delete('/:id', requireApiKeyScope('write:branches'), adminOnly, validateParams(idParamSchema), (req, res, next) => {
   branchesController.delete(req, res, next);
 });
 

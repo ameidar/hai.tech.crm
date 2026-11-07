@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { meetingsController } from '../controllers/meetings.controller.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
-import { requireScope } from '../middleware/scope-check.js';
+import { requireScope, requireApiKeyScope } from '../middleware/scope-check.js';
 import { validate, validateBody, validateQuery, validateParams } from '../middleware/validate.js';
 import { idParamSchema } from '../validators/common.js';
 import {
@@ -66,6 +66,7 @@ router.post('/', requireScope('write:meetings'), managerOrAdmin, validateBody(cr
  */
 router.put(
   '/:id',
+  requireApiKeyScope('write:meetings'),
   validate({ params: idParamSchema, body: updateMeetingSchema }),
   (req, res, next) => {
     meetingsController.update(req, res, next);
@@ -76,7 +77,7 @@ router.put(
  * DELETE /meetings/:id
  * Soft delete meeting (manager or admin only)
  */
-router.delete('/:id', managerOrAdmin, validateParams(idParamSchema), (req, res, next) => {
+router.delete('/:id', requireApiKeyScope('write:meetings'), managerOrAdmin, validateParams(idParamSchema), (req, res, next) => {
   meetingsController.delete(req, res, next);
 });
 
@@ -94,6 +95,7 @@ router.get('/:id/attendance', validateParams(idParamSchema), (req, res, next) =>
  */
 router.post(
   '/:id/postpone',
+  requireApiKeyScope('write:meetings'),
   managerOrAdmin,
   validate({ params: idParamSchema, body: postponeMeetingSchema }),
   (req, res, next) => {
@@ -107,6 +109,7 @@ router.post(
  */
 router.post(
   '/:id/complete',
+  requireApiKeyScope('write:meetings'),
   validate({ params: idParamSchema, body: completeMeetingSchema }),
   (req, res, next) => {
     meetingsController.complete(req, res, next);
@@ -119,6 +122,7 @@ router.post(
  */
 router.post(
   '/:id/cancel',
+  requireApiKeyScope('write:meetings'),
   managerOrAdmin,
   validate({ params: idParamSchema, body: cancelMeetingSchema }),
   (req, res, next) => {
@@ -132,6 +136,7 @@ router.post(
  */
 router.post(
   '/:id/recalculate',
+  requireApiKeyScope('write:meetings'),
   managerOrAdmin,
   validateParams(idParamSchema),
   (req, res, next) => {
@@ -145,6 +150,7 @@ router.post(
  */
 router.post(
   '/:id/attendance/bulk',
+  requireApiKeyScope('write:attendance'),
   validate({ params: idParamSchema, body: bulkAttendanceSchema }),
   (req, res, next) => {
     meetingsController.bulkRecordAttendance(req, res, next);

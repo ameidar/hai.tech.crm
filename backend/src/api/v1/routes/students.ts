@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { studentsController } from '../controllers/students.controller.js';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
+import { requireApiKeyScope } from '../middleware/scope-check.js';
 import { validate, validateBody, validateQuery, validateParams } from '../middleware/validate.js';
 import { idParamSchema } from '../validators/common.js';
 import { studentQuerySchema, createStudentSchema, updateStudentSchema } from '../validators/students.js';
@@ -30,7 +31,7 @@ router.get('/:id', validateParams(idParamSchema), (req, res, next) => {
  * POST /students
  * Create new student (manager or admin only)
  */
-router.post('/', managerOrAdmin, validateBody(createStudentSchema), (req, res, next) => {
+router.post('/', requireApiKeyScope('write:students'), managerOrAdmin, validateBody(createStudentSchema), (req, res, next) => {
   studentsController.create(req, res, next);
 });
 
@@ -40,6 +41,7 @@ router.post('/', managerOrAdmin, validateBody(createStudentSchema), (req, res, n
  */
 router.put(
   '/:id',
+  requireApiKeyScope('write:students'),
   managerOrAdmin,
   validate({ params: idParamSchema, body: updateStudentSchema }),
   (req, res, next) => {
@@ -51,7 +53,7 @@ router.put(
  * DELETE /students/:id
  * Soft delete student (manager or admin only)
  */
-router.delete('/:id', managerOrAdmin, validateParams(idParamSchema), (req, res, next) => {
+router.delete('/:id', requireApiKeyScope('write:students'), managerOrAdmin, validateParams(idParamSchema), (req, res, next) => {
   studentsController.delete(req, res, next);
 });
 

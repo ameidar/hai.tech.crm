@@ -103,11 +103,21 @@ const sendInstructorReminders = async () => {
 
     console.log(`Found ${meetings.length} meetings for today`);
 
+    // Instructors who asked to stop the 08:00 reminder email (WhatsApp reminders continue).
+    // Comma-separated instructor emails, e.g. INSTRUCTOR_REMINDER_EMAIL_OPTOUT=a@x.com,b@y.com
+    const emailOptOut = new Set(
+      (process.env.INSTRUCTOR_REMINDER_EMAIL_OPTOUT || '')
+        .split(',')
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean),
+    );
+
     for (const meeting of meetings) {
       // Use the meeting-level instructor (may differ from the cycle default,
       // e.g. a substitute assigned to this specific meeting).
       const instructor = meeting.instructor;
       if (!instructor?.email) continue;
+      if (emailOptOut.has(instructor.email.trim().toLowerCase())) continue;
 
       const data: InstructorReminderData = {
         instructorName: instructor.name,

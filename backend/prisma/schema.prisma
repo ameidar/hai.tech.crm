@@ -519,6 +519,65 @@ model CompanyFixedCost {
   @@map("company_fixed_costs")
 }
 
+// Read-only mirror of supplier expenses (הוצאות) recorded in Morning (GreenInvoice).
+// Morning stays the source of truth; rows are upserted by morningId on every sync and
+// never deleted — `active` mirrors Morning's own flag.
+model CompanyExpense {
+  id               String    @id @default(uuid())
+  morningId        String    @unique @map("morning_id")
+  // Raw Morning status (observed: 10 = awaiting approval, 20 = approved).
+  status           Int?
+  documentType     String?   @map("document_type")
+  number           String?
+  date             DateTime? @db.Date
+  reportingDate    DateTime? @map("reporting_date") @db.Date
+  // Gross amount incl. VAT, in ILS.
+  amount           Decimal   @default(0) @db.Decimal(12, 2)
+  amountExcludeVat Decimal?  @map("amount_exclude_vat") @db.Decimal(12, 2)
+  vat              Decimal?  @db.Decimal(12, 2)
+  currency         String?
+  description      String?
+  supplierId       String?   @map("supplier_id")
+  supplierName     String?   @map("supplier_name")
+  categoryId       String?   @map("category_id")
+  categoryTitle    String?   @map("category_title")
+  url              String?
+  active           Boolean   @default(true)
+  morningUpdatedAt DateTime? @map("morning_updated_at")
+  syncedAt         DateTime  @default(now()) @map("synced_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@index([date])
+  @@index([reportingDate])
+  @@index([supplierName])
+  @@index([status])
+  @@map("company_expenses")
+}
+
+// Expected recurring supplier invoices ("don't forget"). Auto-detected from the
+// CompanyExpense mirror as `suggested` (never auto-activated) or added manually.
+model RecurringExpense {
+  id                 String   @id @default(uuid())
+  supplierId         String?  @map("supplier_id")
+  supplierName       String   @map("supplier_name")
+  label              String
+  expectedDayOfMonth Int      @default(1) @map("expected_day_of_month")
+  expectedAmount     Decimal? @map("expected_amount") @db.Decimal(12, 2)
+  // Allowed deviation from expectedAmount in percent; null = any amount matches.
+  tolerancePct       Int?     @map("tolerance_pct")
+  cadence            String   @default("monthly")
+  categoryTitle      String?  @map("category_title")
+  status             String   @default("suggested") // suggested | active | ignored
+  source             String   @default("manual") // auto | manual
+  notes              String?
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("recurring_expenses")
+}
+
 // Self-reported work hours for operations staff (Instructor.kind = "operations").
 // Each row is one (date, hours) report by the staff member; it flows into the monthly
 // salary report once an admin/manager approves it.

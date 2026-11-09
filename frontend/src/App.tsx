@@ -40,6 +40,7 @@ import LeadAppointments from './pages/LeadAppointments';
 import InstitutionalOrders from './pages/InstitutionalOrders';
 import InstitutionalOrderDetail from './pages/InstitutionalOrderDetail';
 import PayingBodies from './pages/PayingBodies';
+import CompanyExpenses from './pages/CompanyExpenses';
 import BillingPeriods from './pages/BillingPeriods';
 import BillingPeriodDetail from './pages/BillingPeriodDetail';
 import SystemUsers from './pages/SystemUsers';
@@ -228,6 +229,7 @@ function AppRoutes() {
             <Route path="paying-bodies" element={<AdminManagerRoute><PayingBodies /></AdminManagerRoute>} />
             <Route path="billing" element={<AdminManagerRoute><BillingPeriods /></AdminManagerRoute>} />
             <Route path="billing/:id" element={<AdminManagerRoute><BillingPeriodDetail /></AdminManagerRoute>} />
+            <Route path="company-expenses" element={<RoleRoute allowed={['admin']}><CompanyExpenses /></RoleRoute>} />
             <Route path="lead-appointments" element={<RoleRoute allowed={['admin', 'manager', 'sales', 'operations_control']}><LeadAppointments /></RoleRoute>} />
             <Route path="system-users" element={<AdminManagerRoute><SystemUsers /></AdminManagerRoute>} />
             <Route path="reports" element={<AdminManagerRoute><Reports /></AdminManagerRoute>} />

@@ -83,7 +83,7 @@ export async function sendEmail(
 }
 
 // Recipients for new-lead notifications
-const ADMIN_PHONE = '0528746137'; // Ami's phone
+export const ADMIN_PHONE = '0528746137'; // Ami's phone
 const KIM_PHONE = '0543354550'; // Kim's phone
 const SALES_GROUP_CHAT_ID = '120363308669020817@g.us'; // Sales team WhatsApp group
 const LEAD_WHATSAPP_FAILURE_ALERT_EMAIL = process.env.LEAD_WHATSAPP_FAILURE_ALERT_EMAIL || 'info@hai.tech';

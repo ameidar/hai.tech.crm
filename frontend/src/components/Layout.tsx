@@ -18,6 +18,7 @@ import {
   Receipt,
   CreditCard,
   Wallet,
+  Banknote,
   Link2,
   PhoneCall,
   LogOut,
@@ -65,6 +66,7 @@ const adminNavGroups = [
       { path: '/institutional-orders', icon: FileText, label: 'הזמנות מוסדיות', testId: 'nav-institutional-orders' },
       { path: '/paying-bodies', icon: Wallet, label: 'גופים משלמים', testId: 'nav-paying-bodies' },
       { path: '/billing', icon: CreditCard, label: 'חשבונות חודשיים', testId: 'nav-billing' },
+      { path: '/company-expenses', icon: Banknote, label: 'הוצאות החברה', testId: 'nav-company-expenses', adminOnly: true },
       { path: '/tasks', icon: ListTodo, label: 'משימות תפעול', testId: 'nav-tasks' },
     ],
   },
@@ -214,7 +216,9 @@ export default function Layout() {
           ? operationsControlNavItems
           : [];
 
-  const renderNavItem = (item: { path: string; icon: any; label: string; testId: string }) => {
+  const renderNavItem = (item: { path: string; icon: any; label: string; testId: string; adminOnly?: boolean }) => {
+    // Admin-only items (e.g. company expenses) are hidden from managers.
+    if (item.adminOnly && user?.role !== 'admin') return null;
     return (
       <NavLink
         key={item.path}

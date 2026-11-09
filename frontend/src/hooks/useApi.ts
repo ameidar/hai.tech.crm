@@ -1543,6 +1543,155 @@ export const useDeleteCompanyFixedCost = () => {
   });
 };
 
+// ─── Company expenses (Morning expense mirror, admin only) ─────────────────────
+
+export interface CompanyExpense {
+  id: string;
+  morningId: string;
+  status: number | null; // 10 = awaiting approval, 20 = approved (observed)
+  documentType: string | null;
+  number: string | null;
+  date: string | null; // YYYY-MM-DD
+  reportingDate: string | null;
+  month: string | null; // YYYY-MM bucket (reporting month, else doc date)
+  amount: number; // gross incl. VAT, ILS
+  amountExcludeVat: number | null;
+  vat: number | null;
+  currency: string | null;
+  description: string | null;
+  supplierId: string | null;
+  supplierName: string | null;
+  categoryId: string | null;
+  categoryTitle: string | null;
+  url: string | null;
+  active: boolean;
+}
+
+interface ExpenseTotals { gross: number; net: number; count: number }
+
+export interface CompanyExpenseSummary {
+  currentMonth: string;
+  months: Array<{ month: string } & ExpenseTotals>;
+  kpis: {
+    thisMonth: ExpenseTotals;
+    lastMonth: ExpenseTotals;
+    threeMonthAvg: { gross: number; net: number };
+    pendingCount: number;
+    pendingGross: number;
+  };
+  byCategory: Array<{ category: string } & ExpenseTotals>;
+  topSuppliers: Array<{ supplierName: string; supplierId: string | null } & ExpenseTotals>;
+  pending: CompanyExpense[];
+  lastSyncedAt: string | null;
+  syncRunning: boolean;
+  morningConfigured: boolean;
+  filters: { suppliers: string[]; categories: string[] };
+}
+
+export interface CompanyExpenseFilters {
+  from?: string;
+  to?: string;
+  supplier?: string;
+  category?: string;
+  status?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface CompanyExpenseListResult {
+  data: CompanyExpense[];
+  totals: { gross: number; net: number };
+  pagination: PaginationMeta;
+}
+
+export type RecurringExpenseStatus = 'suggested' | 'active' | 'ignored';
+
+export interface RecurringExpense {
+  id: string;
+  supplierId: string | null;
+  supplierName: string;
+  label: string;
+  expectedDayOfMonth: number;
+  expectedAmount: number | null;
+  tolerancePct: number | null;
+  cadence: string;
+  categoryTitle: string | null;
+  status: RecurringExpenseStatus;
+  source: 'auto' | 'manual';
+  notes: string | null;
+}
+
+export type RecurringExpenseInput = Partial<Omit<RecurringExpense, 'id' | 'cadence' | 'source'>>;
+
+export interface MissingRecurringExpense {
+  id: string;
+  label: string;
+  supplierName: string;
+  month: string;
+  expectedDayOfMonth: number;
+  expectedAmount: number | null;
+  tolerancePct: number | null;
+  daysOverdue: number;
+}
+
+export const useCompanyExpenseSummary = () =>
+  useQuery({
+    queryKey: ['companyExpenses', 'summary'],
+    queryFn: async () => (await api.get<CompanyExpenseSummary>('/company-expenses/summary')).data,
+  });
+
+export const useCompanyExpenses = (filters: CompanyExpenseFilters) =>
+  useQuery({
+    queryKey: ['companyExpenses', 'list', filters],
+    queryFn: async () => {
+      const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== undefined && v !== ''));
+      return (await api.get<CompanyExpenseListResult>('/company-expenses', { params })).data;
+    },
+  });
+
+export const useRecurringExpenses = () =>
+  useQuery({
+    queryKey: ['companyExpenses', 'recurring'],
+    queryFn: async () => (await api.get<RecurringExpense[]>('/company-expenses/recurring')).data,
+  });
+
+export const useMissingRecurringExpenses = () =>
+  useQuery({
+    queryKey: ['companyExpenses', 'missing'],
+    queryFn: async () => (await api.get<MissingRecurringExpense[]>('/company-expenses/recurring/missing')).data,
+  });
+
+export const useSyncCompanyExpenses = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (full: boolean = false) =>
+      (await api.post<{ fetched: number; created: number; updated: number; newRecurringSuggestions: number }>('/company-expenses/sync', { full })).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['companyExpenses'] }),
+  });
+};
+
+export const useDetectRecurringExpenses = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => (await api.post<{ candidates: number; created: number }>('/company-expenses/recurring/detect')).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['companyExpenses'] }),
+  });
+};
+
+export const useSaveRecurringExpense = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id?: string; data: RecurringExpenseInput }) => {
+      const res = id
+        ? await api.put<RecurringExpense>(`/company-expenses/recurring/${id}`, data)
+        : await api.post<RecurringExpense>('/company-expenses/recurring', data);
+      return res.data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['companyExpenses'] }),
+  });
+};
+
 export const useForecast = (historicalMonths = 6, forecastMonths = 3) => {
   return useQuery({
     queryKey: ['forecast', historicalMonths, forecastMonths],

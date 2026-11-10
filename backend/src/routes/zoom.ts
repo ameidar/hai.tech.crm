@@ -1,6 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { getIsraelOffset, zoomService } from '../services/zoom';
+import {
+  getIsraelOffset,
+  zoomService,
+  isZoomCreationEnabled,
+  ZOOM_CREATION_DISABLED_MESSAGE,
+  ZOOM_CREATION_DISABLED_CODE,
+} from '../services/zoom';
 import { googleMeetService } from '../services/google-meet';
 import { authenticate, managerOrAdmin } from '../middleware/auth';
 
@@ -53,8 +59,18 @@ function formatTimeInput(date: Date): string {
   }).format(date);
 }
 
-function resolveVideoProvider(raw: unknown): VideoProvider {
-  return raw === 'google_meet' ? 'google_meet' : 'zoom';
+/**
+ * Provider for a NEW video link. Default is Google Meet. Explicit 'zoom' is
+ * only honoured when ZOOM_CREATION_ENABLED=true (see services/zoom.ts);
+ * otherwise returns null so the caller responds 400.
+ */
+function resolveVideoProvider(raw: unknown): VideoProvider | null {
+  if (raw === 'zoom') return isZoomCreationEnabled() ? 'zoom' : null;
+  return 'google_meet';
+}
+
+function sendZoomCreationDisabled(res: Response) {
+  return res.status(400).json({ error: ZOOM_CREATION_DISABLED_MESSAGE, code: ZOOM_CREATION_DISABLED_CODE });
 }
 
 function meetingDateTimeFromDateAndTime(date: Date, time: Date): Date {
@@ -204,6 +220,7 @@ router.get('/internal-meetings', async (req: Request, res: Response) => {
 router.post('/internal-meetings', async (req: Request, res: Response) => {
   try {
     const provider = resolveVideoProvider(req.body.provider || req.body.videoProvider);
+    if (!provider) return sendZoomCreationDisabled(res);
     const title = String(req.body.title || '').trim();
     const requesterName = String(req.body.requesterName || req.user?.name || '').trim();
     const date = String(req.body.date || '').trim();
@@ -388,10 +405,12 @@ router.delete('/internal-meetings/:id', async (req: Request, res: Response) => {
  * Create a Zoom meeting for a cycle
  */
 router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
-  let provider: VideoProvider = 'zoom';
+  let provider: VideoProvider = 'google_meet';
   try {
     const { cycleId } = req.params;
-    provider = resolveVideoProvider(req.body.provider || req.body.videoProvider);
+    const resolvedProvider = resolveVideoProvider(req.body.provider || req.body.videoProvider);
+    if (!resolvedProvider) return sendZoomCreationDisabled(res);
+    provider = resolvedProvider;
 
     // Get cycle details
     const cycle = await prisma.cycle.findUnique({
@@ -673,7 +692,7 @@ router.delete('/cycles/:cycleId/meeting', managerOrAdmin, async (req: Request, r
         zoomJoinUrl: null,
         zoomHostKey: null,
         zoomPassword: null,
-        videoProvider: 'zoom',
+        videoProvider: 'google_meet',
         googleMeetSpaceName: null,
         googleCalendarEventId: null,
       }
@@ -688,7 +707,7 @@ router.delete('/cycles/:cycleId/meeting', managerOrAdmin, async (req: Request, r
         zoomPassword: null,
         zoomHostKey: null,
         zoomHostEmail: null,
-        videoProvider: 'zoom',
+        videoProvider: 'google_meet',
         googleMeetSpaceName: null,
         googleCalendarEventId: null,
         zoomRecordingUrl: null,

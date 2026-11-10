@@ -6,7 +6,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { updateMeetingSchema, postponeMeetingSchema, paginationSchema, uuidSchema } from '../types/schemas.js';
 import { addReplacementMeetingWithRetry } from '../services/replacement-meeting.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
-import { zoomService, getIsraelOffset } from '../services/zoom.js';
+import { zoomService, getIsraelOffset, resolveNewVideoProvider } from '../services/zoom.js';
 import { googleMeetService } from '../services/google-meet.js';
 import { handleCycleCompletion } from '../services/cycle-completion.js';
 import { shouldAutoCompleteCycle, syncCycleProgress, syncCycleEndDate } from '../utils/cycle-sync.js';
@@ -248,7 +248,9 @@ meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
       notes,
       recallBotEnabled,
     } = req.body;
-    const videoProvider = req.body.videoProvider === 'google_meet' ? 'google_meet' : 'zoom';
+    // New video links are Google Meet only; explicit 'zoom' is rejected (400)
+    // unless ZOOM_CREATION_ENABLED=true.
+    const videoProvider = withZoom ? resolveNewVideoProvider(req.body.videoProvider) : 'google_meet';
 
     if (!cycleId || !instructorId || !scheduledDate || !startTime || !endTime) {
       throw new AppError(400, 'Missing required fields: cycleId, instructorId, scheduledDate, startTime, endTime');
@@ -333,6 +335,8 @@ meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
         topic,
         notes,
         recallBotEnabled: recallBotEnabled ?? cycle.recallBotEnabled ?? false,
+        // Prisma default is still 'zoom' (schema unchanged) — set explicitly.
+        videoProvider,
         revenue,
         instructorPayment,
         profit,
@@ -777,6 +781,7 @@ meetingsRouter.post('/:id/postpone', operationsManagerOrAdmin, async (req, res, 
           ? new Date(`1970-01-01T${data.newEndTime}:00Z`)
           : existingMeeting.endTime,
         status: 'scheduled',
+        videoProvider: 'google_meet',
       },
     });
 
@@ -958,7 +963,8 @@ meetingsRouter.post('/:id/add-zoom', operationsManagerOrAdmin, async (req, res, 
   try {
     const id = uuidSchema.parse(req.params.id);
 
-    const provider = req.body.videoProvider === 'google_meet' || req.body.provider === 'google_meet' ? 'google_meet' : 'zoom';
+    // Google Meet by default; explicit 'zoom' → 400 unless ZOOM_CREATION_ENABLED=true.
+    const provider = resolveNewVideoProvider(req.body?.videoProvider ?? req.body?.provider);
     const meeting = await prisma.meeting.findUnique({
       where: { id },
       include: { cycle: true, instructor: true },

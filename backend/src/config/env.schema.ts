@@ -34,6 +34,8 @@ export const envSchema = z.object({
   
   // External integrations (optional)
   ZOOM_WEBHOOK_URL: z.string().url().optional().or(z.literal('')),
+  // Zoom meeting creation kill-switch (default disabled — Google Meet only).
+  ZOOM_CREATION_ENABLED: z.string().optional(),
   GMAIL_USER: z.string().email().optional().or(z.literal('')),
   GMAIL_APP_PASSWORD: z.string().optional(),
   GREEN_API_INSTANCE_ID: z.string().optional(),

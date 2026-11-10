@@ -5,7 +5,7 @@ import MeetingExpenses from './MeetingExpenses';
 import { meetingStatusHebrew, activityTypeHebrew, meetingNatureHebrew } from '../types';
 import { useInstructors } from '../hooks/useApi';
 import api from '../api/client';
-import type { Meeting, MeetingStatus, ActivityType, MeetingNature, VideoMeetingProvider } from '../types';
+import type { Meeting, MeetingStatus, ActivityType, MeetingNature } from '../types';
 
 interface MeetingEditModalProps {
   meeting: Meeting | null;
@@ -35,7 +35,6 @@ export default function MeetingEditModal({
     endTime: '',
   });
   const [zoomJoinUrl, setZoomJoinUrl] = useState<string | null>(null);
-  const [videoProvider, setVideoProvider] = useState<VideoMeetingProvider>('google_meet');
   const [isCreatingZoom, setIsCreatingZoom] = useState(false);
   const [zoomError, setZoomError] = useState<string | null>(null);
 
@@ -53,7 +52,6 @@ export default function MeetingEditModal({
         endTime: formatTime(meeting.endTime),
       });
       setZoomJoinUrl(meeting.zoomJoinUrl || null);
-      setVideoProvider(meeting.videoProvider || 'google_meet');
       setZoomError(null);
     }
   }, [meeting]);
@@ -63,7 +61,8 @@ export default function MeetingEditModal({
     setIsCreatingZoom(true);
     setZoomError(null);
     try {
-      const res = await api.post(`/meetings/${meeting.id}/add-zoom`, { videoProvider });
+      // Zoom creation is disabled — always create a Google Meet link.
+      const res = await api.post(`/meetings/${meeting.id}/add-zoom`, { videoProvider: 'google_meet' });
       setZoomJoinUrl(res.data.zoomJoinUrl);
     } catch (err: any) {
       setZoomError(err?.response?.data?.message || err?.response?.data?.error || 'שגיאה ביצירת לינק וידאו');
@@ -186,15 +185,8 @@ export default function MeetingEditModal({
               </a>
             ) : (
               <>
-                <select
-                  value={videoProvider}
-                  onChange={(event) => setVideoProvider(event.target.value as VideoMeetingProvider)}
-                  className="input w-full text-sm"
-                  aria-label="ספק וידאו"
-                >
-                  <option value="google_meet">Google Meet</option>
-                  <option value="zoom">Zoom</option>
-                </select>
+                {/* Zoom creation is disabled — new links are Google Meet only. */}
+                <p className="text-xs text-blue-700">הלינק ייווצר ב-Google Meet</p>
                 <button
                   type="button"
                   onClick={handleCreateZoom}

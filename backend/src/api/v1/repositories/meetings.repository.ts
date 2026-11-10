@@ -131,6 +131,8 @@ export class MeetingsRepository {
         topic: data.topic,
         notes: data.notes,
         recallBotEnabled: data.recallBotEnabled,
+        // Validator defaults to 'google_meet' and rejects 'zoom' (ZOOM_CREATION_ENABLED).
+        videoProvider: data.videoProvider ?? 'google_meet',
       },
       include: {
         cycle: {
@@ -247,6 +249,7 @@ export class MeetingsRepository {
         status: 'scheduled',
         nature: original.nature,
         activityType: original.activityType,
+        videoProvider: 'google_meet',
       },
     });
 

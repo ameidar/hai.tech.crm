@@ -71,7 +71,7 @@ export default function InternalZoom() {
     date: todayInput(),
     startTime: '10:00',
     durationMinutes: 60,
-    videoProvider: 'google_meet' as VideoMeetingProvider,
+    videoProvider: 'google_meet' as const,
     notes: '',
   });
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -251,14 +251,10 @@ export default function InternalZoom() {
 
           <label className="lg:col-span-2">
             <span className="block text-sm font-medium text-gray-700 mb-1">ספק</span>
-            <select
-              value={form.videoProvider}
-              onChange={(event) => setForm({ ...form, videoProvider: event.target.value as VideoMeetingProvider })}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="google_meet">Google Meet</option>
-              <option value="zoom">Zoom</option>
-            </select>
+            {/* Zoom creation is disabled — new links are Google Meet only. */}
+            <div className="w-full border border-gray-200 bg-gray-50 rounded-md px-3 py-2 text-sm text-gray-700">
+              Google Meet
+            </div>
           </label>
 
           <label className="lg:col-span-2">

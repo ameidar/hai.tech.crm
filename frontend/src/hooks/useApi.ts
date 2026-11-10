@@ -780,7 +780,8 @@ export interface CreateMeetingData {
   startTime: string;
   endTime: string;
   withZoom?: boolean;
-  videoProvider?: 'zoom' | 'google_meet';
+  // Zoom creation is disabled — new meetings get Google Meet only.
+  videoProvider?: 'google_meet';
   activityType?: string;
   recallBotEnabled?: boolean;
   topic?: string;
@@ -1231,13 +1232,13 @@ export const useZoomMeeting = (cycleId: string) => {
 export const useCreateZoomMeeting = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: string | { cycleId: string; videoProvider?: 'zoom' | 'google_meet' }) => {
+    // Zoom creation is disabled — new cycle video links are always Google Meet.
+    mutationFn: (input: string | { cycleId: string }) => {
       const cycleId = typeof input === 'string' ? input : input.cycleId;
-      const videoProvider = typeof input === 'string' ? 'zoom' : input.videoProvider || 'zoom';
-      return mutateData<ZoomCreateResponse, { videoProvider: 'zoom' | 'google_meet' }>(
+      return mutateData<ZoomCreateResponse, { videoProvider: 'google_meet' }>(
         `/zoom/cycles/${cycleId}/meeting`,
         'post',
-        { videoProvider }
+        { videoProvider: 'google_meet' }
       );
     },
     onSuccess: (_, input) => {
@@ -1268,7 +1269,8 @@ export interface InternalZoomRequestPayload {
   date: string;
   startTime: string;
   durationMinutes: number;
-  videoProvider?: 'zoom' | 'google_meet';
+  // Zoom creation is disabled — Google Meet only.
+  videoProvider?: 'google_meet';
   notes?: string;
 }
 

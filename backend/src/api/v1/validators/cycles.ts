@@ -6,6 +6,17 @@ import {
   uuidSchema,
   nonEmptyStringSchema,
 } from './common.js';
+import { isAllowedNewVideoProvider, ZOOM_CREATION_DISABLED_MESSAGE } from '../../../utils/zoom-creation.js';
+
+/**
+ * Video provider for NEW cycles/meetings: Google Meet by default; 'zoom' is
+ * rejected unless ZOOM_CREATION_ENABLED=true.
+ */
+export const newVideoProviderSchema = z
+  .enum(['zoom', 'google_meet'])
+  .optional()
+  .default('google_meet')
+  .refine(isAllowedNewVideoProvider, { message: ZOOM_CREATION_DISABLED_MESSAGE });
 
 /**
  * Cycle type enum
@@ -94,7 +105,7 @@ export const createCycleSchema = z.object({
   recallBotEnabled: z.boolean().optional().default(false),
   activityType: activityTypeEnum.optional().default('frontal'),
   location: z.string().trim().optional().nullable(),
-  videoProvider: z.enum(['zoom', 'google_meet']).optional().default('zoom'),
+  videoProvider: newVideoProviderSchema,
   zoomHostId: z.string().optional(),
   zoomHostEmail: z.string().email().optional(),
 }).superRefine((data, ctx) => {

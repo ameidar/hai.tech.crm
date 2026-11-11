@@ -66,8 +66,10 @@ const RECURRING_STATUS: Record<RecurringExpenseStatus, { label: string; cls: str
   ignored: { label: 'מתעלם', cls: 'bg-gray-100 text-gray-500' },
 };
 
-function StatusBadge({ status }: { status: number | null }) {
-  const s = status !== null ? STATUS_LABEL[status] : undefined;
+const DRAFT_BADGE = { label: 'טיוטה – ממתין לאישור', cls: 'bg-sky-100 text-sky-700' };
+
+function StatusBadge({ status, isDraft }: { status: number | null; isDraft?: boolean }) {
+  const s = isDraft ? DRAFT_BADGE : status !== null ? STATUS_LABEL[status] : undefined;
   return (
     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${s?.cls ?? 'bg-gray-100 text-gray-600'}`}>
       {s?.label ?? `סטטוס ${status ?? '—'}`}
@@ -118,9 +120,16 @@ function ExpensesTable({ rows }: { rows: CompanyExpense[] }) {
               <td className="px-4 py-2.5 text-gray-600">{e.categoryTitle ?? '—'}</td>
               <td className="px-4 py-2.5 text-gray-600 max-w-xs truncate" title={e.description ?? ''}>{e.description ?? ''}</td>
               <td className="px-4 py-2.5 text-gray-500">{e.number ?? '—'}</td>
-              <td className="px-4 py-2.5 font-medium whitespace-nowrap">{ils(e.amount)}</td>
+              <td className="px-4 py-2.5 font-medium whitespace-nowrap">
+                {e.isDraft && e.originalAmount !== null && !e.amount ? '—' : ils(e.amount)}
+                {e.originalAmount !== null && e.currency && (
+                  <div className="text-xs font-normal text-gray-400" dir="ltr">
+                    {e.originalAmount.toLocaleString('en-US', { maximumFractionDigits: 2 })} {e.currency}{e.isDraft ? ' (שער משוער)' : ''}
+                  </div>
+                )}
+              </td>
               <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{e.amountExcludeVat !== null ? ils(e.amountExcludeVat) : '—'}</td>
-              <td className="px-4 py-2.5"><StatusBadge status={e.status} /></td>
+              <td className="px-4 py-2.5"><StatusBadge status={e.status} isDraft={e.isDraft} /></td>
               <td className="px-4 py-2.5">
                 {e.url && (
                   <a href={e.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800" title="פתח מסמך במורנינג">

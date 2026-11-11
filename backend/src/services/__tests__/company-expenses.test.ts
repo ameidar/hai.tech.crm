@@ -5,7 +5,9 @@ vi.mock('../../utils/prisma.js', () => ({
     companyExpense: {
       count: vi.fn(),
       findUnique: vi.fn(),
+      findMany: vi.fn(),
       upsert: vi.fn(),
+      deleteMany: vi.fn(),
     },
   },
 }));
@@ -19,8 +21,11 @@ import { prisma } from '../../utils/prisma.js';
 import { morningRequest } from '../morning/client.js';
 import {
   buildExpenseSummary,
+  mapMorningDraft,
   mapMorningExpense,
   syncCompanyExpenses,
+  syncCompanyExpensesAndDrafts,
+  syncMorningDrafts,
   type ExpenseRowLike,
 } from '../company-expenses.js';
 
@@ -76,12 +81,13 @@ describe('mapMorningExpense', () => {
       url: 'https://morning/doc/e1',
       active: true,
       morningUpdatedAt: new Date(1791000000 * 1000),
+      originalAmount: null,
     });
   });
 
   it('converts foreign-currency docs to ILS via amountLocal', () => {
     const m = mapMorningExpense(morningItem('e2', { currency: 'USD', amount: 100, amountExcludeVat: 100, vat: 0, amountLocal: 370 }));
-    expect(m).toMatchObject({ amount: 370, amountExcludeVat: 370, vat: 0, currency: 'USD' });
+    expect(m).toMatchObject({ amount: 370, amountExcludeVat: 370, vat: 0, currency: 'USD', originalAmount: 100 });
   });
 
   it('keeps inactive flag and returns null without id', () => {
@@ -139,6 +145,120 @@ describe('syncCompanyExpenses', () => {
     mockMorning.mockResolvedValueOnce({ items: [], total: 0 } as never);
     await syncCompanyExpenses({ full: true, now: NOW });
     expect(mockMorning).toHaveBeenCalledWith('POST', '/api/v1/expenses/search', expect.objectContaining({ fromDate: '2025-11-01' }));
+  });
+});
+
+const morningDraft = (id: string, expense: Record<string, unknown> = {}) => ({
+  id,
+  status: 10,
+  creationDate: 1794390604,
+  lastUpdateDate: 1794390604,
+  url: `https://morning/draft/${id}`,
+  expense: {
+    currency: 'USD',
+    currencyRate: 0,
+    vat: 0,
+    amount: 200,
+    date: '2026-09-19T00:00:00',
+    reportingDate: '2026-09-01T00:00:00',
+    documentType: 305,
+    number: '85',
+    description: '',
+    supplier: { id: 'sup-oai', name: 'OpenAI OpCo, LLC ' },
+    accountingClassification: { id: 'cat-1', title: 'תוכנה' },
+    active: true,
+    ...expense,
+  },
+});
+
+describe('mapMorningDraft', () => {
+  it('prefixes the id, flags it as a draft and converts foreign amounts with the given rate', () => {
+    expect(mapMorningDraft(morningDraft('d1'), { USD: 3.7 })).toMatchObject({
+      morningId: 'draft:d1',
+      status: 10,
+      isDraft: true,
+      number: '85',
+      date: day('2026-09-19'),
+      reportingDate: day('2026-09-01'),
+      amount: 740,
+      amountExcludeVat: 740,
+      vat: 0,
+      currency: 'USD',
+      originalAmount: 200,
+      supplierName: 'OpenAI OpCo, LLC',
+      categoryTitle: 'תוכנה',
+      url: 'https://morning/draft/d1',
+    });
+  });
+
+  it('keeps ILS drafts as-is, splits VAT, and stores 0 ILS when no rate is known', () => {
+    expect(mapMorningDraft(morningDraft('d2', { currency: 'ILS', amount: 1170, vat: 170 }))).toMatchObject({
+      amount: 1170, amountExcludeVat: 1000, vat: 170, originalAmount: null,
+    });
+    expect(mapMorningDraft(morningDraft('d3'))).toMatchObject({ amount: 0, originalAmount: 200 });
+    expect(mapMorningDraft(morningDraft('d4', { number: '', amount: undefined, date: undefined }))).toMatchObject({
+      number: null, amount: 0, date: null,
+    });
+    expect(mapMorningDraft({ expense: {} })).toBeNull();
+  });
+});
+
+describe('syncMorningDrafts', () => {
+  it('upserts current drafts with the latest approved rate and deletes drafts that left Morning', async () => {
+    mockMorning.mockResolvedValueOnce({ items: [morningDraft('d1'), morningDraft('d2', { currency: 'ILS', amount: 50 })], total: 2 } as never);
+    mockPrisma.companyExpense.findMany.mockResolvedValue([
+      { currency: 'USD', amount: 370, originalAmount: 100 },
+      { currency: 'USD', amount: 300, originalAmount: 100 }, // older — ignored
+    ] as never);
+    mockPrisma.companyExpense.deleteMany.mockResolvedValue({ count: 3 } as never);
+
+    const result = await syncMorningDrafts();
+
+    expect(mockMorning).toHaveBeenCalledWith('POST', '/api/v1/expenses/drafts/search', { pageSize: 100, page: 1 });
+    expect(mockPrisma.companyExpense.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { morningId: 'draft:d1' },
+      create: expect.objectContaining({ amount: 740, isDraft: true, syncedAt: expect.any(Date) }),
+    }));
+    expect(mockPrisma.companyExpense.deleteMany).toHaveBeenCalledWith({
+      where: { isDraft: true, morningId: { notIn: ['draft:d1', 'draft:d2'] } },
+    });
+    expect(result).toEqual({ fetched: 2, upserted: 2, removed: 3, missingRates: 0 });
+  });
+});
+
+describe('syncCompanyExpensesAndDrafts', () => {
+  it('widens the expense sync to the full window when drafts were approved', async () => {
+    mockPrisma.companyExpense.findMany.mockResolvedValue([] as never);
+    mockPrisma.companyExpense.deleteMany.mockResolvedValue({ count: 1 } as never);
+    mockPrisma.companyExpense.count.mockResolvedValue(10 as never);
+    mockMorning
+      .mockResolvedValueOnce({ items: [], total: 0 } as never) // drafts
+      .mockResolvedValueOnce({ items: [], total: 0 } as never); // expenses
+
+    const result = await syncCompanyExpensesAndDrafts({ now: NOW });
+
+    expect(mockMorning).toHaveBeenLastCalledWith('POST', '/api/v1/expenses/search', expect.objectContaining({ fromDate: '2025-11-01' }));
+    expect(result.drafts).toMatchObject({ removed: 1 });
+  });
+
+  it('re-mirrors drafts after the expense sync when a rate was missing', async () => {
+    mockPrisma.companyExpense.findMany
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ currency: 'USD', amount: 370, originalAmount: 100 }] as never);
+    mockPrisma.companyExpense.deleteMany.mockResolvedValue({ count: 0 } as never);
+    mockPrisma.companyExpense.count.mockResolvedValue(10 as never);
+    mockMorning
+      .mockResolvedValueOnce({ items: [morningDraft('d1')], total: 1 } as never)
+      .mockResolvedValueOnce({ items: [], total: 0 } as never)
+      .mockResolvedValueOnce({ items: [morningDraft('d1')], total: 1 } as never);
+
+    const result = await syncCompanyExpensesAndDrafts({ now: NOW });
+
+    expect(mockMorning).toHaveBeenNthCalledWith(2, 'POST', '/api/v1/expenses/search', expect.objectContaining({ fromDate: '2026-09-16' }));
+    expect(mockPrisma.companyExpense.upsert).toHaveBeenLastCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ morningId: 'draft:d1', amount: 740 }),
+    }));
+    expect(result.drafts).toEqual({ fetched: 1, upserted: 1, removed: 0, missingRates: 0 });
   });
 });
 

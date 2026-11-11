@@ -134,7 +134,8 @@ export function detectRecurringCandidates(rows: ExpenseRowLike[], now: Date = ne
 export async function runRecurringDetection(now: Date = new Date()) {
   const currentMonth = israelToday(now).iso.slice(0, 7);
   const rows = await prisma.companyExpense.findMany({
-    where: { active: true, ...monthRangeWhere(shiftMonth(currentMonth, -DETECTION_WINDOW_MONTHS), shiftMonth(currentMonth, -1)) },
+    // Drafts are excluded: their supplier is still Morning's unreviewed OCR guess.
+    where: { active: true, isDraft: false, ...monthRangeWhere(shiftMonth(currentMonth, -DETECTION_WINDOW_MONTHS), shiftMonth(currentMonth, -1)) },
   });
   const candidates = detectRecurringCandidates(rows as ExpenseRowLike[], now);
   const existing = await prisma.recurringExpense.findMany({

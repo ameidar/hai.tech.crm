@@ -1,5 +1,7 @@
 import { Prisma } from '@prisma/client';
-import { Router } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
+import multer from 'multer';
+import path from 'path';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma.js';
 import { authenticate, adminOnly } from '../middleware/auth.js';
@@ -17,7 +19,15 @@ import {
   type ExpenseRowLike,
 } from '../services/company-expenses.js';
 import { isMorningConfigured } from '../services/morning/client.js';
-import { getMissingRecurring, runRecurringDetection } from '../services/recurring-expenses.js';
+import { sha256, uploadExpenseFileToMorning } from '../services/morning/expense-upload.js';
+import {
+  CADENCES,
+  INVOICE_SOURCES,
+  getMissingRecurring,
+  getSupplierGrid,
+  runRecurringDetection,
+} from '../services/recurring-expenses.js';
+import { scheduleDraftSyncAfterUpload } from '../services/company-expenses-scheduler.js';
 
 // Company expenses (הוצאות החברה) — Morning expense mirror + recurring-invoice tracking.
 // Admin only.
@@ -147,7 +157,10 @@ companyExpensesRouter.post('/sync', async (req, res, next) => {
 
 // ─── Recurring expenses ───────────────────────────────────────────────────────
 
-const recurringBaseSchema = z.object({
+const optText = z.string().trim().max(2000).nullable().optional()
+  .transform((v) => (v === undefined ? undefined : v || null));
+
+const recurringFields = {
   supplierName: z.string().trim().min(1, 'חובה לציין ספק'),
   supplierId: z.string().trim().min(1).nullable().optional(),
   label: z.string().trim().min(1).optional(),
@@ -157,10 +170,43 @@ const recurringBaseSchema = z.object({
   categoryTitle: z.string().trim().nullable().optional(),
   status: z.enum(['suggested', 'active', 'ignored']).optional(),
   notes: z.string().trim().nullable().optional(),
-});
-const recurringUpdateSchema = recurringBaseSchema.partial();
+  cadence: z.enum(CADENCES).optional(),
+  expectedMonth: z.number().int().min(1).max(12).nullable().optional(),
+  aliases: z.array(z.string().trim().min(1).max(200)).max(30).optional()
+    .transform((v) => (v === undefined ? undefined : [...new Set(v)])),
+  invoiceSource: z.enum(INVOICE_SOURCES).optional(),
+  portalUrl: z.string().trim().url('כתובת פורטל לא תקינה').max(1000).nullable().optional()
+    .or(z.literal('').transform(() => null)),
+  instructions: optText,
+  owner: z.string().trim().max(100).nullable().optional().transform((v) => (v === undefined ? undefined : v || null)),
+  emailMailbox: optText,
+  emailFrom: optText,
+  emailSubject: optText,
+};
+const yearlyNeedsMonth = (d: { cadence?: string; expectedMonth?: number | null }) =>
+  d.cadence !== 'yearly' || !!d.expectedMonth;
+const recurringBaseSchema = z.object(recurringFields)
+  .refine(yearlyNeedsMonth, { message: 'בחיוב שנתי יש לבחור חודש צפוי', path: ['expectedMonth'] });
+const recurringUpdateSchema = z.object(recurringFields).partial()
+  .refine(yearlyNeedsMonth, { message: 'בחיוב שנתי יש לבחור חודש צפוי', path: ['expectedMonth'] });
 
-function serializeRecurring(r: any) {
+// Optional registry fields shared by create + update (undefined = leave as is).
+function registryData(data: z.infer<typeof recurringUpdateSchema>) {
+  return {
+    ...(data.cadence !== undefined && { cadence: data.cadence }),
+    ...(data.expectedMonth !== undefined && { expectedMonth: data.expectedMonth }),
+    ...(data.aliases !== undefined && { aliases: data.aliases }),
+    ...(data.invoiceSource !== undefined && { invoiceSource: data.invoiceSource }),
+    ...(data.portalUrl !== undefined && { portalUrl: data.portalUrl }),
+    ...(data.instructions !== undefined && { instructions: data.instructions }),
+    ...(data.owner !== undefined && { owner: data.owner }),
+    ...(data.emailMailbox !== undefined && { emailMailbox: data.emailMailbox }),
+    ...(data.emailFrom !== undefined && { emailFrom: data.emailFrom }),
+    ...(data.emailSubject !== undefined && { emailSubject: data.emailSubject }),
+  };
+}
+
+export function serializeRecurring(r: any) {
   return {
     id: r.id,
     supplierId: r.supplierId,
@@ -170,6 +216,15 @@ function serializeRecurring(r: any) {
     expectedAmount: r.expectedAmount === null || r.expectedAmount === undefined ? null : Number(r.expectedAmount.toString()),
     tolerancePct: r.tolerancePct,
     cadence: r.cadence,
+    expectedMonth: r.expectedMonth ?? null,
+    aliases: r.aliases ?? [],
+    invoiceSource: r.invoiceSource ?? 'portal',
+    portalUrl: r.portalUrl ?? null,
+    instructions: r.instructions ?? null,
+    owner: r.owner ?? null,
+    emailMailbox: r.emailMailbox ?? null,
+    emailFrom: r.emailFrom ?? null,
+    emailSubject: r.emailSubject ?? null,
     categoryTitle: r.categoryTitle,
     status: r.status,
     source: r.source,
@@ -219,6 +274,7 @@ companyExpensesRouter.post('/recurring', async (req, res, next) => {
         status: data.status ?? 'active',
         source: 'manual',
         notes: data.notes ?? null,
+        ...registryData(data),
       },
     });
     await logAudit({ action: 'CREATE', entity: 'RecurringExpense', entityId: row.id, newValue: serializeRecurring(row), req });
@@ -245,10 +301,141 @@ companyExpensesRouter.put('/recurring/:id', async (req, res, next) => {
         ...(data.categoryTitle !== undefined && { categoryTitle: data.categoryTitle }),
         ...(data.status !== undefined && { status: data.status }),
         ...(data.notes !== undefined && { notes: data.notes }),
+        ...registryData(data),
       },
     });
     await logAudit({ action: 'UPDATE', entity: 'RecurringExpense', entityId: row.id, oldValue: serializeRecurring(existing), newValue: serializeRecurring(row), req });
     res.json(serializeRecurring(row));
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ─── Supplier grid ────────────────────────────────────────────────────────────
+
+// GET /api/company-expenses/suppliers/grid?months=6&includeSuggested=true
+companyExpensesRouter.get('/suppliers/grid', async (req, res, next) => {
+  try {
+    const q = z.object({
+      months: z.coerce.number().int().min(3).max(12).default(6),
+      includeSuggested: z.enum(['true', 'false']).optional(),
+    }).parse(req.query);
+    const grid = await getSupplierGrid({ months: q.months, includeSuggested: q.includeSuggested === 'true' });
+    res.json({
+      months: grid.months,
+      suppliers: grid.suppliers.map(({ rec, cells }) => ({ ...serializeRecurring(rec), cells })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ─── Manual invoice upload → Morning drafts ───────────────────────────────────
+
+export const UPLOAD_MAX_FILES = 20;
+export const UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+const UPLOAD_MIMES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
+const EXT_MIME: Record<string, string> = { '.pdf': 'application/pdf', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png' };
+
+/** Effective MIME: the declared one when allowed, else by extension for generic uploads. */
+function resolveMime(file: Express.Multer.File): string | null {
+  if (UPLOAD_MIMES.has(file.mimetype)) return file.mimetype;
+  if (['application/octet-stream', 'binary/octet-stream', ''].includes(file.mimetype)) {
+    return EXT_MIME[path.extname(file.originalname || '').toLowerCase()] ?? null;
+  }
+  return null;
+}
+
+const invoiceUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: UPLOAD_MAX_BYTES, files: UPLOAD_MAX_FILES },
+  fileFilter: (_req, file, cb) => {
+    if (resolveMime(file)) cb(null, true);
+    else cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', `unsupported:${file.originalname}`));
+  },
+}).array('files', UPLOAD_MAX_FILES);
+
+function runInvoiceUpload(req: Request, res: Response, next: NextFunction) {
+  invoiceUpload(req, res, (err: unknown) => {
+    if (!err) return next();
+    if (err instanceof multer.MulterError) {
+      const msg = err.code === 'LIMIT_FILE_SIZE' ? 'קובץ גדול מדי — עד 10MB לקובץ'
+        : err.code === 'LIMIT_FILE_COUNT' || (err.code === 'LIMIT_UNEXPECTED_FILE' && !err.field?.startsWith('unsupported:'))
+          ? `ניתן להעלות עד ${UPLOAD_MAX_FILES} קבצים בשדה files`
+          : err.field?.startsWith('unsupported:') ? `סוג קובץ לא נתמך (PDF / JPG / PNG בלבד): ${err.field.slice(12)}`
+            : `שגיאה בהעלאת הקבצים: ${err.message}`;
+      return res.status(400).json({ error: msg, message: msg });
+    }
+    next(err);
+  });
+}
+
+export type UploadResultStatus = 'uploaded' | 'duplicate' | 'failed';
+
+// POST /api/company-expenses/upload — multipart `files` (≤20 × 10MB, PDF/JPG/PNG),
+// optional `recurringExpenseId`. Each file → Morning draft; duplicates (same sha256 already
+// uploaded) are skipped. A drafts sync runs ~45s later so the new drafts show in the grid.
+companyExpensesRouter.post('/upload', runInvoiceUpload, async (req, res, next) => {
+  try {
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    if (!files.length) return res.status(400).json({ error: 'לא נבחרו קבצים' });
+    if (!isMorningConfigured()) return res.status(503).json({ error: 'Morning לא מוגדר בשרת' });
+
+    const recurringExpenseId = z.string().trim().max(100).optional()
+      .transform((v) => v || undefined).parse(req.body?.recurringExpenseId);
+    if (recurringExpenseId) {
+      const rec = await prisma.recurringExpense.findUnique({ where: { id: recurringExpenseId }, select: { id: true } });
+      if (!rec) return res.status(400).json({ error: 'ספק לא נמצא' });
+    }
+    const userId: string | null = (req as any).user?.userId ?? null;
+
+    const results: Array<{ fileName: string; size: number; status: UploadResultStatus; error?: string; uploadId?: string }> = [];
+    for (const file of files) {
+      // multer delivers originalname as latin1 — restore Hebrew/Unicode names.
+      const fileName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+      const mime = resolveMime(file)!;
+      const hash = sha256(file.buffer);
+      const existing = await prisma.expenseUpload.findUnique({ where: { fileSha256: hash } });
+      if (existing && existing.status !== 'failed') {
+        results.push({ fileName, size: file.size, status: 'duplicate', uploadId: existing.id });
+        continue;
+      }
+      let error: string | null = null;
+      try {
+        await uploadExpenseFileToMorning(file.buffer, fileName, mime);
+      } catch (e) {
+        error = e instanceof Error ? e.message : String(e);
+      }
+      const data = {
+        fileName, size: file.size, mime, uploadedBy: userId, source: 'manual',
+        status: error ? 'failed' : 'uploaded', error, recurringExpenseId: recurringExpenseId ?? null,
+      };
+      try {
+        const row = existing
+          ? await prisma.expenseUpload.update({ where: { id: existing.id }, data })
+          : await prisma.expenseUpload.create({ data: { fileSha256: hash, ...data } });
+        results.push({ fileName, size: file.size, status: error ? 'failed' : 'uploaded', ...(error && { error }), uploadId: row.id });
+      } catch (e) {
+        // Concurrent upload of the same file won the unique hash.
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+          results.push({ fileName, size: file.size, status: 'duplicate' });
+        } else throw e;
+      }
+    }
+
+    const uploaded = results.filter((r) => r.status === 'uploaded').length;
+    if (uploaded) scheduleDraftSyncAfterUpload();
+    const summary = {
+      uploaded,
+      duplicate: results.filter((r) => r.status === 'duplicate').length,
+      failed: results.filter((r) => r.status === 'failed').length,
+    };
+    await logAudit({
+      action: 'CREATE', entity: 'ExpenseUpload', entityId: results.find((r) => r.uploadId)?.uploadId ?? 'batch',
+      newValue: { ...summary, recurringExpenseId: recurringExpenseId ?? null, files: results.map(({ fileName, status }) => ({ fileName, status })) },
+      req,
+    });
+    res.json({ results, summary, syncScheduled: uploaded > 0 });
   } catch (error) {
     next(error);
   }

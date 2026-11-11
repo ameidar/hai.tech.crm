@@ -369,6 +369,7 @@ export interface ExpenseRowLike {
   description?: string | null;
   number?: string | null;
   url?: string | null;
+  isDraft?: boolean;
   active: boolean;
 }
 

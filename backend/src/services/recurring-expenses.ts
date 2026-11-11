@@ -1,8 +1,10 @@
-// Recurring supplier invoices ("don't forget") on top of the CompanyExpense mirror:
-// detection of candidates, "missing this month" evaluation and the WhatsApp reminder to Ami.
+// Recurring supplier invoices ("don't forget") on top of the CompanyExpense mirror — the
+// supplier registry: detection of candidates, "missing this month" evaluation, the monthly
+// supplier grid, the WhatsApp reminder to Ami and the "approve drafts" reminder to Inna.
 import { prisma } from '../utils/prisma.js';
 import { ADMIN_PHONE, sendWhatsAppMessage } from './notifications.js';
 import {
+  EXPENSE_STATUS_PENDING,
   daysInMonth,
   expenseGross,
   expenseMonthKey,
@@ -20,6 +22,10 @@ export const DETECTION_STABILITY_PCT = 35;
 export const DEFAULT_GRACE_DAYS = 5;
 
 export type RecurringStatus = 'suggested' | 'active' | 'ignored';
+export const CADENCES = ['monthly', 'yearly', 'usage'] as const;
+export type Cadence = (typeof CADENCES)[number];
+export const INVOICE_SOURCES = ['email', 'portal', 'freelancer', 'other'] as const;
+export type InvoiceSource = (typeof INVOICE_SOURCES)[number];
 
 export interface RecurringLike {
   id: string;
@@ -31,9 +37,26 @@ export interface RecurringLike {
   tolerancePct: number | null;
   status: string;
   createdAt?: Date;
+  /** monthly (default) | yearly (only in expectedMonth) | usage (never reported missing). */
+  cadence?: string | null;
+  expectedMonth?: number | null;
+  /** Extra Morning supplier names that count as this supplier (OCR mislabels). */
+  aliases?: string[] | null;
+  invoiceSource?: string | null;
+  portalUrl?: string | null;
+  owner?: string | null;
 }
 
 const normName = (s: string | null | undefined) => (s || '').trim().toLowerCase();
+
+/** Loose supplier-name key for alias matching: lowercase, no quotes/punctuation, single spaces. */
+export function normalizeSupplierName(s: string | null | undefined): string {
+  return (s || '')
+    .toLowerCase()
+    .replace(/["'`׳״“”‘’.,;:()\[\]{}!?\-_/\\]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 const toNum = (v: unknown): number | null => {
   if (v === null || v === undefined || v === '') return null;
   const n = Number((v as any).toString());
@@ -54,6 +77,32 @@ export function sameSupplier(
 ): boolean {
   if (a.supplierId && b.supplierId) return a.supplierId === b.supplierId;
   return !!normName(a.supplierName) && normName(a.supplierName) === normName(b.supplierName);
+}
+
+/**
+ * A mirror row belongs to a registered supplier when `sameSupplier` holds, or when its
+ * supplier name equals one of the supplier's explicit aliases (normalized). Aliases are
+ * opt-in per supplier, so a generic OCR label like "Uber B.V." only matches where listed.
+ */
+export function matchesSupplier(
+  rec: Pick<RecurringLike, 'supplierId' | 'supplierName' | 'aliases'>,
+  row: { supplierId?: string | null; supplierName?: string | null },
+): boolean {
+  if (sameSupplier(rec, row)) return true;
+  const name = normalizeSupplierName(row.supplierName);
+  if (!name || !rec.aliases?.length) return false;
+  return rec.aliases.some((a) => normalizeSupplierName(a) === name);
+}
+
+/** Whether an invoice is expected in `month` ("YYYY-MM") for this supplier's cadence. */
+export function isExpectedInMonth(rec: Pick<RecurringLike, 'cadence' | 'expectedMonth'>, month: string): boolean {
+  const cadence = rec.cadence || 'monthly';
+  if (cadence === 'usage') return false;
+  if (cadence === 'yearly') {
+    // A yearly supplier without a month can't be checked — never reported missing.
+    return !!rec.expectedMonth && Number(month.slice(5, 7)) === rec.expectedMonth;
+  }
+  return true;
 }
 
 // ─── Detection ────────────────────────────────────────────────────────────────
@@ -174,17 +223,22 @@ export interface MissingRecurring {
   expectedAmount: number | null;
   tolerancePct: number | null;
   daysOverdue: number;
+  invoiceSource?: string | null;
+  portalUrl?: string | null;
+  owner?: string | null;
 }
 
+/** Drafts (isDraft) count as received — the invoice is already in Morning. */
 export function expenseMatchesRecurring(rec: RecurringLike, row: ExpenseRowLike, month: string): boolean {
-  if (!row.active || expenseMonthKey(row) !== month || !sameSupplier(rec, row)) return false;
+  if (!row.active || expenseMonthKey(row) !== month || !matchesSupplier(rec, row)) return false;
   const expected = toNum(rec.expectedAmount);
   if (rec.tolerancePct === null || rec.tolerancePct === undefined || !expected) return true;
   return (Math.abs(expenseGross(row) - expected) / expected) * 100 <= rec.tolerancePct;
 }
 
 /**
- * Active recurring expenses with no matching invoice:
+ * Active recurring expenses with no matching invoice (only months the cadence expects —
+ * see isExpectedInMonth):
  *  - current month, once today's day > expectedDay + grace;
  *  - previous month, once its due day + grace has passed — so the reminder on the 3rd
  *    catches invoices that never arrived last month. Skipped for rows created after that month.
@@ -207,10 +261,11 @@ export function findMissingRecurring(
       id: rec.id, label: rec.label, supplierName: rec.supplierName,
       expectedDayOfMonth: rec.expectedDayOfMonth,
       expectedAmount: toNum(rec.expectedAmount), tolerancePct: rec.tolerancePct ?? null,
+      invoiceSource: rec.invoiceSource ?? null, portalUrl: rec.portalUrl ?? null, owner: rec.owner ?? null,
     };
 
     const createdMonth = rec.createdAt ? israelToday(rec.createdAt).iso.slice(0, 7) : null;
-    if (!createdMonth || createdMonth <= prevMonth) {
+    if ((!createdMonth || createdMonth <= prevMonth) && isExpectedInMonth(rec, prevMonth)) {
       const dueDay = Math.min(rec.expectedDayOfMonth, daysInMonth(prevMonth));
       const daysOverdue = daysInMonth(prevMonth) - dueDay + today.day;
       if (daysOverdue > graceDays && !expenses.some((e) => expenseMatchesRecurring(rec, e, prevMonth))) {
@@ -218,7 +273,7 @@ export function findMissingRecurring(
       }
     }
 
-    if (today.day > rec.expectedDayOfMonth + graceDays) {
+    if (isExpectedInMonth(rec, currentMonth) && today.day > rec.expectedDayOfMonth + graceDays) {
       if (!expenses.some((e) => expenseMatchesRecurring(rec, e, currentMonth))) {
         out.push({ ...base, month: currentMonth, daysOverdue: today.day - rec.expectedDayOfMonth });
       }
@@ -236,25 +291,126 @@ export async function getMissingRecurring(now: Date = new Date()): Promise<Missi
       where: { active: true, ...monthRangeWhere(shiftMonth(currentMonth, -1), currentMonth) },
     }),
   ]);
-  const graceDays = Number(process.env.COMPANY_EXPENSE_GRACE_DAYS || DEFAULT_GRACE_DAYS);
-  return findMissingRecurring(recurring as RecurringLike[], expenses as ExpenseRowLike[], now, graceDays);
+  return findMissingRecurring(recurring as RecurringLike[], expenses as ExpenseRowLike[], now, graceDaysFromEnv());
+}
+
+const graceDaysFromEnv = () => Number(process.env.COMPANY_EXPENSE_GRACE_DAYS || DEFAULT_GRACE_DAYS);
+
+// ─── Monthly supplier grid ────────────────────────────────────────────────────
+
+export type GridCellState = 'approved' | 'pending' | 'draft' | 'missing' | 'not_due' | 'not_expected';
+
+export interface GridCell {
+  state: GridCellState;
+  count: number;
+  gross: number;
+  expenseIds: string[];
+}
+
+/** "YYYY-MM" keys: `months` months ending with the current Israel month (oldest first). */
+export function gridMonths(months: number, now: Date = new Date()): string[] {
+  const current = israelToday(now).iso.slice(0, 7);
+  return Array.from({ length: months }, (_, i) => shiftMonth(current, i - months + 1));
+}
+
+/**
+ * One supplier's cells. Priority: approved (non-draft, Morning status ≠ 10) → pending
+ * (non-draft, status 10 = awaiting approval in Morning) → draft → not_expected (cadence) →
+ * not_due (current month, today ≤ expected day + grace) → missing. Matching uses the same
+ * rule as the reminder (supplier/aliases + amount tolerance), so grid and reminder agree.
+ */
+export function computeSupplierGridCells(
+  rec: RecurringLike,
+  expenses: ExpenseRowLike[],
+  months: string[],
+  now: Date = new Date(),
+  graceDays = DEFAULT_GRACE_DAYS,
+): Record<string, GridCell> {
+  const today = israelToday(now);
+  const currentMonth = today.iso.slice(0, 7);
+  const cells: Record<string, GridCell> = {};
+  for (const month of months) {
+    const matches = expenses.filter((e) => expenseMatchesRecurring(rec, e, month));
+    const approved = matches.filter((e) => !e.isDraft && e.status !== EXPENSE_STATUS_PENDING);
+    const pending = matches.filter((e) => !e.isDraft && e.status === EXPENSE_STATUS_PENDING);
+    let state: GridCellState;
+    if (approved.length) state = 'approved';
+    else if (pending.length) state = 'pending';
+    else if (matches.length) state = 'draft';
+    else if (!isExpectedInMonth(rec, month)) state = 'not_expected';
+    else if (month >= currentMonth && today.day <= Math.min(rec.expectedDayOfMonth, daysInMonth(month)) + graceDays) state = 'not_due';
+    else state = 'missing';
+    cells[month] = {
+      state,
+      count: matches.length,
+      gross: Math.round(matches.reduce((s, e) => s + expenseGross(e), 0) * 100) / 100,
+      expenseIds: matches.map((e) => e.id).filter((id): id is string => !!id),
+    };
+  }
+  return cells;
+}
+
+/** Load registry rows (active, optionally suggested) + mirror rows and build the grid. */
+export async function getSupplierGrid(opts: { months?: number; includeSuggested?: boolean; now?: Date } = {}) {
+  const now = opts.now ?? new Date();
+  const months = gridMonths(opts.months ?? 6, now);
+  const [recurring, expenses] = await Promise.all([
+    prisma.recurringExpense.findMany({
+      where: { status: { in: opts.includeSuggested ? ['active', 'suggested'] : ['active'] } },
+      orderBy: [{ status: 'asc' }, { label: 'asc' }],
+    }),
+    prisma.companyExpense.findMany({
+      where: { active: true, ...monthRangeWhere(months[0], months[months.length - 1]) },
+    }),
+  ]);
+  const grace = graceDaysFromEnv();
+  return {
+    months,
+    suppliers: recurring.map((rec) => ({
+      rec,
+      cells: computeSupplierGridCells(rec as RecurringLike, expenses as ExpenseRowLike[], months, now, grace),
+    })),
+  };
 }
 
 // ─── WhatsApp reminder (Ami only) ─────────────────────────────────────────────
 
 const MONTH_LABEL = (m: string) => `${m.slice(5, 7)}/${m.slice(0, 4)}`;
+const crmExpensesLink = () => `${process.env.FRONTEND_URL || 'https://crm.orma-ai.com'}/company-expenses`;
+
+const SOURCE_GROUPS: Array<{ source: InvoiceSource; title: string }> = [
+  { source: 'portal', title: '🌐 להורדה מפורטל הספק:' },
+  { source: 'email', title: '📧 אמורות להגיע במייל:' },
+  { source: 'freelancer', title: '👤 פרילנסרים:' },
+  { source: 'other', title: '📎 אחר:' },
+];
 
 export function buildMissingReminderMessage(missing: MissingRecurring[]): string {
-  const link = `${process.env.FRONTEND_URL || 'https://crm.orma-ai.com'}/company-expenses`;
-  const lines = missing.map((m) => {
+  const line = (m: MissingRecurring) => {
     const amount = m.expectedAmount ? ` · ~₪${Math.round(m.expectedAmount).toLocaleString('he-IL')}` : '';
-    return `• ${m.label} (${MONTH_LABEL(m.month)})${amount}`;
-  });
+    const owner = m.owner ? ` · ${m.owner}` : '';
+    return `• ${m.label} (${MONTH_LABEL(m.month)})${amount}${owner}`;
+  };
+  const sourceOf = (m: MissingRecurring): InvoiceSource =>
+    (INVOICE_SOURCES as readonly string[]).includes(m.invoiceSource ?? '') ? (m.invoiceSource as InvoiceSource) : 'portal';
+
+  const body: string[] = [];
+  for (const g of SOURCE_GROUPS) {
+    const items = missing.filter((m) => sourceOf(m) === g.source);
+    if (!items.length) continue;
+    body.push('', g.title);
+    for (const m of items) {
+      body.push(line(m));
+      // URL on its own line so WhatsApp links it cleanly (and RTL doesn't scramble it).
+      if (g.source === 'portal' && m.portalUrl) body.push(m.portalUrl);
+    }
+  }
   return [
     `🧾 חשבוניות קבועות שעדיין לא הגיעו (${missing.length}):`,
-    ...lines,
+    ...body,
     '',
-    `לבדיקה: ${link}`,
+    'לבדיקה והעלאה ל-Morning:',
+    crmExpensesLink(),
   ].join('\n');
 }
 
@@ -264,4 +420,31 @@ export async function sendMissingRecurringReminder(now: Date = new Date()) {
   if (!missing.length) return { sent: false, missing: 0 };
   const ok = await sendWhatsAppMessage(ADMIN_PHONE, buildMissingReminderMessage(missing));
   return { sent: ok, missing: missing.length };
+}
+
+// ─── "Approve drafts" reminder (Inna) ─────────────────────────────────────────
+
+export const DEFAULT_DRAFTS_REMINDER_PHONE = '972524486208';
+
+export function buildDraftsReminderMessage(count: number, gross: number): string {
+  return [
+    `🟦 יש ${count} טיוטות הוצאה ב-Morning שממתינות לאישור (סה"כ ₪${Math.round(gross).toLocaleString('he-IL')}).`,
+    'נא לעבור עליהן ולאשר ב-Morning כדי שייכנסו לדוחות החודש.',
+    '',
+    'רשימה מלאה:',
+    crmExpensesLink(),
+  ].join('\n');
+}
+
+/** WhatsApp the drafts-approval reminder. Skips when there are no active drafts. */
+export async function sendDraftsApprovalReminder() {
+  const drafts = await prisma.companyExpense.findMany({
+    where: { active: true, isDraft: true },
+    select: { amount: true },
+  });
+  if (!drafts.length) return { sent: false, drafts: 0, gross: 0 };
+  const gross = drafts.reduce((s, d) => s + expenseGross(d), 0);
+  const phone = process.env.COMPANY_EXPENSE_DRAFTS_REMINDER_PHONE || DEFAULT_DRAFTS_REMINDER_PHONE;
+  const ok = await sendWhatsAppMessage(phone, buildDraftsReminderMessage(drafts.length, gross));
+  return { sent: ok, drafts: drafts.length, gross: Math.round(gross * 100) / 100 };
 }

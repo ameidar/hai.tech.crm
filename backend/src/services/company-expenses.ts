@@ -88,6 +88,10 @@ export interface CompanyExpenseData {
   url: string | null;
   active: boolean;
   morningUpdatedAt: Date | null;
+  /** Gross amount in the document's own currency, for foreign-currency docs only. */
+  originalAmount?: number | null;
+  /** Mirrors a Morning draft (uploaded, not yet approved) — see syncMorningDrafts. */
+  isDraft?: boolean;
 }
 
 /** Map a raw Morning expense item to mirror columns. Returns null when it has no id. */
@@ -125,6 +129,49 @@ export function mapMorningExpense(item: any): CompanyExpenseData | null {
     url: item.url ? String(item.url) : null,
     active: item.active !== false,
     morningUpdatedAt: parseTimestamp(item.lastUpdateDate) ?? parseTimestamp(item.creationDate),
+    originalAmount: currency && currency !== 'ILS' && local !== null ? round2(gross) : null,
+  };
+}
+
+/** Prefix that keeps draft ids apart from approved-expense ids in the morningId column. */
+export const DRAFT_ID_PREFIX = 'draft:';
+
+/**
+ * Map a Morning expense draft ({ id, status, url, expense: {...} }) to mirror columns.
+ * Drafts carry no ILS amount for foreign docs, so `ilsRates[currency]` (ILS per unit, taken
+ * from recently approved docs) converts them; without a rate the ILS amount stays 0.
+ */
+export function mapMorningDraft(draft: any, ilsRates: Record<string, number> = {}): CompanyExpenseData | null {
+  if (!draft?.id) return null;
+  const e = draft.expense ?? {};
+  const currency = e.currency ? String(e.currency) : 'ILS';
+  const foreign = currency !== 'ILS';
+  const gross = num(e.amount) ?? 0;
+  const rate = foreign ? ilsRates[currency] ?? 0 : 1;
+  const amount = round2(gross * rate);
+  const rawVat = num(e.vat);
+  const vat = rawVat === null ? null : round2(rawVat * rate);
+  return {
+    morningId: `${DRAFT_ID_PREFIX}${draft.id}`,
+    status: num(draft.status),
+    documentType: e.documentType !== undefined && e.documentType !== null ? String(e.documentType) : null,
+    number: e.number !== undefined && e.number !== null && e.number !== '' ? String(e.number) : null,
+    date: parseDay(e.date),
+    reportingDate: parseDay(e.reportingDate),
+    amount,
+    amountExcludeVat: round2(amount - (vat ?? 0)),
+    vat,
+    currency,
+    description: e.description ? String(e.description) : null,
+    supplierId: e.supplier?.id ? String(e.supplier.id) : null,
+    supplierName: e.supplier?.name ? String(e.supplier.name).trim() : null,
+    categoryId: e.accountingClassification?.id ? String(e.accountingClassification.id) : null,
+    categoryTitle: e.accountingClassification?.title ? String(e.accountingClassification.title) : null,
+    url: draft.url ? String(draft.url) : null,
+    active: e.active !== false,
+    morningUpdatedAt: parseTimestamp(draft.lastUpdateDate) ?? parseTimestamp(draft.creationDate),
+    originalAmount: foreign ? round2(gross) : null,
+    isDraft: true,
   };
 }
 
@@ -208,6 +255,101 @@ export async function syncCompanyExpenses(
   } finally {
     syncRunning = false;
   }
+}
+
+// ─── Drafts (uploaded to Morning, not yet approved) ───────────────────────────
+
+const DRAFTS_PAGE_SIZE = 100;
+
+/** Fetch every current Morning expense draft. */
+export async function fetchMorningDrafts(): Promise<any[]> {
+  const all: any[] = [];
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const result = await morningRequest<any>('POST', '/api/v1/expenses/drafts/search', {
+      pageSize: DRAFTS_PAGE_SIZE, page,
+    });
+    const items: any[] = result?.items || [];
+    all.push(...items);
+    if (items.length < DRAFTS_PAGE_SIZE || all.length >= (result?.total ?? all.length)) break;
+  }
+  return all;
+}
+
+/** ILS per unit for each foreign currency, from the most recent approved doc that has both amounts. */
+export async function latestIlsRates(): Promise<Record<string, number>> {
+  const rows = await prisma.companyExpense.findMany({
+    where: { isDraft: false, originalAmount: { not: null }, NOT: { currency: 'ILS' } },
+    orderBy: { date: 'desc' },
+    select: { currency: true, amount: true, originalAmount: true },
+    take: 200,
+  });
+  const rates: Record<string, number> = {};
+  for (const r of rows) {
+    const original = Number(r.originalAmount ?? 0);
+    if (!r.currency || rates[r.currency] || !original) continue;
+    rates[r.currency] = Number(r.amount) / original;
+  }
+  return rates;
+}
+
+export interface DraftSyncResult {
+  fetched: number;
+  upserted: number;
+  /** Draft rows no longer in Morning — approved (they return via the expense sync) or deleted. */
+  removed: number;
+  /** Foreign-currency drafts stored with ILS 0 because no approved doc gave a rate yet. */
+  missingRates: number;
+}
+
+let draftSyncRunning = false;
+export const isCompanyExpenseDraftSyncRunning = () => draftSyncRunning;
+
+/**
+ * Mirror Morning drafts so uploaded-but-unapproved invoices show in the CRM right away.
+ * Drafts are a transient list: rows for drafts that disappeared are deleted, since the
+ * approved expense comes back under its own id from the regular sync.
+ */
+export async function syncMorningDrafts(): Promise<DraftSyncResult> {
+  if (!isMorningConfigured()) throw new Error('Morning API credentials are not configured');
+  if (draftSyncRunning) throw new Error('Company expense drafts sync already running');
+  draftSyncRunning = true;
+  try {
+    const [items, rates] = await Promise.all([fetchMorningDrafts(), latestIlsRates()]);
+    const syncedAt = new Date();
+    const ids: string[] = [];
+    let missingRates = 0;
+    for (const item of items) {
+      const data = mapMorningDraft(item, rates);
+      if (!data) continue;
+      ids.push(data.morningId);
+      if (data.currency !== 'ILS' && !rates[data.currency ?? '']) missingRates++;
+      await prisma.companyExpense.upsert({
+        where: { morningId: data.morningId },
+        create: { ...data, syncedAt },
+        update: { ...data, syncedAt },
+      });
+    }
+    const { count: removed } = await prisma.companyExpense.deleteMany({
+      where: { isDraft: true, morningId: { notIn: ids } },
+    });
+    return { fetched: items.length, upserted: ids.length, removed, missingRates };
+  } finally {
+    draftSyncRunning = false;
+  }
+}
+
+/**
+ * Drafts first, then approved expenses. When drafts were approved since the last run, the
+ * expense sync widens to the full window so approvals of older-dated invoices arrive too.
+ * Drafts are re-mirrored afterwards if some lacked an exchange rate the expense sync may supply.
+ */
+export async function syncCompanyExpensesAndDrafts(
+  opts: { full?: boolean; now?: Date } = {},
+): Promise<CompanyExpenseSyncResult & { drafts: DraftSyncResult }> {
+  let drafts = await syncMorningDrafts();
+  const result = await syncCompanyExpenses({ ...opts, full: opts.full || drafts.removed > 0 });
+  if (drafts.missingRates > 0) drafts = { ...(await syncMorningDrafts()), removed: drafts.removed };
+  return { ...result, drafts };
 }
 
 // ─── Overview math (pure) ─────────────────────────────────────────────────────
@@ -374,6 +516,8 @@ export function serializeCompanyExpense(r: any) {
     amountExcludeVat: r.amountExcludeVat === null || r.amountExcludeVat === undefined ? null : Number(r.amountExcludeVat.toString()),
     vat: r.vat === null || r.vat === undefined ? null : Number(r.vat.toString()),
     currency: r.currency ?? null,
+    originalAmount: r.originalAmount === null || r.originalAmount === undefined ? null : Number(r.originalAmount.toString()),
+    isDraft: r.isDraft === true,
     description: r.description ?? null,
     supplierId: r.supplierId ?? null,
     supplierName: r.supplierName ?? null,

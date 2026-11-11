@@ -7,12 +7,13 @@ import { logAudit } from '../utils/audit.js';
 import {
   EXPENSE_STATUS_PENDING,
   buildExpenseSummary,
+  isCompanyExpenseDraftSyncRunning,
   isCompanyExpenseSyncRunning,
   israelToday,
   monthRangeWhere,
   serializeCompanyExpense,
   shiftMonth,
-  syncCompanyExpenses,
+  syncCompanyExpensesAndDrafts,
   type ExpenseRowLike,
 } from '../services/company-expenses.js';
 import { isMorningConfigured } from '../services/morning/client.js';
@@ -118,7 +119,7 @@ companyExpensesRouter.get('/summary', async (req, res, next) => {
       kpis: { ...summary.kpis, pendingCount: pendingRows.length, pendingGross: Math.round(pendingGross * 100) / 100 },
       pending: pendingRows.map(serializeCompanyExpense),
       lastSyncedAt: lastSync._max.syncedAt ?? null,
-      syncRunning: isCompanyExpenseSyncRunning(),
+      syncRunning: isCompanyExpenseSyncRunning() || isCompanyExpenseDraftSyncRunning(),
       morningConfigured: isMorningConfigured(),
       filters: {
         suppliers: uniq(filterOptions.map((r) => r.supplierName)),
@@ -130,13 +131,13 @@ companyExpensesRouter.get('/summary', async (req, res, next) => {
   }
 });
 
-// POST /api/company-expenses/sync — "רענן עכשיו". Body { full?: boolean } for a 13-month resync.
+// POST /api/company-expenses/sync — "רענן עכשיו" (drafts + expenses). Body { full?: boolean } for a 13-month resync.
 companyExpensesRouter.post('/sync', async (req, res, next) => {
   try {
     const { full } = z.object({ full: z.boolean().optional() }).parse(req.body ?? {});
     if (!isMorningConfigured()) return res.status(503).json({ error: 'Morning לא מוגדר בשרת' });
-    if (isCompanyExpenseSyncRunning()) return res.status(409).json({ error: 'סנכרון כבר רץ, נסה שוב בעוד רגע' });
-    const result = await syncCompanyExpenses({ full });
+    if (isCompanyExpenseSyncRunning() || isCompanyExpenseDraftSyncRunning()) return res.status(409).json({ error: 'סנכרון כבר רץ, נסה שוב בעוד רגע' });
+    const result = await syncCompanyExpensesAndDrafts({ full });
     const detection = await runRecurringDetection();
     res.json({ ...result, newRecurringSuggestions: detection.created });
   } catch (error) {

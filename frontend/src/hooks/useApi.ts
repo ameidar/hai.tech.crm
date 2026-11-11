@@ -1558,6 +1558,8 @@ export interface CompanyExpense {
   amountExcludeVat: number | null;
   vat: number | null;
   currency: string | null;
+  originalAmount: number | null; // gross in the doc's own currency (foreign docs)
+  isDraft: boolean; // uploaded to Morning, not yet approved
   description: string | null;
   supplierId: string | null;
   supplierName: string | null;

@@ -536,6 +536,8 @@ model CompanyExpense {
   amountExcludeVat Decimal?  @map("amount_exclude_vat") @db.Decimal(12, 2)
   vat              Decimal?  @db.Decimal(12, 2)
   currency         String?
+  // Gross in the document's own currency (foreign-currency docs only).
+  originalAmount   Decimal?  @map("original_amount") @db.Decimal(12, 2)
   description      String?
   supplierId       String?   @map("supplier_id")
   supplierName     String?   @map("supplier_name")
@@ -543,6 +545,8 @@ model CompanyExpense {
   categoryTitle    String?   @map("category_title")
   url              String?
   active           Boolean   @default(true)
+  // Morning draft (uploaded, awaiting approval); morningId is "draft:<draftId>".
+  isDraft          Boolean   @default(false) @map("is_draft")
   morningUpdatedAt DateTime? @map("morning_updated_at")
   syncedAt         DateTime  @default(now()) @map("synced_at")
   createdAt        DateTime  @default(now()) @map("created_at")
@@ -552,6 +556,7 @@ model CompanyExpense {
   @@index([reportingDate])
   @@index([supplierName])
   @@index([status])
+  @@index([isDraft])
   @@map("company_expenses")
 }
 

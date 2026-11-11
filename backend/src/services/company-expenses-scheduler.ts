@@ -1,11 +1,13 @@
 import cron, { ScheduledTask } from 'node-cron';
-import { israelToday, syncCompanyExpenses } from './company-expenses.js';
+import { israelToday, syncCompanyExpensesAndDrafts, syncMorningDrafts, syncCompanyExpenses } from './company-expenses.js';
 import { runRecurringDetection, sendMissingRecurringReminder } from './recurring-expenses.js';
 
-// Nightly Morning → company_expenses mirror sync (+ recurring detection), and the
-// "missing recurring invoices" WhatsApp reminder to Ami (weekly Sunday + 3rd of month).
+// Nightly Morning → company_expenses mirror sync (+ recurring detection), an hourly daytime
+// drafts sync (uploaded invoices show before approval), and the "missing recurring invoices"
+// WhatsApp reminder to Ami (weekly Sunday + 3rd of month).
 const TZ = 'Asia/Jerusalem';
 const DEFAULT_SYNC_CRON = '30 2 * * *';
+const DEFAULT_DRAFTS_SYNC_CRON = '20 7-22 * * *';
 const DEFAULT_WEEKLY_REMINDER_CRON = '0 9 * * 0';
 const DEFAULT_MONTHLY_REMINDER_CRON = '0 9 3 * *';
 
@@ -16,12 +18,23 @@ const enabled = (envVar: string) => (process.env[envVar] ?? 'true').toLowerCase(
 
 export async function runNightlyCompanyExpenseSync(): Promise<void> {
   try {
-    const result = await syncCompanyExpenses();
+    const result = await syncCompanyExpensesAndDrafts();
     console.log(`[CompanyExpenses] Sync done: ${JSON.stringify({ ...result, syncedAt: result.syncedAt.toISOString() })}`);
     const detection = await runRecurringDetection();
     if (detection.created) console.log(`[CompanyExpenses] New recurring suggestions: ${detection.created}`);
   } catch (error) {
     console.error('[CompanyExpenses] Nightly sync failed:', error);
+  }
+}
+
+/** Daytime drafts refresh; a full expense resync follows when drafts were approved meanwhile. */
+export async function runCompanyExpenseDraftSync(): Promise<void> {
+  try {
+    const drafts = await syncMorningDrafts();
+    if (drafts.removed > 0) await syncCompanyExpenses({ full: true });
+    console.log(`[CompanyExpenses] Drafts sync done: ${JSON.stringify(drafts)}`);
+  } catch (error) {
+    console.error('[CompanyExpenses] Drafts sync failed:', error);
   }
 }
 
@@ -54,6 +67,12 @@ export function initCompanyExpensesScheduler(): void {
     schedule('sync', process.env.COMPANY_EXPENSES_SYNC_CRON || DEFAULT_SYNC_CRON, () => { void runNightlyCompanyExpenseSync(); });
   } else {
     console.log('[CompanyExpenses] COMPANY_EXPENSES_SYNC_ENABLED=false — nightly sync disabled');
+  }
+
+  if (enabled('COMPANY_EXPENSES_DRAFTS_SYNC_ENABLED')) {
+    schedule('drafts sync', process.env.COMPANY_EXPENSES_DRAFTS_SYNC_CRON || DEFAULT_DRAFTS_SYNC_CRON, () => { void runCompanyExpenseDraftSync(); });
+  } else {
+    console.log('[CompanyExpenses] COMPANY_EXPENSES_DRAFTS_SYNC_ENABLED=false — drafts sync disabled');
   }
 
   if (enabled('COMPANY_EXPENSE_REMINDERS_ENABLED')) {

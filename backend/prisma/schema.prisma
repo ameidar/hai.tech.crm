@@ -571,16 +571,52 @@ model RecurringExpense {
   expectedAmount     Decimal? @map("expected_amount") @db.Decimal(12, 2)
   // Allowed deviation from expectedAmount in percent; null = any amount matches.
   tolerancePct       Int?     @map("tolerance_pct")
-  cadence            String   @default("monthly")
+  cadence            String   @default("monthly") // monthly | yearly | usage
   categoryTitle      String?  @map("category_title")
   status             String   @default("suggested") // suggested | active | ignored
   source             String   @default("manual") // auto | manual
   notes              String?
+  // Supplier registry: extra Morning supplier names (OCR mislabels) that count as this supplier.
+  aliases            String[] @default([])
+  invoiceSource      String   @default("portal") @map("invoice_source") // email | portal | freelancer | other
+  portalUrl          String?  @map("portal_url")
+  instructions       String?
+  owner              String?
+  // cadence = yearly: the month (1-12) the invoice is expected in.
+  expectedMonth      Int?     @map("expected_month")
+  // Phase 2 (email intake) — stored only.
+  emailMailbox       String?  @map("email_mailbox")
+  emailFrom          String?  @map("email_from")
+  emailSubject       String?  @map("email_subject")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
+  uploads ExpenseUpload[]
+
   @@index([status])
   @@map("recurring_expenses")
+}
+
+// Invoice files uploaded from the CRM to Morning (as drafts). Dedupe by content hash.
+model ExpenseUpload {
+  id                 String   @id @default(uuid())
+  fileSha256         String   @unique @map("file_sha256")
+  fileName           String   @map("file_name")
+  size               Int
+  mime               String
+  uploadedBy         String?  @map("uploaded_by") // users.id (no FK — audit-style)
+  source             String   @default("manual") // manual | email
+  status             String // uploaded | failed  ("duplicate" is only reported, never stored)
+  error              String?
+  recurringExpenseId String?  @map("recurring_expense_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  recurringExpense RecurringExpense? @relation(fields: [recurringExpenseId], references: [id], onDelete: SetNull)
+
+  @@index([recurringExpenseId])
+  @@index([createdAt])
+  @@map("expense_uploads")
 }
 
 // Self-reported work hours for operations staff (Instructor.kind = "operations").

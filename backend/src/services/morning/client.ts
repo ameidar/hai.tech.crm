@@ -66,7 +66,8 @@ async function fetchToken(): Promise<string> {
   return cachedToken.token;
 }
 
-async function getToken(): Promise<string> {
+/** Cached Morning bearer token (refreshed shortly before expiry). Shared by every Morning call. */
+export async function getMorningToken(): Promise<string> {
   if (cachedToken && cachedToken.expiresAt > Date.now() + TOKEN_BUFFER_SECONDS * 1000) {
     return cachedToken.token;
   }
@@ -78,7 +79,7 @@ export async function morningRequest<T>(
   path: string,
   body?: unknown
 ): Promise<T> {
-  const token = await getToken();
+  const token = await getMorningToken();
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: {

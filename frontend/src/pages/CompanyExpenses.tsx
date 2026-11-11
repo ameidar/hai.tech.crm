@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   BarChart,
   Bar,
@@ -15,13 +16,16 @@ import {
   CheckCircle2,
   Clock,
   ExternalLink,
+  FileUp,
   Plus,
   RefreshCw,
   Search,
   Sparkles,
   TrendingDown,
   TrendingUp,
+  Upload,
   Wallet,
+  X,
 } from 'lucide-react';
 import {
   useCompanyExpenseSummary,
@@ -31,11 +35,18 @@ import {
   useSyncCompanyExpenses,
   useDetectRecurringExpenses,
   useSaveRecurringExpense,
+  useSupplierGrid,
+  useUploadExpenseInvoices,
   type CompanyExpense,
   type CompanyExpenseFilters,
   type RecurringExpense,
   type RecurringExpenseInput,
   type RecurringExpenseStatus,
+  type ExpenseUploadResult,
+  type SupplierCadence,
+  type SupplierGrid,
+  type SupplierGridCellState,
+  type SupplierInvoiceSource,
 } from '../hooks/useApi';
 import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
@@ -203,6 +214,10 @@ function ExpensesTab({ suppliers, categories }: { suppliers: string[]; categorie
   );
 }
 
+const CADENCE_LABEL: Record<SupplierCadence, string> = { monthly: 'חודשי', yearly: 'שנתי', usage: 'לפי שימוש' };
+const SOURCE_LABEL: Record<SupplierInvoiceSource, string> = { portal: 'פורטל', email: 'מייל', freelancer: 'פרילנסר', other: 'אחר' };
+const MONTH_NAMES = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+
 function RecurringForm({ initial, onSave, onCancel, saving }: {
   initial?: RecurringExpense | null;
   onSave: (data: RecurringExpenseInput) => void;
@@ -217,10 +232,17 @@ function RecurringForm({ initial, onSave, onCancel, saving }: {
     tolerancePct: initial?.tolerancePct != null ? String(initial.tolerancePct) : '',
     categoryTitle: initial?.categoryTitle ?? '',
     notes: initial?.notes ?? '',
+    cadence: (initial?.cadence ?? 'monthly') as SupplierCadence,
+    expectedMonth: initial?.expectedMonth != null ? String(initial.expectedMonth) : '',
+    invoiceSource: (initial?.invoiceSource ?? 'portal') as SupplierInvoiceSource,
+    portalUrl: initial?.portalUrl ?? '',
+    instructions: initial?.instructions ?? '',
+    owner: initial?.owner ?? '',
+    aliases: (initial?.aliases ?? []).join(', '),
   });
   const field = (key: keyof typeof form) => ({
     value: form[key],
-    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm((f) => ({ ...f, [key]: e.target.value })),
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setForm((f) => ({ ...f, [key]: e.target.value })),
   });
 
   return (
@@ -236,19 +258,48 @@ function RecurringForm({ initial, onSave, onCancel, saving }: {
           tolerancePct: form.tolerancePct ? Number(form.tolerancePct) : null,
           categoryTitle: form.categoryTitle.trim() || null,
           notes: form.notes.trim() || null,
+          cadence: form.cadence,
+          expectedMonth: form.cadence === 'yearly' && form.expectedMonth ? Number(form.expectedMonth) : null,
+          invoiceSource: form.invoiceSource,
+          portalUrl: form.portalUrl.trim() || null,
+          instructions: form.instructions.trim() || null,
+          owner: form.owner.trim() || null,
+          aliases: form.aliases.split(',').map((a) => a.trim()).filter(Boolean),
         });
       }}
     >
-      <label className="block text-sm">שם ספק (כפי שמופיע במורנינג) *
-        <input required className="form-input w-full mt-1" {...field('supplierName')} />
-      </label>
-      <label className="block text-sm">תווית
-        <input className="form-input w-full mt-1" placeholder="ברירת מחדל: שם הספק" {...field('label')} />
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block text-sm">שם ספק (כפי שמופיע במורנינג) *
+          <input required className="form-input w-full mt-1" {...field('supplierName')} />
+        </label>
+        <label className="block text-sm">תווית
+          <input className="form-input w-full mt-1" placeholder="ברירת מחדל: שם הספק" {...field('label')} />
+        </label>
+      </div>
+      <label className="block text-sm">שמות נוספים במורנינג (כינויים, מופרדים בפסיק)
+        <input className="form-input w-full mt-1" dir="auto" placeholder='למשל: "twillio, Twilio Inc' {...field('aliases')} />
+        <span className="text-xs text-gray-400">טיוטות שמורנינג זיהה בשם אחר ייספרו לספק הזה רק אם השם מופיע כאן</span>
       </label>
       <div className="grid grid-cols-3 gap-3">
+        <label className="block text-sm">תדירות
+          <select className="form-input w-full mt-1" {...field('cadence')}>
+            {(Object.keys(CADENCE_LABEL) as SupplierCadence[]).map((c) => <option key={c} value={c}>{CADENCE_LABEL[c]}</option>)}
+          </select>
+        </label>
+        {form.cadence === 'yearly' && (
+          <label className="block text-sm">חודש צפוי *
+            <select required className="form-input w-full mt-1" {...field('expectedMonth')}>
+              <option value="">בחר חודש</option>
+              {MONTH_NAMES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+            </select>
+          </label>
+        )}
         <label className="block text-sm">יום צפוי בחודש *
           <input required type="number" min={1} max={31} className="form-input w-full mt-1" {...field('expectedDayOfMonth')} />
         </label>
+      </div>
+      {form.cadence === 'usage' && <p className="text-xs text-gray-500">"לפי שימוש" — מוצג בטבלה אך לעולם לא נחשב חסר ולא נשלחת עליו תזכורת.</p>}
+      <div className="grid grid-cols-2 gap-3">
         <label className="block text-sm">סכום צפוי (₪ ברוטו)
           <input type="number" min={0} step="0.01" className="form-input w-full mt-1" {...field('expectedAmount')} />
         </label>
@@ -256,12 +307,30 @@ function RecurringForm({ initial, onSave, onCancel, saving }: {
           <input type="number" min={0} max={100} className="form-input w-full mt-1" placeholder="ריק = כל סכום" {...field('tolerancePct')} />
         </label>
       </div>
-      <label className="block text-sm">סיווג
-        <input className="form-input w-full mt-1" {...field('categoryTitle')} />
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block text-sm">מקור החשבונית
+          <select className="form-input w-full mt-1" {...field('invoiceSource')}>
+            {(Object.keys(SOURCE_LABEL) as SupplierInvoiceSource[]).map((k) => <option key={k} value={k}>{SOURCE_LABEL[k]}</option>)}
+          </select>
+        </label>
+        <label className="block text-sm">אחראי
+          <input className="form-input w-full mt-1" placeholder="למשל: עמי / אינה" {...field('owner')} />
+        </label>
+      </div>
+      <label className="block text-sm">קישור להורדת חשבוניות
+        <input type="url" dir="ltr" className="form-input w-full mt-1" placeholder="https://..." {...field('portalUrl')} />
       </label>
-      <label className="block text-sm">הערות
-        <textarea rows={2} className="form-input w-full mt-1" {...field('notes')} />
+      <label className="block text-sm">הוראות הורדה
+        <textarea rows={2} className="form-input w-full mt-1" {...field('instructions')} />
       </label>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block text-sm">סיווג
+          <input className="form-input w-full mt-1" {...field('categoryTitle')} />
+        </label>
+        <label className="block text-sm">הערות
+          <input className="form-input w-full mt-1" {...field('notes')} />
+        </label>
+      </div>
       <div className="flex justify-end gap-2 pt-2">
         <button type="button" className="btn btn-secondary" onClick={onCancel}>ביטול</button>
         <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'שומר...' : 'שמירה'}</button>
@@ -270,7 +339,191 @@ function RecurringForm({ initial, onSave, onCancel, saving }: {
   );
 }
 
-function RecurringTab() {
+const CELL_STYLE: Record<SupplierGridCellState, { cls: string; icon: string; label: string }> = {
+  approved: { cls: 'bg-emerald-100 text-emerald-800', icon: '✅', label: 'התקבל ואושר' },
+  pending: { cls: 'bg-amber-100 text-amber-800', icon: '⏳', label: 'ממתין לאישור במורנינג' },
+  draft: { cls: 'bg-sky-100 text-sky-800', icon: '🟦', label: 'טיוטה במורנינג' },
+  missing: { cls: 'bg-red-100 text-red-700', icon: '❌', label: 'חסר' },
+  not_due: { cls: 'bg-gray-100 text-gray-500', icon: '…', label: 'עוד לא הגיע מועד' },
+  not_expected: { cls: 'bg-gray-50 text-gray-300', icon: '–', label: 'לא צפוי בחודש זה' },
+};
+
+function SupplierGridTable({ grid, onEdit }: { grid: SupplierGrid; onEdit: (r: RecurringExpense) => void }) {
+  if (!grid.suppliers.length) return <div className="p-8 text-center text-gray-400">אין ספקים פעילים — הפעילו הצעות או הוסיפו ספק ידנית</div>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-gray-50 text-gray-600">
+          <tr>
+            <th className="text-right px-4 py-3 font-medium">ספק</th>
+            <th className="text-right px-3 py-3 font-medium">מקור</th>
+            {grid.months.map((m) => <th key={m} className="px-2 py-3 font-medium text-center whitespace-nowrap">{monthLabel(m)}</th>)}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {grid.suppliers.map((s) => (
+            <tr key={s.id} className="hover:bg-gray-50">
+              <td className="px-4 py-2 whitespace-nowrap">
+                <div className="flex items-center gap-1.5">
+                  <button className="font-medium text-gray-900 hover:text-blue-600" onClick={() => onEdit(s)} title={s.instructions ?? 'עריכה'}>{s.label}</button>
+                  {s.portalUrl && (
+                    <a href={s.portalUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800" title="פורטל החשבוניות">
+                      <ExternalLink size={14} />
+                    </a>
+                  )}
+                  {s.status === 'suggested' && <span className={`px-1.5 rounded text-[10px] ${RECURRING_STATUS.suggested.cls}`}>הצעה</span>}
+                </div>
+                <div className="text-xs text-gray-400">
+                  {CADENCE_LABEL[s.cadence] ?? s.cadence}{s.cadence === 'yearly' && s.expectedMonth ? ` · ${MONTH_NAMES[s.expectedMonth - 1]}` : ''}
+                  {s.owner ? ` · ${s.owner}` : ''}
+                </div>
+              </td>
+              <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{SOURCE_LABEL[s.invoiceSource] ?? s.invoiceSource}</td>
+              {grid.months.map((m) => {
+                const c = s.cells[m];
+                const st = CELL_STYLE[c?.state ?? 'not_expected'];
+                const title = `${st.label}${c?.count ? ` · ${c.count} מסמכים · ${ils(c.gross)}` : ''}`;
+                return (
+                  <td key={m} className="px-1 py-1 text-center">
+                    <div className={`rounded-md py-1.5 text-xs font-medium ${st.cls}`} title={title}>
+                      {st.icon}{c?.count ? <span className="block text-[10px] font-normal">{ils(c.gross)}</span> : null}
+                    </div>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="flex flex-wrap gap-3 p-3 text-xs text-gray-500 border-t border-gray-100">
+        {(Object.keys(CELL_STYLE) as SupplierGridCellState[]).map((k) => (
+          <span key={k} className="flex items-center gap-1"><span className={`px-1.5 rounded ${CELL_STYLE[k].cls}`}>{CELL_STYLE[k].icon}</span>{CELL_STYLE[k].label}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const UPLOAD_STATUS: Record<ExpenseUploadResult['status'], { label: string; cls: string }> = {
+  uploaded: { label: 'הועלה', cls: 'text-emerald-700' },
+  duplicate: { label: 'כפול — כבר הועלה', cls: 'text-gray-500' },
+  failed: { label: 'נכשל', cls: 'text-red-600' },
+};
+const ACCEPT = '.pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png';
+const MAX_FILES = 20;
+const MAX_BYTES = 10 * 1024 * 1024;
+
+function UploadPanel({ suppliers }: { suppliers: RecurringExpense[] }) {
+  const upload = useUploadExpenseInvoices();
+  const queryClient = useQueryClient();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [supplierId, setSupplierId] = useState('');
+  const [dragging, setDragging] = useState(false);
+  const [results, setResults] = useState<ExpenseUploadResult[] | null>(null);
+  const [refreshAt, setRefreshAt] = useState<number | null>(null);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => { if (refreshTimer.current) clearTimeout(refreshTimer.current); }, []);
+
+  const refresh = () => {
+    setRefreshAt(null);
+    void queryClient.invalidateQueries({ queryKey: ['companyExpenses'] });
+  };
+
+  const addFiles = (list: FileList | null) => {
+    if (!list) return;
+    const ok = Array.from(list).filter((f) => /\.(pdf|jpe?g|png)$/i.test(f.name) && f.size <= MAX_BYTES);
+    const rejected = list.length - ok.length;
+    if (rejected) alert(`${rejected} קבצים לא נוספו (PDF / JPG / PNG בלבד, עד 10MB)`);
+    setFiles((prev) => [...prev, ...ok].slice(0, MAX_FILES));
+    setResults(null);
+  };
+
+  const submit = () => {
+    if (!files.length) return;
+    upload.mutate({ files, recurringExpenseId: supplierId || undefined }, {
+      onSuccess: (r) => {
+        setResults(r.results);
+        setFiles([]);
+        if (r.syncScheduled) {
+          if (refreshTimer.current) clearTimeout(refreshTimer.current);
+          setRefreshAt(Date.now() + 60_000);
+          refreshTimer.current = setTimeout(refresh, 60_000);
+        }
+      },
+      onError: (e) => alert(errorMessage(e, 'ההעלאה נכשלה')),
+    });
+  };
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <Upload size={18} className="text-blue-600" />
+        <h3 className="font-semibold text-gray-900">העלאת חשבוניות ל-Morning</h3>
+        <span className="text-xs text-gray-500">הקבצים נכנסים כטיוטות במורנינג (זיהוי אוטומטי תוך כחצי דקה) וממתינים לאישור</span>
+      </div>
+      <div
+        className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${dragging ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-blue-300'}`}
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files); }}
+      >
+        <FileUp size={28} className="mx-auto text-gray-400" />
+        <p className="text-sm text-gray-600 mt-2">גררו לכאן קבצים או לחצו לבחירה</p>
+        <p className="text-xs text-gray-400">PDF / JPG / PNG · עד {MAX_FILES} קבצים · עד 10MB לקובץ</p>
+        <input ref={inputRef} type="file" multiple accept={ACCEPT} className="hidden" onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
+      </div>
+      {files.length > 0 && (
+        <ul className="text-sm space-y-1">
+          {files.map((f, i) => (
+            <li key={`${f.name}-${i}`} className="flex items-center justify-between gap-2 bg-gray-50 rounded px-3 py-1.5">
+              <span className="truncate" dir="auto">{f.name}</span>
+              <span className="flex items-center gap-2 text-xs text-gray-400 whitespace-nowrap">
+                {Math.round(f.size / 1024)}KB
+                <button className="text-gray-400 hover:text-red-600" onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} title="הסר"><X size={14} /></button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex flex-wrap items-center gap-3">
+        <select className="form-input" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
+          <option value="">שיוך לספק (לא חובה)</option>
+          {suppliers.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+        </select>
+        <button className="btn btn-primary" disabled={!files.length || upload.isPending} onClick={submit}>
+          <Upload size={16} /> {upload.isPending ? 'מעלה...' : `העלאה${files.length ? ` (${files.length})` : ''}`}
+        </button>
+      </div>
+      {results && (
+        <div className="border-t border-gray-100 pt-3 space-y-1">
+          <ul className="text-sm space-y-1">
+            {results.map((r, i) => (
+              <li key={`${r.fileName}-${i}`} className="flex items-center gap-2">
+                <span className={`font-medium ${UPLOAD_STATUS[r.status].cls}`}>{UPLOAD_STATUS[r.status].label}</span>
+                <span className="truncate text-gray-700" dir="auto">{r.fileName}</span>
+                {r.error && <span className="text-xs text-red-500 truncate" title={r.error}>{r.error}</span>}
+              </li>
+            ))}
+          </ul>
+          {refreshAt && (
+            <div className="flex items-center gap-2 text-xs text-gray-500">
+              הטבלה תתעדכן אוטומטית בעוד כדקה, אחרי שמורנינג יסיים לזהות את הקבצים.
+              <button className="text-blue-600 hover:underline" onClick={refresh}>רענן עכשיו</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SuppliersTab() {
+  const [months, setMonths] = useState(6);
+  const [showSuggestedInGrid, setShowSuggestedInGrid] = useState(false);
+  const { data: grid, isLoading: gridLoading, isFetching: gridFetching } = useSupplierGrid(months, showSuggestedInGrid);
   const { data: rows, isLoading } = useRecurringExpenses();
   const save = useSaveRecurringExpense();
   const detect = useDetectRecurringExpenses();
@@ -296,79 +549,113 @@ function RecurringTab() {
     .filter((r) => showIgnored || r.status !== 'ignored')
     .sort((a, b) => order[a.status] - order[b.status] || a.label.localeCompare(b.label, 'he'));
   const suggestedCount = (rows ?? []).filter((r) => r.status === 'suggested').length;
+  const activeSuppliers = (rows ?? []).filter((r) => r.status === 'active').sort((a, b) => a.label.localeCompare(b.label, 'he'));
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
-      <div className="p-4 flex flex-wrap items-center gap-3 border-b border-gray-100">
-        <div className="flex-1">
-          <h3 className="font-semibold text-gray-900">חשבוניות קבועות</h3>
-          <p className="text-xs text-gray-500">
-            ספקים שמופיעים ב-4 מתוך 6 החודשים האחרונים מוצעים אוטומטית — רק "פעיל" נבדק ונשלחת עליו תזכורת.
-            {suggestedCount > 0 && ` ${suggestedCount} הצעות ממתינות להחלטה.`}
-          </p>
+    <div className="space-y-6">
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+        <div className="p-4 flex flex-wrap items-center gap-3 border-b border-gray-100">
+          <div className="flex-1">
+            <h3 className="font-semibold text-gray-900">מעקב חשבוניות לפי חודש</h3>
+            <p className="text-xs text-gray-500">טיוטה במורנינג נחשבת כ"התקבל". עמודת החודש הנוכחי נצבעת באדום רק אחרי היום הצפוי + 5 ימי חסד.</p>
+          </div>
+          <label className="flex items-center gap-1.5 text-sm text-gray-600">
+            <input type="checkbox" checked={showSuggestedInGrid} onChange={(e) => setShowSuggestedInGrid(e.target.checked)} /> כולל הצעות
+          </label>
+          <select className="form-input" value={months} onChange={(e) => setMonths(Number(e.target.value))}>
+            {[3, 6, 9, 12].map((n) => <option key={n} value={n}>{n} חודשים</option>)}
+          </select>
+          {gridFetching && !gridLoading && <RefreshCw size={14} className="animate-spin text-gray-400" />}
         </div>
-        <label className="flex items-center gap-1.5 text-sm text-gray-600">
-          <input type="checkbox" checked={showIgnored} onChange={(e) => setShowIgnored(e.target.checked)} /> הצג מתעלמים
-        </label>
-        <button
-          className="btn btn-secondary"
-          disabled={detect.isPending}
-          onClick={() => detect.mutate(undefined, {
-            onSuccess: (r) => alert(r.created ? `נוספו ${r.created} הצעות חדשות` : 'לא נמצאו הצעות חדשות'),
-            onError: () => alert('הזיהוי נכשל'),
-          })}
-        >
-          <Sparkles size={16} /> {detect.isPending ? 'מזהה...' : 'זיהוי אוטומטי'}
-        </button>
-        <button className="btn btn-primary" onClick={() => setAdding(true)}><Plus size={16} /> הוספה ידנית</button>
+        {gridLoading || !grid ? <Loading /> : <SupplierGridTable grid={grid} onEdit={setEditing} />}
       </div>
-      {isLoading ? <Loading /> : list.length === 0 ? (
-        <div className="p-8 text-center text-gray-400">אין חשבוניות קבועות עדיין</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-600">
-              <tr>
-                <th className="text-right px-4 py-3 font-medium">תווית</th>
-                <th className="text-right px-4 py-3 font-medium">ספק</th>
-                <th className="text-right px-4 py-3 font-medium">יום צפוי</th>
-                <th className="text-right px-4 py-3 font-medium">סכום צפוי</th>
-                <th className="text-right px-4 py-3 font-medium">סטייה</th>
-                <th className="text-right px-4 py-3 font-medium">סיווג</th>
-                <th className="text-right px-4 py-3 font-medium">מקור</th>
-                <th className="text-right px-4 py-3 font-medium">סטטוס</th>
-                <th className="text-right px-4 py-3 font-medium">פעולות</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {list.map((r) => (
-                <tr key={r.id} className={r.status === 'ignored' ? 'text-gray-400' : ''}>
-                  <td className="px-4 py-2.5 font-medium" title={r.notes ?? ''}>{r.label}</td>
-                  <td className="px-4 py-2.5">{r.supplierName}</td>
-                  <td className="px-4 py-2.5">{r.expectedDayOfMonth}</td>
-                  <td className="px-4 py-2.5">{r.expectedAmount !== null ? ils(r.expectedAmount) : '—'}</td>
-                  <td className="px-4 py-2.5">{r.tolerancePct !== null ? `±${r.tolerancePct}%` : 'כל סכום'}</td>
-                  <td className="px-4 py-2.5">{r.categoryTitle ?? '—'}</td>
-                  <td className="px-4 py-2.5">{r.source === 'auto' ? 'אוטומטי' : 'ידני'}</td>
-                  <td className="px-4 py-2.5">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${RECURRING_STATUS[r.status].cls}`}>{RECURRING_STATUS[r.status].label}</span>
-                  </td>
-                  <td className="px-4 py-2.5 whitespace-nowrap space-x-2 space-x-reverse">
-                    {r.status !== 'active' && (
-                      <button className="text-emerald-600 hover:underline" onClick={() => setStatus(r, 'active')}>הפעל</button>
-                    )}
-                    {r.status !== 'ignored' && (
-                      <button className="text-gray-500 hover:underline" onClick={() => setStatus(r, 'ignored')}>התעלם</button>
-                    )}
-                    <button className="text-blue-600 hover:underline" onClick={() => setEditing(r)}>עריכה</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+      <UploadPanel suppliers={activeSuppliers} />
+
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+        <div className="p-4 flex flex-wrap items-center gap-3 border-b border-gray-100">
+          <div className="flex-1">
+            <h3 className="font-semibold text-gray-900">ספקים</h3>
+            <p className="text-xs text-gray-500">
+              ספקים שמופיעים ב-4 מתוך 6 החודשים האחרונים מוצעים אוטומטית — רק "פעיל" נבדק ונשלחת עליו תזכורת.
+              {suggestedCount > 0 && ` ${suggestedCount} הצעות ממתינות להחלטה.`}
+            </p>
+          </div>
+          <label className="flex items-center gap-1.5 text-sm text-gray-600">
+            <input type="checkbox" checked={showIgnored} onChange={(e) => setShowIgnored(e.target.checked)} /> הצג מתעלמים
+          </label>
+          <button
+            className="btn btn-secondary"
+            disabled={detect.isPending}
+            onClick={() => detect.mutate(undefined, {
+              onSuccess: (r) => alert(r.created ? `נוספו ${r.created} הצעות חדשות` : 'לא נמצאו הצעות חדשות'),
+              onError: () => alert('הזיהוי נכשל'),
+            })}
+          >
+            <Sparkles size={16} /> {detect.isPending ? 'מזהה...' : 'זיהוי אוטומטי'}
+          </button>
+          <button className="btn btn-primary" onClick={() => setAdding(true)}><Plus size={16} /> הוספה ידנית</button>
         </div>
-      )}
-      <Modal isOpen={adding || !!editing} onClose={() => { setAdding(false); setEditing(null); }} title={editing ? 'עריכת חשבונית קבועה' : 'הוספת חשבונית קבועה'}>
+        {isLoading ? <Loading /> : list.length === 0 ? (
+          <div className="p-8 text-center text-gray-400">אין ספקים עדיין</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <th className="text-right px-4 py-3 font-medium">תווית</th>
+                  <th className="text-right px-4 py-3 font-medium">ספק</th>
+                  <th className="text-right px-4 py-3 font-medium">תדירות</th>
+                  <th className="text-right px-4 py-3 font-medium">יום צפוי</th>
+                  <th className="text-right px-4 py-3 font-medium">סכום צפוי</th>
+                  <th className="text-right px-4 py-3 font-medium">סטייה</th>
+                  <th className="text-right px-4 py-3 font-medium">מקור חשבונית</th>
+                  <th className="text-right px-4 py-3 font-medium">אחראי</th>
+                  <th className="text-right px-4 py-3 font-medium">סטטוס</th>
+                  <th className="text-right px-4 py-3 font-medium">פעולות</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {list.map((r) => (
+                  <tr key={r.id} className={r.status === 'ignored' ? 'text-gray-400' : ''}>
+                    <td className="px-4 py-2.5 font-medium" title={r.notes ?? ''}>{r.label}</td>
+                    <td className="px-4 py-2.5">
+                      {r.supplierName}
+                      {r.aliases.length > 0 && <div className="text-xs text-gray-400" dir="auto">גם: {r.aliases.join(', ')}</div>}
+                    </td>
+                    <td className="px-4 py-2.5">{CADENCE_LABEL[r.cadence] ?? r.cadence}{r.cadence === 'yearly' && r.expectedMonth ? ` (${MONTH_NAMES[r.expectedMonth - 1]})` : ''}</td>
+                    <td className="px-4 py-2.5">{r.expectedDayOfMonth}</td>
+                    <td className="px-4 py-2.5">{r.expectedAmount !== null ? ils(r.expectedAmount) : '—'}</td>
+                    <td className="px-4 py-2.5">{r.tolerancePct !== null ? `±${r.tolerancePct}%` : 'כל סכום'}</td>
+                    <td className="px-4 py-2.5 whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1" title={r.instructions ?? ''}>
+                        {SOURCE_LABEL[r.invoiceSource] ?? r.invoiceSource}
+                        {r.portalUrl && (
+                          <a href={r.portalUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800" title="פורטל החשבוניות"><ExternalLink size={14} /></a>
+                        )}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5">{r.owner ?? '—'}</td>
+                    <td className="px-4 py-2.5">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${RECURRING_STATUS[r.status].cls}`}>{RECURRING_STATUS[r.status].label}</span>
+                    </td>
+                    <td className="px-4 py-2.5 whitespace-nowrap space-x-2 space-x-reverse">
+                      {r.status !== 'active' && (
+                        <button className="text-emerald-600 hover:underline" onClick={() => setStatus(r, 'active')}>הפעל</button>
+                      )}
+                      {r.status !== 'ignored' && (
+                        <button className="text-gray-500 hover:underline" onClick={() => setStatus(r, 'ignored')}>התעלם</button>
+                      )}
+                      <button className="text-blue-600 hover:underline" onClick={() => setEditing(r)}>עריכה</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      <Modal isOpen={adding || !!editing} onClose={() => { setAdding(false); setEditing(null); }} title={editing ? 'עריכת ספק' : 'הוספת ספק'}>
         <RecurringForm
           key={editing?.id ?? 'new'}
           initial={editing}
@@ -402,7 +689,7 @@ export default function CompanyExpenses() {
     { key: 'overview', label: 'סקירה' },
     { key: 'expenses', label: 'כל ההוצאות' },
     { key: 'pending', label: `ממתין לאישור${k?.pendingCount ? ` (${k.pendingCount})` : ''}` },
-    { key: 'recurring', label: 'חשבוניות קבועות' },
+    { key: 'recurring', label: 'ספקים' },
   ];
 
   return (
@@ -538,7 +825,7 @@ export default function CompanyExpenses() {
               </div>
             )}
 
-            {tab === 'recurring' && <RecurringTab />}
+            {tab === 'recurring' && <SuppliersTab />}
           </>
         )}
       </div>

@@ -22,9 +22,15 @@ import { sendWhatsAppMessage } from '../notifications.js';
 import type { ExpenseRowLike } from '../company-expenses.js';
 import {
   buildMissingReminderMessage,
+  computeSupplierGridCells,
   detectRecurringCandidates,
   findMissingRecurring,
+  gridMonths,
+  isExpectedInMonth,
+  matchesSupplier,
+  normalizeSupplierName,
   runRecurringDetection,
+  sendDraftsApprovalReminder,
   sendMissingRecurringReminder,
   type RecurringLike,
 } from '../recurring-expenses.js';
@@ -50,6 +56,7 @@ const rec = (o: Partial<RecurringLike> = {}): RecurringLike => ({
 beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.FRONTEND_URL;
+  delete process.env.COMPANY_EXPENSE_DRAFTS_REMINDER_PHONE;
 });
 
 describe('detectRecurringCandidates', () => {
@@ -190,5 +197,128 @@ describe('missing-invoice reminder', () => {
     ]);
     expect(msg).toContain('• Zoom (11/2026)');
     expect(msg).toContain('https://dev.example.com/company-expenses');
+  });
+});
+
+describe('supplier aliases', () => {
+  it('normalizes quotes, punctuation and case', () => {
+    expect(normalizeSupplierName(' "Twillio ')).toBe('twillio');
+    expect(normalizeSupplierName('Uber B.V.')).toBe('uber b v');
+    expect(normalizeSupplierName('OpenAI OpCo, LLC')).toBe('openai opco llc');
+  });
+
+  it('matches by supplier id/name or an explicit alias only', () => {
+    const chatgpt = rec({ supplierId: 'oa', supplierName: 'ChatGPT', aliases: ['Uber B.V.'] });
+    expect(matchesSupplier(chatgpt, { supplierId: 'oa', supplierName: 'whatever' })).toBe(true);
+    // Different Morning supplier id, but the OCR name is a listed alias.
+    expect(matchesSupplier(chatgpt, { supplierId: 'uber', supplierName: 'uber b.v' })).toBe(true);
+    // Same OCR name does not match a supplier that doesn't list it.
+    expect(matchesSupplier(rec({ supplierId: 'gg', supplierName: 'Google', aliases: [] }), { supplierId: 'uber', supplierName: 'Uber B.V.' })).toBe(false);
+    expect(matchesSupplier(rec({ supplierId: 'tw', supplierName: 'Twilio', aliases: ['twillio'] }), { supplierId: null, supplierName: '"twillio' })).toBe(true);
+  });
+
+  it('counts an alias-matched draft as received in the missing check', () => {
+    const r = rec({ supplierId: 'oa', supplierName: 'ChatGPT', aliases: ['Uber B.V.'], tolerancePct: null, createdAt: day('2026-11-01') });
+    const draft = exp({ supplierId: 'uber', supplierName: 'Uber B.V.', date: day('2026-11-04'), isDraft: true });
+    expect(findMissingRecurring([r], [], at('2026-11-20'))).toHaveLength(1);
+    expect(findMissingRecurring([r], [draft], at('2026-11-20'))).toEqual([]);
+  });
+});
+
+describe('cadence', () => {
+  it('expects monthly every month, yearly only in expectedMonth, usage never', () => {
+    expect(isExpectedInMonth({ cadence: 'monthly' }, '2026-03')).toBe(true);
+    expect(isExpectedInMonth({ cadence: null }, '2026-03')).toBe(true);
+    expect(isExpectedInMonth({ cadence: 'yearly', expectedMonth: 3 }, '2026-03')).toBe(true);
+    expect(isExpectedInMonth({ cadence: 'yearly', expectedMonth: 3 }, '2026-04')).toBe(false);
+    expect(isExpectedInMonth({ cadence: 'yearly', expectedMonth: null }, '2026-03')).toBe(false);
+    expect(isExpectedInMonth({ cadence: 'usage' }, '2026-03')).toBe(false);
+  });
+
+  it('never reports usage suppliers and reports yearly only in their month', () => {
+    const now = at('2026-11-20'); // checks 2026-10 and 2026-11
+    expect(findMissingRecurring([rec({ cadence: 'usage' })], [], now)).toEqual([]);
+    expect(findMissingRecurring([rec({ cadence: 'yearly', expectedMonth: 3 })], [], now)).toEqual([]);
+    expect(findMissingRecurring([rec({ cadence: 'yearly', expectedMonth: 10 })], [], now)).toEqual([
+      expect.objectContaining({ month: '2026-10' }),
+    ]);
+  });
+});
+
+describe('computeSupplierGridCells', () => {
+  const NOW = at('2026-11-08'); // day 8 — current-month due day 5 + grace 5 not passed yet
+  const months = gridMonths(4, NOW);
+
+  it('builds month keys ending with the current Israel month', () => {
+    expect(months).toEqual(['2026-08', '2026-09', '2026-10', '2026-11']);
+  });
+
+  it('prefers approved over pending over draft and sums matches', () => {
+    const rows = [
+      exp({ id: 'a1', date: day('2026-08-05'), status: 20 }),
+      exp({ id: 'a2', date: day('2026-08-20'), isDraft: true, amount: 50 }),
+      exp({ id: 'p1', date: day('2026-09-05'), status: 10 }),
+      exp({ id: 'd1', date: day('2026-10-05'), isDraft: true, status: 0 }),
+    ];
+    const cells = computeSupplierGridCells(rec({ tolerancePct: null }), rows, months, NOW);
+    expect(cells['2026-08']).toEqual({ state: 'approved', count: 2, gross: 150, expenseIds: ['a1', 'a2'] });
+    expect(cells['2026-09'].state).toBe('pending');
+    expect(cells['2026-10']).toMatchObject({ state: 'draft', count: 1, expenseIds: ['d1'] });
+    expect(cells['2026-11']).toEqual({ state: 'not_due', count: 0, gross: 0, expenseIds: [] });
+  });
+
+  it('marks missing past months and the current month once past due + grace', () => {
+    const cells = computeSupplierGridCells(rec(), [], months, at('2026-11-11'));
+    expect(Object.values(cells).map((c) => c.state)).toEqual(['missing', 'missing', 'missing', 'missing']);
+  });
+
+  it('uses not_expected for usage and off-month yearly suppliers, but still shows their invoices', () => {
+    const usage = computeSupplierGridCells(rec({ cadence: 'usage' }), [exp({ id: 'u', date: day('2026-09-02') })], months, NOW);
+    expect(Object.values(usage).map((c) => c.state)).toEqual(['not_expected', 'approved', 'not_expected', 'not_expected']);
+    const yearly = computeSupplierGridCells(rec({ cadence: 'yearly', expectedMonth: 9 }), [], months, NOW);
+    expect(Object.values(yearly).map((c) => c.state)).toEqual(['not_expected', 'missing', 'not_expected', 'not_expected']);
+  });
+});
+
+describe('missing reminder grouping', () => {
+  it('groups by invoice source and lists portal links on their own line', () => {
+    const base = { supplierName: 's', expectedDayOfMonth: 1, expectedAmount: null, tolerancePct: null, daysOverdue: 9, month: '2026-11' };
+    const msg = buildMissingReminderMessage([
+      { ...base, id: '1', label: 'Hostinger', invoiceSource: 'portal', portalUrl: 'https://hpanel.hostinger.com/billing' },
+      { ...base, id: '2', label: 'Hetzner', invoiceSource: 'email', portalUrl: 'https://ignored.example' },
+      { ...base, id: '3', label: 'Vimeo', invoiceSource: null, portalUrl: null, owner: 'אינה' },
+    ]);
+    const lines = msg.split('\n');
+    const portalIdx = lines.findIndex((l) => l.includes('פורטל'));
+    const emailIdx = lines.findIndex((l) => l.includes('במייל'));
+    expect(portalIdx).toBeGreaterThan(-1);
+    expect(emailIdx).toBeGreaterThan(portalIdx);
+    expect(lines[lines.indexOf('• Hostinger (11/2026)') + 1]).toBe('https://hpanel.hostinger.com/billing');
+    expect(msg).toContain('• Vimeo (11/2026) · אינה'); // no source → portal group
+    expect(msg).not.toContain('ignored.example');
+    expect(lines.at(-1)).toBe('https://crm.orma-ai.com/company-expenses');
+  });
+});
+
+describe('drafts approval reminder', () => {
+  it('skips when there are no drafts', async () => {
+    mockPrisma.companyExpense.findMany.mockResolvedValue([] as never);
+    expect(await sendDraftsApprovalReminder()).toEqual({ sent: false, drafts: 0, gross: 0 });
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('sends count + total to Inna (or the env override)', async () => {
+    mockPrisma.companyExpense.findMany.mockResolvedValue([{ amount: { toString: () => '1000.40' } }, { amount: 234 }] as never);
+    const result = await sendDraftsApprovalReminder();
+    expect(result).toEqual({ sent: true, drafts: 2, gross: 1234.4 });
+    expect(mockPrisma.companyExpense.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { active: true, isDraft: true } }));
+    const [phone, message] = mockSend.mock.calls[0];
+    expect(phone).toBe('972524486208');
+    expect(message).toContain('יש 2 טיוטות הוצאה ב-Morning שממתינות לאישור');
+    expect(message).toContain('₪1,234');
+
+    process.env.COMPANY_EXPENSE_DRAFTS_REMINDER_PHONE = '972500000000';
+    await sendDraftsApprovalReminder();
+    expect(mockSend.mock.calls[1][0]).toBe('972500000000');
   });
 });

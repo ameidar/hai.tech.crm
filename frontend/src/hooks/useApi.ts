@@ -1609,6 +1609,9 @@ export interface CompanyExpenseListResult {
 
 export type RecurringExpenseStatus = 'suggested' | 'active' | 'ignored';
 
+export type SupplierCadence = 'monthly' | 'yearly' | 'usage';
+export type SupplierInvoiceSource = 'email' | 'portal' | 'freelancer' | 'other';
+
 export interface RecurringExpense {
   id: string;
   supplierId: string | null;
@@ -1617,14 +1620,51 @@ export interface RecurringExpense {
   expectedDayOfMonth: number;
   expectedAmount: number | null;
   tolerancePct: number | null;
-  cadence: string;
+  cadence: SupplierCadence;
+  expectedMonth: number | null;
+  aliases: string[];
+  invoiceSource: SupplierInvoiceSource;
+  portalUrl: string | null;
+  instructions: string | null;
+  owner: string | null;
+  emailMailbox: string | null;
+  emailFrom: string | null;
+  emailSubject: string | null;
   categoryTitle: string | null;
   status: RecurringExpenseStatus;
   source: 'auto' | 'manual';
   notes: string | null;
 }
 
-export type RecurringExpenseInput = Partial<Omit<RecurringExpense, 'id' | 'cadence' | 'source'>>;
+export type RecurringExpenseInput = Partial<Omit<RecurringExpense, 'id' | 'source'>>;
+
+export type SupplierGridCellState = 'approved' | 'pending' | 'draft' | 'missing' | 'not_due' | 'not_expected';
+
+export interface SupplierGridCell {
+  state: SupplierGridCellState;
+  count: number;
+  gross: number;
+  expenseIds: string[];
+}
+
+export interface SupplierGrid {
+  months: string[];
+  suppliers: Array<RecurringExpense & { cells: Record<string, SupplierGridCell> }>;
+}
+
+export interface ExpenseUploadResult {
+  fileName: string;
+  size: number;
+  status: 'uploaded' | 'duplicate' | 'failed';
+  error?: string;
+  uploadId?: string;
+}
+
+export interface ExpenseUploadResponse {
+  results: ExpenseUploadResult[];
+  summary: { uploaded: number; duplicate: number; failed: number };
+  syncScheduled: boolean;
+}
 
 export interface MissingRecurringExpense {
   id: string;
@@ -1693,6 +1733,29 @@ export const useSaveRecurringExpense = () => {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['companyExpenses'] }),
   });
 };
+
+export const useSupplierGrid = (months = 6, includeSuggested = false) =>
+  useQuery({
+    queryKey: ['companyExpenses', 'supplierGrid', months, includeSuggested],
+    queryFn: async () =>
+      (await api.get<SupplierGrid>('/company-expenses/suppliers/grid', {
+        params: { months, ...(includeSuggested && { includeSuggested: 'true' }) },
+      })).data,
+  });
+
+export const useUploadExpenseInvoices = () =>
+  useMutation({
+    mutationFn: async ({ files, recurringExpenseId }: { files: File[]; recurringExpenseId?: string }) => {
+      const formData = new FormData();
+      if (recurringExpenseId) formData.append('recurringExpenseId', recurringExpenseId);
+      files.forEach((f) => formData.append('files', f));
+      const res = await api.post<ExpenseUploadResponse>('/company-expenses/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 180_000,
+      });
+      return res.data;
+    },
+  });
 
 export const useForecast = (historicalMonths = 6, forecastMonths = 3) => {
   return useQuery({

@@ -28,6 +28,14 @@ import {
   runRecurringDetection,
 } from '../services/recurring-expenses.js';
 import { scheduleDraftSyncAfterUpload } from '../services/company-expenses-scheduler.js';
+import {
+  buildFreelancerReconciliation,
+  buildLinkResolver,
+  freelancerKindWhere,
+  loadFreelancerLinks,
+  previousIsraelMonth,
+  suggestFreelancerLinks,
+} from '../services/freelancer-expenses.js';
 
 // Company expenses (הוצאות החברה) — Morning expense mirror + recurring-invoice tracking.
 // Admin only.
@@ -44,6 +52,7 @@ const listQuerySchema = z.object({
   status: z.coerce.number().int().optional(),
   search: z.string().trim().min(1).optional(),
   includeInactive: z.enum(['true', 'false']).optional(),
+  kind: z.enum(['freelancer', 'other']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(500).default(50),
 });
@@ -61,6 +70,7 @@ companyExpensesRouter.get('/', async (req, res, next) => {
     if (q.supplier) and.push({ supplierName: q.supplier });
     if (q.category) and.push({ categoryTitle: q.category });
     if (q.status !== undefined) and.push({ status: q.status });
+    if (q.kind) and.push(await freelancerKindWhere(q.kind));
     if (q.search) {
       and.push({
         OR: [
@@ -105,7 +115,7 @@ companyExpensesRouter.get('/summary', async (req, res, next) => {
     const months = z.coerce.number().int().min(4).max(24).default(12).parse(req.query.months);
     const now = new Date();
     const current = israelToday(now).iso.slice(0, 7);
-    const [rows, pendingRows, lastSync, filterOptions] = await Promise.all([
+    const [rows, pendingRows, lastSync, filterOptions, links] = await Promise.all([
       prisma.companyExpense.findMany({
         where: { active: true, ...monthRangeWhere(shiftMonth(current, -(months - 1)), current) },
       }),
@@ -120,8 +130,10 @@ companyExpensesRouter.get('/summary', async (req, res, next) => {
         distinct: ['supplierName', 'categoryTitle'],
         select: { supplierName: true, categoryTitle: true },
       }),
+      prisma.instructorExpenseSupplier.findMany({ select: { instructorId: true, supplierId: true, supplierName: true } }),
     ]);
-    const summary = buildExpenseSummary(rows as ExpenseRowLike[], now, months);
+    const resolveFreelancer = buildLinkResolver(links);
+    const summary = buildExpenseSummary(rows as ExpenseRowLike[], now, months, 10, (r) => resolveFreelancer(r) !== null);
     const pendingGross = pendingRows.reduce((s, r) => s + Number(r.amount), 0);
     const uniq = (xs: (string | null)[]) => [...new Set(xs.filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b, 'he'));
     res.json({
@@ -325,6 +337,124 @@ companyExpensesRouter.get('/suppliers/grid', async (req, res, next) => {
       months: grid.months,
       suppliers: grid.suppliers.map(({ rec, cells }) => ({ ...serializeRecurring(rec), cells })),
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ─── Freelancer pay (שכר פרילנסרים) ────────────────────────────────────────────
+
+export function serializeFreelancerLink(l: any) {
+  return {
+    id: l.id,
+    instructorId: l.instructorId,
+    instructorName: l.instructor?.name ?? null,
+    supplierId: l.supplierId ?? null,
+    supplierName: l.supplierName,
+    createdBy: l.createdBy ?? null,
+    createdAt: l.createdAt,
+  };
+}
+
+// GET /api/company-expenses/freelancers/reconciliation?month=YYYY-MM (default: previous Israel month)
+companyExpensesRouter.get('/freelancers/reconciliation', async (req, res, next) => {
+  try {
+    const month = z.string().regex(MONTH, 'חודש בפורמט YYYY-MM').optional().parse(req.query.month) ?? previousIsraelMonth();
+    res.json(await buildFreelancerReconciliation(month));
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/company-expenses/freelancers/suggestions — unlinked suppliers + candidate freelancers.
+companyExpensesRouter.get('/freelancers/suggestions', async (_req, res, next) => {
+  try {
+    res.json(await suggestFreelancerLinks());
+  } catch (error) {
+    next(error);
+  }
+});
+
+companyExpensesRouter.get('/freelancers/links', async (_req, res, next) => {
+  try {
+    res.json((await loadFreelancerLinks()).map(serializeFreelancerLink));
+  } catch (error) {
+    next(error);
+  }
+});
+
+const linkSchema = z.object({
+  instructorId: z.string().trim().min(1, 'חובה לבחור מדריך'),
+  supplierId: z.string().trim().min(1).nullable().optional(),
+  supplierName: z.string().trim().min(1, 'חובה לציין ספק').max(300),
+});
+
+// POST /api/company-expenses/freelancers/links — link a Morning supplier to a freelancer.
+companyExpensesRouter.post('/freelancers/links', async (req, res, next) => {
+  try {
+    const data = linkSchema.parse(req.body);
+    const instructor = await prisma.instructor.findUnique({
+      where: { id: data.instructorId }, select: { id: true, name: true, employmentType: true },
+    });
+    if (!instructor) return res.status(400).json({ error: 'מדריך לא נמצא' });
+    if (instructor.employmentType !== 'freelancer') return res.status(400).json({ error: 'ניתן לשייך ספק רק למדריך פרילנסר' });
+    // No id given: take the Morning supplier id from the mirror when the name is unambiguous.
+    let supplierId = data.supplierId ?? null;
+    if (!supplierId) {
+      const ids = await prisma.companyExpense.findMany({
+        where: { supplierName: data.supplierName, supplierId: { not: null } },
+        distinct: ['supplierId'],
+        select: { supplierId: true },
+        take: 2,
+      });
+      if (ids.length === 1) supplierId = ids[0].supplierId;
+    }
+    try {
+      const row = await prisma.instructorExpenseSupplier.create({
+        data: { instructorId: instructor.id, supplierId, supplierName: data.supplierName, createdBy: (req as any).user?.userId ?? null },
+        include: { instructor: { select: { name: true } } },
+      });
+      await logAudit({ action: 'CREATE', entity: 'InstructorExpenseSupplier', entityId: row.id, newValue: serializeFreelancerLink(row), req });
+      res.status(201).json(serializeFreelancerLink(row));
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        return res.status(409).json({ error: 'הספק כבר משויך למדריך' });
+      }
+      throw e;
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+companyExpensesRouter.delete('/freelancers/links/:id', async (req, res, next) => {
+  try {
+    const existing = await prisma.instructorExpenseSupplier.findUnique({
+      where: { id: req.params.id }, include: { instructor: { select: { name: true } } },
+    });
+    if (!existing) return res.status(404).json({ error: 'שיוך לא נמצא' });
+    await prisma.instructorExpenseSupplier.delete({ where: { id: existing.id } });
+    await logAudit({ action: 'DELETE', entity: 'InstructorExpenseSupplier', entityId: existing.id, oldValue: serializeFreelancerLink(existing), req });
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PUT /api/company-expenses/:id/activity-month — { activityMonth: 'YYYY-MM' | null } (null = default: doc month − 1).
+companyExpensesRouter.put('/:id/activity-month', async (req, res, next) => {
+  try {
+    const { activityMonth } = z.object({
+      activityMonth: z.string().regex(MONTH, 'חודש בפורמט YYYY-MM').nullable(),
+    }).parse(req.body ?? {});
+    const existing = await prisma.companyExpense.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'הוצאה לא נמצאה' });
+    const row = await prisma.companyExpense.update({ where: { id: existing.id }, data: { activityMonth } });
+    await logAudit({
+      action: 'UPDATE', entity: 'CompanyExpense', entityId: row.id,
+      oldValue: { activityMonth: existing.activityMonth ?? null }, newValue: { activityMonth }, req,
+    });
+    res.json(serializeCompanyExpense(row));
   } catch (error) {
     next(error);
   }

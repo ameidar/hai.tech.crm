@@ -8,6 +8,8 @@ import {
   daysInMonth,
   expenseGross,
   expenseMonthKey,
+  invoiceMonthKey,
+  invoiceMonthRangeWhere,
   israelToday,
   monthRangeWhere,
   shiftMonth,
@@ -136,7 +138,7 @@ export function detectRecurringCandidates(rows: ExpenseRowLike[], now: Date = ne
   }>();
   for (const row of rows) {
     if (!row.active || !row.supplierName) continue;
-    const month = expenseMonthKey(row);
+    const month = invoiceMonthKey(row);
     if (!month || !window.has(month)) continue;
     const key = supplierKey(row);
     const g = groups.get(key) ?? {
@@ -184,7 +186,7 @@ export async function runRecurringDetection(now: Date = new Date()) {
   const currentMonth = israelToday(now).iso.slice(0, 7);
   const rows = await prisma.companyExpense.findMany({
     // Drafts are excluded: their supplier is still Morning's unreviewed OCR guess.
-    where: { active: true, isDraft: false, ...monthRangeWhere(shiftMonth(currentMonth, -DETECTION_WINDOW_MONTHS), shiftMonth(currentMonth, -1)) },
+    where: { active: true, isDraft: false, ...invoiceMonthRangeWhere(shiftMonth(currentMonth, -DETECTION_WINDOW_MONTHS), shiftMonth(currentMonth, -1)) },
   });
   const candidates = detectRecurringCandidates(rows as ExpenseRowLike[], now);
   const existing = await prisma.recurringExpense.findMany({
@@ -230,7 +232,7 @@ export interface MissingRecurring {
 
 /** Drafts (isDraft) count as received — the invoice is already in Morning. */
 export function expenseMatchesRecurring(rec: RecurringLike, row: ExpenseRowLike, month: string): boolean {
-  if (!row.active || expenseMonthKey(row) !== month || !matchesSupplier(rec, row)) return false;
+  if (!row.active || (invoiceMonthKey(row) !== month && expenseMonthKey(row) !== month) || !matchesSupplier(rec, row)) return false;
   const expected = toNum(rec.expectedAmount);
   if (rec.tolerancePct === null || rec.tolerancePct === undefined || !expected) return true;
   return (Math.abs(expenseGross(row) - expected) / expected) * 100 <= rec.tolerancePct;
@@ -288,7 +290,7 @@ export async function getMissingRecurring(now: Date = new Date()): Promise<Missi
   const [recurring, expenses] = await Promise.all([
     prisma.recurringExpense.findMany({ where: { status: 'active' } }),
     prisma.companyExpense.findMany({
-      where: { active: true, ...monthRangeWhere(shiftMonth(currentMonth, -1), currentMonth) },
+      where: { active: true, OR: [invoiceMonthRangeWhere(shiftMonth(currentMonth, -1), currentMonth), monthRangeWhere(shiftMonth(currentMonth, -1), currentMonth)] },
     }),
   ]);
   return findMissingRecurring(recurring as RecurringLike[], expenses as ExpenseRowLike[], now, graceDaysFromEnv());
@@ -360,7 +362,7 @@ export async function getSupplierGrid(opts: { months?: number; includeSuggested?
       orderBy: [{ status: 'asc' }, { label: 'asc' }],
     }),
     prisma.companyExpense.findMany({
-      where: { active: true, ...monthRangeWhere(months[0], months[months.length - 1]) },
+      where: { active: true, OR: [invoiceMonthRangeWhere(months[0], months[months.length - 1]), monthRangeWhere(months[0], months[months.length - 1])] },
     }),
   ]);
   const grace = graceDaysFromEnv();

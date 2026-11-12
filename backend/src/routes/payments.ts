@@ -8,6 +8,15 @@ import { reconcileOmerRegistrationPayment } from '../services/omer-payment-recon
 import { autoConvertLeadsForPayment } from '../services/lead-payment-evidence.js';
 import { extractGreenInvoice, syncRecentWooPayments, upsertWooOrderPayment } from '../services/woo-sync.js';
 import { createWooPaymentLink, inferDigitalCourseProductId } from '../services/woo-payment-link.js';
+import {
+  candidateDocIds,
+  createMorningCheckout,
+  createMorningPaymentLink,
+  getPaymentsProvider,
+  isMorningPayment,
+  recordExternalMorningPayment,
+  settleMorningPayment,
+} from '../services/morning-payment-link.js';
 
 // Shared secret for WP auto-login tokens (must match WP snippet constant)
 const HAITECH_PAY_SECRET = process.env.HAITECH_PAY_SECRET || 'haitech-pay-secret-2026-xK9mP3qL7';
@@ -34,7 +43,9 @@ router.use('/sync-woo', authenticate);
 
 /**
  * POST /api/payments/create-link
- * Creates a WooCommerce order and returns a payment URL. Saves to DB.
+ * Creates a pending CRM payment + public pay page. Provider is chosen by
+ * PAYMENTS_PROVIDER (default `morning` → direct Morning hosted payment form;
+ * `woocommerce` → legacy Woo order on haitechdigitalcourses.hai.tech).
  */
 router.post('/create-link', async (req, res) => {
   const { customerId, customerName, customerPhone, customerEmail, amount, description, installments, wooProductId } = req.body;
@@ -47,6 +58,25 @@ router.post('/create-link', async (req, res) => {
   }
 
   const baseUrl = process.env.BASE_URL || 'https://crm.orma-ai.com';
+
+  if (getPaymentsProvider() === 'morning') {
+    try {
+      const result = await createMorningPaymentLink({
+        customerId,
+        customerName,
+        customerPhone,
+        customerEmail,
+        amount: Number(amount),
+        description: description.trim(),
+        installments,
+        baseUrl,
+      });
+      return res.json(result);
+    } catch (e: any) {
+      return res.status(500).json({ error: e?.message || 'שגיאה ביצירת לינק תשלום' });
+    }
+  }
+
   try {
     const result = await createWooPaymentLink({
       customerId,
@@ -61,6 +91,7 @@ router.post('/create-link', async (req, res) => {
     });
     const { token, ts } = generatePayToken(result.orderId);
     return res.json({
+      provider: 'woocommerce',
       ...result,
       legacyPaymentUrl: `${config.woo.siteUrl}/?haitech_pay=1&order_id=${result.orderId}&ts=${ts}&token=${token}`,
     });
@@ -80,6 +111,15 @@ router.post('/create-link', async (req, res) => {
  */
 router.get('/pay-page/:token', async (req, res) => {
   const { token } = req.params;
+  // ?check=1 (sent by the pay page after Morning's success redirect) re-verifies the
+  // payment against the Morning API — the redirect itself proves nothing.
+  if (req.query.check === '1') {
+    try {
+      await settleMorningPayment(token);
+    } catch (e) {
+      console.error('[pay-page] Morning verification failed:', e);
+    }
+  }
   const payment = await prisma.payment.findUnique({
     where: { payToken: token },
     select: {
@@ -91,12 +131,15 @@ router.get('/pay-page/:token', async (req, res) => {
       maxInstallments: true,
       wooOrderId: true,
       wooOrderKey: true,
+      payToken: true,
       status: true,
     },
   });
   if (!payment) return res.status(404).json({ error: 'לינק לא קיים' });
-  if (payment.status === 'paid') return res.json({ ...payment, alreadyPaid: true });
-  res.json(payment);
+  const { wooOrderKey: _key, payToken: _token, ...publicInfo } = payment;
+  const info = { ...publicInfo, provider: isMorningPayment(payment) ? 'morning' : 'woocommerce' };
+  if (payment.status === 'paid') return res.json({ ...info, alreadyPaid: true });
+  res.json(info);
 });
 
 /**
@@ -113,6 +156,24 @@ router.post('/pay-page/:token/confirm', async (req, res) => {
   });
   if (!payment) return res.status(404).json({ error: 'לינק לא קיים' });
   if (payment.status === 'paid') return res.status(400).json({ error: 'התשלום כבר בוצע' });
+  if (payment.status === 'cancelled' || payment.status === 'refunded') {
+    return res.status(400).json({ error: 'הלינק אינו פעיל' });
+  }
+
+  // Morning rows (no Woo order) always go to Morning, whatever the current flag —
+  // the flag only decides how NEW links are created.
+  if (isMorningPayment(payment)) {
+    try {
+      const result = await createMorningCheckout(payment, chosenInstallments, {
+        baseUrl: process.env.BASE_URL || 'https://crm.orma-ai.com',
+      });
+      return res.json({ checkoutUrl: result.checkoutUrl, installments: result.installments });
+    } catch (e: any) {
+      console.error('[pay-page] Morning payment form error:', e);
+      return res.status(502).json({ error: 'שגיאה ביצירת דף התשלום, נסו שוב בעוד רגע' });
+    }
+  }
+
   if (!payment.wooOrderId || !payment.wooOrderKey) {
     return res.status(500).json({ error: 'הזמנה לא מקושרת ל-WooCommerce' });
   }
@@ -171,6 +232,32 @@ router.post('/pay-page/:token/confirm', async (req, res) => {
  */
 router.get('/order-status/:orderId', async (req, res) => {
   const { orderId } = req.params;
+
+  // Morning links: orderId is the CRM payment id (non-numeric UUID).
+  if (!/^\d+$/.test(orderId)) {
+    const payment = await prisma.payment.findUnique({ where: { id: orderId } });
+    if (!payment) return res.status(404).json({ error: 'תשלום לא נמצא' });
+    let current = payment;
+    if (payment.status !== 'paid' && isMorningPayment(payment) && payment.payToken) {
+      try {
+        const r = await settleMorningPayment(payment.payToken);
+        if (r.outcome === 'paid') current = (await prisma.payment.findUnique({ where: { id: orderId } })) || payment;
+      } catch (e) {
+        console.error('[order-status] Morning verification failed:', e);
+      }
+    }
+    return res.json({
+      orderId: current.id,
+      status: current.status,
+      total: current.amount,
+      paid: current.status === 'paid',
+      invoiceUrl: current.invoiceUrl,
+      invoiceNumber: current.invoiceNumber,
+      customerName: current.customerName,
+      provider: 'morning',
+    });
+  }
+
   const { siteUrl, consumerKey, consumerSecret } = config.woo;
   const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
 
@@ -220,6 +307,67 @@ router.get('/customer/:customerId', async (req, res) => {
     orderBy: { createdAt: 'desc' },
   });
   res.json(payments);
+});
+
+/**
+ * POST /api/payments/morning-notify/:token
+ * Morning payment-form notifyUrl (server-to-server, no auth). The body format is not
+ * documented, so it is only used for candidate document ids; the payment is marked
+ * paid only after the document is re-read from the Morning API (ref + amount match).
+ * Always answers 2xx — Morning deactivates endpoints after repeated failures.
+ */
+router.post('/morning-notify/:token', async (req, res) => {
+  const { token } = req.params;
+  try {
+    const result = await settleMorningPayment(token, { candidateIds: candidateDocIds(req.body) });
+    console.log(`[Morning notify] ${token.slice(0, 8)}… → ${result.outcome}`);
+    return res.json({ ok: true, outcome: result.outcome });
+  } catch (e) {
+    console.error('[Morning notify] Error:', e);
+    return res.json({ ok: false });
+  }
+});
+
+/**
+ * POST /api/payments/morning/external
+ * Server-to-server (x-api-key = API_KEY): the LMS worker / website /buy pages report a
+ * payment they collected through their own Morning payment form. The CRM re-verifies
+ * the document with Morning and records an idempotent paid payment.
+ */
+router.post('/morning/external', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey || apiKey !== config.apiKey) return res.status(401).json({ error: 'Invalid API key' });
+
+  const { documentId, ref, expectedAmount, source, description, cycleId, customer } = req.body || {};
+  if (!ref || typeof ref !== 'string') return res.status(400).json({ error: 'ref required' });
+  if (!(Number(expectedAmount) > 0)) return res.status(400).json({ error: 'expectedAmount required' });
+  if (!source || typeof source !== 'string' || !/^[a-z0-9_-]{1,64}$/i.test(source)) {
+    return res.status(400).json({ error: 'source required' });
+  }
+  if (cycleId != null && (typeof cycleId !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(cycleId))) {
+    return res.status(400).json({ error: 'invalid cycleId' });
+  }
+
+  try {
+    const result = await recordExternalMorningPayment({
+      documentId: typeof documentId === 'string' ? documentId : undefined,
+      ref,
+      expectedAmount: Number(expectedAmount),
+      source,
+      description: typeof description === 'string' ? description.slice(0, 300) : undefined,
+      cycleId: cycleId || undefined,
+      customer: customer && typeof customer === 'object' ? {
+        name: typeof customer.name === 'string' ? customer.name.slice(0, 200) : undefined,
+        email: typeof customer.email === 'string' ? customer.email.slice(0, 200) : undefined,
+        phone: typeof customer.phone === 'string' ? customer.phone.slice(0, 40) : undefined,
+      } : undefined,
+    });
+    if (result.outcome === 'no_document') return res.status(404).json({ ok: false, ...result });
+    return res.json({ ok: true, ...result });
+  } catch (e: any) {
+    console.error('[Morning external] Error:', e);
+    return res.status(500).json({ ok: false, error: e?.message || 'error' });
+  }
 });
 
 /**

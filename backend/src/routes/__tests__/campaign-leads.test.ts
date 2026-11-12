@@ -39,6 +39,11 @@ vi.mock('../../services/woo-payment-link.js', () => ({
   createWooPaymentLink: vi.fn(),
 }));
 
+vi.mock('../../services/morning-payment-link.js', () => ({
+  createMorningPaymentLink: vi.fn(),
+  getPaymentsProvider: vi.fn(),
+}));
+
 import { campaignLeadsRouter } from '../campaign-leads.js';
 import { prisma } from '../../utils/prisma.js';
 import { findOrCreateCustomer } from '../../utils/lead-customer.js';
@@ -46,6 +51,7 @@ import { findOrCreateLeadAppointment } from '../../utils/lead-dedup.js';
 import { sendLeadWelcomeTemplate } from '../../services/lead-welcome.js';
 import { autoRegisterLeadToCycle } from '../../services/lead-cycle-registration.js';
 import { createWooPaymentLink } from '../../services/woo-payment-link.js';
+import { createMorningPaymentLink, getPaymentsProvider } from '../../services/morning-payment-link.js';
 
 const mockPrisma = vi.mocked(prisma);
 const mockFindOrCreateCustomer = vi.mocked(findOrCreateCustomer);
@@ -53,6 +59,8 @@ const mockFindOrCreateLeadAppointment = vi.mocked(findOrCreateLeadAppointment);
 const mockSendLeadWelcomeTemplate = vi.mocked(sendLeadWelcomeTemplate);
 const mockAutoRegisterLeadToCycle = vi.mocked(autoRegisterLeadToCycle);
 const mockCreateWooPaymentLink = vi.mocked(createWooPaymentLink);
+const mockCreateMorningPaymentLink = vi.mocked(createMorningPaymentLink);
+const mockGetPaymentsProvider = vi.mocked(getPaymentsProvider);
 
 const app = express();
 app.use(express.json());
@@ -89,6 +97,8 @@ const cycle = {
 
 describe('campaign leads public API', () => {
   beforeEach(() => {
+    // Existing cases exercise the legacy Woo path; the Morning default has its own case below.
+    mockGetPaymentsProvider.mockReturnValue('woocommerce');
     vi.clearAllMocks();
     mockPrisma.campaign.findUnique.mockResolvedValue(campaign as any);
     mockPrisma.cycle.findFirst.mockResolvedValue(cycle as any);
@@ -194,6 +204,44 @@ describe('campaign leads public API', () => {
       childName: 'ילד בדיקה',
       childAge: '10',
       grade: 'ה',
+    }));
+  });
+
+  it('creates a direct Morning payment link (no Woo order) when PAYMENTS_PROVIDER=morning', async () => {
+    mockGetPaymentsProvider.mockReturnValue('morning');
+    mockCreateMorningPaymentLink.mockResolvedValue({
+      provider: 'morning',
+      paymentId: 'payment-id',
+      orderId: 'payment-id',
+      ref: 'HT-ABCDEF1234',
+      paymentUrl: 'http://crm.test/pay/morning-token',
+      directPaymentUrl: 'http://crm.test/pay/morning-token',
+      amount: 999,
+      description: 'רישום למחזור רובלוקס מתחילים גילאי 10-13 - ילד אחד [cycle:cycle-1]',
+      maxInstallments: 3,
+      wooProductId: null,
+    } as any);
+
+    const res = await request(app)
+      .post('/api/campaign-leads')
+      .set('Host', 'crm.test')
+      .send({
+        campaignId: 'roblox-group-20261004',
+        name: 'הורה בדיקה',
+        phone: '0501234567',
+        email: 'parent@example.com',
+        childName: 'ילד בדיקה',
+        childAge: '10',
+        grade: 'ה',
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.payment.url).toBe('http://crm.test/pay/morning-token');
+    expect(mockCreateWooPaymentLink).not.toHaveBeenCalled();
+    expect(mockCreateMorningPaymentLink).toHaveBeenCalledWith(expect.objectContaining({
+      customerId: 'customer-1',
+      amount: 999,
+      description: expect.stringContaining('[cycle:cycle-1]'),
     }));
   });
 

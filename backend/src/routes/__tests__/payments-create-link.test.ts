@@ -55,6 +55,10 @@ vi.mock('../../services/omer-payment-reconciliation.js', () => ({
   reconcileOmerRegistrationPayment: vi.fn(),
 }));
 
+vi.mock('../../services/lead-payment-evidence.js', () => ({
+  autoConvertLeadsForPayment: vi.fn(),
+}));
+
 import { prisma } from '../../utils/prisma.js';
 import { inferDigitalCourseProductId, paymentsRouter } from '../payments.js';
 
@@ -64,9 +68,10 @@ const app = express();
 app.use(express.json());
 app.use('/api/payments', paymentsRouter);
 
-describe('payments create-link', () => {
+describe('payments create-link (legacy PAYMENTS_PROVIDER=woocommerce)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.PAYMENTS_PROVIDER = 'woocommerce';
     mockPrisma.payment.create.mockResolvedValue({ id: 'payment-id' } as any);
     vi.stubGlobal('fetch', vi.fn());
   });

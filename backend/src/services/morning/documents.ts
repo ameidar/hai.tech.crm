@@ -93,7 +93,10 @@ export interface MorningDocument {
   number: number;
   type: number;
   documentDate: string;
-  status: number;
+  creationDate?: number;    // unix seconds
+  status: number;           // 0 open, 1 closed, 2 manually closed, 3 cancelling, 4 cancelled
+  description?: string;     // document title
+  remarks?: string;
   amount?: number;          // document gross total (incl. VAT)
   amountOpened?: number;    // open/unpaid balance — 0 means fully receipted
   url?: { he?: string; en?: string; origin?: string };
@@ -119,7 +122,15 @@ export async function closeMorningDocument(id: string): Promise<void> {
 
 /** Search Morning documents (e.g. by document number) — returns the matching items. */
 export async function searchMorningDocuments(
-  query: { type?: number[]; number?: number; fromDate?: string; toDate?: string; page?: number; pageSize?: number },
+  query: {
+    type?: number[];
+    number?: number;
+    fromDate?: string;
+    toDate?: string;
+    description?: string;   // "Filter by document description" (documents/search spec)
+    page?: number;
+    pageSize?: number;
+  },
 ): Promise<{ items: MorningDocument[]; total: number }> {
   const body = { page: 1, pageSize: 25, ...query };
   return morningRequest<{ items: MorningDocument[]; total: number }>('POST', '/api/v1/documents/search', body);

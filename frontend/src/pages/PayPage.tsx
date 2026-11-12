@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 
 const API = import.meta.env.VITE_API_URL || '/api';
 
@@ -10,31 +10,52 @@ interface PayInfo {
   amount: number;
   currency: string;
   maxInstallments: number | null;
-  wooOrderId: number;
+  wooOrderId: number | null;
+  provider?: 'morning' | 'woocommerce';
   status: string;
   alreadyPaid?: boolean;
 }
 
 export default function PayPage() {
   const { token } = useParams<{ token: string }>();
+  const [searchParams] = useSearchParams();
+  // Morning redirects back here with ?paid=1 / ?failed=1. The redirect is not proof of
+  // payment — ?check=1 makes the server verify the issued document with Morning.
+  const returnedPaid = searchParams.get('paid') === '1';
+  const returnedFailed = searchParams.get('failed') === '1';
   const [info, setInfo] = useState<PayInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [chosen, setChosen] = useState(1);
   const [confirming, setConfirming] = useState(false);
+  const [verifying, setVerifying] = useState(returnedPaid);
 
   useEffect(() => {
     if (!token) return;
-    fetch(`${API}/payments/pay-page/${token}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.error) { setError(data.error); return; }
-        setInfo(data);
-        setChosen(1); // default: 1 payment
-      })
-      .catch(() => setError('שגיאה בטעינת פרטי התשלום'))
-      .finally(() => setLoading(false));
-  }, [token]);
+    let cancelled = false;
+    let attempts = 0;
+    const load = () => {
+      attempts++;
+      fetch(`${API}/payments/pay-page/${token}${returnedPaid ? '?check=1' : ''}`)
+        .then(r => r.json())
+        .then(data => {
+          if (cancelled) return;
+          if (data.error) { setError(data.error); setVerifying(false); return; }
+          setInfo(data);
+          setChosen(1); // default: 1 payment
+          // Morning may issue the document a few seconds after the redirect — retry briefly.
+          if (returnedPaid && !data.alreadyPaid && attempts < 6) {
+            setTimeout(load, 5000);
+          } else {
+            setVerifying(false);
+          }
+        })
+        .catch(() => { if (!cancelled) { setError('שגיאה בטעינת פרטי התשלום'); setVerifying(false); } })
+        .finally(() => { if (!cancelled) setLoading(false); });
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [token, returnedPaid]);
 
   const handlePay = async () => {
     if (!token) return;
@@ -95,8 +116,25 @@ export default function PayPage() {
           </div>
         )}
 
-        {info && !info.alreadyPaid && (
+        {info && !info.alreadyPaid && verifying && (
+          <div className="text-center py-10 text-gray-500">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-500 mx-auto mb-3" />
+            <div className="font-medium">מאמתים את התשלום מול מורנינג...</div>
+          </div>
+        )}
+
+        {info && !info.alreadyPaid && !verifying && (
           <>
+            {returnedPaid && (
+              <div className="mb-4 rounded-lg bg-yellow-50 border border-yellow-200 px-3 py-2 text-sm text-yellow-800 text-center">
+                עדיין לא קיבלנו אישור על התשלום. אם חויבת — האישור יתעדכן בדקות הקרובות, אין צורך לשלם שוב.
+              </div>
+            )}
+            {returnedFailed && (
+              <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700 text-center">
+                התשלום לא הושלם. אפשר לנסות שוב.
+              </div>
+            )}
             {/* Order summary */}
             <div className="border-b border-gray-100 pb-4 mb-4">
               <div className="flex justify-between text-sm text-gray-500 mb-1">

@@ -10,7 +10,7 @@
  */
 
 import { prisma } from '../utils/prisma.js';
-import { zoomService, getIsraelOffset } from './zoom.js';
+import { zoomService, getIsraelOffset, isZoomCreationEnabled } from './zoom.js';
 import { googleMeetService } from './google-meet.js';
 import { isHoliday, isShabbat } from '../utils/holidays.js';
 import { sendWhatsAppMessage } from './notifications.js';
@@ -120,6 +120,7 @@ export async function addReplacementMeeting(postponedMeetingId: string, _actorUs
       revenue,
       instructorPayment,
       profit,
+      videoProvider: 'google_meet',
       topic: `פגישה חלופית (דחייה מ-${new Date(postponed.scheduledDate).toLocaleDateString('he-IL')})`,
     },
   });
@@ -142,7 +143,10 @@ export async function addReplacementMeeting(postponedMeetingId: string, _actorUs
   // so we balance by also not incrementing when adding the replacement.
 
   // Create video meeting if the postponed meeting had one (or cycle is online)
-  const provider = postponed.videoProvider || cycle.videoProvider || 'zoom';
+  // Zoom creation is disabled (ZOOM_CREATION_ENABLED) — replacements of Zoom
+  // meetings transparently get a Google Meet link instead.
+  const requestedProvider = postponed.videoProvider || cycle.videoProvider || 'google_meet';
+  const provider = requestedProvider === 'zoom' && isZoomCreationEnabled() ? 'zoom' : 'google_meet';
   const needsVideoMeeting = (cycle.isOnline || activityType === 'online' || activityType === 'private_lesson')
     && (postponed.zoomMeetingId !== null || cycle.zoomMeetingId !== null);
 

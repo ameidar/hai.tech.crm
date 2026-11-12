@@ -178,6 +178,8 @@ export class CyclesRepository {
         location: data.location,
         zoomHostId: data.zoomHostId,
         zoomHostEmail: data.zoomHostEmail,
+        // Validator defaults to 'google_meet' and rejects 'zoom' (ZOOM_CREATION_ENABLED).
+        videoProvider: data.videoProvider ?? 'google_meet',
       },
       include: {
         course: { select: { id: true, name: true } },

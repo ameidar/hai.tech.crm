@@ -1,7 +1,41 @@
 import axios from 'axios';
 import { prisma } from '../utils/prisma.js';
+import { AppError } from '../middleware/errorHandler.js';
 
 const TZ = 'Asia/Jerusalem';
+
+import {
+  ZOOM_CREATION_DISABLED_MESSAGE,
+  ZOOM_CREATION_DISABLED_CODE,
+  isZoomCreationEnabled,
+} from '../utils/zoom-creation.js';
+
+// Zoom meeting CREATION is disabled unless ZOOM_CREATION_ENABLED=true
+// (see utils/zoom-creation.ts). Read/delete of existing meetings still works.
+export { ZOOM_CREATION_DISABLED_MESSAGE, ZOOM_CREATION_DISABLED_CODE, isZoomCreationEnabled };
+
+export function zoomCreationDisabledError(): AppError {
+  return new AppError(400, ZOOM_CREATION_DISABLED_MESSAGE, { code: ZOOM_CREATION_DISABLED_CODE });
+}
+
+/** Throws HTTP 400 unless ZOOM_CREATION_ENABLED=true. */
+export function assertZoomCreationEnabled(): void {
+  if (!isZoomCreationEnabled()) {
+    throw zoomCreationDisabledError();
+  }
+}
+
+/**
+ * Resolve the video provider for a NEW meeting/cycle/link from a request value.
+ * Missing/unknown → 'google_meet'. Explicit 'zoom' → 400 unless re-enabled.
+ */
+export function resolveNewVideoProvider(raw: unknown): 'zoom' | 'google_meet' {
+  if (raw === 'zoom') {
+    assertZoomCreationEnabled();
+    return 'zoom';
+  }
+  return 'google_meet';
+}
 
 /**
  * Get the correct UTC offset string for a given date in Asia/Jerusalem timezone.
@@ -412,6 +446,9 @@ export async function createMeeting(
   hostId: string, 
   params: CreateMeetingParams
 ): Promise<ZoomMeeting & { host_key?: string }> {
+  // Hard guard: Zoom creation is disabled unless explicitly re-enabled.
+  assertZoomCreationEnabled();
+
   // Format start_time for Zoom - send in Israel local time since timezone is Asia/Jerusalem
   // Use Intl.DateTimeFormat to correctly handle DST (Israel is UTC+2 in winter, UTC+3 in summer)
   const d = params.startTime;
@@ -535,6 +572,9 @@ export async function createCycleMeeting(params: {
   durationMinutes: number;
   totalOccurrences?: number; // Override calculated occurrences
 }): Promise<{ meeting: ZoomMeeting; hostUser: ZoomUser } | null> {
+  // Hard guard: Zoom creation is disabled unless explicitly re-enabled.
+  assertZoomCreationEnabled();
+
   // Build the first meeting datetime
   // startTime is in Israel local time (HH:MM), we need to create a proper datetime
   // Start Zoom meeting 10 minutes early to allow participants to join before the lesson
@@ -637,5 +677,7 @@ export const zoomService = {
   deleteRecordings,
   getMeeting,
   createCycleMeeting,
-  getDirectJoinUrl
+  getDirectJoinUrl,
+  isZoomCreationEnabled,
+  assertZoomCreationEnabled,
 };

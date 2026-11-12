@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isAllowedNewVideoProvider, ZOOM_CREATION_DISABLED_MESSAGE } from '../utils/zoom-creation.js';
 
 const lowercase = <T extends string | null | undefined>(v: T): T =>
   (typeof v === 'string' ? v.trim().toLowerCase() : v) as T;
@@ -248,7 +249,11 @@ export const createMeetingSchema = z.object({
   notes: z.string().optional().nullable(),
   recallBotEnabled: z.boolean().optional(),
   registrationId: z.string().min(1).optional().nullable(),
-  videoProvider: videoMeetingProviderEnum.optional().default('zoom'),
+  // New meetings: Google Meet only ('zoom' rejected unless ZOOM_CREATION_ENABLED=true)
+  videoProvider: videoMeetingProviderEnum
+    .optional()
+    .default('google_meet')
+    .refine(isAllowedNewVideoProvider, { message: ZOOM_CREATION_DISABLED_MESSAGE }),
   zoomMeetingId: z.string().optional().nullable(),
   zoomJoinUrl: z.string().optional().nullable(),
   zoomStartUrl: z.string().optional().nullable(),

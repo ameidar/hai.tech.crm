@@ -12,6 +12,7 @@ import {
 import { fetchHolidays, dayNameToNumber } from '../../../utils/holidays.js';
 import { resolveRegistrationAmount } from '../../../utils/registration-amount.js';
 import { meetingRevenueForCycle } from '../../../utils/revenue.js';
+import { legacyVideoProviderForGeneratedMeetings } from '../../../utils/zoom-creation.js';
 import { resolveSendParentReminders } from '../../../services/reminder-eligibility.js';
 import { syncMonthlyFixedForCycle } from '../../../services/monthly-fixed-billing.js';
 
@@ -212,6 +213,9 @@ export class CyclesService {
           endTime: cycle.endTime,
           status: 'scheduled' as const,
           activityType: cycle.activityType,
+          // Prisma default is 'zoom' — new meetings are Google Meet unless the
+          // cycle already has a legacy Zoom series.
+          videoProvider: legacyVideoProviderForGeneratedMeetings(cycle),
           revenue: expectedRevenue,
           profit: expectedRevenue,
         });
@@ -383,6 +387,8 @@ export class CyclesService {
         location: original.location,
         zoomHostId: original.zoomHostId,
         zoomHostEmail: original.zoomHostEmail,
+        // Duplicated cycles never inherit Zoom — new links are Google Meet only.
+        videoProvider: 'google_meet',
       },
       include: {
         course: { select: { id: true, name: true } },

@@ -4,7 +4,7 @@ import {
   sortingSchema,
   uuidSchema,
 } from './common.js';
-import { activityTypeEnum, timeStringSchema } from './cycles.js';
+import { activityTypeEnum, timeStringSchema, newVideoProviderSchema } from './cycles.js';
 
 /**
  * Meeting status enum
@@ -47,7 +47,7 @@ export const createMeetingSchema = z.object({
   notes: z.string().optional(),
   recallBotEnabled: z.boolean().optional(),
   withZoom: z.boolean().optional().default(false),
-  videoProvider: z.enum(['zoom', 'google_meet']).optional().default('zoom'),
+  videoProvider: newVideoProviderSchema,
 });
 
 /**

@@ -5,6 +5,7 @@
 
 import type { Request } from 'express';
 import { prisma } from '../utils/prisma.js';
+import { legacyVideoProviderForGeneratedMeetings } from '../utils/zoom-creation.js';
 import { resolveSendParentReminders } from './reminder-eligibility.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createCycleSchema, updateCycleSchema } from '../types/schemas.js';
@@ -129,6 +130,9 @@ export async function generateMeetingsForCycle(cycleId: string, fromDate?: Date,
         status: 'scheduled' as const,
         recallBotEnabled: cycle.recallBotEnabled,
         activityType: cycle.activityType,
+        // Prisma default is 'zoom' (schema unchanged). New meetings are Google Meet,
+        // except when extending a legacy cycle that already has a Zoom series.
+        videoProvider: legacyVideoProviderForGeneratedMeetings(cycle),
         revenue: expectedRevenue,
         profit: expectedRevenue,
       });
@@ -313,6 +317,8 @@ export async function createCycle(body: unknown, req?: Request) {
       activityType: data.activityType,
       location: data.location,
       zoomHostId: data.zoomHostId,
+      // New cycles are Google Meet only (Prisma default is still 'zoom').
+      videoProvider: 'google_meet',
       remainingMeetings: data.totalMeetings,
     };
 

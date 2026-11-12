@@ -411,17 +411,58 @@ interface Totals { gross: number; net: number; count: number }
 const emptyTotals = (): Totals => ({ gross: 0, net: 0, count: 0 });
 const roundTotals = (t: Totals): Totals => ({ gross: round2(t.gross), net: round2(t.net), count: t.count });
 
+/** Freelancer pay of one month by activity (work) month — see buildFreelancerActivityOverview. */
+export interface FreelancerActivityLike {
+  month: string;
+  expected: number;
+  invoicedNet: number;
+  invoicedGross: number;
+  invoicedCount: number;
+}
+
+/** Overview of one month: non-freelancer docs (reporting month) + freelancer pay (activity month). */
+export interface MonthOverview {
+  /** other.gross + freelancerExpected. */
+  gross: number;
+  other: Totals;
+  freelancerExpected: number;
+  freelancerInvoicedNet: number;
+  freelancerInvoicedGross: number;
+  freelancerInvoicedCount: number;
+}
+
 export interface ExpenseSummary {
   currentMonth: string;
-  /** freelancerGross/Net = linked freelancer invoices in that month; others = gross − freelancer. */
-  months: Array<{ month: string; freelancerGross: number; freelancerNet: number } & Totals>;
+  /**
+   * gross/net/count = all docs by reporting month (unchanged).
+   * freelancerGross/Net = LEGACY: linked freelancer docs by *reporting* month (kept for compatibility;
+   * the UI no longer charts them). otherGross/otherNet = gross/net minus those.
+   * freelancerExpected / freelancerInvoiced* = freelancer pay by *activity* month: salary-report
+   * grandTotal and receipts bucketed by activityMonthOf (0 when no freelancer data was passed).
+   */
+  months: Array<{
+    month: string;
+    freelancerGross: number;
+    freelancerNet: number;
+    otherGross: number;
+    otherNet: number;
+    freelancerExpected: number;
+    freelancerInvoicedNet: number;
+    freelancerInvoicedGross: number;
+    freelancerInvoicedCount: number;
+  } & Totals>;
   kpis: {
     thisMonth: Totals;
+    /** LEGACY (reporting month) — see months[].freelancerGross. */
     thisMonthFreelancers: Totals;
     thisMonthOther: Totals;
     lastMonth: Totals;
     /** Average of the 3 full months before the current one. */
     threeMonthAvg: { gross: number; net: number };
+    /** Activity-month basis: other expenses + freelancer pay per salary report. */
+    thisMonthOverview: MonthOverview;
+    lastMonthOverview: MonthOverview;
+    threeMonthAvgOverview: { gross: number };
     pendingCount: number;
     pendingGross: number;
   };
@@ -437,6 +478,7 @@ export type ExpenseRowPredicate = (row: ExpenseRowLike) => boolean;
  * Build the overview from active mirror rows. `monthsBack` months ending with the current
  * Israel month; category/supplier breakdowns cover that same window. `isFreelancer` marks
  * freelancer-pay invoices: split out per month/KPI and excluded from topSuppliers.
+ * `freelancerActivity` supplies freelancer pay by activity month for the *Overview fields.
  */
 export function buildExpenseSummary(
   rows: ExpenseRowLike[],
@@ -444,6 +486,7 @@ export function buildExpenseSummary(
   monthsBack = 12,
   topN = 10,
   isFreelancer: ExpenseRowPredicate = () => false,
+  freelancerActivity: FreelancerActivityLike[] = [],
 ): ExpenseSummary {
   const currentMonth = israelToday(now).iso.slice(0, 7);
   const monthKeys = Array.from({ length: monthsBack }, (_, i) => shiftMonth(currentMonth, i - monthsBack + 1));
@@ -497,15 +540,43 @@ export function buildExpenseSummary(
   const prev3 = [1, 2, 3].map((i) => totalsFor(shiftMonth(currentMonth, -i)));
   const thisAll = totalsFor(currentMonth);
   const thisFreelancers = freelancerFor(currentMonth);
+  const activityBy = new Map(freelancerActivity.map((a) => [a.month, a]));
+  const otherFor = (m: string): Totals => {
+    const t = totalsFor(m);
+    const f = freelancerFor(m);
+    return { gross: round2(t.gross - f.gross), net: round2(t.net - f.net), count: t.count - f.count };
+  };
+  const overviewFor = (m: string): MonthOverview => {
+    const other = otherFor(m);
+    const a = activityBy.get(m);
+    const expected = a?.expected ?? 0;
+    return {
+      gross: round2(other.gross + expected),
+      other,
+      freelancerExpected: round2(expected),
+      freelancerInvoicedNet: round2(a?.invoicedNet ?? 0),
+      freelancerInvoicedGross: round2(a?.invoicedGross ?? 0),
+      freelancerInvoicedCount: a?.invoicedCount ?? 0,
+    };
+  };
 
   return {
     currentMonth,
-    months: monthKeys.map((m) => ({
-      month: m,
-      ...roundTotals(totalsFor(m)),
-      freelancerGross: round2(freelancerFor(m).gross),
-      freelancerNet: round2(freelancerFor(m).net),
-    })),
+    months: monthKeys.map((m) => {
+      const o = overviewFor(m);
+      return {
+        month: m,
+        ...roundTotals(totalsFor(m)),
+        freelancerGross: round2(freelancerFor(m).gross),
+        freelancerNet: round2(freelancerFor(m).net),
+        otherGross: o.other.gross,
+        otherNet: o.other.net,
+        freelancerExpected: o.freelancerExpected,
+        freelancerInvoicedNet: o.freelancerInvoicedNet,
+        freelancerInvoicedGross: o.freelancerInvoicedGross,
+        freelancerInvoicedCount: o.freelancerInvoicedCount,
+      };
+    }),
     kpis: {
       thisMonth: roundTotals(thisAll),
       thisMonthFreelancers: roundTotals(thisFreelancers),
@@ -518,6 +589,11 @@ export function buildExpenseSummary(
       threeMonthAvg: {
         gross: round2(prev3.reduce((s, t) => s + t.gross, 0) / 3),
         net: round2(prev3.reduce((s, t) => s + t.net, 0) / 3),
+      },
+      thisMonthOverview: overviewFor(currentMonth),
+      lastMonthOverview: overviewFor(shiftMonth(currentMonth, -1)),
+      threeMonthAvgOverview: {
+        gross: round2([1, 2, 3].reduce((s, i) => s + overviewFor(shiftMonth(currentMonth, -i)).gross, 0) / 3),
       },
       pendingCount: pending.length,
       pendingGross: round2(pendingGross),

@@ -1572,15 +1572,39 @@ export interface CompanyExpense {
 
 interface ExpenseTotals { gross: number; net: number; count: number }
 
+/** Other expenses (reporting month) + freelancer pay per salary report (activity month). */
+export interface ExpenseMonthOverview {
+  gross: number;
+  other: ExpenseTotals;
+  freelancerExpected: number;
+  freelancerInvoicedNet: number;
+  freelancerInvoicedGross: number;
+  freelancerInvoicedCount: number;
+}
+
 export interface CompanyExpenseSummary {
   currentMonth: string;
-  months: Array<{ month: string; freelancerGross: number; freelancerNet: number } & ExpenseTotals>;
+  /** gross/net/count + legacy freelancerGross/Net = by reporting month; freelancerExpected/Invoiced* = by activity month. */
+  months: Array<{
+    month: string;
+    freelancerGross: number;
+    freelancerNet: number;
+    otherGross: number;
+    otherNet: number;
+    freelancerExpected: number;
+    freelancerInvoicedNet: number;
+    freelancerInvoicedGross: number;
+    freelancerInvoicedCount: number;
+  } & ExpenseTotals>;
   kpis: {
     thisMonth: ExpenseTotals;
     thisMonthFreelancers: ExpenseTotals;
     thisMonthOther: ExpenseTotals;
     lastMonth: ExpenseTotals;
     threeMonthAvg: { gross: number; net: number };
+    thisMonthOverview: ExpenseMonthOverview;
+    lastMonthOverview: ExpenseMonthOverview;
+    threeMonthAvgOverview: { gross: number };
     pendingCount: number;
     pendingGross: number;
   };
@@ -1773,7 +1797,8 @@ export interface FreelancerReconciliationRow {
   suppliers: string[];
   expected: { meetings: number; hours: number; payment: number; expenses: number; fixedAdditions: number; grandTotal: number };
   invoiced: { net: number; gross: number; count: number; hasDrafts: boolean };
-  diff: number; // invoiced net − expected grandTotal
+  diff: number; // invoiced (matched amount — net or gross; net when neither) − expected grandTotal
+  matchedOn: 'net' | 'gross' | null;
   status: FreelancerReconciliationStatus;
   expenses: Array<CompanyExpense & { activityMonth: string | null }>;
 }

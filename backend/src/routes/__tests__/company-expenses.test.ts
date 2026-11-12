@@ -79,6 +79,7 @@ import { scheduleDraftSyncAfterUpload } from '../../services/company-expenses-sc
 import { logAudit } from '../../utils/audit.js';
 import { errorHandler } from '../../middleware/errorHandler.js';
 import { buildInstructorMonthlyReport } from '../../services/instructorReport.service.js';
+import { clearFreelancerExpectedCache } from '../../services/freelancer-expenses.js';
 
 const mockPrisma = vi.mocked(prisma, true);
 const app = express();
@@ -286,11 +287,14 @@ describe('summary — freelancer split', () => {
         rowOf({ supplierId: 'g', supplierName: 'Google', amount: 100, amountExcludeVat: 100 }),
       ] as never)
       .mockResolvedValueOnce([] as never)
-      .mockResolvedValueOnce([] as never);
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([] as never); // activity-month candidates for the freelancer overview
     mockPrisma.companyExpense.aggregate.mockResolvedValue({ _max: { syncedAt: null } } as never);
     mockPrisma.instructorExpenseSupplier.findMany.mockResolvedValue([
       { instructorId: 'amit', supplierId: 'sup-barkat', supplierName: 'ברקת' },
     ] as never);
+    mockPrisma.instructor.findMany.mockResolvedValue([{ id: 'amit' }] as never);
+    vi.mocked(buildInstructorMonthlyReport).mockResolvedValue({ instructors: [], operationsStaff: [] } as never);
     const res = await request(app).get('/api/company-expenses/summary');
     expect(res.status).toBe(200);
     expect(res.body.kpis.thisMonthFreelancers).toEqual({ gross: 5900, net: 5000, count: 1 });
@@ -298,6 +302,50 @@ describe('summary — freelancer split', () => {
     expect(res.body.kpis.thisMonth).toEqual({ gross: 6000, net: 5100, count: 2 });
     expect(res.body.months.at(-1)).toMatchObject({ freelancerGross: 5900, freelancerNet: 5000 });
     expect(res.body.topSuppliers.map((t: any) => t.supplierName)).toEqual(['Google']);
+  });
+
+  it('adds freelancer pay by activity month from the (mocked) salary report', async () => {
+    clearFreelancerExpectedCache();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-12T10:00:00Z'));
+    try {
+      const rowOf = (o: Record<string, unknown>) => ({
+        id: 'x', morningId: 'x', status: 20, date: new Date('2026-11-02T00:00:00Z'), reportingDate: null, amount: 1000,
+        amountExcludeVat: 1000, vat: 0, supplierId: null, supplierName: null, categoryTitle: null, active: true, activityMonth: null, ...o,
+      });
+      const septReceipt = rowOf({
+        supplierId: 'sup-barkat', supplierName: 'ברקת', amount: 1720, amountExcludeVat: 1720,
+        date: new Date('2026-09-30T00:00:00Z'), reportingDate: new Date('2026-10-01T00:00:00Z'),
+      });
+      mockPrisma.companyExpense.findMany
+        .mockResolvedValueOnce([septReceipt, rowOf({ supplierId: 'g', supplierName: 'Google', date: new Date('2026-10-10T00:00:00Z'), amount: 300, amountExcludeVat: 300 })] as never)
+        .mockResolvedValueOnce([] as never)
+        .mockResolvedValueOnce([] as never)
+        .mockResolvedValueOnce([septReceipt] as never);
+      mockPrisma.companyExpense.aggregate.mockResolvedValue({ _max: { syncedAt: null } } as never);
+      mockPrisma.instructorExpenseSupplier.findMany.mockResolvedValue([
+        { instructorId: 'amit', supplierId: 'sup-barkat', supplierName: 'ברקת' },
+      ] as never);
+      mockPrisma.instructor.findMany.mockResolvedValue([{ id: 'amit' }] as never);
+      vi.mocked(buildInstructorMonthlyReport).mockImplementation(async (month: string) => ({
+        instructors: [{ instructorId: 'amit', grandTotal: month === '2026-09' ? 1720 : month === '2026-10' ? 2500 : 0 }],
+        operationsStaff: [],
+      }) as never);
+      const res = await request(app).get('/api/company-expenses/summary');
+      expect(res.status).toBe(200);
+      expect(vi.mocked(buildInstructorMonthlyReport)).toHaveBeenCalledTimes(12);
+      const oct = res.body.months.find((m: any) => m.month === '2026-10');
+      expect(oct).toMatchObject({ freelancerGross: 1720, otherGross: 300, freelancerExpected: 2500, freelancerInvoicedGross: 0 });
+      const sep = res.body.months.find((m: any) => m.month === '2026-09');
+      expect(sep).toMatchObject({ otherGross: 0, freelancerExpected: 1720, freelancerInvoicedGross: 1720, freelancerInvoicedCount: 1 });
+      expect(res.body.kpis.lastMonthOverview).toMatchObject({ gross: 2800, freelancerExpected: 2500, freelancerInvoicedGross: 0 });
+      // Second call within 10 minutes reuses the memoized salary-report totals.
+      mockPrisma.companyExpense.findMany.mockResolvedValue([] as never);
+      await request(app).get('/api/company-expenses/summary');
+      expect(vi.mocked(buildInstructorMonthlyReport)).toHaveBeenCalledTimes(12);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

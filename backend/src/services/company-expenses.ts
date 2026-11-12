@@ -495,7 +495,8 @@ export function buildExpenseSummary(
       .sort((a, b) => b.gross - a.gross),
     topSuppliers: [...bySupplier.values()]
       .map((s) => ({ ...s, gross: round2(s.gross), net: round2(s.net) }))
-      .sort((a, b) => b.gross - a.gross)
+      // Most frequent suppliers (document count), not the most expensive ones.
+      .sort((a, b) => b.count - a.count || b.gross - a.gross)
       .slice(0, topN),
     pending: pending.sort((a, b) => (b.date?.getTime() ?? 0) - (a.date?.getTime() ?? 0)),
   };

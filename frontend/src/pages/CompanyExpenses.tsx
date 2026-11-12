@@ -673,6 +673,9 @@ export default function CompanyExpenses() {
   const { data: summary, isLoading, error } = useCompanyExpenseSummary();
   const { data: missing } = useMissingRecurringExpenses();
   const sync = useSyncCompanyExpenses();
+  const { data: recurringRows } = useRecurringExpenses();
+  const [showUpload, setShowUpload] = useState(false);
+  const activeSuppliers = (recurringRows ?? []).filter((r) => r.status === 'active').sort((a, b) => a.label.localeCompare(b.label, 'he'));
 
   const handleSync = (full = false) =>
     sync.mutate(full, {
@@ -698,6 +701,10 @@ export default function CompanyExpenses() {
         title="הוצאות החברה"
         subtitle={`נתונים ממורנינג · סנכרון אחרון: ${fmtDateTime(summary?.lastSyncedAt ?? null)}`}
         actions={
+          <div className="flex gap-2">
+          <button onClick={() => setShowUpload((v) => !v)} className="btn btn-secondary" title="העלאת חשבוניות ישירות למורנינג">
+            <Upload size={18} /> העלאת חשבוניות
+          </button>
           <button
             onClick={() => handleSync(!summary?.lastSyncedAt)}
             disabled={sync.isPending || summary?.syncRunning}
@@ -706,10 +713,12 @@ export default function CompanyExpenses() {
           >
             <RefreshCw size={18} className={sync.isPending ? 'animate-spin' : ''} /> {sync.isPending ? 'מסנכרן...' : 'רענן עכשיו'}
           </button>
+          </div>
         }
       />
 
       <div className="flex-1 p-6 overflow-auto space-y-6">
+        {showUpload && <UploadPanel suppliers={activeSuppliers} />}
         {summary && !summary.morningConfigured && (
           <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm">Morning לא מוגדר בשרת — לא ניתן לסנכרן הוצאות.</div>
         )}
@@ -781,13 +790,13 @@ export default function CompanyExpenses() {
                 </div>
 
                 <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-                  <h3 className="font-semibold text-gray-900 mb-3">ספקים מובילים (12 חודשים)</h3>
+                  <h3 className="font-semibold text-gray-900 mb-3">ההוצאות השכיחות (12 חודשים)</h3>
                   {summary.topSuppliers.length === 0 ? <p className="text-sm text-gray-400">אין נתונים</p> : (
                     <ul className="space-y-2 text-sm">
                       {summary.topSuppliers.map((s, i) => (
                         <li key={`${s.supplierId ?? s.supplierName}-${i}`} className="flex items-center justify-between gap-2">
                           <span className="truncate"><span className="text-gray-400 ml-1">{i + 1}.</span>{s.supplierName}</span>
-                          <span className="font-medium whitespace-nowrap">{ils(s.gross)} <span className="text-xs text-gray-400">({s.count})</span></span>
+                          <span className="font-medium whitespace-nowrap">{s.count} מסמכים <span className="text-xs text-gray-400">({ils(s.gross)})</span></span>
                         </li>
                       ))}
                     </ul>

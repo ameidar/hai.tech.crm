@@ -309,4 +309,13 @@ describe('buildExpenseSummary', () => {
     expect(s.topSuppliers[0]).toMatchObject({ supplierName: 'ספק א', gross: 2106, count: 3 });
     expect(s.topSuppliers[1]).toMatchObject({ supplierName: 'ספק ב', gross: 351, count: 2 });
   });
+
+  it('ranks suppliers by how often they bill, not by amount', () => {
+    const freq = buildExpenseSummary([
+      row({ supplierId: 'big', supplierName: 'יקר', amount: 9000, amountExcludeVat: 9000 }),
+      row({ supplierId: 'often', supplierName: 'שכיח', amount: 10, amountExcludeVat: 10 }),
+      row({ supplierId: 'often', supplierName: 'שכיח', date: day('2026-10-02'), amount: 10, amountExcludeVat: 10 }),
+    ], NOW);
+    expect(freq.topSuppliers.map((t) => t.supplierName)).toEqual(['שכיח', 'יקר']);
+  });
 });

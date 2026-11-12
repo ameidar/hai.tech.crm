@@ -289,8 +289,8 @@ describe('buildExpenseSummary', () => {
     expect(s.currentMonth).toBe('2026-11');
     expect(s.months).toHaveLength(12);
     expect(s.months[0].month).toBe('2025-12');
-    expect(s.months[11]).toEqual({ month: '2026-11', gross: 1404, net: 1200, count: 2 });
-    expect(s.months.find((m) => m.month === '2026-10')).toEqual({ month: '2026-10', gross: 585, net: 500, count: 1 });
+    expect(s.months[11]).toEqual({ month: '2026-11', gross: 1404, net: 1200, count: 2, freelancerGross: 0, freelancerNet: 0 });
+    expect(s.months.find((m) => m.month === '2026-10')).toEqual({ month: '2026-10', gross: 585, net: 500, count: 1, freelancerGross: 0, freelancerNet: 0 });
   });
 
   it('computes KPIs: this month, last month, average of previous 3 months', () => {
@@ -317,5 +317,22 @@ describe('buildExpenseSummary', () => {
       row({ supplierId: 'often', supplierName: 'שכיח', date: day('2026-10-02'), amount: 10, amountExcludeVat: 10 }),
     ], NOW);
     expect(freq.topSuppliers.map((t) => t.supplierName)).toEqual(['שכיח', 'יקר']);
+  });
+
+  it('splits freelancer pay per month/KPI and excludes freelancers from topSuppliers', () => {
+    const split = buildExpenseSummary([
+      row({ amount: 1170, amountExcludeVat: 1000 }),
+      row({ supplierId: 'fl', supplierName: 'ברקת אי.טי בע"מ', amount: 5900, amountExcludeVat: 5000 }),
+      row({ supplierId: 'fl', supplierName: 'ברקת אי.טי בע"מ', amount: 5900, amountExcludeVat: 5000 }),
+      row({ supplierId: 'fl', supplierName: 'ברקת אי.טי בע"מ', date: day('2026-10-05'), amount: 1180, amountExcludeVat: 1000 }),
+    ], NOW, 12, 10, (r) => r.supplierId === 'fl');
+    expect(split.months[11]).toMatchObject({ gross: 12970, net: 11000, count: 3, freelancerGross: 11800, freelancerNet: 10000 });
+    expect(split.months[10]).toMatchObject({ gross: 1180, freelancerGross: 1180, freelancerNet: 1000 });
+    expect(split.kpis.thisMonth).toEqual({ gross: 12970, net: 11000, count: 3 });
+    expect(split.kpis.thisMonthFreelancers).toEqual({ gross: 11800, net: 10000, count: 2 });
+    expect(split.kpis.thisMonthOther).toEqual({ gross: 1170, net: 1000, count: 1 });
+    expect(split.topSuppliers.map((t) => t.supplierName)).toEqual(['ספק א']);
+    // Categories still include everything.
+    expect(split.byCategory[0]).toMatchObject({ category: 'משרד', count: 4 });
   });
 });

@@ -5,6 +5,7 @@ import { sendLeadWelcomeTemplate } from '../services/lead-welcome.js';
 import { findOrCreateLeadAppointment } from '../utils/lead-dedup.js';
 import { autoRegisterLeadToCycle } from '../services/lead-cycle-registration.js';
 import { createWooPaymentLink } from '../services/woo-payment-link.js';
+import { createMorningPaymentLink, getPaymentsProvider } from '../services/morning-payment-link.js';
 import { extractLeadAttribution } from '../utils/lead-attribution.js';
 
 export const campaignLeadsRouter = Router();
@@ -296,7 +297,8 @@ campaignLeadsRouter.post('/', async (req: Request, res: Response, next: NextFunc
       if (cycle && amountPerChild > 0) {
         const amount = amountPerChild * billableChildren;
         const childLabel = billableChildren === 1 ? 'ילד אחד' : `${billableChildren} ילדים`;
-        const result = await createWooPaymentLink({
+        const createLink = getPaymentsProvider() === 'morning' ? createMorningPaymentLink : createWooPaymentLink;
+        const result = await createLink({
           customerId,
           customerName: name,
           customerPhone: phone,

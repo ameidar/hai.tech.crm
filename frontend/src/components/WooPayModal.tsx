@@ -41,7 +41,7 @@ export default function WooPayModal({ onClose, customerId, customerName = '', cu
 
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
   const [directPaymentUrl, setDirectPaymentUrl] = useState<string | null>(null);
-  const [orderId, setOrderId] = useState<number | null>(null);
+  const [orderId, setOrderId] = useState<number | string | null>(null); // Woo order id or CRM payment id (Morning)
   const [invoiceUrl, setInvoiceUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [waSent, setWaSent] = useState(false);

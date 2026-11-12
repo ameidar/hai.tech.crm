@@ -14,6 +14,7 @@ import { reconcileOmerRegistrationPayment } from '../services/omer-payment-recon
 import { autoConvertLeadsForPayment } from '../services/lead-payment-evidence.js';
 import { processMorningReceipt, RECEIPT_DOC_TYPES } from '../services/morning-receipt-sync.js';
 import type { MorningDocument } from '../services/morning/documents.js';
+import { extractMorningRef, settleMorningPaymentByRef } from '../services/morning-payment-link.js';
 
 export const morningWebhookRouter = Router();
 
@@ -88,6 +89,16 @@ morningWebhookRouter.post('/', async (req, res) => {
     console.log('[Morning Webhook] Received:', JSON.stringify(payload, null, 2));
 
     if (isBareMorningDocument(payload)) {
+      // Document issued by a CRM Morning payment link (description carries `HT-…`).
+      // The payload is only a hint: settle re-reads the document from the Morning API.
+      const paymentFormRef = extractMorningRef(payload.description, payload.remarks);
+      if (paymentFormRef) {
+        const settled = await settleMorningPaymentByRef(paymentFormRef, String(payload.id));
+        if (settled.outcome !== 'not_found') {
+          console.log(`[Morning Webhook] doc #${payload.number} → payment link ${settled.outcome}`);
+          return res.json({ ok: true, paymentForm: settled.outcome });
+        }
+      }
       if (!RECEIPT_DOC_TYPES.includes(payload.type)) {
         console.log('[Morning Webhook] Ignoring non-receipt document type:', payload.type);
         return res.json({ ok: true, ignored: true });

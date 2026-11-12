@@ -56,7 +56,9 @@ export const config = {
   vapiAssistantId: process.env.VAPI_ASSISTANT_ID || '',
   vapiPhoneNumberId: process.env.VAPI_PHONE_NUMBER_ID || '',
 
-  // WooCommerce payments
+  // WooCommerce payments — LEGACY. Only used when PAYMENTS_PROVIDER=woocommerce, for
+  // pay pages of links created before the switch, and the Woo backup sync. New links go
+  // through Morning payment forms (services/morning-payment-link.ts).
   woo: {
     siteUrl: process.env.WOO_SITE_URL || 'https://haitechdigitalcourses.hai.tech',
     consumerKey: process.env.WOO_CONSUMER_KEY || '',

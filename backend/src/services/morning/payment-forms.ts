@@ -1,5 +1,9 @@
 import { morningRequest } from './client.js';
-import { DOCUMENT_TYPES, VatType } from './documents.js';
+import { DOCUMENT_TYPES, VatType, type MorningIncomeItem } from './documents.js';
+
+// API reference (official OpenAPI): https://developers.morning.co/api — operation
+// `getPaymentForm`, POST /api/v1/payments/form. Spec bundle:
+// https://developers.morning.co/docs/openapi.bundled.json
 
 // Morning payment-form creates a hosted payment link (Meshulam-backed by default).
 // Requires a `pluginId` from /api/v1/plugins — typically the active credit-card plugin.
@@ -25,6 +29,13 @@ export interface CreatePaymentFormInput {
     city?: string;
     add?: boolean;               // upsert into Morning's client directory ("הוספה ללקוחות")
   };
+  // Optional income rows. Per the payments/form spec, income vatType 1 = price
+  // INCLUDES VAT (0 = VAT added on top, 2 = exempt). Omitted → Morning builds one
+  // row from description + amount.
+  income?: MorningIncomeItem[];
+  remarks?: string;              // shown on the issued document
+  custom?: string;               // echoed back to success/failure/notify URLs
+  group?: number;                // payment method (100 card, 120 Bit…) — Grow plugin only
   successUrl?: string;
   failureUrl?: string;
   notifyUrl?: string;
@@ -33,6 +44,7 @@ export interface CreatePaymentFormInput {
 export interface CreatePaymentFormResponse {
   success: boolean;
   errorCode: number;
+  errorDescription?: string;
   url: string;                   // hosted checkout URL — give this to the customer
 }
 
@@ -65,6 +77,10 @@ export async function createPaymentForm(input: CreatePaymentFormInput): Promise<
     pluginId,
     client: clientPayload,
   };
+  if (input.income?.length) body.income = input.income;
+  if (input.remarks) body.remarks = input.remarks;
+  if (input.custom) body.custom = input.custom;
+  if (input.group) body.group = input.group;
   if (input.successUrl) body.successUrl = input.successUrl;
   if (input.failureUrl) body.failureUrl = input.failureUrl;
   if (input.notifyUrl) body.notifyUrl = input.notifyUrl;

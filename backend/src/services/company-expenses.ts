@@ -392,6 +392,28 @@ export function expenseNet(row: Pick<ExpenseRowLike, 'amount' | 'amountExcludeVa
   return expenseGross(row) - (vat ?? 0);
 }
 
+/**
+ * Month of the invoice itself (document date, else reporting month). Used for "did this
+ * supplier's invoice for month X arrive" — late invoices are often reported in a later VAT
+ * period, which must not make the original month look missing.
+ */
+export function invoiceMonthKey(row: Pick<ExpenseRowLike, 'date' | 'reportingDate'>): string | null {
+  const d = row.date ?? row.reportingDate;
+  return d ? d.toISOString().slice(0, 7) : null;
+}
+
+/** Prisma `where` fragment for expenses whose invoice month (doc date, else reporting) is in range. */
+export function invoiceMonthRangeWhere(fromMonth: string, toMonth: string) {
+  const gte = monthStart(fromMonth);
+  const lt = monthStart(shiftMonth(toMonth, 1));
+  return {
+    OR: [
+      { date: { gte, lt } },
+      { date: null, reportingDate: { gte, lt } },
+    ],
+  };
+}
+
 /** Prisma `where` fragment for expenses whose bucket month is in [fromMonth, toMonth]. */
 export function monthRangeWhere(fromMonth: string, toMonth: string) {
   const gte = monthStart(fromMonth);

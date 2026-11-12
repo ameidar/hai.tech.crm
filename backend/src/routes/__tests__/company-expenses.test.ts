@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { Prisma } from '@prisma/client';
 
 let role = 'admin';
 
@@ -8,8 +9,20 @@ vi.mock('../../utils/prisma.js', () => ({
   prisma: {
     companyExpense: {
       findMany: vi.fn(),
+      findUnique: vi.fn(),
+      update: vi.fn(),
       count: vi.fn(),
       aggregate: vi.fn(),
+    },
+    instructor: {
+      findUnique: vi.fn(),
+      findMany: vi.fn(),
+    },
+    instructorExpenseSupplier: {
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      create: vi.fn(),
+      delete: vi.fn(),
     },
     recurringExpense: {
       findMany: vi.fn(),
@@ -46,6 +59,8 @@ vi.mock('../../middleware/auth.js', async (importOriginal) => {
 
 vi.mock('../../utils/audit.js', () => ({ logAudit: vi.fn() }));
 
+vi.mock('../../services/instructorReport.service.js', () => ({ buildInstructorMonthlyReport: vi.fn() }));
+
 vi.mock('../../services/morning/client.js', () => ({
   isMorningConfigured: vi.fn(() => true),
   morningRequest: vi.fn(),
@@ -63,6 +78,7 @@ import { sha256, uploadExpenseFileToMorning } from '../../services/morning/expen
 import { scheduleDraftSyncAfterUpload } from '../../services/company-expenses-scheduler.js';
 import { logAudit } from '../../utils/audit.js';
 import { errorHandler } from '../../middleware/errorHandler.js';
+import { buildInstructorMonthlyReport } from '../../services/instructorReport.service.js';
 
 const mockPrisma = vi.mocked(prisma, true);
 const app = express();
@@ -87,6 +103,12 @@ describe('company expenses — admin-only guard', () => {
       ['post', '/api/company-expenses/recurring'],
       ['get', '/api/company-expenses/suppliers/grid'],
       ['post', '/api/company-expenses/upload'],
+      ['get', '/api/company-expenses/freelancers/reconciliation'],
+      ['get', '/api/company-expenses/freelancers/suggestions'],
+      ['get', '/api/company-expenses/freelancers/links'],
+      ['post', '/api/company-expenses/freelancers/links'],
+      ['delete', '/api/company-expenses/freelancers/links/l1'],
+      ['put', '/api/company-expenses/c1/activity-month'],
     ] as const) {
       const res = await (request(app) as any)[method](path).send({});
       expect(res.status, `${method} ${path}`).toBe(403);
@@ -249,5 +271,133 @@ describe('POST /upload', () => {
     expect(txt.body.error).toContain('סוג קובץ לא נתמך');
     expect((await request(app).post('/api/company-expenses/upload')).status).toBe(400);
     expect(uploadExpenseFileToMorning).not.toHaveBeenCalled();
+  });
+});
+
+describe('summary — freelancer split', () => {
+  it('splits freelancer invoices and drops them from topSuppliers', async () => {
+    const rowOf = (o: Record<string, unknown>) => ({
+      id: 'x', morningId: 'x', status: 20, date: new Date(), reportingDate: null, amount: 1000, amountExcludeVat: 1000, vat: 0,
+      supplierId: null, supplierName: null, categoryTitle: null, active: true, ...o,
+    });
+    mockPrisma.companyExpense.findMany
+      .mockResolvedValueOnce([
+        rowOf({ supplierId: 'sup-barkat', supplierName: 'ברקת אי.טי בע"מ', amount: 5900, amountExcludeVat: 5000 }),
+        rowOf({ supplierId: 'g', supplierName: 'Google', amount: 100, amountExcludeVat: 100 }),
+      ] as never)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([] as never);
+    mockPrisma.companyExpense.aggregate.mockResolvedValue({ _max: { syncedAt: null } } as never);
+    mockPrisma.instructorExpenseSupplier.findMany.mockResolvedValue([
+      { instructorId: 'amit', supplierId: 'sup-barkat', supplierName: 'ברקת' },
+    ] as never);
+    const res = await request(app).get('/api/company-expenses/summary');
+    expect(res.status).toBe(200);
+    expect(res.body.kpis.thisMonthFreelancers).toEqual({ gross: 5900, net: 5000, count: 1 });
+    expect(res.body.kpis.thisMonthOther).toEqual({ gross: 100, net: 100, count: 1 });
+    expect(res.body.kpis.thisMonth).toEqual({ gross: 6000, net: 5100, count: 2 });
+    expect(res.body.months.at(-1)).toMatchObject({ freelancerGross: 5900, freelancerNet: 5000 });
+    expect(res.body.topSuppliers.map((t: any) => t.supplierName)).toEqual(['Google']);
+  });
+});
+
+describe('expenses list — kind filter', () => {
+  it('filters to freelancer supplier pairs', async () => {
+    mockPrisma.instructorExpenseSupplier.findMany.mockResolvedValue([
+      { instructorId: 'amit', supplierId: 'sup-barkat', supplierName: 'ברקת' },
+    ] as never);
+    mockPrisma.companyExpense.findMany
+      .mockResolvedValueOnce([
+        { supplierId: 'sup-barkat', supplierName: 'ברקת אי.טי' },
+        { supplierId: 'g', supplierName: 'Google' },
+      ] as never)
+      .mockResolvedValueOnce([] as never);
+    mockPrisma.companyExpense.count.mockResolvedValue(0 as never);
+    mockPrisma.companyExpense.aggregate.mockResolvedValue({ _sum: { amount: null, amountExcludeVat: null } } as never);
+    const res = await request(app).get('/api/company-expenses?kind=freelancer');
+    expect(res.status).toBe(200);
+    const where = mockPrisma.companyExpense.findMany.mock.calls[1][0]!.where as any;
+    expect(where.AND).toContainEqual({ OR: [{ supplierId: 'sup-barkat', supplierName: 'ברקת אי.טי' }] });
+  });
+
+  it('rejects an unknown kind', async () => {
+    const res = await request(app).get('/api/company-expenses?kind=employees');
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('freelancer routes', () => {
+  it('reconciliation validates the month and defaults to the previous month', async () => {
+    vi.mocked(buildInstructorMonthlyReport).mockResolvedValue({ instructors: [], operationsStaff: [] } as never);
+    mockPrisma.instructor.findMany.mockResolvedValue([] as never);
+    mockPrisma.instructorExpenseSupplier.findMany.mockResolvedValue([] as never);
+    mockPrisma.companyExpense.findMany.mockResolvedValue([] as never);
+
+    expect((await request(app).get('/api/company-expenses/freelancers/reconciliation?month=2026-13')).status).toBe(400);
+    const ok = await request(app).get('/api/company-expenses/freelancers/reconciliation?month=2026-10');
+    expect(ok.status).toBe(200);
+    expect(ok.body).toMatchObject({ month: '2026-10', rows: [] });
+    const def = await request(app).get('/api/company-expenses/freelancers/reconciliation');
+    expect(def.body.month).toMatch(/^\d{4}-\d{2}$/);
+    expect(vi.mocked(buildInstructorMonthlyReport)).toHaveBeenLastCalledWith(def.body.month);
+  });
+
+  it('creates a link for a freelancer, resolving the supplier id from the mirror', async () => {
+    mockPrisma.instructor.findUnique.mockResolvedValue({ id: 'amit', name: 'עמית כהן', employmentType: 'freelancer' } as never);
+    mockPrisma.companyExpense.findMany.mockResolvedValue([{ supplierId: 'sup-barkat' }] as never);
+    mockPrisma.instructorExpenseSupplier.create.mockImplementation((async ({ data }: any) => ({
+      id: 'l1', ...data, createdAt: new Date(), instructor: { name: 'עמית כהן' },
+    })) as never);
+    const res = await request(app).post('/api/company-expenses/freelancers/links')
+      .send({ instructorId: 'amit', supplierName: 'ברקת אי.טי בע"מ' });
+    expect(res.status).toBe(201);
+    expect(mockPrisma.instructorExpenseSupplier.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: { instructorId: 'amit', supplierId: 'sup-barkat', supplierName: 'ברקת אי.טי בע"מ', createdBy: 'u1' },
+    }));
+    expect(res.body).toMatchObject({ id: 'l1', instructorName: 'עמית כהן', supplierId: 'sup-barkat' });
+    expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'CREATE', entity: 'InstructorExpenseSupplier' }));
+  });
+
+  it('rejects links to employees, unknown instructors, missing names and duplicates', async () => {
+    expect((await request(app).post('/api/company-expenses/freelancers/links').send({ instructorId: 'x' })).status).toBe(400);
+    mockPrisma.instructor.findUnique.mockResolvedValueOnce(null as never);
+    expect((await request(app).post('/api/company-expenses/freelancers/links').send({ instructorId: 'x', supplierName: 'a' })).status).toBe(400);
+    mockPrisma.instructor.findUnique.mockResolvedValueOnce({ id: 'e', name: 'e', employmentType: 'employee' } as never);
+    expect((await request(app).post('/api/company-expenses/freelancers/links').send({ instructorId: 'e', supplierName: 'a' })).status).toBe(400);
+
+    mockPrisma.instructor.findUnique.mockResolvedValueOnce({ id: 'f', name: 'f', employmentType: 'freelancer' } as never);
+    mockPrisma.instructorExpenseSupplier.create.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'x' }) as never,
+    );
+    const dup = await request(app).post('/api/company-expenses/freelancers/links').send({ instructorId: 'f', supplierId: 's', supplierName: 'a' });
+    expect(dup.status).toBe(409);
+    expect(mockPrisma.instructorExpenseSupplier.create).toHaveBeenCalled();
+  });
+
+  it('deletes a link (404 when missing)', async () => {
+    mockPrisma.instructorExpenseSupplier.findUnique.mockResolvedValueOnce(null as never);
+    expect((await request(app).delete('/api/company-expenses/freelancers/links/nope')).status).toBe(404);
+    mockPrisma.instructorExpenseSupplier.findUnique.mockResolvedValueOnce({ id: 'l1', instructorId: 'a', supplierName: 's', instructor: { name: 'a' } } as never);
+    const res = await request(app).delete('/api/company-expenses/freelancers/links/l1');
+    expect(res.status).toBe(200);
+    expect(mockPrisma.instructorExpenseSupplier.delete).toHaveBeenCalledWith({ where: { id: 'l1' } });
+    expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'DELETE' }));
+  });
+
+  it('sets and clears the activity-month override', async () => {
+    expect((await request(app).put('/api/company-expenses/c1/activity-month').send({ activityMonth: '2026-1' })).status).toBe(400);
+    expect((await request(app).put('/api/company-expenses/c1/activity-month').send({})).status).toBe(400);
+    mockPrisma.companyExpense.findUnique.mockResolvedValueOnce(null as never);
+    expect((await request(app).put('/api/company-expenses/c1/activity-month').send({ activityMonth: null })).status).toBe(404);
+
+    mockPrisma.companyExpense.findUnique.mockResolvedValue({ id: 'c1', activityMonth: null } as never);
+    mockPrisma.companyExpense.update.mockImplementation((async ({ data }: any) => ({
+      id: 'c1', morningId: 'm', status: 20, date: null, reportingDate: null, amount: 1, active: true, ...data,
+    })) as never);
+    const res = await request(app).put('/api/company-expenses/c1/activity-month').send({ activityMonth: '2026-09' });
+    expect(res.status).toBe(200);
+    expect(mockPrisma.companyExpense.update).toHaveBeenCalledWith({ where: { id: 'c1' }, data: { activityMonth: '2026-09' } });
+    expect(res.body.activityMonthOverride).toBe('2026-09');
+    expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'UPDATE', entity: 'CompanyExpense' }));
   });
 });

@@ -1560,6 +1560,7 @@ export interface CompanyExpense {
   currency: string | null;
   originalAmount: number | null; // gross in the doc's own currency (foreign docs)
   isDraft: boolean; // uploaded to Morning, not yet approved
+  activityMonthOverride?: string | null; // CRM-only "YYYY-MM" activity month for freelancer invoices
   description: string | null;
   supplierId: string | null;
   supplierName: string | null;
@@ -1573,9 +1574,11 @@ interface ExpenseTotals { gross: number; net: number; count: number }
 
 export interface CompanyExpenseSummary {
   currentMonth: string;
-  months: Array<{ month: string } & ExpenseTotals>;
+  months: Array<{ month: string; freelancerGross: number; freelancerNet: number } & ExpenseTotals>;
   kpis: {
     thisMonth: ExpenseTotals;
+    thisMonthFreelancers: ExpenseTotals;
+    thisMonthOther: ExpenseTotals;
     lastMonth: ExpenseTotals;
     threeMonthAvg: { gross: number; net: number };
     pendingCount: number;
@@ -1597,6 +1600,7 @@ export interface CompanyExpenseFilters {
   category?: string;
   status?: string;
   search?: string;
+  kind?: 'freelancer' | 'other';
   page?: number;
   limit?: number;
 }
@@ -1756,6 +1760,97 @@ export const useUploadExpenseInvoices = () =>
       return res.data;
     },
   });
+
+// ─── Freelancer pay (שכר פרילנסרים) ─────────────────────────────────────────────
+
+export type FreelancerReconciliationStatus = 'match' | 'mismatch' | 'missing_invoice' | 'no_activity';
+
+export interface FreelancerReconciliationRow {
+  instructorId: string;
+  name: string;
+  isActive: boolean;
+  linked: boolean;
+  suppliers: string[];
+  expected: { meetings: number; hours: number; payment: number; expenses: number; fixedAdditions: number; grandTotal: number };
+  invoiced: { net: number; gross: number; count: number; hasDrafts: boolean };
+  diff: number; // invoiced net − expected grandTotal
+  status: FreelancerReconciliationStatus;
+  expenses: Array<CompanyExpense & { activityMonth: string | null }>;
+}
+
+export interface FreelancerReconciliation {
+  month: string;
+  rows: FreelancerReconciliationRow[];
+  totals: { expected: number; invoicedNet: number; invoicedGross: number; diff: number; problems: number };
+}
+
+export interface FreelancerLinkSuggestion {
+  supplierId: string | null;
+  supplierName: string;
+  docCount: number;
+  gross: number;
+  net: number;
+  lastDate: string | null;
+  candidates: Array<{ instructorId: string; name: string; score: number; reasons: string[] }>;
+}
+
+export interface FreelancerLink {
+  id: string;
+  instructorId: string;
+  instructorName: string | null;
+  supplierId: string | null;
+  supplierName: string;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export const useFreelancerReconciliation = (month: string) =>
+  useQuery({
+    queryKey: ['companyExpenses', 'freelancers', 'reconciliation', month],
+    queryFn: async () =>
+      (await api.get<FreelancerReconciliation>('/company-expenses/freelancers/reconciliation', { params: { month } })).data,
+  });
+
+export const useFreelancerSuggestions = () =>
+  useQuery({
+    queryKey: ['companyExpenses', 'freelancers', 'suggestions'],
+    queryFn: async () =>
+      (await api.get<{ suggestions: FreelancerLinkSuggestion[]; instructors: Array<{ id: string; name: string; isActive: boolean }> }>(
+        '/company-expenses/freelancers/suggestions',
+      )).data,
+  });
+
+export const useFreelancerLinks = () =>
+  useQuery({
+    queryKey: ['companyExpenses', 'freelancers', 'links'],
+    queryFn: async () => (await api.get<FreelancerLink[]>('/company-expenses/freelancers/links')).data,
+  });
+
+export const useCreateFreelancerLink = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { instructorId: string; supplierId?: string | null; supplierName: string }) =>
+      (await api.post<FreelancerLink>('/company-expenses/freelancers/links', data)).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['companyExpenses'] }),
+  });
+};
+
+export const useDeleteFreelancerLink = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => { await api.delete(`/company-expenses/freelancers/links/${id}`); },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['companyExpenses'] }),
+  });
+};
+
+export const useSetExpenseActivityMonth = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, activityMonth }: { id: string; activityMonth: string | null }) =>
+      (await api.put<CompanyExpense>(`/company-expenses/${id}/activity-month`, { activityMonth })).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['companyExpenses'] }),
+  });
+};
 
 export const useForecast = (historicalMonths = 6, forecastMonths = 3) => {
   return useQuery({

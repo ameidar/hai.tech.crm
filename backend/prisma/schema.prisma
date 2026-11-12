@@ -468,6 +468,7 @@ model Instructor {
   changeRequests  MeetingChangeRequest[]
   workHourEntries WorkHourEntry[]
   fixedAdditions  InstructorFixedAddition[]
+  expenseSuppliers InstructorExpenseSupplier[]
 
   @@map("instructors")
 }
@@ -547,6 +548,9 @@ model CompanyExpense {
   active           Boolean   @default(true)
   // Morning draft (uploaded, awaiting approval); morningId is "draft:<draftId>".
   isDraft          Boolean   @default(false) @map("is_draft")
+  // CRM-only override of the activity month ("YYYY-MM") a freelancer invoice pays for.
+  // Default (null) = month before the document date. Never written by the Morning sync.
+  activityMonth    String?   @map("activity_month")
   morningUpdatedAt DateTime? @map("morning_updated_at")
   syncedAt         DateTime  @default(now()) @map("synced_at")
   createdAt        DateTime  @default(now()) @map("created_at")
@@ -558,6 +562,22 @@ model CompanyExpense {
   @@index([status])
   @@index([isDraft])
   @@map("company_expenses")
+}
+
+// Morning supplier ↔ freelancer instructor link (freelancers bill under their business
+// name). One supplier maps to at most one instructor; an instructor may have several.
+model InstructorExpenseSupplier {
+  id           String   @id @default(uuid())
+  instructorId String   @map("instructor_id")
+  supplierId   String?  @unique @map("supplier_id")
+  supplierName String   @map("supplier_name")
+  createdBy    String?  @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  instructor Instructor @relation(fields: [instructorId], references: [id], onDelete: Cascade)
+
+  @@index([instructorId])
+  @@map("instructor_expense_suppliers")
 }
 
 // Expected recurring supplier invoices ("don't forget"). Auto-detected from the

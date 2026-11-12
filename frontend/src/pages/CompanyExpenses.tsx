@@ -14,7 +14,10 @@ import {
   AlertTriangle,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
+  ChevronLeft,
   Clock,
+  Link2,
   ExternalLink,
   FileUp,
   Plus,
@@ -24,6 +27,7 @@ import {
   TrendingDown,
   TrendingUp,
   Upload,
+  Users,
   Wallet,
   X,
 } from 'lucide-react';
@@ -37,6 +41,15 @@ import {
   useSaveRecurringExpense,
   useSupplierGrid,
   useUploadExpenseInvoices,
+  useFreelancerReconciliation,
+  useFreelancerSuggestions,
+  useFreelancerLinks,
+  useCreateFreelancerLink,
+  useDeleteFreelancerLink,
+  useSetExpenseActivityMonth,
+  type FreelancerLinkSuggestion,
+  type FreelancerReconciliationRow,
+  type FreelancerReconciliationStatus,
   type CompanyExpense,
   type CompanyExpenseFilters,
   type RecurringExpense,
@@ -52,7 +65,7 @@ import PageHeader from '../components/ui/PageHeader';
 import Loading from '../components/ui/Loading';
 import Modal from '../components/ui/Modal';
 
-type Tab = 'overview' | 'expenses' | 'pending' | 'recurring';
+type Tab = 'overview' | 'expenses' | 'pending' | 'recurring' | 'freelancers';
 
 const errorMessage = (e: unknown, fallback: string) => {
   const data = (e as { response?: { data?: { error?: string; message?: string } } })?.response?.data;
@@ -185,6 +198,16 @@ function ExpensesTab({ suppliers, categories }: { suppliers: string[]; categorie
         <select className="form-input" value={filters.category ?? ''} onChange={(e) => set({ category: e.target.value || undefined })}>
           <option value="">כל הסיווגים</option>
           {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select
+          className="form-input"
+          value={filters.kind ?? ''}
+          onChange={(e) => set({ kind: (e.target.value || undefined) as CompanyExpenseFilters['kind'] })}
+          title="סוג"
+        >
+          <option value="">סוג: הכל</option>
+          <option value="freelancer">פרילנסרים</option>
+          <option value="other">שאר ההוצאות</option>
         </select>
         <select className="form-input" value={filters.status ?? ''} onChange={(e) => set({ status: e.target.value || undefined })}>
           <option value="">כל הסטטוסים</option>
@@ -668,6 +691,304 @@ function SuppliersTab() {
   );
 }
 
+// ─── Freelancer pay (שכר פרילנסרים) ───────────────────────────────────────────
+
+/** "YYYY-MM" shifted by delta months. */
+const shiftMonthKey = (m: string, delta: number) => {
+  const [y, mo] = m.split('-').map(Number);
+  const d = new Date(Date.UTC(y, mo - 1 + delta, 1));
+  return d.toISOString().slice(0, 7);
+};
+const israelMonth = () =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit' }).format(new Date()).slice(0, 7);
+const monthName = (m: string) => `${MONTH_NAMES[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
+
+const RECON_STATUS: Record<FreelancerReconciliationStatus, { label: string; cls: string }> = {
+  match: { label: 'התאמה ✅', cls: 'bg-emerald-100 text-emerald-700' },
+  mismatch: { label: 'אי-התאמה', cls: 'bg-red-100 text-red-700' },
+  missing_invoice: { label: 'חסרה חשבונית', cls: 'bg-red-100 text-red-700' },
+  no_activity: { label: 'אין פעילות', cls: 'bg-orange-100 text-orange-700' },
+};
+
+function ActivityMonthSelect({ expense }: { expense: CompanyExpense & { activityMonth: string | null } }) {
+  const setMonth = useSetExpenseActivityMonth();
+  const docMonth = (expense.date ?? expense.reportingDate)?.slice(0, 7) ?? israelMonth();
+  const defaultMonth = shiftMonthKey(docMonth, -1);
+  const options = [-3, -2, -1, 0, 1].map((d) => shiftMonthKey(docMonth, d));
+  const override = expense.activityMonthOverride ?? null;
+  if (override && !options.includes(override)) options.unshift(override);
+  return (
+    <select
+      className="form-input py-1 text-xs"
+      value={override ?? ''}
+      disabled={setMonth.isPending}
+      onChange={(e) => setMonth.mutate(
+        { id: expense.id, activityMonth: e.target.value || null },
+        { onError: (err) => alert(errorMessage(err, 'העדכון נכשל')) },
+      )}
+      title="חודש הפעילות שהחשבונית משלמת עליו"
+    >
+      <option value="">{`ברירת מחדל (${monthLabel(defaultMonth)})`}</option>
+      {options.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
+    </select>
+  );
+}
+
+function ReconciliationRow({ row }: { row: FreelancerReconciliationRow }) {
+  const [open, setOpen] = useState(false);
+  const bad = row.status !== 'match';
+  const st = RECON_STATUS[row.status];
+  return (
+    <>
+      <tr className={`cursor-pointer ${bad ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'}`} onClick={() => setOpen((v) => !v)}>
+        <td className="px-3 py-2.5 text-gray-400">{open ? <ChevronDown size={16} /> : <ChevronLeft size={16} />}</td>
+        <td className="px-4 py-2.5">
+          <div className="font-medium text-gray-900">{row.name}{!row.isActive && <span className="text-xs text-gray-400"> (לא פעיל)</span>}</div>
+          <div className="text-xs text-gray-400 truncate max-w-xs" title={row.suppliers.join(', ')}>
+            {row.linked ? row.suppliers.join(' · ') : 'לא משויך ספק במורנינג'}
+          </div>
+        </td>
+        <td className="px-4 py-2.5 whitespace-nowrap">{row.expected.meetings}</td>
+        <td className="px-4 py-2.5 whitespace-nowrap">{row.expected.hours}</td>
+        <td className="px-4 py-2.5 whitespace-nowrap font-medium" title={`שכר ${ils(row.expected.payment)} · החזרים ${ils(row.expected.expenses)} · תוספות קבועות ${ils(row.expected.fixedAdditions)}`}>
+          {ils(row.expected.grandTotal)}
+        </td>
+        <td className="px-4 py-2.5 whitespace-nowrap">
+          {row.invoiced.count ? ils(row.invoiced.net) : '—'}
+          {row.invoiced.count > 0 && <span className="text-xs text-gray-400"> · {row.invoiced.count} מסמכים</span>}
+          {row.invoiced.hasDrafts && <span className={`mr-1 px-1.5 rounded text-[10px] ${DRAFT_BADGE.cls}`}>טיוטה</span>}
+        </td>
+        <td className={`px-4 py-2.5 whitespace-nowrap font-medium ${bad ? 'text-red-600' : 'text-gray-500'}`} dir="ltr">
+          {row.diff > 0 ? '+' : row.diff < 0 ? '−' : ''}{ils(Math.abs(row.diff))}
+        </td>
+        <td className="px-4 py-2.5"><span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${st.cls}`}>{st.label}</span></td>
+      </tr>
+      {open && (
+        <tr className={bad ? 'bg-red-50/40' : 'bg-gray-50/60'}>
+          <td />
+          <td colSpan={7} className="px-4 py-3">
+            {row.expenses.length === 0 ? (
+              <p className="text-sm text-gray-500">אין מסמכים משויכים לחודש זה{row.linked ? '' : ' — שייכו את ספק המורנינג של המדריך בחלק "ספקים לא משויכים" למטה'}.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="text-gray-500 text-xs">
+                  <tr>
+                    <th className="text-right py-1 font-medium">תאריך</th>
+                    <th className="text-right py-1 font-medium">מס׳ מסמך</th>
+                    <th className="text-right py-1 font-medium">ספק</th>
+                    <th className="text-right py-1 font-medium">נטו</th>
+                    <th className="text-right py-1 font-medium">ברוטו</th>
+                    <th className="text-right py-1 font-medium">חודש פעילות</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {row.expenses.map((e) => (
+                    <tr key={e.id} onClick={(ev) => ev.stopPropagation()}>
+                      <td className="py-1.5 whitespace-nowrap">{fmtDate(e.date)}</td>
+                      <td className="py-1.5 text-gray-600">{e.number ?? '—'}{e.isDraft && <span className={`mr-1 px-1.5 rounded text-[10px] ${DRAFT_BADGE.cls}`}>טיוטה</span>}</td>
+                      <td className="py-1.5">{e.supplierName ?? '—'}</td>
+                      <td className="py-1.5 whitespace-nowrap font-medium">{ils(e.amountExcludeVat ?? e.amount - (e.vat ?? 0))}</td>
+                      <td className="py-1.5 whitespace-nowrap text-gray-500">{ils(e.amount)}</td>
+                      <td className="py-1.5"><ActivityMonthSelect expense={e} /></td>
+                      <td className="py-1.5">
+                        {e.url && (
+                          <a href={e.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800" title="פתח מסמך במורנינג">
+                            <ExternalLink size={16} />
+                          </a>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function SuggestionRow({ s, instructors }: {
+  s: FreelancerLinkSuggestion;
+  instructors: Array<{ id: string; name: string; isActive: boolean }>;
+}) {
+  const create = useCreateFreelancerLink();
+  const [instructorId, setInstructorId] = useState(s.candidates[0]?.instructorId ?? '');
+  const suggested = new Set(s.candidates.map((c) => c.instructorId));
+  const others = instructors.filter((i) => !suggested.has(i.id));
+  return (
+    <tr>
+      <td className="px-4 py-2.5 font-medium text-gray-900" dir="auto">{s.supplierName}</td>
+      <td className="px-4 py-2.5 whitespace-nowrap text-gray-600">{s.docCount} מסמכים · {ils(s.gross)}</td>
+      <td className="px-4 py-2.5 whitespace-nowrap text-gray-500">{fmtDate(s.lastDate)}</td>
+      <td className="px-4 py-2.5">
+        <select className="form-input py-1 text-sm" value={instructorId} onChange={(e) => setInstructorId(e.target.value)}>
+          <option value="">בחר מדריך...</option>
+          {s.candidates.length > 0 && (
+            <optgroup label="מוצעים">
+              {s.candidates.map((c) => <option key={c.instructorId} value={c.instructorId}>{c.name}</option>)}
+            </optgroup>
+          )}
+          <optgroup label="כל הפרילנסרים">
+            {others.map((i) => <option key={i.id} value={i.id}>{i.name}{i.isActive ? '' : ' (לא פעיל)'}</option>)}
+          </optgroup>
+        </select>
+      </td>
+      <td className="px-4 py-2.5">
+        <button
+          className="btn btn-primary py-1"
+          disabled={!instructorId || create.isPending}
+          onClick={() => create.mutate(
+            { instructorId, supplierId: s.supplierId, supplierName: s.supplierName },
+            { onError: (e) => alert(errorMessage(e, 'השיוך נכשל')) },
+          )}
+        >
+          <Link2 size={14} /> שייך
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function FreelancerLinksSection() {
+  const { data, isLoading } = useFreelancerSuggestions();
+  const { data: links } = useFreelancerLinks();
+  const remove = useDeleteFreelancerLink();
+  const [showAll, setShowAll] = useState(false);
+  const all = data?.suggestions ?? [];
+  const list = showAll ? all : all.filter((s) => s.candidates.length > 0);
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+        <div className="p-4 flex flex-wrap items-center gap-3 border-b border-gray-100">
+          <div className="flex-1">
+            <h3 className="font-semibold text-gray-900">ספקים לא משויכים</h3>
+            <p className="text-xs text-gray-500">פרילנסרים מגישים חשבוניות בשם העסק שלהם — שייכו כל ספק במורנינג למדריך כדי שהחשבוניות ייספרו כשכר ולא כהוצאה רגילה.</p>
+          </div>
+          <label className="flex items-center gap-1.5 text-sm text-gray-600">
+            <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> הצג את כל הספקים ({all.length})
+          </label>
+        </div>
+        {isLoading ? <Loading /> : list.length === 0 ? (
+          <div className="p-6 text-center text-gray-400 text-sm">{all.length ? 'אין הצעות שיוך — סמנו "הצג את כל הספקים" לשיוך ידני' : 'כל הספקים משויכים'}</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <th className="text-right px-4 py-3 font-medium">ספק במורנינג</th>
+                  <th className="text-right px-4 py-3 font-medium">מסמכים (13 חודשים)</th>
+                  <th className="text-right px-4 py-3 font-medium">מסמך אחרון</th>
+                  <th className="text-right px-4 py-3 font-medium">מדריך</th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {list.map((s) => (
+                  <SuggestionRow key={`${s.supplierId ?? ''}|${s.supplierName}`} s={s} instructors={data?.instructors ?? []} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+        <div className="p-4 border-b border-gray-100">
+          <h3 className="font-semibold text-gray-900">שיוכים קיימים ({links?.length ?? 0})</h3>
+        </div>
+        {!links?.length ? <div className="p-6 text-center text-gray-400 text-sm">אין שיוכים עדיין</div> : (
+          <ul className="divide-y divide-gray-100 text-sm">
+            {[...links].sort((a, b) => (a.instructorName ?? '').localeCompare(b.instructorName ?? '', 'he')).map((l) => (
+              <li key={l.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                <span>
+                  <span className="font-medium text-gray-900">{l.instructorName ?? '—'}</span>
+                  <span className="text-gray-400"> ← </span>
+                  <span className="text-gray-700" dir="auto">{l.supplierName}</span>
+                  {!l.supplierId && <span className="text-xs text-gray-400"> (לפי שם)</span>}
+                </span>
+                <button
+                  className="text-gray-400 hover:text-red-600"
+                  title="הסר שיוך"
+                  disabled={remove.isPending}
+                  onClick={() => {
+                    if (confirm(`להסיר את השיוך של "${l.supplierName}" ל${l.instructorName ?? 'מדריך'}?`)) {
+                      remove.mutate(l.id, { onError: (e) => alert(errorMessage(e, 'ההסרה נכשלה')) });
+                    }
+                  }}
+                >
+                  <X size={16} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FreelancersTab() {
+  const [month, setMonth] = useState(() => shiftMonthKey(israelMonth(), -1));
+  const { data, isLoading, isFetching } = useFreelancerReconciliation(month);
+  const t = data?.totals;
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+        <div className="p-4 flex flex-wrap items-center gap-3 border-b border-gray-100">
+          <div className="flex-1">
+            <h3 className="font-semibold text-gray-900 flex items-center gap-2"><Users size={18} className="text-blue-600" /> שכר פרילנסרים — {monthName(month)}</h3>
+            <p className="text-xs text-gray-500">
+              צפוי = סה״כ לתשלום בדוח השכר החודשי (שכר + החזרים + תוספות קבועות). מחויב = נטו (ללא מע״מ) של החשבוניות המשויכות.
+              חשבונית משויכת כברירת מחדל לחודש שלפני תאריך המסמך; ניתן לשנות בכל מסמך.
+            </p>
+          </div>
+          <button className="btn btn-secondary py-1" onClick={() => setMonth((m) => shiftMonthKey(m, -1))} title="חודש קודם">‹</button>
+          <input type="month" className="form-input" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} />
+          <button className="btn btn-secondary py-1" onClick={() => setMonth((m) => shiftMonthKey(m, 1))} title="חודש הבא">›</button>
+          {isFetching && !isLoading && <RefreshCw size={14} className="animate-spin text-gray-400" />}
+        </div>
+        {t && (
+          <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap gap-x-6 gap-y-1 text-sm text-gray-600">
+            <span>צפוי: <b className="text-gray-900">{ils(t.expected)}</b></span>
+            <span>מחויב (נטו): <b className="text-gray-900">{ils(t.invoicedNet)}</b></span>
+            <span>הפרש: <b className={Math.abs(t.diff) > 5 ? 'text-red-600' : 'text-gray-900'} dir="ltr">{t.diff > 0 ? '+' : t.diff < 0 ? '−' : ''}{ils(Math.abs(t.diff))}</b></span>
+            <span>{t.problems ? <span className="text-red-600 font-medium">{t.problems} דורשים בדיקה</span> : <span className="text-emerald-600">הכל תואם</span>}</span>
+          </div>
+        )}
+        {isLoading ? <Loading /> : !data?.rows.length ? (
+          <div className="p-8 text-center text-gray-400">אין פעילות פרילנסרים או חשבוניות בחודש זה</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <th className="w-8" />
+                  <th className="text-right px-4 py-3 font-medium">מדריך</th>
+                  <th className="text-right px-4 py-3 font-medium">מפגשים</th>
+                  <th className="text-right px-4 py-3 font-medium">שעות</th>
+                  <th className="text-right px-4 py-3 font-medium">צפוי לתשלום</th>
+                  <th className="text-right px-4 py-3 font-medium">חויב (נטו)</th>
+                  <th className="text-right px-4 py-3 font-medium">הפרש</th>
+                  <th className="text-right px-4 py-3 font-medium">סטטוס</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {data.rows.map((r) => <ReconciliationRow key={r.instructorId} row={r} />)}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      <FreelancerLinksSection />
+    </div>
+  );
+}
+
 export default function CompanyExpenses() {
   const [tab, setTab] = useState<Tab>('overview');
   const { data: summary, isLoading, error } = useCompanyExpenseSummary();
@@ -685,7 +1006,12 @@ export default function CompanyExpenses() {
 
   const k = summary?.kpis;
   const diff = k && k.lastMonth.gross ? ((k.thisMonth.gross - k.lastMonth.gross) / k.lastMonth.gross) * 100 : null;
-  const chartData = (summary?.months ?? []).map((m) => ({ ...m, label: monthLabel(m.month) }));
+  const chartData = (summary?.months ?? []).map((m) => ({
+    ...m,
+    label: monthLabel(m.month),
+    freelancerGross: m.freelancerGross ?? 0,
+    otherGross: Math.round((m.gross - (m.freelancerGross ?? 0)) * 100) / 100,
+  }));
   const categoryData = (summary?.byCategory ?? []).slice(0, 10);
 
   const tabs: { key: Tab; label: string }[] = [
@@ -693,6 +1019,7 @@ export default function CompanyExpenses() {
     { key: 'expenses', label: 'כל ההוצאות' },
     { key: 'pending', label: `ממתין לאישור${k?.pendingCount ? ` (${k.pendingCount})` : ''}` },
     { key: 'recurring', label: 'ספקים' },
+    { key: 'freelancers', label: 'שכר פרילנסרים' },
   ];
 
   return (
@@ -749,7 +1076,7 @@ export default function CompanyExpenses() {
               <KpiCard
                 title="החודש"
                 value={ils(k!.thisMonth.gross)}
-                sub={`נטו ${ils(k!.thisMonth.net)} · ${k!.thisMonth.count} מסמכים${diff !== null ? ` · ${diff >= 0 ? '+' : ''}${Math.round(diff)}% מהחודש הקודם` : ''}`}
+                sub={`נטו ${ils(k!.thisMonth.net)} · ${k!.thisMonth.count} מסמכים${diff !== null ? ` · ${diff >= 0 ? '+' : ''}${Math.round(diff)}% מהחודש הקודם` : ''}${k!.thisMonthFreelancers ? ` · פרילנסרים ${ils(k!.thisMonthFreelancers.gross)} · שאר ${ils(k!.thisMonthOther?.gross)}` : ''}`}
                 tone="bg-blue-50 text-blue-600"
                 icon={Wallet}
               />
@@ -773,7 +1100,7 @@ export default function CompanyExpenses() {
             {tab === 'overview' && (
               <div className="grid gap-6 lg:grid-cols-3">
                 <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 lg:col-span-2">
-                  <h3 className="font-semibold text-gray-900 mb-3">הוצאות לפי חודש (12 חודשים)</h3>
+                  <h3 className="font-semibold text-gray-900 mb-3">הוצאות לפי חודש (12 חודשים, ברוטו)</h3>
                   <div className="h-72" dir="ltr">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={chartData}>
@@ -782,15 +1109,15 @@ export default function CompanyExpenses() {
                         <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `₪${Math.round(v / 1000)}k`} />
                         <Tooltip formatter={(v) => ils(Number(v))} />
                         <Legend />
-                        <Bar dataKey="gross" name="ברוטו" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="net" name="נטו" fill="#93c5fd" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="otherGross" name="שאר ההוצאות" stackId="month" fill="#3b82f6" />
+                        <Bar dataKey="freelancerGross" name="שכר פרילנסרים" stackId="month" fill="#f59e0b" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
 
                 <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-                  <h3 className="font-semibold text-gray-900 mb-3">ההוצאות השכיחות (12 חודשים)</h3>
+                  <h3 className="font-semibold text-gray-900 mb-3">ההוצאות השכיחות (12 חודשים, ללא פרילנסרים)</h3>
                   {summary.topSuppliers.length === 0 ? <p className="text-sm text-gray-400">אין נתונים</p> : (
                     <ul className="space-y-2 text-sm">
                       {summary.topSuppliers.map((s, i) => (
@@ -835,6 +1162,8 @@ export default function CompanyExpenses() {
             )}
 
             {tab === 'recurring' && <SuppliersTab />}
+
+            {tab === 'freelancers' && <FreelancersTab />}
           </>
         )}
       </div>

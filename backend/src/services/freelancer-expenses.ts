@@ -83,14 +83,41 @@ export async function freelancerKindWhere(kind: 'freelancer' | 'other') {
 
 // ─── Activity month ───────────────────────────────────────────────────────────
 
+/** Receipts dated on/after this day of the month pay for that same month (month-end billing). */
+export const SAME_MONTH_FROM_DAY = 25;
+
 /**
- * Month of activity an invoice pays for: the CRM override, else the month before the
- * document date (receipts for month M are issued during M+1), falling back to reporting date.
+ * Month of activity an invoice pays for: the CRM override; else by document date — dated on
+ * day ≥ 25 → that month (issued at month end, e.g. 30/09 is September work), earlier → the
+ * previous month (receipts for M are issued early in M+1); no document date → the month
+ * before the reporting date.
  */
 export function activityMonthOf(row: Pick<ExpenseRowLike, 'date' | 'reportingDate' | 'activityMonth'>): string | null {
   if (row.activityMonth) return row.activityMonth;
-  const d = row.date ?? row.reportingDate;
-  return d ? shiftMonth(d.toISOString().slice(0, 7), -1) : null;
+  if (row.date) {
+    const month = row.date.toISOString().slice(0, 7);
+    return row.date.getUTCDate() >= SAME_MONTH_FROM_DAY ? month : shiftMonth(month, -1);
+  }
+  return row.reportingDate ? shiftMonth(row.reportingDate.toISOString().slice(0, 7), -1) : null;
+}
+
+/**
+ * Prisma `where` (active rows) that is a superset of every doc whose activityMonthOf may fall in
+ * [fromMonth, toMonth]; callers still filter with activityMonthOf. Dated docs: [from, to+2);
+ * undated: reporting date in [from+1, to+2); plus overrides pointing into the range.
+ */
+export function activityRangeWhere(fromMonth: string, toMonth: string) {
+  const months: string[] = [];
+  for (let m = fromMonth; m <= toMonth; m = shiftMonth(m, 1)) months.push(m);
+  const lt = monthStart(shiftMonth(toMonth, 2));
+  return {
+    active: true,
+    OR: [
+      { activityMonth: { in: months } },
+      { activityMonth: null, date: { gte: monthStart(fromMonth), lt } },
+      { activityMonth: null, date: null, reportingDate: { gte: monthStart(shiftMonth(fromMonth, 1)), lt } },
+    ],
+  };
 }
 
 // ─── Reconciliation ───────────────────────────────────────────────────────────
@@ -102,10 +129,31 @@ export function reconciliationTolerance(expected: number): number {
   return Math.max(MATCH_TOLERANCE_ILS, Math.abs(expected) * (MATCH_TOLERANCE_PCT / 100));
 }
 
-export function reconciliationStatus(expected: number, invoicedNet: number, invoiceCount: number): ReconciliationStatus {
-  if (expected > 0 && invoiceCount === 0) return 'missing_invoice';
-  if (expected <= 0 && invoiceCount > 0) return 'no_activity';
-  return Math.abs(invoicedNet - expected) <= reconciliationTolerance(expected) ? 'match' : 'mismatch';
+export function reconciliationStatus(
+  expected: number,
+  invoicedNet: number,
+  invoiceCount: number,
+  invoicedGross: number = invoicedNet,
+): ReconciliationStatus {
+  return reconcile(expected, invoicedNet, invoicedGross, invoiceCount).status;
+}
+
+/**
+ * Status + diff. A match on either the net or the gross amount counts: VAT-registered
+ * freelancers (עוסק מורשה) have CRM pay that already equals their VAT-inclusive invoice.
+ * `diff` is against whichever amount matched (net when neither / both).
+ */
+export function reconcile(expected: number, invoicedNet: number, invoicedGross: number, invoiceCount: number) {
+  const tol = reconciliationTolerance(expected);
+  const netOk = Math.abs(invoicedNet - expected) <= tol;
+  const grossOk = Math.abs(invoicedGross - expected) <= tol;
+  const matchedOn: 'net' | 'gross' | null = netOk ? 'net' : grossOk ? 'gross' : null;
+  const diff = round2((matchedOn === 'gross' ? invoicedGross : invoicedNet) - expected);
+  let status: ReconciliationStatus;
+  if (expected > 0 && invoiceCount === 0) status = 'missing_invoice';
+  else if (expected <= 0 && invoiceCount > 0) status = 'no_activity';
+  else status = matchedOn ? 'match' : 'mismatch';
+  return { status, matchedOn: status === 'match' ? matchedOn : null, diff };
 }
 
 export interface FreelancerReconciliationRow {
@@ -117,7 +165,9 @@ export interface FreelancerReconciliationRow {
   suppliers: string[];
   expected: { meetings: number; hours: number; payment: number; expenses: number; fixedAdditions: number; grandTotal: number };
   invoiced: { net: number; gross: number; count: number; hasDrafts: boolean };
+  /** vs. the invoiced amount that matched (`matchedOn`), else vs. net. */
   diff: number;
+  matchedOn: 'net' | 'gross' | null;
   status: ReconciliationStatus;
   expenses: Array<ReturnType<typeof serializeCompanyExpense> & { activityMonth: string | null }>;
 }
@@ -125,16 +175,51 @@ export interface FreelancerReconciliationRow {
 export interface FreelancerReconciliation {
   month: string;
   rows: FreelancerReconciliationRow[];
+  /** diff = sum of row diffs (each against its matched amount). */
   totals: { expected: number; invoicedNet: number; invoicedGross: number; diff: number; problems: number };
+}
+
+type ExpectedTotals = FreelancerReconciliationRow['expected'];
+type MonthlyReport = Awaited<ReturnType<typeof buildInstructorMonthlyReport>>;
+
+/**
+ * Salary-report amounts per freelancer: instructors[] rows plus approved hours of freelance
+ * operations staff. Shared by the reconciliation and the overview so their numbers agree.
+ */
+export function freelancerExpectedByInstructor(
+  report: Pick<MonthlyReport, 'instructors' | 'operationsStaff'>,
+  freelancerIds: { has(id: string): boolean },
+): Map<string, ExpectedTotals> {
+  const out = new Map<string, ExpectedTotals>();
+  const get = (id: string) => {
+    if (!out.has(id)) out.set(id, { meetings: 0, hours: 0, payment: 0, expenses: 0, fixedAdditions: 0, grandTotal: 0 });
+    return out.get(id)!;
+  };
+  for (const r of report.instructors) {
+    if (!freelancerIds.has(r.instructorId)) continue;
+    const e = get(r.instructorId);
+    e.meetings += r.totalMeetings;
+    e.hours += r.totalHours;
+    e.payment += r.totalPayment;
+    e.expenses += r.totalExpenses;
+    e.fixedAdditions += r.fixedAdditionsTotal;
+    e.grandTotal += r.grandTotal;
+  }
+  // Freelance operations staff are paid by approved hours (not part of instructors[]).
+  for (const o of report.operationsStaff ?? []) {
+    if (!freelancerIds.has(o.instructorId) || !o.approvedPayment) continue;
+    const e = get(o.instructorId);
+    e.hours += o.approvedHours;
+    e.payment += o.approvedPayment;
+    e.grandTotal += o.approvedPayment;
+  }
+  return out;
 }
 
 export const previousIsraelMonth = (now: Date = new Date()) => shiftMonth(israelToday(now).iso.slice(0, 7), -1);
 
 /** Expected (salary report) vs invoiced (linked Morning docs, net) per freelancer for `month`. */
 export async function buildFreelancerReconciliation(month: string): Promise<FreelancerReconciliation> {
-  const next = shiftMonth(month, 1);
-  const gte = monthStart(next);
-  const lt = monthStart(shiftMonth(month, 2));
   const [report, freelancers, links, candidates] = await Promise.all([
     buildInstructorMonthlyReport(month),
     prisma.instructor.findMany({
@@ -144,16 +229,9 @@ export async function buildFreelancerReconciliation(month: string): Promise<Free
     prisma.instructorExpenseSupplier.findMany({
       select: { id: true, instructorId: true, supplierId: true, supplierName: true },
     }),
-    // Overrides pointing at `month`, plus un-overridden docs dated (else reported) in M+1.
+    // Superset of docs whose activity month may be `month`; narrowed by activityMonthOf below.
     prisma.companyExpense.findMany({
-      where: {
-        active: true,
-        OR: [
-          { activityMonth: month },
-          { activityMonth: null, date: { gte, lt } },
-          { activityMonth: null, date: null, reportingDate: { gte, lt } },
-        ],
-      },
+      where: activityRangeWhere(month, month),
       orderBy: [{ date: 'asc' }, { number: 'asc' }],
     }),
   ]);
@@ -172,24 +250,7 @@ export async function buildFreelancerReconciliation(month: string): Promise<Free
     return acc.get(id)!;
   };
 
-  for (const r of report.instructors) {
-    if (!freelancerById.has(r.instructorId)) continue;
-    const e = get(r.instructorId).expected;
-    e.meetings += r.totalMeetings;
-    e.hours += r.totalHours;
-    e.payment += r.totalPayment;
-    e.expenses += r.totalExpenses;
-    e.fixedAdditions += r.fixedAdditionsTotal;
-    e.grandTotal += r.grandTotal;
-  }
-  // Freelance operations staff are paid by approved hours (not part of instructors[]).
-  for (const o of report.operationsStaff ?? []) {
-    if (!freelancerById.has(o.instructorId) || !o.approvedPayment) continue;
-    const e = get(o.instructorId).expected;
-    e.hours += o.approvedHours;
-    e.payment += o.approvedPayment;
-    e.grandTotal += o.approvedPayment;
-  }
+  for (const [id, e] of freelancerExpectedByInstructor(report, freelancerById)) get(id).expected = e;
 
   for (const row of candidates) {
     if (activityMonthOf(row) !== month) continue;
@@ -203,6 +264,7 @@ export async function buildFreelancerReconciliation(month: string): Promise<Free
     const f = freelancerById.get(instructorId)!;
     const net = round2(docs.reduce((s, d) => s + expenseNet(d), 0));
     const gross = round2(docs.reduce((s, d) => s + expenseGross(d), 0));
+    const rec = reconcile(round2(expected.grandTotal), net, gross, docs.length);
     const exp = {
       meetings: expected.meetings,
       hours: round2(expected.hours),
@@ -219,8 +281,9 @@ export async function buildFreelancerReconciliation(month: string): Promise<Free
       suppliers: suppliersOf.get(instructorId) ?? [],
       expected: exp,
       invoiced: { net, gross, count: docs.length, hasDrafts: docs.some((d) => d.isDraft === true) },
-      diff: round2(net - exp.grandTotal),
-      status: reconciliationStatus(exp.grandTotal, net, docs.length),
+      diff: rec.diff,
+      matchedOn: rec.matchedOn,
+      status: rec.status,
       expenses: docs.map((d) => ({ ...serializeCompanyExpense(d), activityMonth: activityMonthOf(d) })),
     });
   }
@@ -236,10 +299,97 @@ export async function buildFreelancerReconciliation(month: string): Promise<Free
       expected: expectedTotal,
       invoicedNet,
       invoicedGross: round2(rows.reduce((s, r) => s + r.invoiced.gross, 0)),
-      diff: round2(invoicedNet - expectedTotal),
+      diff: round2(rows.reduce((s, r) => s + r.diff, 0)),
       problems: rows.filter((r) => r.status !== 'match').length,
     },
   };
+}
+
+// ─── Overview by activity month ───────────────────────────────────────────────
+
+export interface FreelancerMonthActivity {
+  month: string;
+  /** Salary-report grandTotal of all freelancers (same basis as the reconciliation). */
+  expected: number;
+  /** Linked freelancer receipts whose activityMonthOf is this month. */
+  invoicedNet: number;
+  invoicedGross: number;
+  invoicedCount: number;
+}
+
+/** Pure: per month, sum of freelancer receipts bucketed by activity month (not reporting month). */
+export function groupFreelancerInvoicesByActivity(
+  rows: ExpenseRowLike[],
+  months: string[],
+  isFreelancer: (row: ExpenseRowLike) => boolean,
+): Map<string, { net: number; gross: number; count: number }> {
+  const out = new Map(months.map((m) => [m, { net: 0, gross: 0, count: 0 }]));
+  for (const row of rows) {
+    if (!row.active || !isFreelancer(row)) continue;
+    const m = activityMonthOf(row);
+    const t = m ? out.get(m) : undefined;
+    if (!t) continue;
+    t.net += expenseNet(row);
+    t.gross += expenseGross(row);
+    t.count++;
+  }
+  for (const t of out.values()) { t.net = round2(t.net); t.gross = round2(t.gross); }
+  return out;
+}
+
+export const EXPECTED_CACHE_TTL_MS = 10 * 60 * 1000;
+const expectedCache = new Map<string, { at: number; value: number }>();
+export const clearFreelancerExpectedCache = () => expectedCache.clear();
+
+/** Total salary-report pay of all freelancers for `month`, memoized in-process for 10 minutes. */
+export async function freelancerExpectedTotal(
+  month: string,
+  freelancerIds: { has(id: string): boolean },
+  nowMs: number = Date.now(),
+): Promise<number> {
+  const hit = expectedCache.get(month);
+  if (hit && nowMs - hit.at < EXPECTED_CACHE_TTL_MS) return hit.value;
+  const report = await buildInstructorMonthlyReport(month);
+  let total = 0;
+  for (const e of freelancerExpectedByInstructor(report, freelancerIds).values()) total += e.grandTotal;
+  const value = round2(total);
+  expectedCache.set(month, { at: nowMs, value });
+  return value;
+}
+
+const REPORT_CONCURRENCY = 3;
+
+/**
+ * Freelancer pay for each month in `months` by activity (work) month: expected from the salary
+ * report and receipts received (linked docs via activityMonthOf). Feeds the overview screen.
+ */
+export async function buildFreelancerActivityOverview(
+  months: string[],
+  nowMs: number = Date.now(),
+): Promise<FreelancerMonthActivity[]> {
+  if (months.length === 0) return [];
+  const sorted = [...months].sort();
+  const [freelancers, links, rows] = await Promise.all([
+    prisma.instructor.findMany({ where: { employmentType: 'freelancer' }, select: { id: true } }),
+    prisma.instructorExpenseSupplier.findMany({ select: { instructorId: true, supplierId: true, supplierName: true } }),
+    prisma.companyExpense.findMany({ where: activityRangeWhere(sorted[0], sorted[sorted.length - 1]) }),
+  ]);
+  const ids = new Set(freelancers.map((f) => f.id));
+  const resolve = buildLinkResolver(links);
+  const invoiced = groupFreelancerInvoicesByActivity(rows as ExpenseRowLike[], months, (r) => {
+    const l = resolve(r);
+    return !!l && ids.has(l.instructorId);
+  });
+  const expected = new Map<string, number>();
+  for (let i = 0; i < months.length; i += REPORT_CONCURRENCY) {
+    const chunk = months.slice(i, i + REPORT_CONCURRENCY);
+    const values = await Promise.all(chunk.map((m) => freelancerExpectedTotal(m, ids, nowMs)));
+    chunk.forEach((m, j) => expected.set(m, values[j]));
+  }
+  return months.map((month) => {
+    const inv = invoiced.get(month)!;
+    return { month, expected: expected.get(month) ?? 0, invoicedNet: inv.net, invoicedGross: inv.gross, invoicedCount: inv.count };
+  });
 }
 
 // ─── Link suggestions ─────────────────────────────────────────────────────────

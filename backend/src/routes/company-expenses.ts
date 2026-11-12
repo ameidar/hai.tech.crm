@@ -30,6 +30,7 @@ import {
 import { scheduleDraftSyncAfterUpload } from '../services/company-expenses-scheduler.js';
 import {
   buildFreelancerReconciliation,
+  buildFreelancerActivityOverview,
   buildLinkResolver,
   freelancerKindWhere,
   loadFreelancerLinks,
@@ -133,7 +134,10 @@ companyExpensesRouter.get('/summary', async (req, res, next) => {
       prisma.instructorExpenseSupplier.findMany({ select: { instructorId: true, supplierId: true, supplierName: true } }),
     ]);
     const resolveFreelancer = buildLinkResolver(links);
-    const summary = buildExpenseSummary(rows as ExpenseRowLike[], now, months, 10, (r) => resolveFreelancer(r) !== null);
+    const windowMonths = Array.from({ length: months }, (_, i) => shiftMonth(current, i - months + 1));
+    // Freelancer pay by activity month (salary report, memoized 10 min) + receipts via activityMonthOf.
+    const freelancerActivity = await buildFreelancerActivityOverview(windowMonths);
+    const summary = buildExpenseSummary(rows as ExpenseRowLike[], now, months, 10, (r) => resolveFreelancer(r) !== null, freelancerActivity);
     const pendingGross = pendingRows.reduce((s, r) => s + Number(r.amount), 0);
     const uniq = (xs: (string | null)[]) => [...new Set(xs.filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b, 'he'));
     res.json({

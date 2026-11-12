@@ -136,8 +136,10 @@ describe('findMissingRecurring', () => {
     expect(findMissingRecurring([r], [exp({ date: day('2026-11-03'), amount: 115 })], now)).toEqual([]);
     // outside 20% tolerance
     expect(findMissingRecurring([r], [exp({ date: day('2026-11-03'), amount: 130 })], now)).toHaveLength(1);
-    // reporting month wins over doc date
+    // either the reporting month or the invoice's own month counts
     expect(findMissingRecurring([r], [exp({ date: day('2026-10-30'), reportingDate: day('2026-11-01') })], now)).toEqual([]);
+    // late invoice reported in a later VAT period still covers its own month
+    expect(findMissingRecurring([r], [exp({ date: day('2026-11-03'), reportingDate: day('2026-12-01') })], now)).toEqual([]);
     // other supplier / inactive do not count
     expect(findMissingRecurring([r], [exp({ date: day('2026-11-03'), supplierId: 'x', supplierName: 'X' })], now)).toHaveLength(1);
     expect(findMissingRecurring([r], [exp({ date: day('2026-11-03'), active: false })], now)).toHaveLength(1);

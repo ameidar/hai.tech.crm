@@ -21,6 +21,7 @@ import { autoConvertLeadsForPayment, autoConvertLeadsForRegistration } from './l
 import { prisma } from '../utils/prisma.js';
 import { isMorningConfigured } from './morning/client.js';
 import { searchMorningDocuments, type MorningDocument } from './morning/documents.js';
+import { extractMorningRef, settleMorningPaymentByRef } from './morning-payment-link.js';
 import {
   findReconcilableOmerRegistrations,
   reconcileOmerRegistrationPayment,
@@ -120,6 +121,14 @@ export async function processMorningReceipt(
   opts: { dryRun?: boolean } = {},
 ): Promise<{ outcome: ReceiptSyncOutcome; registrationId?: string }> {
   const marker = morningDocMarker(doc.id);
+
+  // Documents issued by a CRM Morning payment link carry an `HT-…` ref — settle that
+  // pending payment (re-verified against the Morning API) instead of guessing.
+  const paymentFormRef = extractMorningRef(doc.description, doc.remarks);
+  if (paymentFormRef && !opts.dryRun) {
+    const settled = await settleMorningPaymentByRef(paymentFormRef, doc.id);
+    if (settled.outcome !== 'not_found') return { outcome: 'already_recorded' };
+  }
 
   // Already recorded by this job, or by the webhook (which stores the raw doc id in brackets).
   const existing = await prisma.payment.findFirst({

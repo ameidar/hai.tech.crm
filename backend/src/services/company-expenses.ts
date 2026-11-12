@@ -370,6 +370,8 @@ export interface ExpenseRowLike {
   number?: string | null;
   url?: string | null;
   isDraft?: boolean;
+  /** CRM-only activity-month override for freelancer invoices ("YYYY-MM"). */
+  activityMonth?: string | null;
   active: boolean;
 }
 
@@ -411,9 +413,12 @@ const roundTotals = (t: Totals): Totals => ({ gross: round2(t.gross), net: round
 
 export interface ExpenseSummary {
   currentMonth: string;
-  months: Array<{ month: string } & Totals>;
+  /** freelancerGross/Net = linked freelancer invoices in that month; others = gross − freelancer. */
+  months: Array<{ month: string; freelancerGross: number; freelancerNet: number } & Totals>;
   kpis: {
     thisMonth: Totals;
+    thisMonthFreelancers: Totals;
+    thisMonthOther: Totals;
     lastMonth: Totals;
     /** Average of the 3 full months before the current one. */
     threeMonthAvg: { gross: number; net: number };
@@ -421,19 +426,24 @@ export interface ExpenseSummary {
     pendingGross: number;
   };
   byCategory: Array<{ category: string } & Totals>;
+  /** Most frequent suppliers — freelancer suppliers excluded. */
   topSuppliers: Array<{ supplierName: string; supplierId: string | null } & Totals>;
   pending: ExpenseRowLike[];
 }
 
+export type ExpenseRowPredicate = (row: ExpenseRowLike) => boolean;
+
 /**
  * Build the overview from active mirror rows. `monthsBack` months ending with the current
- * Israel month; category/supplier breakdowns cover that same window.
+ * Israel month; category/supplier breakdowns cover that same window. `isFreelancer` marks
+ * freelancer-pay invoices: split out per month/KPI and excluded from topSuppliers.
  */
 export function buildExpenseSummary(
   rows: ExpenseRowLike[],
   now: Date = new Date(),
   monthsBack = 12,
   topN = 10,
+  isFreelancer: ExpenseRowPredicate = () => false,
 ): ExpenseSummary {
   const currentMonth = israelToday(now).iso.slice(0, 7);
   const monthKeys = Array.from({ length: monthsBack }, (_, i) => shiftMonth(currentMonth, i - monthsBack + 1));
@@ -442,6 +452,7 @@ export function buildExpenseSummary(
   const byCategory = new Map<string, Totals>();
   const bySupplier = new Map<string, { supplierName: string; supplierId: string | null } & Totals>();
   const extraMonths = new Map<string, Totals>(); // for KPIs when monthsBack < 4
+  const freelancerByMonth = new Map<string, Totals>();
 
   const pending: ExpenseRowLike[] = [];
   let pendingGross = 0;
@@ -461,6 +472,12 @@ export function buildExpenseSummary(
       return extraMonths.get(month)!;
     })();
     bucket.gross += gross; bucket.net += net; bucket.count++;
+    const freelancer = isFreelancer(row);
+    if (freelancer) {
+      const f = freelancerByMonth.get(month) ?? emptyTotals();
+      f.gross += gross; f.net += net; f.count++;
+      freelancerByMonth.set(month, f);
+    }
     if (!inWindow.has(month)) continue;
 
     const cat = row.categoryTitle || 'ללא סיווג';
@@ -468,6 +485,7 @@ export function buildExpenseSummary(
     c.gross += gross; c.net += net; c.count++;
     byCategory.set(cat, c);
 
+    if (freelancer) continue;
     const key = supplierKey(row);
     const s = bySupplier.get(key) ?? { supplierName: row.supplierName || 'ללא ספק', supplierId: row.supplierId, ...emptyTotals() };
     s.gross += gross; s.net += net; s.count++;
@@ -475,13 +493,27 @@ export function buildExpenseSummary(
   }
 
   const totalsFor = (m: string) => byMonth.get(m) ?? extraMonths.get(m) ?? emptyTotals();
+  const freelancerFor = (m: string) => freelancerByMonth.get(m) ?? emptyTotals();
   const prev3 = [1, 2, 3].map((i) => totalsFor(shiftMonth(currentMonth, -i)));
+  const thisAll = totalsFor(currentMonth);
+  const thisFreelancers = freelancerFor(currentMonth);
 
   return {
     currentMonth,
-    months: monthKeys.map((m) => ({ month: m, ...roundTotals(totalsFor(m)) })),
+    months: monthKeys.map((m) => ({
+      month: m,
+      ...roundTotals(totalsFor(m)),
+      freelancerGross: round2(freelancerFor(m).gross),
+      freelancerNet: round2(freelancerFor(m).net),
+    })),
     kpis: {
-      thisMonth: roundTotals(totalsFor(currentMonth)),
+      thisMonth: roundTotals(thisAll),
+      thisMonthFreelancers: roundTotals(thisFreelancers),
+      thisMonthOther: roundTotals({
+        gross: thisAll.gross - thisFreelancers.gross,
+        net: thisAll.net - thisFreelancers.net,
+        count: thisAll.count - thisFreelancers.count,
+      }),
       lastMonth: roundTotals(totalsFor(shiftMonth(currentMonth, -1))),
       threeMonthAvg: {
         gross: round2(prev3.reduce((s, t) => s + t.gross, 0) / 3),
@@ -520,6 +552,7 @@ export function serializeCompanyExpense(r: any) {
     currency: r.currency ?? null,
     originalAmount: r.originalAmount === null || r.originalAmount === undefined ? null : Number(r.originalAmount.toString()),
     isDraft: r.isDraft === true,
+    activityMonthOverride: r.activityMonth ?? null,
     description: r.description ?? null,
     supplierId: r.supplierId ?? null,
     supplierName: r.supplierName ?? null,

@@ -54,7 +54,10 @@ export function morningDocMarker(docId: string): string {
   return `[morning-doc:${docId}]`;
 }
 
-const REF_RE = /HT-([0-9A-F]{10})\b/i;
+// CRM refs are 10 hex chars (from the pay token); the website / LMS worker use 10
+// base32 chars (A-Z, 2-9). Both share the `HT-` prefix.
+const REF_RE = /HT-([0-9A-Z]{10})\b/i;
+const CRM_REF_RE = /^HT-([0-9A-F]{10})$/i;
 
 /** Short human-safe reference derived from the pay token — printed on the Morning document. */
 export function morningRefForToken(payToken: string): string {
@@ -72,7 +75,7 @@ export function extractMorningRef(...texts: Array<string | null | undefined>): s
 
 /** Inverse of morningRefForToken → payToken prefix (`xxxxxxxx-xx`). */
 function tokenPrefixForRef(ref: string): string | null {
-  const m = ref.match(REF_RE);
+  const m = ref.match(CRM_REF_RE);
   if (!m) return null;
   const hex = m[1].toLowerCase();
   return `${hex.slice(0, 8)}-${hex.slice(8, 10)}`;

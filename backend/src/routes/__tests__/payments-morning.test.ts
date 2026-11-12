@@ -110,6 +110,15 @@ describe('Morning payment ref helpers', () => {
     expect(morningRefForToken(TOKEN)).toBe(REF);
     expect(extractMorningRef('קורס פייתון · הזמנה ht-abcdef1234')).toBe(REF);
     expect(extractMorningRef('no ref here', undefined)).toBeNull();
+    // website / LMS worker refs use base32 (A-Z, 2-9)
+    expect(extractMorningRef('קורס · הזמנה HT-AB2CD3EF4G')).toBe('HT-AB2CD3EF4G');
+  });
+
+  it('does not look up CRM payments for website (non-hex) refs', async () => {
+    vi.clearAllMocks();
+    const r = await settleMorningPaymentByRef('HT-ZZ2CD3EF4G', 'doc-x');
+    expect(r.outcome).toBe('not_found');
+    expect(db.payment.findMany).not.toHaveBeenCalled();
   });
 
   it('settles by ref using the pay-token prefix', async () => {
@@ -306,9 +315,10 @@ describe('payments — Morning provider (default)', () => {
   });
 
   describe('POST /morning/external', () => {
+    const WEB_REF = 'HT-AB2CD3EF4G';
     const body = {
       documentId: 'doc-uuid-1',
-      ref: REF,
+      ref: WEB_REF,
       expectedAmount: 999,
       source: 'lms-course',
       description: 'קורס פייתון',
@@ -323,7 +333,7 @@ describe('payments — Morning provider (default)', () => {
     });
 
     it('re-verifies the document and records an idempotent paid payment', async () => {
-      mockGetDoc.mockResolvedValue(morningDoc());
+      mockGetDoc.mockResolvedValue(morningDoc({ description: `קורס פייתון · הזמנה ${WEB_REF}`, remarks: '' }));
       db.payment.create.mockResolvedValue({ id: 'pay-ext' } as any);
 
       const res = await request(app).post('/api/payments/morning/external').set('x-api-key', 'test-api-key').send(body);
@@ -341,7 +351,7 @@ describe('payments — Morning provider (default)', () => {
     });
 
     it('does not create a second payment for the same document', async () => {
-      mockGetDoc.mockResolvedValue(morningDoc());
+      mockGetDoc.mockResolvedValue(morningDoc({ description: `קורס פייתון · הזמנה ${WEB_REF}` }));
       db.payment.findFirst.mockResolvedValue({ id: 'pay-ext' } as any);
       const res = await request(app).post('/api/payments/morning/external').set('x-api-key', 'test-api-key').send(body);
       expect(res.body.outcome).toBe('duplicate');

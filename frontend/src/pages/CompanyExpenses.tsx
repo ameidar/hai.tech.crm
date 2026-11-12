@@ -3,6 +3,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   BarChart,
   Bar,
+  ComposedChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -713,7 +715,8 @@ const RECON_STATUS: Record<FreelancerReconciliationStatus, { label: string; cls:
 function ActivityMonthSelect({ expense }: { expense: CompanyExpense & { activityMonth: string | null } }) {
   const setMonth = useSetExpenseActivityMonth();
   const docMonth = (expense.date ?? expense.reportingDate)?.slice(0, 7) ?? israelMonth();
-  const defaultMonth = shiftMonthKey(docMonth, -1);
+  // Mirrors backend activityMonthOf: doc dated day ≥ 25 → same month, else the previous one.
+  const defaultMonth = expense.date && Number(expense.date.slice(8, 10)) >= 25 ? docMonth : shiftMonthKey(docMonth, -1);
   const options = [-3, -2, -1, 0, 1].map((d) => shiftMonthKey(docMonth, d));
   const override = expense.activityMonthOverride ?? null;
   if (override && !options.includes(override)) options.unshift(override);
@@ -754,9 +757,17 @@ function ReconciliationRow({ row }: { row: FreelancerReconciliationRow }) {
           {ils(row.expected.grandTotal)}
         </td>
         <td className="px-4 py-2.5 whitespace-nowrap">
-          {row.invoiced.count ? ils(row.invoiced.net) : '—'}
+          {row.invoiced.count ? (
+            <span className={row.matchedOn === 'gross' ? 'text-gray-500' : 'font-medium'}>{ils(row.invoiced.net)}</span>
+          ) : '—'}
           {row.invoiced.count > 0 && <span className="text-xs text-gray-400"> · {row.invoiced.count} מסמכים</span>}
           {row.invoiced.hasDrafts && <span className={`mr-1 px-1.5 rounded text-[10px] ${DRAFT_BADGE.cls}`}>טיוטה</span>}
+        </td>
+        <td className="px-4 py-2.5 whitespace-nowrap" title={row.matchedOn === 'gross' ? 'הותאם לפי ברוטו (עוסק מורשה — השכר במערכת כולל מע״מ)' : undefined}>
+          {row.invoiced.count ? (
+            <span className={row.matchedOn === 'gross' ? 'font-medium' : 'text-gray-500'}>{ils(row.invoiced.gross)}</span>
+          ) : '—'}
+          {row.matchedOn === 'gross' && <span className="mr-1 px-1.5 rounded text-[10px] bg-emerald-50 text-emerald-700">לפי ברוטו</span>}
         </td>
         <td className={`px-4 py-2.5 whitespace-nowrap font-medium ${bad ? 'text-red-600' : 'text-gray-500'}`} dir="ltr">
           {row.diff > 0 ? '+' : row.diff < 0 ? '−' : ''}{ils(Math.abs(row.diff))}
@@ -766,7 +777,7 @@ function ReconciliationRow({ row }: { row: FreelancerReconciliationRow }) {
       {open && (
         <tr className={bad ? 'bg-red-50/40' : 'bg-gray-50/60'}>
           <td />
-          <td colSpan={7} className="px-4 py-3">
+          <td colSpan={8} className="px-4 py-3">
             {row.expenses.length === 0 ? (
               <p className="text-sm text-gray-500">אין מסמכים משויכים לחודש זה{row.linked ? '' : ' — שייכו את ספק המורנינג של המדריך בחלק "ספקים לא משויכים" למטה'}.</p>
             ) : (
@@ -943,8 +954,8 @@ function FreelancersTab() {
           <div className="flex-1">
             <h3 className="font-semibold text-gray-900 flex items-center gap-2"><Users size={18} className="text-blue-600" /> שכר פרילנסרים — {monthName(month)}</h3>
             <p className="text-xs text-gray-500">
-              צפוי = סה״כ לתשלום בדוח השכר החודשי (שכר + החזרים + תוספות קבועות). מחויב = נטו (ללא מע״מ) של החשבוניות המשויכות.
-              חשבונית משויכת כברירת מחדל לחודש שלפני תאריך המסמך; ניתן לשנות בכל מסמך.
+              צפוי = סה״כ לתשלום בדוח השכר החודשי (שכר + החזרים + תוספות קבועות). התאמה = הנטו או הברוטו של החשבוניות המשויכות תואם לצפוי
+              (עוסק מורשה — השכר במערכת כולל מע״מ). מסמך מתאריך 25 ומעלה משויך לאותו חודש, ומוקדם יותר — לחודש שלפניו; ניתן לשנות בכל מסמך.
             </p>
           </div>
           <button className="btn btn-secondary py-1" onClick={() => setMonth((m) => shiftMonthKey(m, -1))} title="חודש קודם">‹</button>
@@ -955,7 +966,7 @@ function FreelancersTab() {
         {t && (
           <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap gap-x-6 gap-y-1 text-sm text-gray-600">
             <span>צפוי: <b className="text-gray-900">{ils(t.expected)}</b></span>
-            <span>מחויב (נטו): <b className="text-gray-900">{ils(t.invoicedNet)}</b></span>
+            <span>מחויב: נטו <b className="text-gray-900">{ils(t.invoicedNet)}</b> · ברוטו <b className="text-gray-900">{ils(t.invoicedGross)}</b></span>
             <span>הפרש: <b className={Math.abs(t.diff) > 5 ? 'text-red-600' : 'text-gray-900'} dir="ltr">{t.diff > 0 ? '+' : t.diff < 0 ? '−' : ''}{ils(Math.abs(t.diff))}</b></span>
             <span>{t.problems ? <span className="text-red-600 font-medium">{t.problems} דורשים בדיקה</span> : <span className="text-emerald-600">הכל תואם</span>}</span>
           </div>
@@ -973,6 +984,7 @@ function FreelancersTab() {
                   <th className="text-right px-4 py-3 font-medium">שעות</th>
                   <th className="text-right px-4 py-3 font-medium">צפוי לתשלום</th>
                   <th className="text-right px-4 py-3 font-medium">חויב (נטו)</th>
+                  <th className="text-right px-4 py-3 font-medium">חויב (ברוטו)</th>
                   <th className="text-right px-4 py-3 font-medium">הפרש</th>
                   <th className="text-right px-4 py-3 font-medium">סטטוס</th>
                 </tr>
@@ -1005,12 +1017,17 @@ export default function CompanyExpenses() {
     });
 
   const k = summary?.kpis;
-  const diff = k && k.lastMonth.gross ? ((k.thisMonth.gross - k.lastMonth.gross) / k.lastMonth.gross) * 100 : null;
+  // KPIs/chart: other expenses by reporting month + freelancer pay by activity month (salary report).
+  const thisOv = k?.thisMonthOverview;
+  const lastOv = k?.lastMonthOverview;
+  const diff = thisOv && lastOv?.gross ? ((thisOv.gross - lastOv.gross) / lastOv.gross) * 100 : null;
+  const freelancerSub = (o: NonNullable<typeof thisOv>) =>
+    `שאר ההוצאות ${ils(o.other.gross)} · פרילנסרים: ${ils(o.freelancerExpected)} לפי דוח שכר · התקבלו קבלות ${ils(o.freelancerInvoicedGross)}`;
   const chartData = (summary?.months ?? []).map((m) => ({
-    ...m,
     label: monthLabel(m.month),
-    freelancerGross: m.freelancerGross ?? 0,
-    otherGross: Math.round((m.gross - (m.freelancerGross ?? 0)) * 100) / 100,
+    otherGross: m.otherGross ?? Math.round((m.gross - (m.freelancerGross ?? 0)) * 100) / 100,
+    freelancerExpected: m.freelancerExpected ?? 0,
+    freelancerInvoicedGross: m.freelancerInvoicedGross ?? 0,
   }));
   const categoryData = (summary?.byCategory ?? []).slice(0, 10);
 
@@ -1075,13 +1092,27 @@ export default function CompanyExpenses() {
             <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
               <KpiCard
                 title="החודש"
-                value={ils(k!.thisMonth.gross)}
-                sub={`נטו ${ils(k!.thisMonth.net)} · ${k!.thisMonth.count} מסמכים${diff !== null ? ` · ${diff >= 0 ? '+' : ''}${Math.round(diff)}% מהחודש הקודם` : ''}${k!.thisMonthFreelancers ? ` · פרילנסרים ${ils(k!.thisMonthFreelancers.gross)} · שאר ${ils(k!.thisMonthOther?.gross)}` : ''}`}
+                value={ils(thisOv?.gross ?? k!.thisMonth.gross)}
+                sub={thisOv
+                  ? `${freelancerSub(thisOv)}${diff !== null ? ` · ${diff >= 0 ? '+' : ''}${Math.round(diff)}% מהחודש הקודם` : ''}`
+                  : `נטו ${ils(k!.thisMonth.net)} · ${k!.thisMonth.count} מסמכים`}
                 tone="bg-blue-50 text-blue-600"
                 icon={Wallet}
               />
-              <KpiCard title="חודש קודם" value={ils(k!.lastMonth.gross)} sub={`נטו ${ils(k!.lastMonth.net)} · ${k!.lastMonth.count} מסמכים`} tone="bg-slate-50 text-slate-600" icon={diff !== null && diff < 0 ? TrendingDown : TrendingUp} />
-              <KpiCard title="ממוצע 3 חודשים" value={ils(k!.threeMonthAvg.gross)} sub={`נטו ${ils(k!.threeMonthAvg.net)} · 3 החודשים המלאים האחרונים`} tone="bg-violet-50 text-violet-600" icon={TrendingUp} />
+              <KpiCard
+                title="חודש קודם"
+                value={ils(lastOv?.gross ?? k!.lastMonth.gross)}
+                sub={lastOv ? freelancerSub(lastOv) : `נטו ${ils(k!.lastMonth.net)} · ${k!.lastMonth.count} מסמכים`}
+                tone="bg-slate-50 text-slate-600"
+                icon={diff !== null && diff < 0 ? TrendingDown : TrendingUp}
+              />
+              <KpiCard
+                title="ממוצע 3 חודשים"
+                value={ils(k!.threeMonthAvgOverview?.gross ?? k!.threeMonthAvg.gross)}
+                sub="3 החודשים המלאים האחרונים · פרילנסרים לפי דוח שכר"
+                tone="bg-violet-50 text-violet-600"
+                icon={TrendingUp}
+              />
               <KpiCard title="ממתין לאישור" value={String(k!.pendingCount)} sub={`סה״כ ${ils(k!.pendingGross)}`} tone="bg-amber-50 text-amber-600" icon={Clock} />
             </div>
 
@@ -1100,18 +1131,20 @@ export default function CompanyExpenses() {
             {tab === 'overview' && (
               <div className="grid gap-6 lg:grid-cols-3">
                 <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 lg:col-span-2">
-                  <h3 className="font-semibold text-gray-900 mb-3">הוצאות לפי חודש (12 חודשים, ברוטו)</h3>
+                  <h3 className="font-semibold text-gray-900 mb-1">הוצאות לפי חודש (12 חודשים, ברוטו)</h3>
+                  <p className="text-xs text-gray-500 mb-3">שכר פרילנסרים לפי חודש הפעילות (דוח השכר); הקו — קבלות פרילנסרים שהתקבלו עבור אותו חודש פעילות.</p>
                   <div className="h-72" dir="ltr">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={chartData}>
+                      <ComposedChart data={chartData}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                         <XAxis dataKey="label" tick={{ fontSize: 12 }} />
                         <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `₪${Math.round(v / 1000)}k`} />
                         <Tooltip formatter={(v) => ils(Number(v))} />
                         <Legend />
                         <Bar dataKey="otherGross" name="שאר ההוצאות" stackId="month" fill="#3b82f6" />
-                        <Bar dataKey="freelancerGross" name="שכר פרילנסרים" stackId="month" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                      </BarChart>
+                        <Bar dataKey="freelancerExpected" name="שכר פרילנסרים (לפי דוח שכר)" stackId="month" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                        <Line dataKey="freelancerInvoicedGross" name="קבלות פרילנסרים שהתקבלו" type="monotone" stroke="#b45309" strokeWidth={2} strokeDasharray="5 3" dot={{ r: 3 }} />
+                      </ComposedChart>
                     </ResponsiveContainer>
                   </div>
                 </div>

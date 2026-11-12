@@ -289,8 +289,9 @@ describe('buildExpenseSummary', () => {
     expect(s.currentMonth).toBe('2026-11');
     expect(s.months).toHaveLength(12);
     expect(s.months[0].month).toBe('2025-12');
-    expect(s.months[11]).toEqual({ month: '2026-11', gross: 1404, net: 1200, count: 2, freelancerGross: 0, freelancerNet: 0 });
-    expect(s.months.find((m) => m.month === '2026-10')).toEqual({ month: '2026-10', gross: 585, net: 500, count: 1, freelancerGross: 0, freelancerNet: 0 });
+    const zeroFl = { freelancerGross: 0, freelancerNet: 0, freelancerExpected: 0, freelancerInvoicedNet: 0, freelancerInvoicedGross: 0, freelancerInvoicedCount: 0 };
+    expect(s.months[11]).toEqual({ month: '2026-11', gross: 1404, net: 1200, count: 2, otherGross: 1404, otherNet: 1200, ...zeroFl });
+    expect(s.months.find((m) => m.month === '2026-10')).toEqual({ month: '2026-10', gross: 585, net: 500, count: 1, otherGross: 585, otherNet: 500, ...zeroFl });
   });
 
   it('computes KPIs: this month, last month, average of previous 3 months', () => {
@@ -334,5 +335,37 @@ describe('buildExpenseSummary', () => {
     expect(split.topSuppliers.map((t) => t.supplierName)).toEqual(['ספק א']);
     // Categories still include everything.
     expect(split.byCategory[0]).toMatchObject({ category: 'משרד', count: 4 });
+  });
+
+  it('shows freelancer pay by activity month from the salary report, other expenses by reporting month', () => {
+    const fl = (r: ExpenseRowLike) => r.supplierId === 'fl';
+    const s2 = buildExpenseSummary([
+      row({ amount: 1170, amountExcludeVat: 1000 }),
+      // September receipt reported in October → excluded from October's "other"
+      row({ supplierId: 'fl', date: day('2026-09-30'), reportingDate: day('2026-10-01'), amount: 1720, amountExcludeVat: 1720 }),
+      row({ date: day('2026-10-10'), amount: 500, amountExcludeVat: 500 }),
+      row({ date: day('2026-09-10'), amount: 300, amountExcludeVat: 300 }),
+      row({ date: day('2026-08-10'), amount: 200, amountExcludeVat: 200 }),
+    ], NOW, 12, 10, fl, [
+      { month: '2026-11', expected: 4000, invoicedNet: 0, invoicedGross: 0, invoicedCount: 0 },
+      { month: '2026-10', expected: 3000, invoicedNet: 2000, invoicedGross: 2360, invoicedCount: 1 },
+      { month: '2026-09', expected: 1720, invoicedNet: 1720, invoicedGross: 1720, invoicedCount: 1 },
+    ]);
+    const oct = s2.months.find((m) => m.month === '2026-10')!;
+    expect(oct).toMatchObject({
+      gross: 2220, freelancerGross: 1720, otherGross: 500, otherNet: 500,
+      freelancerExpected: 3000, freelancerInvoicedNet: 2000, freelancerInvoicedGross: 2360, freelancerInvoicedCount: 1,
+    });
+    expect(s2.months.find((m) => m.month === '2026-09')).toMatchObject({ otherGross: 300, freelancerExpected: 1720, freelancerInvoicedGross: 1720 });
+    expect(s2.months.find((m) => m.month === '2026-07')).toMatchObject({ freelancerExpected: 0, freelancerInvoicedCount: 0 });
+    expect(s2.kpis.thisMonthOverview).toEqual({
+      gross: 5170, other: { gross: 1170, net: 1000, count: 1 },
+      freelancerExpected: 4000, freelancerInvoicedNet: 0, freelancerInvoicedGross: 0, freelancerInvoicedCount: 0,
+    });
+    expect(s2.kpis.lastMonthOverview).toMatchObject({ gross: 3500, other: { gross: 500 }, freelancerExpected: 3000, freelancerInvoicedGross: 2360 });
+    // (3500 + 2020 + 200) / 3
+    expect(s2.kpis.threeMonthAvgOverview).toEqual({ gross: 1906.67 });
+    // Legacy fields unchanged.
+    expect(s2.kpis.lastMonth).toEqual({ gross: 2220, net: 2220, count: 2 });
   });
 });

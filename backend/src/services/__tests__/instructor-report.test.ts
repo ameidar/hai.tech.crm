@@ -222,3 +222,36 @@ describe('buildInstructorMonthlyReport — zero-pay instructors', () => {
     expect(report.instructors.map(i => i.instructorName)).toEqual(['קים נוה']);
   });
 });
+
+describe('buildInstructorMonthlyReport — meeting expenses stored with instructor_id NULL', () => {
+  it("counts approved travel with a NULL instructorId for the meeting's instructor (2026-11-13 regression)", async () => {
+    const travel = (id: string) => ({
+      id, type: 'travel', amount: 50, hours: null, rateType: null, description: 'נסיעות', instructorId: null, status: 'approved',
+    });
+    setup({
+      meetings: [
+        meeting({ id: 'm1', expenses: [travel('e1')] }),
+        meeting({ id: 'm2', scheduledDate: day('2026-09-15'), expenses: [travel('e2')] }),
+      ],
+    });
+
+    const report = await buildInstructorMonthlyReport('2026-09');
+    const k = report.instructors.find((i) => i.instructorId === 'kim')!;
+
+    expect(k.travelTotal).toBe(100);
+    expect(k.totalExpenses).toBe(100);
+    expect(k.meetings.flatMap((m) => m.expenses).map((e) => e.instructorId)).toEqual(['kim', 'kim']);
+    expect(report.summaryTotalExpenses).toBe(100);
+  });
+
+  it('keeps an explicit expense instructorId on the expense detail', async () => {
+    setup({
+      meetings: [meeting({
+        expenses: [{ id: 'e1', type: 'extra_instructor', amount: 120, hours: 2, rateType: 'frontal', description: null, instructorId: 'dana' }],
+      })],
+    });
+    const report = await buildInstructorMonthlyReport('2026-09');
+    const k = report.instructors.find((i) => i.instructorId === 'kim')!;
+    expect(k.meetings[0].expenses[0].instructorId).toBe('dana');
+  });
+});

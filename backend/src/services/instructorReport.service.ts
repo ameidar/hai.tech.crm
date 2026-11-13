@@ -1,4 +1,5 @@
 import { prisma } from '../utils/prisma.js';
+import { effectiveExpenseInstructorId } from '../utils/meetingExpenseInstructor.js';
 import { calculateInstructorPayment, usesDailyInstructorPayment } from './instructor-payment.js';
 import {
   activeFixedAdditionsWhere,
@@ -11,6 +12,11 @@ export type { FixedAdditionReportItem } from './instructor-fixed-additions.js';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface MeetingExpenseDetail {
+  /**
+   * Instructor the expense belongs to: the expense's own instructorId, falling back to the
+   * meeting's instructor (travel/taxi/materials rows are often stored with instructor_id NULL).
+   */
+  instructorId: string | null;
   type: string;
   amount: number;
   hours: number | null;
@@ -497,7 +503,11 @@ export async function buildInstructorMonthlyReport(
     const meetingDetails: MeetingDetail[] = [];
     for (let i = 0; i < mtgs.length; i++) {
       const mtg = mtgs[i];
-      const expenses: MeetingExpenseDetail[] = mtg.expenses.map((e: { type: string; amount: unknown; hours: unknown; rateType: string | null; description: string | null }) => ({
+      // Meeting expenses are listed under the meeting they belong to. NOTE: attribution here is
+      // by meeting (the meeting's instructor row), so expenses stored with instructor_id NULL are
+      // always counted — never filter meeting expenses by `expense.instructorId` alone.
+      const expenses: MeetingExpenseDetail[] = mtg.expenses.map((e: { type: string; amount: unknown; hours: unknown; rateType: string | null; description: string | null; instructorId?: string | null }) => ({
+        instructorId: effectiveExpenseInstructorId(e, mtg),
         type:        expenseTypeLabel(e.type),
         amount:      Number(e.amount),
         hours:       e.hours ? Number(e.hours) : null,

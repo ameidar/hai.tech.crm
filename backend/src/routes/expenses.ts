@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { logAudit } from '../utils/audit.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
+import { defaultExpenseInstructorId } from '../utils/meetingExpenseInstructor.js';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -363,25 +364,31 @@ router.post('/meeting', authenticate, managerOrAdmin, async (req: Request, res: 
     let calculatedAmount = amount ? Number(amount) : 0;
     let hours: number | null = null;
 
+    // Meeting details: hours for extra_instructor, and the meeting's instructor as the
+    // default owner of the expense (never store instructor_id = NULL when it is known).
+    const meetingData = await prisma.meeting.findUnique({
+      where: { id: meetingId },
+      select: {
+        instructorId: true,
+        startTime: true,
+        endTime: true,
+        cycle: { select: { durationMinutes: true } }
+      },
+    });
+    if (!meetingData) {
+      return res.status(404).json({ error: 'Meeting not found' });
+    }
+    const expenseInstructorId = defaultExpenseInstructorId(instructorId, meetingData.instructorId);
+
     // For extra_instructor, calculate amount based on meeting hours and instructor rate
     if (type === 'extra_instructor' && instructorId) {
-      // Get meeting details for hours (calculate from start/end time or use cycle duration)
-      const meetingData = await prisma.meeting.findUnique({
-        where: { id: meetingId },
-        select: { 
-          startTime: true, 
-          endTime: true,
-          cycle: { select: { durationMinutes: true } }
-        },
-      });
-      
       // Get instructor rates
       const instructor = await prisma.instructor.findUnique({
         where: { id: instructorId },
         select: { ratePreparation: true, rateOnline: true, rateFrontal: true, employmentType: true },
       });
       
-      if (!meetingData || !instructor) {
+      if (!instructor) {
         return res.status(404).json({ error: 'Meeting or instructor not found' });
       }
       
@@ -427,7 +434,7 @@ router.post('/meeting', authenticate, managerOrAdmin, async (req: Request, res: 
         amount: calculatedAmount,
         status: 'approved', // Auto-approved
         submittedBy: { connect: { id: user.userId } },
-        ...(instructorId && { instructor: { connect: { id: instructorId } } }),
+        ...(expenseInstructorId && { instructor: { connect: { id: expenseInstructorId } } }),
         rateType: type === 'extra_instructor' ? (rateType || 'preparation') : null,
         hours: hours,
       },
@@ -438,7 +445,7 @@ router.post('/meeting', authenticate, managerOrAdmin, async (req: Request, res: 
       },
     });
 
-    await logAudit({ action: 'CREATE', entity: 'MeetingExpense', entityId: expense.id, newValue: { meetingId, type, amount: expense.amount, description }, req });
+    await logAudit({ action: 'CREATE', entity: 'MeetingExpense', entityId: expense.id, newValue: { meetingId, type, amount: expense.amount, description, instructorId: expenseInstructorId }, req });
 
     // Update meeting profit since expense is auto-approved
     const meeting = await prisma.meeting.findUnique({

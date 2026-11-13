@@ -80,10 +80,10 @@ const fmtDate = (d: string | null) => (d ? d.split('-').reverse().join('/') : '�
 const fmtDateTime = (d: string | null) =>
   d ? new Date(d).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'טרם סונכרן';
 
-// Observed Morning statuses — 10 awaiting approval, 20 approved.
+// Morning expense statuses (as labelled in Morning's UI): 10 = אושרה לדוח (approved, not yet reported), 20 = דווחה (reported).
 const STATUS_LABEL: Record<number, { label: string; cls: string }> = {
-  10: { label: 'ממתין לאישור', cls: 'bg-amber-100 text-amber-700' },
-  20: { label: 'מאושר', cls: 'bg-emerald-100 text-emerald-700' },
+  10: { label: 'אושרה לדוח', cls: 'bg-violet-100 text-violet-700' },
+  20: { label: 'דווחה', cls: 'bg-emerald-100 text-emerald-700' },
 };
 
 const RECURRING_STATUS: Record<RecurringExpenseStatus, { label: string; cls: string }> = {
@@ -213,8 +213,8 @@ function ExpensesTab({ suppliers, categories }: { suppliers: string[]; categorie
         </select>
         <select className="form-input" value={filters.status ?? ''} onChange={(e) => set({ status: e.target.value || undefined })}>
           <option value="">כל הסטטוסים</option>
-          <option value="10">ממתין לאישור</option>
-          <option value="20">מאושר</option>
+          <option value="10">אושרה לדוח</option>
+          <option value="20">דווחה</option>
         </select>
       </div>
       {isLoading ? <Loading /> : (
@@ -365,8 +365,8 @@ function RecurringForm({ initial, onSave, onCancel, saving }: {
 }
 
 const CELL_STYLE: Record<SupplierGridCellState, { cls: string; icon: string; label: string }> = {
-  approved: { cls: 'bg-emerald-100 text-emerald-800', icon: '✅', label: 'התקבל ואושר' },
-  pending: { cls: 'bg-amber-100 text-amber-800', icon: '⏳', label: 'ממתין לאישור במורנינג' },
+  approved: { cls: 'bg-emerald-100 text-emerald-800', icon: '✅', label: 'התקבל ודווח' },
+  pending: { cls: 'bg-violet-100 text-violet-800', icon: '✔️', label: 'התקבל – אושר לדוח' },
   draft: { cls: 'bg-sky-100 text-sky-800', icon: '🟦', label: 'טיוטה במורנינג' },
   missing: { cls: 'bg-red-100 text-red-700', icon: '❌', label: 'חסר' },
   not_due: { cls: 'bg-gray-100 text-gray-500', icon: '…', label: 'עוד לא הגיע מועד' },
@@ -1034,7 +1034,7 @@ export default function CompanyExpenses() {
   const tabs: { key: Tab; label: string }[] = [
     { key: 'overview', label: 'סקירה' },
     { key: 'expenses', label: 'כל ההוצאות' },
-    { key: 'pending', label: `ממתין לאישור${k?.pendingCount ? ` (${k.pendingCount})` : ''}` },
+    { key: 'pending', label: `טרם דווחו${k?.pendingCount ? ` (${k.pendingCount})` : ''}` },
     { key: 'recurring', label: 'ספקים' },
     { key: 'freelancers', label: 'שכר פרילנסרים' },
   ];
@@ -1113,7 +1113,7 @@ export default function CompanyExpenses() {
                 tone="bg-violet-50 text-violet-600"
                 icon={TrendingUp}
               />
-              <KpiCard title="ממתין לאישור" value={String(k!.pendingCount)} sub={`סה״כ ${ils(k!.pendingGross)}`} tone="bg-amber-50 text-amber-600" icon={Clock} />
+              <KpiCard title="אושרו לדוח – טרם דווחו" value={String(k!.pendingCount)} sub={`סה״כ ${ils(k!.pendingGross)}`} tone="bg-amber-50 text-amber-600" icon={Clock} />
             </div>
 
             <div className="flex gap-1 border-b border-gray-200">
@@ -1188,7 +1188,7 @@ export default function CompanyExpenses() {
               <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
                 <div className="p-4 border-b border-gray-100 flex items-center gap-2 text-sm text-gray-600">
                   {summary.pending.length ? <Clock size={16} className="text-amber-500" /> : <CheckCircle2 size={16} className="text-emerald-500" />}
-                  {summary.pending.length ? `${summary.pending.length} הוצאות ממתינות לאישור במורנינג (${ils(k!.pendingGross)})` : 'אין הוצאות שממתינות לאישור'}
+                  {summary.pending.length ? `${summary.pending.length} הוצאות אושרו לדוח במורנינג וטרם דווחו (${ils(k!.pendingGross)})` : 'אין הוצאות שטרם דווחו'}
                 </div>
                 <ExpensesTable rows={summary.pending} />
               </div>

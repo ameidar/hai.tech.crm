@@ -1564,6 +1564,8 @@ export interface CompanyExpense {
   description: string | null;
   supplierId: string | null;
   supplierName: string | null;
+  /** Linked freelancer instructor's name, when it differs from the supplier name. */
+  freelancerName?: string | null;
   categoryId: string | null;
   categoryTitle: string | null;
   url: string | null;
@@ -1609,7 +1611,7 @@ export interface CompanyExpenseSummary {
     pendingGross: number;
   };
   byCategory: Array<{ category: string } & ExpenseTotals>;
-  topSuppliers: Array<{ supplierName: string; supplierId: string | null } & ExpenseTotals>;
+  topSuppliers: Array<{ supplierName: string; supplierId: string | null; freelancerName?: string | null } & ExpenseTotals>;
   pending: CompanyExpense[];
   lastSyncedAt: string | null;
   syncRunning: boolean;
@@ -1662,9 +1664,11 @@ export interface RecurringExpense {
   status: RecurringExpenseStatus;
   source: 'auto' | 'manual';
   notes: string | null;
+  /** Linked freelancer instructor's name (read-only), when it differs from the supplier name. */
+  freelancerName?: string | null;
 }
 
-export type RecurringExpenseInput = Partial<Omit<RecurringExpense, 'id' | 'source'>>;
+export type RecurringExpenseInput = Partial<Omit<RecurringExpense, 'id' | 'source' | 'freelancerName'>>;
 
 export type SupplierGridCellState = 'approved' | 'pending' | 'draft' | 'missing' | 'not_due' | 'not_expected';
 

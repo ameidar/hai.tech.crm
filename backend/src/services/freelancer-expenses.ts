@@ -56,6 +56,32 @@ export function isFreelancerExpense(row: SupplierRef, links: FreelancerLinkLike[
   return buildLinkResolver(links)(row) !== null;
 }
 
+export type FreelancerNameLink = FreelancerLinkLike & { instructor?: { name: string | null } | null };
+
+/**
+ * Resolver for the freelancer (instructor) name to show next to a Morning supplier, e.g.
+ * "ליאן מורה פרטית ודוגמן (ליאן הרשקוביץ)". Same matching as buildLinkResolver (supplier id
+ * first, then normalized name). Null when unlinked or when the supplier name already is the
+ * instructor's name (no point repeating it).
+ */
+export function buildFreelancerNameResolver(links: FreelancerNameLink[]) {
+  const resolve = buildLinkResolver(links);
+  return (row: SupplierRef): string | null => {
+    const name = resolve(row)?.instructor?.name?.trim();
+    if (!name) return null;
+    if (normalizeSupplierName(name) === normalizeSupplierName(row.supplierName)) return null;
+    return name;
+  };
+}
+
+/** One query → name resolver over every supplier ↔ instructor link. */
+export async function loadFreelancerNameResolver() {
+  const links = await prisma.instructorExpenseSupplier.findMany({
+    select: { instructorId: true, supplierId: true, supplierName: true, instructor: { select: { name: true } } },
+  });
+  return buildFreelancerNameResolver(links);
+}
+
 export async function loadFreelancerLinks() {
   return prisma.instructorExpenseSupplier.findMany({
     include: { instructor: { select: { id: true, name: true, employmentType: true, isActive: true } } },

@@ -90,6 +90,7 @@ app.use(errorHandler);
 beforeEach(() => {
   vi.clearAllMocks();
   role = 'admin';
+  mockPrisma.instructorExpenseSupplier.findMany.mockResolvedValue([] as never);
 });
 
 describe('company expenses — admin-only guard', () => {
@@ -133,6 +134,26 @@ describe('company expenses — admin-only guard', () => {
     expect(res.body.data[0]).toMatchObject({ morningId: 'm1', amount: 117, amountExcludeVat: 100, month: '2026-11', url: 'https://doc' });
     expect(res.body.pagination).toMatchObject({ total: 1, page: 1, totalPages: 1 });
     expect(res.body.totals).toEqual({ gross: 117, net: 100 });
+    expect(res.body.data[0].freelancerName).toBeNull();
+  });
+
+  it('adds the linked freelancer name to listed expenses (one link query)', async () => {
+    mockPrisma.companyExpense.findMany.mockResolvedValue([{
+      id: 'c1', morningId: 'm1', status: 20, date: new Date('2026-11-02T00:00:00Z'), reportingDate: null,
+      amount: 100, amountExcludeVat: 100, vat: 0, supplierId: 'sup-lian', supplierName: 'ליאן מורה פרטית ודוגמן', active: true,
+    }, {
+      id: 'c2', morningId: 'm2', status: 20, date: new Date('2026-11-03T00:00:00Z'), reportingDate: null,
+      amount: 50, amountExcludeVat: 50, vat: 0, supplierId: 'g', supplierName: 'Google', active: true,
+    }] as never);
+    mockPrisma.companyExpense.count.mockResolvedValue(2 as never);
+    mockPrisma.companyExpense.aggregate.mockResolvedValue({ _sum: { amount: 150, amountExcludeVat: 150 } } as never);
+    mockPrisma.instructorExpenseSupplier.findMany.mockResolvedValue([
+      { instructorId: 'lian', supplierId: 'sup-lian', supplierName: 'ליאן מורה פרטית ודוגמן', instructor: { name: 'ליאן הרשקוביץ' } },
+    ] as never);
+    const res = await request(app).get('/api/company-expenses');
+    expect(res.status).toBe(200);
+    expect(res.body.data.map((e: any) => e.freelancerName)).toEqual(['ליאן הרשקוביץ', null]);
+    expect(mockPrisma.instructorExpenseSupplier.findMany).toHaveBeenCalledTimes(1);
   });
 
   it('rejects a malformed month filter', async () => {

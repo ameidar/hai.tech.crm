@@ -317,7 +317,7 @@ export function gridMonths(months: number, now: Date = new Date()): string[] {
 
 /**
  * One supplier's cells. Priority: approved (non-draft, Morning status ≠ 10) → pending
- * (non-draft, status 10 = awaiting approval in Morning) → draft → not_expected (cadence) →
+ * (non-draft, status 10 = approved for report / not yet reported in Morning) → draft → not_expected (cadence) →
  * not_due (current month, today ≤ expected day + grace) → missing. Matching uses the same
  * rule as the reminder (supplier/aliases + amount tolerance), so grid and reminder agree.
  */

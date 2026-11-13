@@ -1548,7 +1548,7 @@ export const useDeleteCompanyFixedCost = () => {
 export interface CompanyExpense {
   id: string;
   morningId: string;
-  status: number | null; // 10 = awaiting approval, 20 = approved (observed)
+  status: number | null; // Morning: 10 = אושרה לדוח (approved, not yet reported), 20 = דווחה (reported)
   documentType: string | null;
   number: string | null;
   date: string | null; // YYYY-MM-DD

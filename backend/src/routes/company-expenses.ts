@@ -33,7 +33,9 @@ import {
   buildFreelancerActivityOverview,
   buildLinkResolver,
   freelancerKindWhere,
+  buildFreelancerNameResolver,
   loadFreelancerLinks,
+  loadFreelancerNameResolver,
   previousIsraelMonth,
   suggestFreelancerLinks,
 } from '../services/freelancer-expenses.js';
@@ -83,7 +85,7 @@ companyExpensesRouter.get('/', async (req, res, next) => {
       });
     }
     const where: Prisma.CompanyExpenseWhereInput = { AND: and };
-    const [rows, total, agg] = await Promise.all([
+    const [rows, total, agg, freelancerName] = await Promise.all([
       prisma.companyExpense.findMany({
         where,
         orderBy: [{ date: 'desc' }, { number: 'desc' }],
@@ -92,10 +94,11 @@ companyExpensesRouter.get('/', async (req, res, next) => {
       }),
       prisma.companyExpense.count({ where }),
       prisma.companyExpense.aggregate({ where, _sum: { amount: true, amountExcludeVat: true } }),
+      loadFreelancerNameResolver(),
     ]);
     const totalPages = Math.max(1, Math.ceil(total / q.limit));
     res.json({
-      data: rows.map(serializeCompanyExpense),
+      data: rows.map((r) => ({ ...serializeCompanyExpense(r), freelancerName: freelancerName(r) })),
       totals: {
         gross: Number(agg._sum.amount ?? 0),
         net: Number(agg._sum.amountExcludeVat ?? 0),
@@ -131,9 +134,12 @@ companyExpensesRouter.get('/summary', async (req, res, next) => {
         distinct: ['supplierName', 'categoryTitle'],
         select: { supplierName: true, categoryTitle: true },
       }),
-      prisma.instructorExpenseSupplier.findMany({ select: { instructorId: true, supplierId: true, supplierName: true } }),
+      prisma.instructorExpenseSupplier.findMany({
+        select: { instructorId: true, supplierId: true, supplierName: true, instructor: { select: { name: true } } },
+      }),
     ]);
     const resolveFreelancer = buildLinkResolver(links);
+    const freelancerName = buildFreelancerNameResolver(links);
     const windowMonths = Array.from({ length: months }, (_, i) => shiftMonth(current, i - months + 1));
     // Freelancer pay by activity month (salary report, memoized 10 min) + receipts via activityMonthOf.
     const freelancerActivity = await buildFreelancerActivityOverview(windowMonths);
@@ -142,8 +148,9 @@ companyExpensesRouter.get('/summary', async (req, res, next) => {
     const uniq = (xs: (string | null)[]) => [...new Set(xs.filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b, 'he'));
     res.json({
       ...summary,
+      topSuppliers: summary.topSuppliers.map((s) => ({ ...s, freelancerName: freelancerName(s) })),
       kpis: { ...summary.kpis, pendingCount: pendingRows.length, pendingGross: Math.round(pendingGross * 100) / 100 },
-      pending: pendingRows.map(serializeCompanyExpense),
+      pending: pendingRows.map((r) => ({ ...serializeCompanyExpense(r), freelancerName: freelancerName(r) })),
       lastSyncedAt: lastSync._max.syncedAt ?? null,
       syncRunning: isCompanyExpenseSyncRunning() || isCompanyExpenseDraftSyncRunning(),
       morningConfigured: isMorningConfigured(),
@@ -252,8 +259,11 @@ export function serializeRecurring(r: any) {
 
 companyExpensesRouter.get('/recurring', async (_req, res, next) => {
   try {
-    const rows = await prisma.recurringExpense.findMany({ orderBy: [{ status: 'asc' }, { label: 'asc' }] });
-    res.json(rows.map(serializeRecurring));
+    const [rows, freelancerName] = await Promise.all([
+      prisma.recurringExpense.findMany({ orderBy: [{ status: 'asc' }, { label: 'asc' }] }),
+      loadFreelancerNameResolver(),
+    ]);
+    res.json(rows.map((r) => ({ ...serializeRecurring(r), freelancerName: freelancerName(r) })));
   } catch (error) {
     next(error);
   }
@@ -336,10 +346,13 @@ companyExpensesRouter.get('/suppliers/grid', async (req, res, next) => {
       months: z.coerce.number().int().min(3).max(12).default(6),
       includeSuggested: z.enum(['true', 'false']).optional(),
     }).parse(req.query);
-    const grid = await getSupplierGrid({ months: q.months, includeSuggested: q.includeSuggested === 'true' });
+    const [grid, freelancerName] = await Promise.all([
+      getSupplierGrid({ months: q.months, includeSuggested: q.includeSuggested === 'true' }),
+      loadFreelancerNameResolver(),
+    ]);
     res.json({
       months: grid.months,
-      suppliers: grid.suppliers.map(({ rec, cells }) => ({ ...serializeRecurring(rec), cells })),
+      suppliers: grid.suppliers.map(({ rec, cells }) => ({ ...serializeRecurring(rec), freelancerName: freelancerName(rec), cells })),
     });
   } catch (error) {
     next(error);

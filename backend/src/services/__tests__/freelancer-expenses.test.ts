@@ -23,6 +23,7 @@ import {
   freelancerExpectedTotal,
   groupFreelancerInvoicesByActivity,
   reconcile,
+  buildFreelancerNameResolver,
   buildLinkResolver,
   buildLinkSuggestions,
   freelancerKindWhere,
@@ -62,6 +63,30 @@ describe('link resolution', () => {
     expect(resolve({ supplierId: null, supplierName: null })).toBeNull();
     expect(isFreelancerExpense({ supplierName: 'ליאן' }, links)).toBe(false);
     expect(isFreelancerExpense({ supplierName: 'ליאן מורה פרטית' }, links)).toBe(true);
+  });
+});
+
+describe('freelancer name next to the supplier', () => {
+  const named = [
+    { instructorId: 'lian', supplierId: 'sup-lian', supplierName: 'ליאן מורה פרטית ודוגמן', instructor: { name: 'ליאן הרשקוביץ' } },
+    { instructorId: 'or', supplierId: null, supplierName: 'Or Yosef', instructor: { name: 'or  yosef' } },
+    { instructorId: 'dan', supplierId: null, supplierName: 'דן הדרכות', instructor: { name: 'דן כהן' } },
+  ];
+  const nameOf = buildFreelancerNameResolver(named);
+  it('matches by supplier id first, even when the Morning name changed', () => {
+    expect(nameOf({ supplierId: 'sup-lian', supplierName: 'שם אחר' })).toBe('ליאן הרשקוביץ');
+  });
+  it('falls back to a case/space-insensitive supplier name', () => {
+    expect(nameOf({ supplierId: 'unknown', supplierName: '  דן   הדרכות ' })).toBe('דן כהן');
+    expect(nameOf({ supplierId: null, supplierName: 'ליאן מורה פרטית ודוגמן' })).toBe('ליאן הרשקוביץ');
+  });
+  it('does not repeat the name when the supplier already is the instructor', () => {
+    expect(nameOf({ supplierId: null, supplierName: 'OR YOSEF' })).toBeNull();
+  });
+  it('returns null for unlinked suppliers or links without an instructor name', () => {
+    expect(nameOf({ supplierId: 'google', supplierName: 'Google' })).toBeNull();
+    expect(nameOf({ supplierId: null, supplierName: null })).toBeNull();
+    expect(buildFreelancerNameResolver([{ instructorId: 'x', supplierId: 's', supplierName: 'X', instructor: null }])({ supplierId: 's' })).toBeNull();
   });
 });
 

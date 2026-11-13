@@ -76,6 +76,11 @@ const errorMessage = (e: unknown, fallback: string) => {
 
 const ils = (n: number | null | undefined) => `₪${Math.round(n ?? 0).toLocaleString('he-IL')}`;
 const monthLabel = (m: string) => `${m.slice(5, 7)}/${m.slice(2, 4)}`;
+/** "ספק (שם הפרילנסר)" — the linked instructor's name in parentheses, when there is one. */
+const withFreelancer = (name: string, freelancerName?: string | null) => {
+  const norm = (x: string) => x.toLowerCase().replace(/\s+/g, ' ').trim();
+  return freelancerName && !norm(name).includes(norm(freelancerName)) ? `${name} (${freelancerName})` : name;
+};
 const fmtDate = (d: string | null) => (d ? d.split('-').reverse().join('/') : '—');
 const fmtDateTime = (d: string | null) =>
   d ? new Date(d).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'טרם סונכרן';
@@ -142,7 +147,7 @@ function ExpensesTable({ rows }: { rows: CompanyExpense[] }) {
             <tr key={e.id} className="hover:bg-gray-50">
               <td className="px-4 py-2.5 whitespace-nowrap">{fmtDate(e.date)}</td>
               <td className="px-4 py-2.5 whitespace-nowrap text-gray-500">{e.month ? monthLabel(e.month) : '—'}</td>
-              <td className="px-4 py-2.5 font-medium text-gray-900">{e.supplierName ?? '—'}</td>
+              <td className="px-4 py-2.5 font-medium text-gray-900" dir="auto">{e.supplierName ? withFreelancer(e.supplierName, e.freelancerName) : '—'}</td>
               <td className="px-4 py-2.5 text-gray-600">{e.categoryTitle ?? '—'}</td>
               <td className="px-4 py-2.5 text-gray-600 max-w-xs truncate" title={e.description ?? ''}>{e.description ?? ''}</td>
               <td className="px-4 py-2.5 text-gray-500">{e.number ?? '—'}</td>
@@ -390,7 +395,7 @@ function SupplierGridTable({ grid, onEdit }: { grid: SupplierGrid; onEdit: (r: R
             <tr key={s.id} className="hover:bg-gray-50">
               <td className="px-4 py-2 whitespace-nowrap">
                 <div className="flex items-center gap-1.5">
-                  <button className="font-medium text-gray-900 hover:text-blue-600" onClick={() => onEdit(s)} title={s.instructions ?? 'עריכה'}>{s.label}</button>
+                  <button className="font-medium text-gray-900 hover:text-blue-600" onClick={() => onEdit(s)} title={s.instructions ?? 'עריכה'}>{withFreelancer(s.label, s.freelancerName)}</button>
                   {s.portalUrl && (
                     <a href={s.portalUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800" title="פורטל החשבוניות">
                       <ExternalLink size={14} />
@@ -645,7 +650,7 @@ function SuppliersTab() {
                   <tr key={r.id} className={r.status === 'ignored' ? 'text-gray-400' : ''}>
                     <td className="px-4 py-2.5 font-medium" title={r.notes ?? ''}>{r.label}</td>
                     <td className="px-4 py-2.5">
-                      {r.supplierName}
+                      {withFreelancer(r.supplierName, r.freelancerName)}
                       {r.aliases.length > 0 && <div className="text-xs text-gray-400" dir="auto">גם: {r.aliases.join(', ')}</div>}
                     </td>
                     <td className="px-4 py-2.5">{CADENCE_LABEL[r.cadence] ?? r.cadence}{r.cadence === 'yearly' && r.expectedMonth ? ` (${MONTH_NAMES[r.expectedMonth - 1]})` : ''}</td>
@@ -1155,7 +1160,7 @@ export default function CompanyExpenses() {
                     <ul className="space-y-2 text-sm">
                       {summary.topSuppliers.map((s, i) => (
                         <li key={`${s.supplierId ?? s.supplierName}-${i}`} className="flex items-center justify-between gap-2">
-                          <span className="truncate"><span className="text-gray-400 ml-1">{i + 1}.</span>{s.supplierName}</span>
+                          <span className="truncate"><span className="text-gray-400 ml-1">{i + 1}.</span>{withFreelancer(s.supplierName, s.freelancerName)}</span>
                           <span className="font-medium whitespace-nowrap">{s.count} מסמכים <span className="text-xs text-gray-400">({ils(s.gross)})</span></span>
                         </li>
                       ))}

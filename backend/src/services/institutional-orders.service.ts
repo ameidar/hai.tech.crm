@@ -10,6 +10,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { paginationSchema } from '../types/schemas.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { BILLING_MODES, MONTH_KEY_RE, redistributeMonthlyFixedRevenue } from './monthly-fixed-billing.js';
+import { PAYMENT_STATUSES } from '../utils/payment-status.js';
 
 // "YYYY-MM" -> non-negative amount, as entered (incl. or excl. VAT per monthlyAmountsIncludeVat).
 export const monthlyAmountsSchema = z
@@ -38,7 +39,7 @@ export const orderSchema = z.object({
   totalAmount: z.coerce.number().optional().nullable(),
   invoiceNumber: z.string().optional().nullable(),
   invoiceLink: z.string().optional().nullable(),
-  paymentStatus: z.enum(['unpaid', 'partial', 'paid']).optional().nullable(),
+  paymentStatus: z.enum(PAYMENT_STATUSES).optional().nullable(),
   paidAmount: z.coerce.number().optional().nullable(),
   payingBody: z.string().optional().nullable(),
   paymentTermsDays: z.coerce.number().int().min(0).optional(),

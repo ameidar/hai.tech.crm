@@ -214,7 +214,7 @@ describe('payments — Morning provider (default)', () => {
     expect(res.body.outcome).toBe('paid');
     expect(mockGetDoc).toHaveBeenCalledWith('doc-uuid-1');
     const upd = db.payment.updateMany.mock.calls[0][0] as any;
-    expect(upd.where).toEqual({ id: 'pay-1', status: { not: 'paid' } });
+    expect(upd.where).toEqual({ id: 'pay-1', status: { notIn: ['paid', 'refunded'] } });
     expect(upd.data).toEqual(expect.objectContaining({
       status: 'paid',
       paymentMethod: 'morning_payment_form',
@@ -225,6 +225,18 @@ describe('payments — Morning provider (default)', () => {
     expect(reconcileOmerRegistrationPayment).toHaveBeenCalledWith('pay-1');
     expect(autoConvertLeadsForPayment).toHaveBeenCalledWith('pay-1');
     expect(handlePostPaymentPlacement).toHaveBeenCalledWith('pay-1');
+  });
+
+  it('notify: never re-settles a refunded (זוכה) payment back to paid', async () => {
+    db.payment.findUnique.mockResolvedValue({ ...pendingPayment(), status: 'refunded' } as any);
+    mockGetDoc.mockResolvedValue(morningDoc());
+
+    const res = await request(app).post(`/api/payments/morning-notify/${TOKEN}`).send({ id: 'doc-uuid-1' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.outcome).toBe('refunded');
+    expect(db.payment.updateMany).not.toHaveBeenCalled();
+    expect(autoConvertLeadsForPayment).not.toHaveBeenCalled();
   });
 
   it('notify: rejects a document whose amount does not match (no update, still 2xx)', async () => {

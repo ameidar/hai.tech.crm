@@ -69,7 +69,7 @@ const institutionalOrderBody = {
     status: { type: 'string', enum: ['draft', 'active', 'completed', 'cancelled'] },
     notes: { type: 'string', nullable: true },
     totalAmount: { type: 'number', nullable: true },
-    paymentStatus: { type: 'string', enum: ['unpaid', 'partial', 'paid'], nullable: true, description: 'Update only' },
+    paymentStatus: { type: 'string', enum: ['unpaid', 'partial', 'paid', 'refunded'], nullable: true, description: 'Update only' },
     paidAmount: { type: 'number', nullable: true, description: 'Update only' },
     invoiceNumber: { type: 'string', nullable: true, description: 'Update only' },
     paymentTermsDays: { type: 'integer', minimum: 0 },

@@ -4,6 +4,7 @@ import {
   sortingSchema,
   uuidSchema,
 } from './common.js';
+import { PAYMENT_STATUSES } from '../../../utils/payment-status.js';
 
 /**
  * Registration status enum
@@ -13,7 +14,7 @@ export const registrationStatusEnum = z.enum(['registered', 'active', 'completed
 /**
  * Payment status enum
  */
-export const paymentStatusEnum = z.enum(['unpaid', 'partial', 'paid']);
+export const paymentStatusEnum = z.enum(PAYMENT_STATUSES);
 
 /**
  * Payment method enum

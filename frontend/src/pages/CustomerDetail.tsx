@@ -13,7 +13,7 @@ import WooPayModal from '../components/WooPayModal';
 import CustomerWhatsAppPanel from '../components/CustomerWhatsAppPanel';
 import MergeCustomerModal from '../components/MergeCustomerModal';
 import type { Customer, Student, Cycle, PaymentStatus, PaymentMethod, StudentGender } from '../types';
-import { studentGenderHebrew } from '../types';
+import { studentGenderHebrew, paymentRecordStatusDisplay } from '../types';
 
 type ApiValidationDetail = {
   field?: string;
@@ -1653,6 +1653,7 @@ function PaymentHistory({ customerId }: { customerId: string }) {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editUrl, setEditUrl] = useState('');
+  const [editStatus, setEditStatus] = useState('pending');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
 
@@ -1701,21 +1702,22 @@ function PaymentHistory({ customerId }: { customerId: string }) {
   const payments = data || [];
   const formatDate = (d: string) => new Date(d).toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
-  const statusLabel = (s: string) => {
-    if (s === 'paid') return { label: 'שולם ✅', cls: 'bg-green-100 text-green-700' };
-    if (s === 'cancelled') return { label: 'בוטל ❌', cls: 'bg-red-100 text-red-700' };
-    return { label: 'ממתין ⏳', cls: 'bg-yellow-100 text-yellow-700' };
-  };
+  const statusLabel = paymentRecordStatusDisplay;
 
   const startEdit = (p: any) => {
     setEditingId(p.id);
     setEditUrl(p.invoiceUrl || '');
+    setEditStatus(p.status || 'pending');
   };
 
   const saveInvoiceUrl = async (paymentId: string) => {
     setSaving(true);
     try {
-      await api.patch(`/payments/${paymentId}`, { invoiceUrl: editUrl || null });
+      const original = payments.find((p: any) => p.id === paymentId);
+      await api.patch(`/payments/${paymentId}`, {
+        invoiceUrl: editUrl || null,
+        ...(original && editStatus !== original.status ? { status: editStatus } : {}),
+      });
       setEditingId(null);
       refetch();
     } catch (e) {
@@ -1791,13 +1793,13 @@ function PaymentHistory({ customerId }: { customerId: string }) {
                   {/* Edit invoice URL button */}
                   <button
                     onClick={() => isEditing ? setEditingId(null) : startEdit(p)}
-                    title="ערוך לינק חשבונית"
+                    title="ערוך לינק חשבונית / סטטוס"
                     className={`shrink-0 p-1 rounded hover:bg-gray-100 transition-colors ${isEditing ? 'text-blue-600' : 'text-gray-300 hover:text-gray-500'}`}
                   >
                     <Pencil size={14} />
                   </button>
-                  {/* Delete button — only for non-paid payments */}
-                  {p.status !== 'paid' && (
+                  {/* Delete button — only for non-paid payments (refunded rows keep the credit-note trail) */}
+                  {p.status !== 'paid' && p.status !== 'refunded' && (
                     <button
                       onClick={() => deletePayment(p.id, p.description)}
                       disabled={deleting === p.id}
@@ -1820,6 +1822,17 @@ function PaymentHistory({ customerId }: { customerId: string }) {
                       dir="ltr"
                       autoFocus
                     />
+                    <select
+                      value={editStatus}
+                      onChange={e => setEditStatus(e.target.value)}
+                      title="סטטוס תשלום"
+                      className="text-sm border border-blue-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+                    >
+                      <option value="pending">ממתין</option>
+                      <option value="paid">שולם</option>
+                      <option value="refunded">זוכה (בוטל בחשבונית זיכוי)</option>
+                      <option value="cancelled">בוטל</option>
+                    </select>
                     <button
                       onClick={() => saveInvoiceUrl(p.id)}
                       disabled={saving}

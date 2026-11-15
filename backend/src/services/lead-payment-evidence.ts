@@ -1,4 +1,5 @@
 import { prisma } from '../utils/prisma.js';
+import { PAID_PAYMENT_STATUSES, isPaidPaymentStatus } from '../utils/payment-status.js';
 import { AppError } from '../middleware/errorHandler.js';
 
 /**
@@ -63,7 +64,7 @@ function evidenceWindowStart(lead: LeadForEvidence): Date {
  *     phone/email when the payment isn't linked) — covers manual payments, Morning
  *     webhook/receipt sync, payment links and WooCommerce/LMS website purchases.
  *  2. a non-deleted, non-cancelled registration of one of the customer's students whose
- *     payment_status is 'paid' or 'partial'.
+ *     payment_status is 'paid' or 'partial' (never 'refunded' — a credit note cancelled it).
  *  3. a non-deleted registration (status registered/active) of one of the customer's
  *     students in an institution-paid cycle (type institutional_per_child / institutional_fixed).
  */
@@ -96,7 +97,7 @@ export async function findPaymentEvidence(lead: LeadForEvidence): Promise<Paymen
     where: {
       deletedAt: null,
       status: { not: 'cancelled' },
-      paymentStatus: { in: ['paid', 'partial'] },
+      paymentStatus: { in: PAID_PAYMENT_STATUSES },
       updatedAt: { gte: since },
       student: { customerId, deletedAt: null },
     },
@@ -229,7 +230,7 @@ export async function autoConvertLeadsForRegistration(registrationId?: string | 
       !registration ||
       registration.deletedAt ||
       registration.status === 'cancelled' ||
-      (registration.paymentStatus !== 'paid' && registration.paymentStatus !== 'partial')
+      !isPaidPaymentStatus(registration.paymentStatus)
     ) {
       return 0;
     }

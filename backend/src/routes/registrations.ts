@@ -12,10 +12,11 @@ import { sendEmail, sendWhatsAppMessage } from '../services/notifications.js';
 import { logAudit, logUpdateAudit } from '../utils/audit.js';
 import { cancelFutureMeetingsForCycle } from '../services/cancellations.js';
 import { autoConvertLeadsForRegistration } from '../services/lead-payment-evidence.js';
+import { PAYMENT_STATUSES, isPaidPaymentStatus } from '../utils/payment-status.js';
 
-const PAID_STATUSES = ['paid', 'partial'];
+// `refunded` (זוכה) is not a paid status — moving to it never counts as "became paid".
 function becamePaid(oldStatus: string | null | undefined, newStatus: string | null | undefined) {
-  return !!newStatus && PAID_STATUSES.includes(newStatus) && !PAID_STATUSES.includes(oldStatus || '');
+  return isPaidPaymentStatus(newStatus) && !isPaidPaymentStatus(oldStatus);
 }
 
 async function hasActiveRegistrations(cycleId: string): Promise<boolean> {
@@ -403,7 +404,7 @@ registrationsRouter.post('/:id/payment', managerOrAdmin, async (req, res, next) 
   try {
     const id = uuidSchema.parse(req.params.id);
     const data = z.object({
-      paymentStatus: z.enum(['unpaid', 'partial', 'paid']),
+      paymentStatus: z.enum(PAYMENT_STATUSES),
       paymentMethod: z.enum(['credit', 'transfer', 'cash', 'institutional', 'standing_order']).optional(),
       amount: z.number().positive().optional(),
       invoiceLink: z.string().optional(),

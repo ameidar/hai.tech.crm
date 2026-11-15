@@ -4,6 +4,7 @@ import {
   meetingRevenueForMeeting,
   meetingRevenueFromRegistrations,
   revenueRegistrationCount,
+  isPaidForGroupRevenue,
 } from '../revenue.js';
 
 describe('revenue helpers', () => {
@@ -134,5 +135,31 @@ describe('revenue helpers', () => {
     }, {
       nature: 'regular',
     })).toBe(250);
+  });
+
+  describe('refunded (זוכה) registrations', () => {
+    it('excludes refunded registrations from group revenue', () => {
+      const registrations = [
+        { status: 'active', amount: 1180, paymentStatus: 'paid' },
+        { status: 'active', amount: 1180, paymentStatus: 'refunded' },
+      ];
+      // only the paid 1180 counts: 1180 / 1.18 / 10 meetings = 100
+      expect(meetingRevenueFromRegistrations(registrations, 10, 'group')).toBe(100);
+    });
+
+    it('excludes refunded registrations from private revenue too (money was returned)', () => {
+      const registrations = [
+        { status: 'active', amount: 1180, paymentStatus: 'unpaid' },
+        { status: 'active', amount: 1180, paymentStatus: 'refunded' },
+      ];
+      expect(meetingRevenueFromRegistrations(registrations, 10, 'private')).toBe(100);
+    });
+
+    it('isPaidForGroupRevenue rejects refunded for every cycle type', () => {
+      for (const type of ['group', 'private', 'institutional_fixed']) {
+        expect(isPaidForGroupRevenue({ paymentStatus: 'refunded' }, type)).toBe(false);
+      }
+      expect(isPaidForGroupRevenue({ paymentStatus: 'partial' }, 'group')).toBe(true);
+    });
   });
 });

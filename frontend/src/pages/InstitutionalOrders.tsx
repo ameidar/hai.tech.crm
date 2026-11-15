@@ -69,12 +69,14 @@ const paymentStatusLabels: Record<string, string> = {
   unpaid: 'לא שולם',
   partial: 'שולם חלקית',
   paid: 'שולם',
+  refunded: 'זוכה',
 };
 
 const paymentStatusColors: Record<string, string> = {
   unpaid: 'text-red-600',
   partial: 'text-yellow-600',
   paid: 'text-green-600',
+  refunded: 'text-gray-500',
 };
 
 function formatDate(dateStr?: string) {

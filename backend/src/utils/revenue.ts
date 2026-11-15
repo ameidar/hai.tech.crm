@@ -8,6 +8,8 @@
  * already net.
  */
 
+import { isPaidPaymentStatus } from './payment-status.js';
+
 export const VAT_RATE = 0.18;
 
 /**
@@ -72,21 +74,23 @@ export function revenueRegistrationCount(registrations: RegistrationLike[]): num
   return revenueRegistrations(registrations).length;
 }
 
-const PAID_STATUSES = new Set(['paid', 'partial']);
 
 /**
  * Group cycles recognize revenue only from registrations that were actually paid:
  * a registration form stores the full course price as `amount` before the parent pays,
  * which inflated meeting revenue. When paymentStatus wasn't loaded (undefined) the
  * registration is kept, so callers that don't select it keep their old behavior.
+ * A `refunded` registration is excluded for every cycle type (the money was returned).
  */
 export function isPaidForGroupRevenue(
   registration: RegistrationLike,
   cycleType: string | null | undefined
 ): boolean {
+  // `refunded` (זוכה — credit note issued) is never revenue, for any cycle type.
+  if (registration.paymentStatus === 'refunded') return false;
   if (String(cycleType) !== 'group') return true;
   if (registration.paymentStatus === undefined) return true;
-  return PAID_STATUSES.has(String(registration.paymentStatus));
+  return isPaidPaymentStatus(registration.paymentStatus as string | null);
 }
 
 /**

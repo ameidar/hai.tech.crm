@@ -34,7 +34,7 @@ meetings (id, cycle_id, instructor_id, scheduled_date, start_time, end_time, sta
 
 registrations (id, student_id, cycle_id, registration_date, status, amount, payment_status, payment_method, created_at, updated_at, deleted_at)
   → Filter active: WHERE deleted_at IS NULL
-  → payment_status: 'pending','paid','partial','refunded'
+  → payment_status: 'unpaid','partial','paid','refunded' (refunded = זוכה, credit note — NOT paid; paid = IN ('paid','partial'))
 
 instructors (id, user_id, name, phone, email, rate_frontal, rate_online, rate_private, is_active, employment_type, created_at, updated_at)
   → NO deleted_at column — never add WHERE deleted_at IS NULL here

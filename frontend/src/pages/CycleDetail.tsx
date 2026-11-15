@@ -81,7 +81,7 @@ import {
   studentGenderHebrew,
 } from '../types';
 import type { Meeting, MeetingStatus, MeetingNature, Registration, RegistrationStatus, PaymentStatus, PaymentMethod, ActivityType, Cycle, Course, Branch, Instructor, CycleStatus, CycleType, DayOfWeek, InstructorPaymentMode, StudentGender } from '../types';
-import { paymentStatusHebrew, activityTypeHebrew, meetingNatureHebrew } from '../types';
+import { paymentStatusHebrew, paymentStatusBadgeClass, activityTypeHebrew, meetingNatureHebrew } from '../types';
 import { exportCycleMeetingsToExcel } from '../utils/meetingsExcel';
 
 // Add Student Modal with search + create new
@@ -1351,8 +1351,7 @@ export default function CycleDetail() {
                             <p className="text-sm font-medium">₪{reg.amount}</p>
                           )}
                           <span className={`badge ${
-                            reg.paymentStatus === 'paid' ? 'badge-success' :
-                            reg.paymentStatus === 'partial' ? 'badge-warning' : 'badge-danger'
+                            paymentStatusBadgeClass[reg.paymentStatus || 'unpaid']
                           }`}>
                             {reg.paymentMethod === 'institutional' ? 'שולם (מוסדי)' : paymentStatusHebrew[reg.paymentStatus || 'unpaid']}
                           </span>
@@ -2223,10 +2222,7 @@ export default function CycleDetail() {
                 {viewingRegistration.paymentStatus && (
                   <div>
                     <p className="text-gray-500">סטטוס תשלום</p>
-                    <span className={`badge ${
-                      viewingRegistration.paymentStatus === 'paid' ? 'badge-success' :
-                      viewingRegistration.paymentStatus === 'partial' ? 'badge-warning' : 'badge-danger'
-                    }`}>
+                    <span className={`badge ${paymentStatusBadgeClass[viewingRegistration.paymentStatus]}`}>
                       {paymentStatusHebrew[viewingRegistration.paymentStatus]}
                     </span>
                   </div>
@@ -2561,6 +2557,7 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
             <option value="unpaid">לא שולם</option>
             <option value="partial">שולם חלקית</option>
             <option value="paid">שולם במלואו</option>
+            <option value="refunded">זוכה (בוטל בחשבונית זיכוי)</option>
           </select>
         </div>
 

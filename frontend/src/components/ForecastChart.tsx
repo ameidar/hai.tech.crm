@@ -25,6 +25,7 @@ import {
   Sparkles,
   Calculator,
   Info,
+  Hourglass,
 } from 'lucide-react';
 import { useForecast } from '../hooks/useApi';
 import Loading from './ui/Loading';
@@ -43,6 +44,20 @@ type ViewMode = 'all' | 'historical' | 'forecast';
 // Fixed monthly costs = company fixed costs (staff salaries) + instructor fixed additions.
 const fixedCostsOf = (row: { fixedInstructorAdditions?: number; companyFixedCosts?: number }) =>
   (row.fixedInstructorAdditions ?? 0) + (row.companyFixedCosts ?? 0);
+
+const TENTATIVE_LABEL = 'הכנסה טנטטיבית (טרם אושרה)';
+
+const seriesLabels: Record<string, string> = {
+  revenue: 'הכנסות',
+  totalExpenses: 'הוצאות',
+  profit: 'רווח',
+  tentativeRevenue: TENTATIVE_LABEL,
+};
+
+const formatMonthKey = (key: string) => {
+  const [y, m] = key.split('-');
+  return `${m}/${y.slice(2)}`;
+};
 
 export default function ForecastChart() {
   const [historicalMonths, setHistoricalMonths] = useState(6);
@@ -102,6 +117,10 @@ export default function ForecastChart() {
   }
 
   const { summary, patterns } = data;
+  const tentativeOrders = data.tentativeOrders ?? [];
+  const tentativeTotal = summary.tentativeTotal ?? 0;
+  const tentativeUnscheduledTotal = summary.tentativeUnscheduledTotal ?? 0;
+  const hasTentative = tentativeTotal > 0;
 
   return (
     <div className="space-y-6">
@@ -263,6 +282,11 @@ export default function ForecastChart() {
                   <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.4}/>
                   <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0}/>
                 </linearGradient>
+                {/* Tentative revenue: light striped fill so it never reads as confirmed revenue */}
+                <pattern id="tentativeStripes" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)">
+                  <rect width="8" height="8" fill="#a855f7" fillOpacity={0.08} />
+                  <line x1="0" y1="0" x2="0" y2="8" stroke="#a855f7" strokeWidth={3} strokeOpacity={0.35} />
+                </pattern>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis 
@@ -278,14 +302,9 @@ export default function ForecastChart() {
               />
               <Tooltip
                 formatter={(value, name) => {
-                  const labels: Record<string, string> = {
-                    revenue: 'הכנסות',
-                    totalExpenses: 'הוצאות',
-                    profit: 'רווח',
-                  };
-                  const numValue = typeof value === 'number' ? value : 0;
+                  const numValue = typeof value === 'number' ? Math.round(value) : 0;
                   const strName = String(name || '');
-                  return [`₪${numValue.toLocaleString()}`, labels[strName] || strName];
+                  return [`₪${numValue.toLocaleString()}`, seriesLabels[strName] || strName];
                 }}
                 labelFormatter={(label, payload) => {
                   if (payload && payload[0]) {
@@ -304,14 +323,7 @@ export default function ForecastChart() {
                 }}
               />
               <Legend 
-                formatter={(value) => {
-                  const labels: Record<string, string> = {
-                    revenue: 'הכנסות',
-                    totalExpenses: 'הוצאות',
-                    profit: 'רווח',
-                  };
-                  return labels[value] || value;
-                }}
+                formatter={(value) => seriesLabels[value] || value}
               />
               
               {/* Partial month indicator (current month: actual + estimated) */}
@@ -337,6 +349,17 @@ export default function ForecastChart() {
                 />
               )}
 
+              {hasTentative && (
+                <Bar
+                  dataKey="tentativeRevenue"
+                  name="tentativeRevenue"
+                  fill="url(#tentativeStripes)"
+                  stroke="#a855f7"
+                  strokeDasharray="4 3"
+                  strokeWidth={1.5}
+                  barSize={28}
+                />
+              )}
               <Area
                 type="monotone"
                 dataKey="revenue"
@@ -376,6 +399,9 @@ export default function ForecastChart() {
                   <th className="text-right py-3 px-2 font-semibold">סוג</th>
                   <th className="text-right py-3 px-2 font-semibold">פגישות</th>
                   <th className="text-right py-3 px-2 font-semibold text-emerald-600">הכנסות</th>
+                  {hasTentative && (
+                    <th className="text-right py-3 px-2 font-semibold text-purple-500" title={TENTATIVE_LABEL + ' — לא נכלל בהכנסות וברווח'}>טנטטיבי</th>
+                  )}
                   <th className="text-right py-3 px-2 font-semibold text-rose-600">תשלום מדריכים</th>
                   <th className="text-right py-3 px-2 font-semibold text-rose-600">הוצאות מחזור</th>
                   <th className="text-right py-3 px-2 font-semibold text-rose-600">הוצאות פגישה</th>
@@ -412,6 +438,11 @@ export default function ForecastChart() {
                     </td>
                     <td className="py-3 px-2 text-gray-600">{row.meetingCount}</td>
                     <td className="py-3 px-2 text-emerald-600 font-medium">₪{Math.round(row.revenue).toLocaleString()}</td>
+                    {hasTentative && (
+                      <td className="py-3 px-2 text-purple-500 italic">
+                        {row.tentativeRevenue ? `₪${Math.round(row.tentativeRevenue).toLocaleString()}` : '—'}
+                      </td>
+                    )}
                     <td className="py-3 px-2 text-rose-500">₪{Math.round(row.instructorPayments).toLocaleString()}</td>
                     <td className="py-3 px-2 text-rose-500">₪{Math.round(row.cycleExpenses).toLocaleString()}</td>
                     <td className="py-3 px-2 text-rose-500">₪{Math.round(row.meetingExpenses).toLocaleString()}</td>
@@ -440,6 +471,11 @@ export default function ForecastChart() {
                   <td className="py-3 px-2 text-emerald-600">
                     ₪{Math.round(chartData.reduce((sum, r) => sum + r.revenue, 0)).toLocaleString()}
                   </td>
+                  {hasTentative && (
+                    <td className="py-3 px-2 text-purple-500 italic">
+                      ₪{Math.round(chartData.reduce((sum, r) => sum + (r.tentativeRevenue ?? 0), 0)).toLocaleString()}
+                    </td>
+                  )}
                   <td className="py-3 px-2 text-rose-500">
                     ₪{Math.round(chartData.reduce((sum, r) => sum + r.instructorPayments, 0)).toLocaleString()}
                   </td>
@@ -464,6 +500,53 @@ export default function ForecastChart() {
           </div>
         </div>
       </div>
+
+      {/* Tentative Orders Card — draft institutional orders, not yet confirmed */}
+      {(hasTentative || tentativeOrders.length > 0) && (
+        <div className="bg-white rounded-xl shadow-sm border border-dashed border-purple-200 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-purple-50 rounded-lg">
+                <Hourglass className="w-5 h-5 text-purple-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">הזמנות טנטטיביות</h3>
+                <p className="text-sm text-gray-500">הזמנות מוסדיות בטיוטה ללא מחזורים — לא נכללות בהכנסות וברווח</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-6 text-left">
+              <div>
+                <div className="text-xs text-gray-500">סה״כ טנטטיבי</div>
+                <div className="text-xl font-bold text-purple-700">₪{Math.round(tentativeTotal).toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-500">ללא חודשים</div>
+                <div className="text-xl font-bold text-purple-400">₪{Math.round(tentativeUnscheduledTotal).toLocaleString()}</div>
+              </div>
+            </div>
+          </div>
+          {tentativeOrders.length > 0 && (
+            <div className="space-y-2">
+              {tentativeOrders.map((o) => (
+                <div key={o.id} className="flex items-center justify-between bg-purple-50/40 rounded-lg px-3 py-2 text-sm">
+                  <div>
+                    <span className="font-medium text-gray-900">{o.name}</span>
+                    {o.branchName && <span className="text-xs text-gray-500 mr-2">({o.branchName})</span>}
+                    <div className="text-xs text-gray-400 mt-0.5">
+                      {o.unscheduled
+                        ? 'טרם נקבעו חודשים — נספר ב״ללא חודשים״'
+                        : o.monthsCovered.length > 0
+                          ? `בטווח התחזית: ${o.monthsCovered.map(formatMonthKey).join(', ')}`
+                          : 'מחוץ לטווח התחזית'}
+                    </div>
+                  </div>
+                  <span className="font-semibold text-purple-700">₪{Math.round(o.total).toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Calculation Explanation Card */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
@@ -492,6 +575,7 @@ export default function ForecastChart() {
                   <li>• <strong>היסטוריה:</strong> סכום ה-revenue מכל הפגישות שהושלמו</li>
                   <li>• <strong>תחזית:</strong> סכום ה-revenue מפגישות מתוכננות</li>
                   <li>• מבוסס על מחיר לתלמיד × מספר תלמידים רשומים</li>
+                  <li>• <strong>טנטטיבי:</strong> הזמנות מוסדיות בטיוטה ללא מחזורים — לפי סכומים חודשיים, או סה״כ מחולק שווה על טווח התאריכים. מוצג בנפרד ולא נכלל בהכנסות/רווח</li>
                 </ul>
               </div>
 

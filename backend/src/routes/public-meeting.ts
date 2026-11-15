@@ -72,7 +72,7 @@ publicMeetingRouter.get('/:meetingId/:token', async (req, res, next) => {
       },
     });
 
-    if (!meeting) {
+    if (!meeting || meeting.status === 'tentative') {
       throw new AppError(404, 'פגישה לא נמצאה');
     }
 
@@ -112,7 +112,7 @@ publicMeetingRouter.put('/:meetingId/:token/status', async (req, res, next) => {
       },
     });
 
-    if (!existingMeeting) {
+    if (!existingMeeting || existingMeeting.status === 'tentative') {
       throw new AppError(404, 'פגישה לא נמצאה');
     }
 

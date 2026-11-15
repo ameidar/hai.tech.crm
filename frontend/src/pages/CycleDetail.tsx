@@ -79,6 +79,7 @@ import {
   dayOfWeekHebrew,
   meetingStatusHebrew,
   studentGenderHebrew,
+  TENTATIVE_BADGE_CLASS,
 } from '../types';
 import type { Meeting, MeetingStatus, MeetingNature, Registration, RegistrationStatus, PaymentStatus, PaymentMethod, ActivityType, Cycle, Course, Branch, Instructor, CycleStatus, CycleType, DayOfWeek, InstructorPaymentMode, StudentGender } from '../types';
 import { paymentStatusHebrew, paymentStatusBadgeClass, activityTypeHebrew, meetingNatureHebrew } from '../types';
@@ -393,6 +394,10 @@ export default function CycleDetail() {
 
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [showFreezeModal, setShowFreezeModal] = useState(false);
+  const [showConfirmTentativeModal, setShowConfirmTentativeModal] = useState(false);
+  const [confirmStartDate, setConfirmStartDate] = useState('');
+  const [confirmStartTime, setConfirmStartTime] = useState('');
+  const [confirmEndTime, setConfirmEndTime] = useState('');
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [freezeReason, setFreezeReason] = useState('');
   const [freezeResumeDate, setFreezeResumeDate] = useState('');
@@ -583,6 +588,40 @@ export default function CycleDetail() {
     }
   };
 
+  // Tentative cycle → active: the backend flips its tentative meetings to "scheduled"
+  // (rebuilding them first when the dates/times changed) and from then on reminders,
+  // instructor schedule, billing and video-link creation apply as for any active cycle.
+  const openConfirmTentative = () => {
+    if (!cycle) return;
+    const start = formatTime(cycle.startTime);
+    const end = formatTime(cycle.endTime);
+    const placeholder = start === '00:00';
+    setConfirmStartDate(String(cycle.startDate).slice(0, 10));
+    setConfirmStartTime(placeholder ? '' : start);
+    setConfirmEndTime(placeholder ? '' : end);
+    setShowConfirmTentativeModal(true);
+  };
+
+  const handleConfirmTentative = async () => {
+    if (!id || !cycle) return;
+    const data: Record<string, unknown> = {
+      status: 'active',
+      startTime: confirmStartTime,
+      endTime: confirmEndTime,
+    };
+    if (confirmStartDate && confirmStartDate !== String(cycle.startDate).slice(0, 10)) {
+      data.startDate = confirmStartDate;
+    }
+    try {
+      await updateCycle.mutateAsync({ id, data: data as any });
+      setShowConfirmTentativeModal(false);
+      window.location.reload();
+    } catch (error: any) {
+      console.error('Failed to confirm tentative cycle:', error);
+      alert(error?.response?.data?.error || error?.response?.data?.message || 'שגיאה באישור המחזור');
+    }
+  };
+
   const handleFreeze = async () => {
     if (!id) return;
     setFreezeLoading(true);
@@ -770,6 +809,8 @@ export default function CycleDetail() {
         return <XCircle className="text-red-500" size={18} />;
       case 'postponed':
         return <AlertCircle className="text-yellow-500" size={18} />;
+      case 'tentative':
+        return <Clock className="text-gray-400" size={18} />;
       default:
         return <Clock className="text-blue-500" size={18} />;
     }
@@ -783,6 +824,8 @@ export default function CycleDetail() {
         return 'badge-danger';
       case 'postponed':
         return 'badge-warning';
+      case 'tentative':
+        return TENTATIVE_BADGE_CLASS;
       default:
         return 'badge-info';
     }
@@ -943,10 +986,21 @@ export default function CycleDetail() {
                       cycle.status === 'active' ? 'badge-success' :
                       cycle.status === 'completed' ? 'badge-info' :
                       cycle.status === 'frozen' ? 'badge-secondary' :
+                      cycle.status === 'tentative' ? TENTATIVE_BADGE_CLASS :
                       cycle.status === 'retainer' ? 'badge-warning' : 'badge-danger'
                     }`}>
                       {cycleStatusHebrew[cycle.status]}
                     </span>
+                    {isAdmin && cycle.status === 'tentative' && (
+                      <button
+                        onClick={openConfirmTentative}
+                        className="btn btn-sm text-xs px-2 py-1 bg-green-50 text-green-700 hover:bg-green-100 border border-green-200 rounded-lg"
+                        title="אישור המחזור — המפגשים יהפכו למתוכננים"
+                        data-testid="confirm-tentative-btn"
+                      >
+                        ✓ אשר מחזור
+                      </button>
+                    )}
                     {isAdmin && cycle.status === 'active' && (
                       <button
                         onClick={() => setShowFreezeModal(true)}
@@ -967,6 +1021,14 @@ export default function CycleDetail() {
                     )}
                   </div>
                 </div>
+                {/* Tentative info */}
+                {cycle.status === 'tentative' && (
+                  <div className="mt-3 p-3 bg-gray-50 border border-dashed border-gray-300 rounded-lg text-sm text-gray-600 space-y-1">
+                    <div className="font-medium text-gray-700">מחזור טנטטיבי — טרם אושר</div>
+                    <div>המפגשים נספרים בתחזית כהכנסה טנטטיבית בלבד. אין תזכורות, הודעות, קישורי וידאו, שיבוץ למדריך, חיוב או שכר עד לאישור.</div>
+                    <div className="text-xs text-gray-500">ניתן לעדכן תאריכים ושעות — המפגשים הטנטטיביים יתעדכנו אוטומטית.</div>
+                  </div>
+                )}
                 {/* Frozen info */}
                 {cycle.status === 'frozen' && (
                   <div className="mt-3 p-3 bg-blue-50 rounded-lg text-sm space-y-1">
@@ -1224,9 +1286,12 @@ export default function CycleDetail() {
                           <option value="zoom">Zoom</option>
                         </select>
                       </div>
+                      {cycle.status === 'tentative' && (
+                        <p className="text-xs text-gray-500 mb-2">מחזור טנטטיבי — יש לאשר את המחזור לפני יצירת פגישת וידאו</p>
+                      )}
                       <button
                         onClick={handleCreateZoomMeeting}
-                        disabled={createZoomMeeting.isPending}
+                        disabled={createZoomMeeting.isPending || cycle.status === 'tentative'}
                         className="btn btn-primary"
                         data-testid="create-zoom-btn"
                       >
@@ -2348,6 +2413,61 @@ export default function CycleDetail() {
               {freezeLoading ? 'מקפיא...' : '❄️ הקפא מחזור'}
             </button>
             <button onClick={() => setShowFreezeModal(false)} className="btn btn-secondary">
+              ביטול
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Confirm Tentative Modal ───────────────────── */}
+      <Modal
+        isOpen={showConfirmTentativeModal}
+        onClose={() => setShowConfirmTentativeModal(false)}
+        title="✓ אישור מחזור טנטטיבי"
+      >
+        <div className="space-y-4 p-1" dir="rtl">
+          <p className="text-sm text-gray-600">
+            לאחר האישור המחזור יהפוך לפעיל והמפגשים הטנטטיביים יהפכו למפגשים מתוכננים — כולל תזכורות, שיבוץ למדריך וחיוב.
+            פגישת וידאו (למחזור מקוון) נוצרת כרגיל מכרטיס המחזור לאחר האישור.
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">תאריך התחלה</label>
+            <input
+              type="date"
+              value={confirmStartDate}
+              onChange={e => setConfirmStartDate(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-green-500"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">שעת התחלה *</label>
+              <input
+                type="time"
+                value={confirmStartTime}
+                onChange={e => setConfirmStartTime(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">שעת סיום *</label>
+              <input
+                type="time"
+                value={confirmEndTime}
+                onChange={e => setConfirmEndTime(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button
+              onClick={handleConfirmTentative}
+              disabled={updateCycle.isPending || !confirmStartTime || !confirmEndTime || confirmStartTime === '00:00'}
+              className="btn btn-primary flex-1 disabled:opacity-50"
+            >
+              {updateCycle.isPending ? 'מאשר...' : '✓ אשר מחזור'}
+            </button>
+            <button onClick={() => setShowConfirmTentativeModal(false)} className="btn btn-secondary">
               ביטול
             </button>
           </div>

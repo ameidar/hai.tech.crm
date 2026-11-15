@@ -11,6 +11,7 @@ import { recalcMeetingRevenue } from '../utils/recalcMeetingRevenue.js';
 import { checkAndSendInstitutionalOrderCompletionAlert } from '../services/institutional-order-completion-alert.js';
 import { resolveRegistrationAmountForCycle } from '../utils/registration-amount.js';
 import { cancelFutureMeetingsForCycle } from '../services/cancellations.js';
+import { confirmTentativeMeetings, tentativeCyclesConfirmedByBulk } from '../services/tentative-cycles.js';
 import { autoConvertLeadsForRegistration } from '../services/lead-payment-evidence.js';
 import { redistributeMonthlyFixedRevenue, syncMonthlyFixedForCycle } from '../services/monthly-fixed-billing.js';
 import { isPaidPaymentStatus } from '../utils/payment-status.js';
@@ -218,8 +219,13 @@ cyclesRouter.get('/', async (req, res, next) => {
       if (instructor) instructorId = instructor.id;
     }
 
+    const isInstructor = req.user?.role === 'instructor';
     const where = {
       ...(status && { status: status as any }),
+      // Instructors never see tentative (unconfirmed) cycles.
+      ...(isInstructor && {
+        status: status === 'tentative' ? ({ in: [] } as any) : status ? (status as any) : ({ not: 'tentative' } as any),
+      }),
       ...(type && { type: type as any }),
       ...(branchId && { branchId }),
       ...(instructorId && { instructorId }),
@@ -782,6 +788,8 @@ cyclesRouter.post('/bulk-update', operationsManagerOrAdmin, async (req, res, nex
     // Past/completed/cancelled meetings remain historical records.
     // Skip cycles already cancelled to avoid noisy zero-row updates and duplicate audit lines.
     const cancellingNow = data.status === 'cancelled';
+    // Tentative cycles may only be confirmed (→ active) or cancelled in bulk.
+    const confirmingIds = await tentativeCyclesConfirmedByBulk(ids, data.status);
     const cyclesNeedingCascade = cancellingNow
       ? (await prisma.cycle.findMany({
           where: { id: { in: ids }, status: { not: 'cancelled' } },
@@ -800,6 +808,9 @@ cyclesRouter.post('/bulk-update', operationsManagerOrAdmin, async (req, res, nex
     );
     for (const cycleId of cyclesNeedingCascade) {
       await cancelFutureMeetingsForCycle(cycleId, { req, markCycleCancelled: true });
+    }
+    for (const cycleId of confirmingIds) {
+      await confirmTentativeMeetings(cycleId, req);
     }
 
     if (data.status === 'completed') {
@@ -1151,6 +1162,7 @@ cyclesRouter.post('/:id/freeze', operationsManagerOrAdmin, async (req, res, next
     if (!cycle) throw new AppError(404, 'מחזור לא נמצא');
     if (cycle.status === 'frozen') throw new AppError(400, 'המחזור כבר מוקפא');
     if (cycle.status === 'cancelled') throw new AppError(400, 'לא ניתן להקפיא מחזור מבוטל');
+    if (cycle.status === 'tentative') throw new AppError(400, 'לא ניתן להקפיא מחזור טנטטיבי — יש לאשר אותו קודם');
 
     // Postpone all future scheduled meetings
     const postponed = await prisma.meeting.updateMany({

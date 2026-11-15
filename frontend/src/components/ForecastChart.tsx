@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   AreaChart,
   Area,
@@ -118,6 +119,7 @@ export default function ForecastChart() {
 
   const { summary, patterns } = data;
   const tentativeOrders = data.tentativeOrders ?? [];
+  const tentativeCycles = data.tentativeCycles ?? [];
   const tentativeTotal = summary.tentativeTotal ?? 0;
   const tentativeUnscheduledTotal = summary.tentativeUnscheduledTotal ?? 0;
   const hasTentative = tentativeTotal > 0;
@@ -502,7 +504,7 @@ export default function ForecastChart() {
       </div>
 
       {/* Tentative Orders Card — draft institutional orders, not yet confirmed */}
-      {(hasTentative || tentativeOrders.length > 0) && (
+      {(hasTentative || tentativeOrders.length > 0 || tentativeCycles.length > 0) && (
         <div className="bg-white rounded-xl shadow-sm border border-dashed border-purple-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
@@ -510,8 +512,8 @@ export default function ForecastChart() {
                 <Hourglass className="w-5 h-5 text-purple-600" />
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900">הזמנות טנטטיביות</h3>
-                <p className="text-sm text-gray-500">הזמנות מוסדיות בטיוטה ללא מחזורים — לא נכללות בהכנסות וברווח</p>
+                <h3 className="font-semibold text-gray-900">הכנסה טנטטיבית</h3>
+                <p className="text-sm text-gray-500">מחזורים טנטטיביים (טרם אושרו) והזמנות מוסדיות בטיוטה ללא מחזורים — לא נכללים בהכנסות וברווח</p>
               </div>
             </div>
             <div className="flex items-center gap-6 text-left">
@@ -525,8 +527,30 @@ export default function ForecastChart() {
               </div>
             </div>
           </div>
+          {tentativeCycles.length > 0 && (
+            <div className="space-y-2 mb-3">
+              <div className="text-xs font-medium text-gray-500">מחזורים טנטטיביים</div>
+              {tentativeCycles.map((c) => (
+                <Link
+                  key={c.id}
+                  to={`/cycles/${c.id}`}
+                  className="flex items-center justify-between bg-gray-50 border border-dashed border-gray-300 rounded-lg px-3 py-2 text-sm hover:bg-gray-100"
+                >
+                  <div>
+                    <span className="font-medium text-gray-900">{c.name}</span>
+                    {c.branchName && <span className="text-xs text-gray-500 mr-2">({c.branchName})</span>}
+                    <div className="text-xs text-gray-400 mt-0.5">
+                      {c.meetingCount} מפגשים · {c.monthsCovered.map(formatMonthKey).join(', ')}
+                    </div>
+                  </div>
+                  <span className="font-semibold text-purple-700">₪{Math.round(c.total).toLocaleString()}</span>
+                </Link>
+              ))}
+            </div>
+          )}
           {tentativeOrders.length > 0 && (
             <div className="space-y-2">
+              <div className="text-xs font-medium text-gray-500">הזמנות בטיוטה</div>
               {tentativeOrders.map((o) => (
                 <div key={o.id} className="flex items-center justify-between bg-purple-50/40 rounded-lg px-3 py-2 text-sm">
                   <div>

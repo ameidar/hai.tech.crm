@@ -100,9 +100,16 @@ export async function cancelFutureMeetingsForCycle(
   const futureMeetings = await prisma.meeting.findMany({
     where: {
       cycleId,
-      status: { in: ['scheduled', 'postponed', 'pending_cancellation', 'pending_postponement'] },
-      scheduledDate: { gte: today },
       deletedAt: null,
+      OR: [
+        {
+          status: { in: ['scheduled', 'postponed', 'pending_cancellation', 'pending_postponement'] },
+          scheduledDate: { gte: today },
+        },
+        // Tentative meetings were never confirmed — cancel them all, past dates included,
+        // so a cancelled tentative cycle leaves nothing in the tentative forecast.
+        { status: 'tentative' },
+      ],
     },
     select: {
       id: true,

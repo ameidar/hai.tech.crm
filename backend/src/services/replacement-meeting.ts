@@ -115,7 +115,8 @@ export async function addReplacementMeeting(postponedMeetingId: string, _actorUs
       scheduledDate: newDate,
       startTime,
       endTime,
-      status: 'scheduled',
+      // Defensive: a tentative cycle's replacement stays tentative (no side effects).
+      status: cycle.status === 'tentative' ? 'tentative' : 'scheduled',
       activityType,
       revenue,
       instructorPayment,
@@ -143,7 +144,8 @@ export async function addReplacementMeeting(postponedMeetingId: string, _actorUs
 
   // Create video meeting if the postponed meeting had one (or cycle is online)
   const provider = postponed.videoProvider || cycle.videoProvider || 'zoom';
-  const needsVideoMeeting = (cycle.isOnline || activityType === 'online' || activityType === 'private_lesson')
+  const needsVideoMeeting = cycle.status !== 'tentative'
+    && (cycle.isOnline || activityType === 'online' || activityType === 'private_lesson')
     && (postponed.zoomMeetingId !== null || cycle.zoomMeetingId !== null);
 
   if (needsVideoMeeting) {

@@ -79,14 +79,23 @@ export function splitMonthlyRevenue(
 ): Map<string, number> {
   const result = new Map<string, number>();
   const activeByMonth = new Map<string, SplitMeeting[]>();
+  const tentativeByMonth = new Map<string, SplitMeeting[]>();
 
   for (const m of meetings) {
     result.set(m.id, 0);
     if (!isActiveForMonthlySplit(m)) continue;
     const key = monthKeyOf(m.scheduledDate);
-    const list = activeByMonth.get(key) ?? [];
+    // Tentative meetings (unconfirmed cycle) never dilute confirmed meetings' share.
+    const bucket = String(m.status) === 'tentative' ? tentativeByMonth : activeByMonth;
+    const list = bucket.get(key) ?? [];
     list.push(m);
-    activeByMonth.set(key, list);
+    bucket.set(key, list);
+  }
+
+  // A month with no confirmed meetings splits its amount across its tentative meetings
+  // (forecast-only revenue); otherwise tentative meetings in that month stay at 0.
+  for (const [month, list] of tentativeByMonth) {
+    if (!activeByMonth.has(month)) activeByMonth.set(month, list);
   }
 
   for (const [month, list] of activeByMonth) {

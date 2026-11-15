@@ -34,7 +34,8 @@ instructorsRouter.get('/', async (req, res, next) => {
         meetings: {
           some: {
             deletedAt: null,
-            status: { not: 'cancelled' as const },
+            // tentative meetings (unconfirmed cycles) don't make an instructor "working"
+            status: { notIn: ['cancelled', 'tentative'] as Array<'cancelled' | 'tentative'> },
             scheduledDate: {
               gte: new Date(Date.now() - workingWithinDays * 86_400_000),
               lte: new Date(Date.now() + workingWithinDays * 86_400_000),
@@ -434,7 +435,10 @@ instructorsRouter.get('/:id/meetings', async (req, res, next) => {
           lte: new Date(to),
         },
       }),
-      ...(status && { status: status as any }),
+      // Tentative meetings (unconfirmed cycles) are hidden unless explicitly requested by staff.
+      status: status && !(status === 'tentative' && req.user?.role === 'instructor')
+        ? (status as any)
+        : status === 'tentative' ? ({ in: [] } as any) : ({ not: 'tentative' } as any),
     };
 
     const meetings = await prisma.meeting.findMany({
@@ -476,6 +480,7 @@ instructorsRouter.get('/:id/schedule', async (req, res, next) => {
           gte: startOfWeek,
           lte: endOfWeek,
         },
+        status: { not: 'tentative' }, // instructor schedule never shows unconfirmed meetings
       },
       include: {
         cycle: {

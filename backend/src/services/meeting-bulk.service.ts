@@ -20,6 +20,7 @@ import {
   recalculateDailyInstructorPaymentsForMeeting,
 } from './instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from './negative-profit-alert.js';
+import { isTentativeMeetingStatusChangeBlocked } from './tentative-cycles.js';
 
 export async function assertRegistrationBelongsToCycle(registrationId: string, cycleId: string) {
   const registration = await prisma.registration.findFirst({
@@ -207,6 +208,10 @@ export async function bulkUpdateMeetingStatus(body: any, req?: Request) {
 
         if (!existingMeeting) {
           errors.push(`Meeting ${id} not found`);
+          continue;
+        }
+        if (isTentativeMeetingStatusChangeBlocked(existingMeeting.status, existingMeeting.cycle?.status, status)) {
+          errors.push(`Meeting ${id}: מפגש של מחזור טנטטיבי — יש לאשר את המחזור קודם`);
           continue;
         }
 
@@ -417,6 +422,10 @@ export async function bulkUpdateMeetings(body: any, req?: Request) {
 
         if (!existingMeeting) {
           errors.push(`Meeting ${id} not found`);
+          continue;
+        }
+        if (isTentativeMeetingStatusChangeBlocked(existingMeeting.status, existingMeeting.cycle?.status, updateData.status)) {
+          errors.push(`Meeting ${id}: מפגש של מחזור טנטטיבי — יש לאשר את המחזור קודם`);
           continue;
         }
 

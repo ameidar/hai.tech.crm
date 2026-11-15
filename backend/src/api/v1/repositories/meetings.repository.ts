@@ -113,7 +113,7 @@ export class MeetingsRepository {
   /**
    * Create meeting
    */
-  async create(data: CreateMeetingInput) {
+  async create(data: CreateMeetingInput, opts: { tentative?: boolean } = {}) {
     // Parse time strings to Date objects for Prisma
     const startTime = new Date(`1970-01-01T${data.startTime}:00Z`);
     const endTime = new Date(`1970-01-01T${data.endTime}:00Z`);
@@ -125,7 +125,8 @@ export class MeetingsRepository {
         scheduledDate: data.scheduledDate,
         startTime,
         endTime,
-        status: 'scheduled',
+        // A meeting added to a tentative cycle is tentative (no side effects).
+        status: opts.tentative ? 'tentative' : 'scheduled',
         ...(data.nature ? { nature: data.nature } : {}),
         activityType: data.activityType,
         topic: data.topic,

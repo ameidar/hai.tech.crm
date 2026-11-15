@@ -146,8 +146,9 @@ const cycleBaseSchema = z.object({
   startDate: z.string(),
   endDate: z.string().optional(), // Will be calculated automatically if not provided
   dayOfWeek: z.enum(['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']),
-  startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format'),
-  endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format'),
+  // Optional only for tentative cycles (activity not yet confirmed) — see requireTimesUnlessTentative.
+  startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format').optional(),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format').optional(),
   durationMinutes: z.number().int().positive(),
   totalMeetings: z.number().int().positive(),
   pricePerStudent: z.number().nonnegative().optional().nullable(),
@@ -203,12 +204,31 @@ const requireOrderForInstitutional = (
   }
 };
 
+// A tentative cycle (not yet confirmed) may be created without final times — a
+// placeholder slot is stored. Any other cycle must have real start/end times.
+const requireTimesUnlessTentative = (
+  data: { status?: string; startTime?: string; endTime?: string },
+  ctx: z.RefinementCtx,
+) => {
+  if (data.status === 'tentative') return;
+  for (const key of ['startTime', 'endTime'] as const) {
+    if (!data[key]) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: 'Time must be in HH:MM format' });
+    }
+  }
+};
+
 export const createCycleSchema = cycleBaseSchema
+  .extend({
+    // Only 'active' (default) or 'tentative' make sense for a brand-new cycle.
+    status: z.enum(['active', 'tentative']).optional(),
+  })
+  .superRefine(requireTimesUnlessTentative)
   .superRefine(requireLocationForFrontal)
   .superRefine(requireOrderForInstitutional);
 
 export const updateCycleSchema = cycleBaseSchema.partial().extend({
-  status: z.enum(['active', 'completed', 'cancelled', 'frozen', 'retainer']).optional(),
+  status: z.enum(['active', 'completed', 'cancelled', 'frozen', 'retainer', 'tentative']).optional(),
   completedMeetings: z.number().int().nonnegative().optional(),
   remainingMeetings: z.number().int().nonnegative().optional(),
 });
@@ -256,7 +276,9 @@ export const createMeetingSchema = z.object({
 });
 
 export const updateMeetingSchema = z.object({
-  status: z.enum(['scheduled', 'completed', 'cancelled', 'postponed']).optional(),
+  // 'tentative' is accepted only as a no-op (re-sent by the edit form for a tentative meeting);
+  // the tentative guard rejects any change into it.
+  status: z.enum(['scheduled', 'completed', 'cancelled', 'postponed', 'tentative']).optional(),
   nature: meetingNatureEnum.optional(),
   topic: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),

@@ -31,7 +31,7 @@ import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal';
 import BulkMeetingEditModal, { type BulkMeetingUpdateData } from '../components/BulkMeetingEditModal';
 import ViewSelector from '../components/ViewSelector';
 import PendingMeetingRequests from '../components/PendingMeetingRequests';
-import { meetingStatusHebrew } from '../types';
+import { meetingStatusHebrew, TENTATIVE_BADGE_CLASS } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
 const getMeetingRegisteredChildrenCount = (meeting: Meeting) =>
@@ -507,6 +507,8 @@ export default function Meetings() {
       case 'pending_cancellation':
       case 'pending_postponement':
         return 'badge-warning';
+      case 'tentative':
+        return TENTATIVE_BADGE_CLASS;
       default:
         return 'badge-info';
     }
@@ -767,6 +769,7 @@ export default function Meetings() {
                         <option value="postponed">נדחתה</option>
                         <option value="pending_cancellation">בקשת ביטול</option>
                         <option value="pending_postponement">בקשת דחייה</option>
+                        <option value="tentative">טנטטיבי (מחזור לא מאושר)</option>
                       </select>
                     </div>
                     <div>

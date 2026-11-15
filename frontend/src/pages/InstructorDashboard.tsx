@@ -128,8 +128,10 @@ export default function InstructorDashboard() {
   // Filter meetings by cycle
   const filteredMeetings = useMemo(() => {
     if (!meetings || !Array.isArray(meetings)) return [];
-    if (cycleFilter === 'all') return meetings;
-    return meetings.filter(m => m.cycle?.id === cycleFilter);
+    // Tentative meetings (unconfirmed cycles) are never shown to instructors.
+    const confirmed = meetings.filter(m => m.status !== 'tentative');
+    if (cycleFilter === 'all') return confirmed;
+    return confirmed.filter(m => m.cycle?.id === cycleFilter);
   }, [meetings, cycleFilter]);
 
   const stats = useMemo(() => {

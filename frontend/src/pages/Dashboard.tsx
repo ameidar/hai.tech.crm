@@ -39,7 +39,12 @@ export default function Dashboard() {
   const today = new Date().toISOString().split('T')[0];
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
 
-  const { data: todayMeetings, isLoading: loadingMeetings } = useMeetings({ date: today });
+  const { data: todayMeetingsRaw, isLoading: loadingMeetings } = useMeetings({ date: today });
+  // Tentative meetings (unconfirmed cycles) are not part of today's operations.
+  const todayMeetings = useMemo(
+    () => todayMeetingsRaw?.filter((m) => m.status !== 'tentative'),
+    [todayMeetingsRaw],
+  );
   const { data: paymentsToday } = usePaymentsToday();
   const { data: cyclesData, isLoading: loadingCycles } = useCyclesWithTotal({ status: 'active' });
   const cycles = cyclesData?.data;
@@ -83,6 +88,8 @@ export default function Dashboard() {
         return { bg: 'bg-rose-100', text: 'text-rose-700', dot: 'bg-rose-500' };
       case 'postponed':
         return { bg: 'bg-amber-100', text: 'text-amber-700', dot: 'bg-amber-500' };
+      case 'tentative':
+        return { bg: 'bg-gray-100 border border-dashed border-gray-400', text: 'text-gray-600', dot: 'bg-gray-400' };
       default:
         return { bg: 'bg-sky-100', text: 'text-sky-700', dot: 'bg-sky-500' };
     }

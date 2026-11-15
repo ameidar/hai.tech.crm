@@ -390,6 +390,7 @@ webhookRouter.get('/cycles/:id/meeting', async (req, res, next) => {
           gte: targetDate,
           lt: nextDay,
         },
+        status: { not: 'tentative' }, // unconfirmed cycle — not a real meeting yet
       },
       select: {
         id: true,
@@ -488,7 +489,8 @@ webhookRouter.post('/meetings/:id/zoom', async (req, res, next) => {
     }
 
     const meeting = await prisma.meeting.update({
-      where: { id: meetingId },
+      // Tentative meetings never get video links (confirm the cycle first).
+      where: { id: meetingId, status: { not: 'tentative' } },
       data: {
         zoomMeetingId: zoomMeetingId || null,
         zoomJoinUrl,
@@ -528,6 +530,7 @@ webhookRouter.post('/cycles/:id/zoom', async (req, res, next) => {
           where: {
             id: m.meetingId,
             cycleId, // Ensure meeting belongs to cycle
+            status: { not: 'tentative' }, // tentative meetings never get video links
           },
           data: {
             zoomMeetingId: m.zoomMeetingId || null,

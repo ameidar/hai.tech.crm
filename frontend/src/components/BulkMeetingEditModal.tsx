@@ -120,9 +120,11 @@ export default function BulkMeetingEditModal({
               disabled={!enabledFields.has('status')}
             >
               <option value="">בחר סטטוס</option>
-              {Object.entries(meetingStatusHebrew).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
+              {Object.entries(meetingStatusHebrew)
+                .filter(([value]) => value !== 'tentative')
+                .map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
             </select>
           </div>
         </div>

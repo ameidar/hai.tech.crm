@@ -78,7 +78,8 @@ export async function recalcMeetingRevenue(cycleId: string): Promise<void> {
   const futureMeetings = await prisma.meeting.findMany({
     where: {
       cycleId,
-      status: 'scheduled',
+      // tentative meetings carry forecast-only revenue — keep it in sync too
+      status: { in: ['scheduled', 'tentative'] },
       scheduledDate: { gte: today },
       nature: 'regular',
     },

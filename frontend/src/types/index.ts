@@ -3,9 +3,9 @@ export type CourseCategory = 'programming' | 'ai' | 'robotics' | 'printing_3d';
 export type BranchType = 'school' | 'community_center' | 'frontal' | 'online';
 export type OrderStatus = 'draft' | 'active' | 'completed' | 'cancelled';
 export type CycleType = 'private' | 'trial_private' | 'group' | 'institutional_per_child' | 'institutional_fixed';
-export type CycleStatus = 'active' | 'completed' | 'cancelled' | 'frozen' | 'retainer';
+export type CycleStatus = 'active' | 'completed' | 'cancelled' | 'frozen' | 'retainer' | 'tentative';
 export type DayOfWeek = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday';
-export type MeetingStatus = 'scheduled' | 'completed' | 'cancelled' | 'postponed' | 'pending_cancellation' | 'pending_postponement';
+export type MeetingStatus = 'scheduled' | 'completed' | 'cancelled' | 'postponed' | 'pending_cancellation' | 'pending_postponement' | 'tentative';
 export type MeetingNature = 'regular' | 'no_revenue';
 export type RegistrationStatus = 'registered' | 'active' | 'completed' | 'pending_cancellation' | 'cancelled' | 'trial';
 // refunded = "זוכה": was paid, then cancelled with a Morning credit note. NOT paid.
@@ -511,6 +511,7 @@ export const meetingStatusHebrew: Record<MeetingStatus, string> = {
   postponed: 'נדחה',
   pending_cancellation: 'בקשת ביטול',
   pending_postponement: 'בקשת דחיה',
+  tentative: 'טנטטיבי',
 };
 
 export const meetingNatureHebrew: Record<MeetingNature, string> = {
@@ -524,7 +525,11 @@ export const cycleStatusHebrew: Record<CycleStatus, string> = {
   cancelled: 'בוטל',
   frozen: '❄️ מוקפא',
   retainer: '💼 ריטיינר',
+  tentative: 'טנטטיבי',
 };
+
+/** Extra classes (after `badge`) for a tentative (unconfirmed) cycle/meeting — grey + dashed border. */
+export const TENTATIVE_BADGE_CLASS = 'bg-gray-100 text-gray-600 border border-dashed border-gray-400';
 
 export const cycleTypeHebrew: Record<CycleType, string> = {
   private: 'פרטי',

@@ -324,7 +324,8 @@ async function getLocallyBookedHostEmails(
     where: {
       scheduledDate,
       deletedAt: null,
-      status: { notIn: ['cancelled', 'postponed'] },
+      // tentative meetings hold no video slot
+      status: { notIn: ['cancelled', 'postponed', 'tentative'] },
       // Half-open overlap: existing.startTime < newEnd  AND  existing.endTime > newStart
       AND: [
         { startTime: { lt: newEnd } },

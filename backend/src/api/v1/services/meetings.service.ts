@@ -16,6 +16,7 @@ import {
 } from '../validators/meetings.js';
 import { meetingRevenueForCycle } from '../../../utils/revenue.js';
 import { syncCycleEndDate } from '../../../utils/cycle-sync.js';
+import { assertTentativeMeetingStatusChange } from '../../../services/tentative-cycles.js';
 import {
   calculateInstructorPayment,
   recalculateDailyInstructorPaymentsForMeeting,
@@ -72,7 +73,7 @@ export class MeetingsService {
       throw new NotFoundError('Instructor', data.instructorId);
     }
 
-    const meeting = await this.repository.create(data);
+    const meeting = await this.repository.create(data, { tentative: cycle.status === 'tentative' });
 
     // Update cycle meeting counts
     await prisma.cycle.update({
@@ -117,6 +118,8 @@ export class MeetingsService {
     if (!existing) {
       throw new NotFoundError('Meeting', id);
     }
+    // Tentative meetings: only date/time edits or cancellation until the cycle is confirmed.
+    assertTentativeMeetingStatusChange(existing.status, (existing as any).cycle?.status, data.status);
 
     // Handle status change to completed - calculate financials
     if (data.status === 'completed' && existing.status !== 'completed') {

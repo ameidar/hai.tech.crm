@@ -85,6 +85,8 @@ ${DB_SCHEMA}
 - enum DayOfWeek: ערכים lowercase בלבד: 'sunday','monday','tuesday','wednesday','thursday','friday','saturday'
 - בעברית: ראשון=sunday, שני=monday, שלישי=tuesday, רביעי=wednesday, חמישי=thursday
 - שמות מדריכים: חפש ב-instructors.name עם ILIKE '%שם%'
+- status = 'tentative' (במחזורים ובפגישות) = מחזור/מפגש טנטטיבי שטרם אושר — לא חלק מהפעילות בפועל:
+  בשאלות על הכנסות/רווח/שכר/מפגשים/לו"ז הוסף AND status <> 'tentative' (אלא אם שואלים במפורש על טנטטיבי)
 `;
 
   if (role === 'instructor') {
@@ -93,6 +95,7 @@ ${DB_SCHEMA}
 - **מותר:** נתונים שקשורים אליך בלבד
 - **אסור:** נתונים של מדריכים אחרים, פיננסים, לידים
 - כל שאילתה על meetings/cycles חייבת לכלול: WHERE instructor_id = '${userId}'
+- כל שאילתה על meetings/cycles חייבת לכלול גם: AND status <> 'tentative' (מחזורים לא מאושרים אינם גלויים למדריך)
 - אם שואלים על נתונים של מדריכים אחרים — ענה: "אין לך הרשאה לראות נתונים של מדריכים אחרים"
 `;
   }

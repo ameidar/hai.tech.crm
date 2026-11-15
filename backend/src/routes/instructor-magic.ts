@@ -76,7 +76,8 @@ router.get('/verify/:meetingId/:token', async (req: Request, res: Response) => {
       }
     });
     
-    if (!meeting) {
+    // Tentative (unconfirmed) meetings are never exposed to instructors.
+    if (!meeting || meeting.status === 'tentative') {
       return res.status(404).json({ 
         error: 'NOT_FOUND',
         message: 'פגישה לא נמצאה'
@@ -232,7 +233,7 @@ router.post('/update/:meetingId/:token', async (req: Request, res: Response) => 
       }
     });
     
-    if (!meeting || meeting.instructorId !== verification.instructorId) {
+    if (!meeting || meeting.instructorId !== verification.instructorId || meeting.status === 'tentative') {
       return res.status(403).json({ error: 'FORBIDDEN' });
     }
 

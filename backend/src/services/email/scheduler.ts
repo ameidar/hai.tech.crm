@@ -262,6 +262,7 @@ const sendManagementSummary = async () => {
       prisma.meeting.count({
         where: {
           scheduledDate: { gte: today, lt: tomorrow },
+          status: { not: 'tentative' }, // unconfirmed cycles are not part of today's operations
         },
       }),
       prisma.meeting.count({
@@ -280,6 +281,7 @@ const sendManagementSummary = async () => {
         where: {
           meeting: {
             scheduledDate: { gte: today, lt: tomorrow },
+            status: { not: 'tentative' },
           },
           status: 'present',
         },

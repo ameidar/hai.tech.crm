@@ -9,7 +9,7 @@ import Modal from '../components/ui/Modal';
 import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal';
 import ViewSelector from '../components/ViewSelector';
 import type { Student, Cycle, Registration, PaymentStatus, PaymentMethod, Customer, RegistrationStatus, StudentGender } from '../types';
-import { paymentStatusHebrew, studentGenderHebrew } from '../types';
+import { paymentStatusHebrew, paymentStatusPillClass, studentGenderHebrew } from '../types';
 
 export default function Students() {
   const [search, setSearch] = useState('');
@@ -277,9 +277,7 @@ export default function Students() {
                             onClick={() => setEditPayment({ student, registration: reg })}
                             className={`px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 border ${
                               reg.status === 'cancelled' ? 'bg-gray-100 text-gray-400 border-gray-200 line-through' :
-                              reg.paymentStatus === 'paid' ? 'bg-green-50 text-green-700 border-green-200' :
-                              reg.paymentStatus === 'partial' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
-                              'bg-red-50 text-red-700 border-red-200'
+                              paymentStatusPillClass[reg.paymentStatus || 'unpaid']
                             }`}
                           >
                             <CreditCard size={10} />
@@ -362,7 +360,7 @@ export default function Students() {
                           <div className="flex flex-wrap gap-1">
                             {student.registrations.map((reg) => (
                               <button key={reg.id} onClick={() => setEditPayment({ student, registration: reg })}
-                                className={`px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 border ${reg.paymentStatus === 'paid' ? 'bg-green-50 text-green-700 border-green-200' : reg.paymentStatus === 'partial' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                                className={`px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 border ${paymentStatusPillClass[reg.paymentStatus || 'unpaid']}`}>
                                 <CreditCard size={10} />{reg.cycle?.course?.name?.substring(0, 10) || 'מחזור'}
                               </button>
                             ))}
@@ -956,6 +954,7 @@ function PaymentEditForm({ registration, onSubmit, onCancel, isLoading }: Paymen
             <option value="unpaid">לא שולם</option>
             <option value="partial">שולם חלקית</option>
             <option value="paid">שולם במלואו</option>
+            <option value="refunded">זוכה (בוטל בחשבונית זיכוי)</option>
           </select>
         </div>
 

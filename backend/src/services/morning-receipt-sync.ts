@@ -91,8 +91,10 @@ async function linkReceiptToRegistration(
     },
     select: { id: true, amount: true, paymentStatus: true },
   });
+  // A `refunded` (זוכה) registration was deliberately credited — never auto-flip it back
+  // to paid from an amount match; a new receipt for it must be linked manually.
   const matches = candidates.filter(
-    r => r.amount != null && Math.abs(Number(r.amount) - amount) < AMOUNT_TOLERANCE,
+    r => r.paymentStatus !== 'refunded' && r.amount != null && Math.abs(Number(r.amount) - amount) < AMOUNT_TOLERANCE,
   );
   if (matches.length === 0) return { outcome: 'no_matching_registration' };
   if (matches.length > 1) return { outcome: 'ambiguous_registrations' };

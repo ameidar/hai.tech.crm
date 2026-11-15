@@ -106,7 +106,7 @@ export async function findZoomHostConflictsForDate(scheduledDate: Date): Promise
     where: {
       scheduledDate,
       deletedAt: null,
-      status: { notIn: ['cancelled', 'postponed'] },
+      status: { notIn: ['cancelled', 'postponed', 'tentative'] },
       zoomHostEmail: { not: null },
       videoProvider: { not: 'google_meet' },
     },

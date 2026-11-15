@@ -154,7 +154,8 @@ async function computeBillingLines(
       where: {
         cycle: { institutionalOrderId },
         deletedAt: null,
-        status: { notIn: ['cancelled', 'postponed'] },
+        // tentative = unconfirmed cycle, never billed
+        status: { notIn: ['cancelled', 'postponed', 'tentative'] },
         scheduledDate: { gte: start, lt: endExclusive },
         revenue: { gt: 0 },
       },

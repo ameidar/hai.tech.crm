@@ -10,7 +10,7 @@ import SearchableSelect from '../components/ui/SearchableSelect';
 import MeetingsExportModal from '../components/MeetingsExportModal';
 import ViewSelector from '../components/ViewSelector';
 import { useAuth } from '../context/AuthContext';
-import { cycleStatusHebrew, cycleTypeHebrew, dayOfWeekHebrew } from '../types';
+import { cycleStatusHebrew, cycleTypeHebrew, dayOfWeekHebrew, TENTATIVE_BADGE_CLASS } from '../types';
 import type { Cycle, CycleType, CycleStatus, DayOfWeek, ActivityType, InstructorPaymentMode } from '../types';
 import { activityTypeHebrew } from '../types';
 import { exportMeetingsToExcel } from '../utils/meetingsExcel';
@@ -555,6 +555,7 @@ export default function Cycles() {
                 <option value="cancelled">בוטל</option>
                 <option value="frozen">❄️ מוקפא</option>
                 <option value="retainer">💼 ריטיינר</option>
+                <option value="tentative">טנטטיבי</option>
               </select>
             </div>
             <div className="w-1/2 md:w-40">
@@ -674,7 +675,7 @@ export default function Cycles() {
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-semibold text-blue-600 text-sm">{cycle.name}</span>
-                    <span className={`badge text-xs ${cycle.status === 'active' ? 'badge-success' : cycle.status === 'completed' ? 'badge-info' : cycle.status === 'frozen' ? 'badge-secondary' : cycle.status === 'retainer' ? 'badge-warning' : 'badge-danger'}`}>
+                    <span className={`badge text-xs ${cycle.status === 'active' ? 'badge-success' : cycle.status === 'completed' ? 'badge-info' : cycle.status === 'frozen' ? 'badge-secondary' : cycle.status === 'tentative' ? TENTATIVE_BADGE_CLASS : cycle.status === 'retainer' ? 'badge-warning' : 'badge-danger'}`}>
                       {cycleStatusHebrew[cycle.status]}
                     </span>
                   </div>
@@ -839,7 +840,7 @@ export default function Cycles() {
                         <td>
                           <span className={`badge ${
                             cycle.status === 'active' ? 'badge-success' :
-                            cycle.status === 'completed' ? 'badge-info' : cycle.status === 'frozen' ? 'badge-secondary' : cycle.status === 'retainer' ? 'badge-warning' : 'badge-danger'
+                            cycle.status === 'completed' ? 'badge-info' : cycle.status === 'frozen' ? 'badge-secondary' : cycle.status === 'tentative' ? TENTATIVE_BADGE_CLASS : cycle.status === 'retainer' ? 'badge-warning' : 'badge-danger'
                           }`}>
                             {cycleStatusHebrew[cycle.status]}
                           </span>
@@ -993,11 +994,14 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     isOnline: false,
     activityType: 'frontal' as ActivityType,
     location: '',
+    // 'tentative' = activity not yet confirmed: meetings only feed the forecast, no side effects.
+    status: 'active' as 'active' | 'tentative',
   });
 
   const { data: instOrdersData } = useInstitutionalOrders({ limit: 500 });
   const institutionalOrders: any[] = (instOrdersData as any)?.data || [];
   const isInstitutionalType = formData.type === 'institutional_per_child' || formData.type === 'institutional_fixed';
+  const isTentative = formData.status === 'tentative';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1022,6 +1026,11 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
       alert('יש להזין עלות יומית למדריך');
       return;
     }
+
+    if (!isTentative && (!formData.startTime || !formData.endTime)) {
+      alert('יש להזין שעת התחלה וסיום');
+      return;
+    }
     
     const priceValue = Number(formData.pricePerStudent);
     const defaultRegistrationAmountValue = Number(formData.defaultRegistrationAmount);
@@ -1032,9 +1041,10 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
     
     // Amounts entered here are always before VAT. VAT is not HaiTech revenue.
     
-    // Calculate duration from start/end times
-    const [startHour, startMin] = formData.startTime.split(':').map(Number);
-    const [endHour, endMin] = formData.endTime.split(':').map(Number);
+    // Calculate duration from start/end times (a tentative cycle may have no times yet)
+    const hasTimes = Boolean(formData.startTime && formData.endTime);
+    const [startHour, startMin] = hasTimes ? formData.startTime.split(':').map(Number) : [0, 0];
+    const [endHour, endMin] = hasTimes ? formData.endTime.split(':').map(Number) : [0, 0];
     const calculatedDuration = (endHour * 60 + endMin) - (startHour * 60 + startMin);
     const durationMinutes = calculatedDuration > 0 ? calculatedDuration : Number(formData.durationMinutes);
     
@@ -1056,6 +1066,11 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
       submitData.revenueIncludesVat = false;
     }
     delete submitData.includesVat;
+    if (!hasTimes) {
+      // Tentative without final times — the server stores a placeholder slot.
+      delete submitData.startTime;
+      delete submitData.endTime;
+    }
     // Remove endDate if empty - it will be calculated automatically
     if (!submitData.endDate) {
       delete submitData.endDate;
@@ -1131,6 +1146,24 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
             <option value="institutional_per_child">מוסדי (פר ילד)</option>
             <option value="institutional_fixed">מוסדי (סכום קבוע)</option>
           </select>
+        </div>
+
+        <div>
+          <label className="form-label">סטטוס</label>
+          <select
+            value={formData.status}
+            onChange={(e) => setFormData({ ...formData, status: e.target.value as 'active' | 'tentative' })}
+            className="form-input"
+            data-testid="cycle-create-status"
+          >
+            <option value="active">פעיל</option>
+            <option value="tentative">טנטטיבי (טרם אושר)</option>
+          </select>
+          {isTentative && (
+            <p className="text-xs text-gray-500 mt-1">
+              המפגשים ייכנסו לתחזית כהכנסה טנטטיבית בלבד — ללא תזכורות, הודעות, קישורי וידאו, שיבוץ למדריך, חיוב או שכר. שעות אינן חובה.
+            </p>
+          )}
         </div>
 
         {isInstitutionalType && (
@@ -1226,24 +1259,24 @@ function CycleForm({ courses, branches, instructors, onSubmit, onCancel, isLoadi
           </div>
 
           <div>
-            <label className="form-label">שעת התחלה *</label>
+            <label className="form-label">שעת התחלה {isTentative ? '(אופציונלי)' : '*'}</label>
             <input
               type="time"
               value={formData.startTime}
               onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
               className="form-input"
-              required
+              required={!isTentative}
             />
           </div>
 
           <div>
-            <label className="form-label">שעת סיום *</label>
+            <label className="form-label">שעת סיום {isTentative ? '(אופציונלי)' : '*'}</label>
             <input
               type="time"
               value={formData.endTime}
               onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
               className="form-input"
-              required
+              required={!isTentative}
             />
           </div>
 
@@ -1643,11 +1676,22 @@ function CycleEditForm({ cycle, courses, branches, instructors, onSubmit, onCanc
             onChange={(e) => setFormData({ ...formData, status: e.target.value as CycleStatus })}
             className="form-input"
           >
-            <option value="active">פעיל</option>
-            <option value="completed">הושלם</option>
-            <option value="cancelled">בוטל</option>
-            <option value="frozen">❄️ מוקפא</option>
-            <option value="retainer">💼 ריטיינר</option>
+            {cycle.status === 'tentative' ? (
+              // A tentative cycle can only be confirmed (→ פעיל) or cancelled.
+              <>
+                <option value="tentative">טנטטיבי (טרם אושר)</option>
+                <option value="active">פעיל — אשר מחזור</option>
+                <option value="cancelled">בוטל</option>
+              </>
+            ) : (
+              <>
+                <option value="active">פעיל</option>
+                <option value="completed">הושלם</option>
+                <option value="cancelled">בוטל</option>
+                <option value="frozen">❄️ מוקפא</option>
+                <option value="retainer">💼 ריטיינר</option>
+              </>
+            )}
           </select>
         </div>
 

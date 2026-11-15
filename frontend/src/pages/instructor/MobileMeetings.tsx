@@ -57,7 +57,8 @@ export default function MobileMeetings() {
   const meetings = useMemo(() => {
     if (viewMode === 'cycle' && !selectedCycleId) return [];
     if (!allMeetings || !Array.isArray(allMeetings)) return [];
-    return allMeetings;
+    // Tentative meetings (unconfirmed cycles) are never shown to instructors.
+    return allMeetings.filter((m) => m.status !== 'tentative');
   }, [allMeetings, viewMode, selectedCycleId]);
 
   const formatTime = (time: string) => {

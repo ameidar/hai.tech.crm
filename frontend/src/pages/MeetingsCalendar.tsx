@@ -63,6 +63,8 @@ export default function MeetingsCalendar() {
   const branchId = searchParams.get('branchId') || '';
   const colorBy = (searchParams.get('colorBy') === 'branch' ? 'branch' : 'instructor') as ColorBy;
   const showCancelled = searchParams.get('cancelled') === '1';
+  // Tentative meetings (unconfirmed cycles) are hidden unless explicitly requested.
+  const showTentative = searchParams.get('tentative') === '1';
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Meeting | null>(null);
 
@@ -91,6 +93,7 @@ export default function MeetingsCalendar() {
     const q = search.trim();
     return (meetings || [])
       .filter((m) => showCancelled || !INACTIVE.has(m.status))
+      .filter((m) => showTentative || m.status !== 'tentative')
       .filter((m) => {
         if (!q) return true;
         const hay = `${m.cycle?.name || ''} ${m.instructor?.name || ''} ${m.cycle?.branch?.name || ''} ${m.cycle?.course?.name || ''} ${m.topic || ''}`;
@@ -103,7 +106,7 @@ export default function MeetingsCalendar() {
         dateKey: m.scheduledDate.slice(0, 10),
         meeting: m,
       }));
-  }, [meetings, search, showCancelled]);
+  }, [meetings, search, showCancelled, showTentative]);
 
   const byDay = useMemo(() => {
     const map = new Map<string, CalItem[]>();
@@ -198,6 +201,10 @@ export default function MeetingsCalendar() {
           <label className="flex items-center gap-2 text-sm text-gray-700">
             <input type="checkbox" checked={showCancelled} onChange={(e) => update({ cancelled: e.target.checked ? '1' : null })} />
             הצג מבוטלות/נדחות
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={showTentative} onChange={(e) => update({ tentative: e.target.checked ? '1' : null })} />
+            הצג טנטטיביים
           </label>
         </div>
       </div>
@@ -440,6 +447,7 @@ function EventCard({
   const c = colorFor(colorKey(m, colorBy));
   const inactive = INACTIVE.has(m.status);
   const pending = PENDING.has(m.status);
+  const tentative = m.status === 'tentative';
   const time = `${formatMinutes(item.start)}–${formatMinutes(item.end)}`;
   const tooltip = [time, m.cycle?.name, m.instructor?.name, m.cycle?.branch?.name, meetingStatusHebrew[m.status]].filter(Boolean).join('\n');
 
@@ -447,17 +455,18 @@ function EventCard({
     <button
       onClick={() => onOpen(m)}
       title={tooltip}
-      className={`absolute z-[5] text-right rounded-md px-1.5 py-1 overflow-hidden shadow-sm hover:z-30 hover:shadow-md transition-shadow ${inactive ? 'opacity-50 line-through' : ''}`}
+      className={`absolute z-[5] text-right rounded-md px-1.5 py-1 overflow-hidden shadow-sm hover:z-30 hover:shadow-md transition-shadow ${inactive ? 'opacity-50 line-through' : ''} ${tentative ? 'opacity-70 border border-dashed border-gray-400' : ''}`}
       style={{
         ...style,
-        background: c.bg,
-        color: c.text,
-        borderRight: `4px ${pending ? 'dashed' : 'solid'} ${c.border}`,
+        background: tentative ? '#f3f4f6' : c.bg,
+        color: tentative ? '#4b5563' : c.text,
+        borderRight: `4px ${pending || tentative ? 'dashed' : 'solid'} ${tentative ? '#9ca3af' : c.border}`,
       }}
     >
       <div className="flex items-center gap-1 text-[11px] font-semibold leading-tight">
         {m.status === 'completed' && <CheckCircle2 size={11} className="shrink-0" />}
         <span className="truncate" dir="ltr">{time}</span>
+        {tentative && <span className="shrink-0 text-[10px] font-normal">· טנטטיבי</span>}
       </div>
       <div className={`text-xs font-medium leading-tight ${compact ? 'truncate' : 'line-clamp-2'}`}>{m.cycle?.name || 'פגישה'}</div>
       {!compact && showInstructor && m.instructor?.name && <div className="text-[11px] leading-tight truncate opacity-80">{m.instructor.name}</div>}
@@ -516,8 +525,10 @@ function MonthView({
                       key={it.id}
                       onClick={() => onOpen(it.meeting)}
                       title={`${formatMinutes(it.start)} ${it.meeting.cycle?.name || ''} · ${it.meeting.instructor?.name || ''}`}
-                      className={`w-full text-right truncate text-[11px] rounded px-1 py-0.5 ${INACTIVE.has(it.meeting.status) ? 'opacity-50 line-through' : ''}`}
-                      style={{ background: c.bg, color: c.text, borderRight: `3px solid ${c.border}` }}
+                      className={`w-full text-right truncate text-[11px] rounded px-1 py-0.5 ${INACTIVE.has(it.meeting.status) ? 'opacity-50 line-through' : ''} ${it.meeting.status === 'tentative' ? 'opacity-70 border border-dashed border-gray-400' : ''}`}
+                      style={it.meeting.status === 'tentative'
+                        ? { background: '#f3f4f6', color: '#4b5563', borderRight: '3px dashed #9ca3af' }
+                        : { background: c.bg, color: c.text, borderRight: `3px solid ${c.border}` }}
                     >
                       <span className="font-semibold" dir="ltr">{formatMinutes(it.start)}</span> {it.meeting.cycle?.name}
                     </button>

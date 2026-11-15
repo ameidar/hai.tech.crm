@@ -685,7 +685,8 @@ export async function getOperationsControlToday(filters: OperationsControlFilter
 
   const [todayMeetings, recentCompletedMeetings, pastScheduledMeetings, weekMeetings, overdueTasks, openTasks, openTaskCount, recentAbsences, recentChangeRequests, activeCycles] = await Promise.all([
     prisma.meeting.findMany({
-      where: { scheduledDate: todayDate, deletedAt: null },
+      // tentative = unconfirmed cycle; not part of the operational day/instructor load
+      where: { scheduledDate: todayDate, deletedAt: null, status: { not: 'tentative' } },
       include: meetingInclude,
       orderBy: [{ startTime: 'asc' }],
     }),
@@ -713,6 +714,7 @@ export async function getOperationsControlToday(filters: OperationsControlFilter
       where: {
         scheduledDate: { gte: effectiveWeekStart, lt: weekEnd },
         deletedAt: null,
+        status: { not: 'tentative' },
       },
       include: meetingInclude,
       orderBy: [{ scheduledDate: 'asc' }, { startTime: 'asc' }],

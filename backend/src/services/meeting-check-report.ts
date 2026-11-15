@@ -254,6 +254,8 @@ export async function buildTomorrowMeetingCheckReport(): Promise<MeetingCheckRep
     where: {
       scheduledDate,
       deletedAt: null,
+      // tentative = unconfirmed cycle; never checked/alerted on
+      status: { not: 'tentative' },
     },
     include: {
       instructor: { select: { name: true } },

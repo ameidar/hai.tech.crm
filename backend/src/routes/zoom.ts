@@ -403,6 +403,11 @@ router.post('/cycles/:cycleId/meeting', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Cycle not found' });
     }
 
+    // Tentative (unconfirmed) cycles never get video meetings / calendar events.
+    if (cycle.status === 'tentative') {
+      return res.status(400).json({ error: 'מחזור טנטטיבי — יש לאשר את המחזור לפני יצירת פגישת וידאו' });
+    }
+
     // Check if cycle supports Zoom (online or private lesson)
     if (cycle.activityType !== 'online' && cycle.activityType !== 'private_lesson' && cycle.type !== 'private') {
       return res.status(400).json({ 

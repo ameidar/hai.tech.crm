@@ -16,6 +16,13 @@ import { checkAndSendInstitutionalOrderCompletionAlert } from './institutional-o
 import { assertMeetingNotInIssuedPeriod } from './billing-lock.js';
 import { cancelFutureMeetingsForCycle } from './cancellations.js';
 import { redistributeMonthlyFixedRevenue, syncMonthlyFixedForCycle } from './monthly-fixed-billing.js';
+import {
+  assertTentativeTransition,
+  confirmTentativeMeetings,
+  hasPlaceholderTime,
+  TENTATIVE_PLACEHOLDER_START,
+  tentativePlaceholderEnd,
+} from './tentative-cycles.js';
 
 // Helper: compute expected revenue per meeting for any cycle type
 export function computeRevenuePerMeeting(cycle: any): number {
@@ -50,7 +57,12 @@ const AUTO_REGENERATED_MEETING_STATUSES = [
   'postponed',
   'pending_cancellation',
   'pending_postponement',
+  'tentative',
 ] as const;
+
+// Cycle fields that define the generated schedule. Changing any of them on a tentative
+// cycle rebuilds its (side-effect-free) tentative meetings automatically.
+const SCHEDULE_FIELDS = ['startDate', 'dayOfWeek', 'startTime', 'endTime', 'totalMeetings', 'instructorId'] as const;
 
 function addDays(date: Date, days: number) {
   const next = new Date(date);
@@ -79,6 +91,9 @@ export async function generateMeetingsForCycle(cycleId: string, fromDate?: Date,
   // New meetings start with the cycle's expected revenue so forecasts don't show
   // them as 0 until they are completed or a registration changes.
   const expectedRevenue = meetingRevenueForCycle(cycle);
+
+  // A tentative cycle's meetings are tentative too: forecast-only, no side effects.
+  const meetingStatus = cycle.status === 'tentative' ? ('tentative' as const) : ('scheduled' as const);
 
   const meetings = [];
   const targetDay = dayNameToNumber(cycle.dayOfWeek);
@@ -126,7 +141,7 @@ export async function generateMeetingsForCycle(cycleId: string, fromDate?: Date,
         scheduledDate: new Date(currentDate),
         startTime: cycle.startTime,
         endTime: cycle.endTime,
-        status: 'scheduled' as const,
+        status: meetingStatus,
         recallBotEnabled: cycle.recallBotEnabled,
         activityType: cycle.activityType,
         revenue: expectedRevenue,
@@ -265,9 +280,13 @@ export async function createCycle(body: unknown, req?: Request) {
       if (!order) throw new AppError(404, 'Institutional order not found');
     }
 
-    // Parse time strings to Date objects for Prisma
-    const startTime = new Date(`1970-01-01T${data.startTime}:00Z`);
-    const endTime = new Date(`1970-01-01T${data.endTime}:00Z`);
+    // Parse time strings to Date objects for Prisma. A tentative cycle may be created
+    // without final times — store a placeholder slot (00:00 → duration).
+    const isTentative = data.status === 'tentative';
+    const startTimeStr = data.startTime ?? (isTentative ? TENTATIVE_PLACEHOLDER_START : undefined);
+    const endTimeStr = data.endTime ?? (isTentative ? tentativePlaceholderEnd(data.durationMinutes) : undefined);
+    const startTime = new Date(`1970-01-01T${startTimeStr}:00Z`);
+    const endTime = new Date(`1970-01-01T${endTimeStr}:00Z`);
 
     // Calculate end date if not provided (based on meetings and holidays)
     let endDate: Date;
@@ -314,6 +333,7 @@ export async function createCycle(body: unknown, req?: Request) {
       location: data.location,
       zoomHostId: data.zoomHostId,
       remainingMeetings: data.totalMeetings,
+      ...(isTentative && { status: 'tentative' }),
     };
 
     const cycle: any = await prisma.cycle.create({
@@ -341,6 +361,7 @@ export async function createCycle(body: unknown, req?: Request) {
         branchName: cycle.branch?.name,
         instructorName: cycle.instructor?.name,
         type: cycle.type,
+        status: cycle.status,
         startDate: cycle.startDate,
         totalMeetings: cycle.totalMeetings,
         meetingRevenue: Number(cycle.meetingRevenue),
@@ -368,6 +389,17 @@ export async function updateCycle(id: string, body: unknown, req?: Request) {
       },
     });
     if (!existingCycle) throw new AppError(404, 'Cycle not found');
+
+    // Tentative cycles: only confirm (→ active) or cancel; never turn an existing cycle tentative.
+    assertTentativeTransition(existingCycle.status, data.status);
+    const wasTentative = existingCycle.status === 'tentative';
+    const confirmingNow = wasTentative && data.status === 'active';
+    const effectiveStartTime = data.startTime
+      ? new Date(`1970-01-01T${data.startTime}:00Z`)
+      : existingCycle.startTime;
+    if (confirmingNow && hasPlaceholderTime(effectiveStartTime)) {
+      throw new AppError(400, 'יש להזין שעת התחלה וסיום אמיתיות לפני אישור המחזור');
+    }
 
     // Institutional cycles must stay linked to an institutional order. Guard against
     // switching a cycle to an institutional type, or clearing the order, without one —
@@ -400,8 +432,17 @@ export async function updateCycle(id: string, body: unknown, req?: Request) {
         : Math.max(0, newTotal - newCompleted);
     }
 
-    // Check if we need to regenerate meetings
-    const regenerateMeetings = (body as any)?.regenerateMeetings === true;
+    // Check if we need to regenerate meetings. While a cycle is tentative its meetings
+    // have no side effects, so a schedule change (dates/times/day/count/instructor)
+    // rebuilds them automatically.
+    const scheduleChanged = SCHEDULE_FIELDS.some((key) => {
+      if (data[key] === undefined) return false;
+      const before: any = (existingCycle as any)[key];
+      const after: any = updateData[key];
+      if (before instanceof Date && after instanceof Date) return before.getTime() !== after.getTime();
+      return before !== after;
+    });
+    const regenerateMeetings = (body as any)?.regenerateMeetings === true || (wasTentative && scheduleChanged);
     
     // Remove regenerateMeetings from updateData as it's not a Cycle field
     delete updateData.regenerateMeetings;
@@ -437,6 +478,29 @@ export async function updateCycle(id: string, body: unknown, req?: Request) {
 
     if (cancellingNow) {
       await cancelFutureMeetingsForCycle(id, { req, markCycleCancelled: true });
+    }
+
+    // Tentative cycles: pricing edits refresh the expected revenue of the tentative meetings
+    // so the forecast's tentativeRevenue follows (monthly-fixed orders are re-split below).
+    const pricingChanged = ['meetingRevenue', 'pricePerStudent', 'studentCount', 'type']
+      .some((key) => (data as any)[key] !== undefined);
+    if (wasTentative && pricingChanged) {
+      const withRegs = await prisma.cycle.findUnique({
+        where: { id },
+        include: {
+          registrations: {
+            where: { deletedAt: null },
+            select: { amount: true, status: true, paymentStatus: true, deletedAt: true },
+          },
+        },
+      });
+      if (withRegs) {
+        const expected = meetingRevenueForCycle(withRegs);
+        await prisma.meeting.updateMany({
+          where: { cycleId: id, status: 'tentative', nature: 'regular' },
+          data: { revenue: expected, profit: expected },
+        });
+      }
     }
 
     await recalculateInstructorPaymentsForCycle(id);
@@ -509,6 +573,12 @@ export async function updateCycle(id: string, body: unknown, req?: Request) {
     // and recreate the remaining schedule from the updated cycle definition.
     if (regenerateMeetings) {
       await regenerateMeetingsForCycle(id);
+    }
+
+    // Confirmation: the tentative meetings become regular scheduled meetings and enter the
+    // normal pipeline (reminders, instructor schedule, billing, video-link creation).
+    if (confirmingNow) {
+      await confirmTentativeMeetings(id, req);
     }
 
     return cycle;

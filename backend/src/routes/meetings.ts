@@ -18,6 +18,7 @@ import {
 } from '../services/instructor-payment.js';
 import { checkAndSendNegativeProfitAlert } from '../services/negative-profit-alert.js';
 import { checkAndSendMeetingReportQualityAlert } from '../services/meeting-report-quality-alert.js';
+import { assertNotTentative, assertTentativeMeetingStatusChange } from '../services/tentative-cycles.js';
 import {
   assertRegistrationBelongsToCycle,
   ensureTrialMeetingHasRegistration,
@@ -87,6 +88,10 @@ meetingsRouter.get('/', async (req, res, next) => {
         scheduledDate: { gte: new Date(from + 'T00:00:00.000Z') }
       }),
       ...(status && { status: status as any }),
+      // Instructor-facing list never shows tentative (unconfirmed) meetings.
+      ...(scopedInstructorId && {
+        status: status === 'tentative' ? ({ in: [] } as any) : (status ? (status as any) : { not: 'tentative' as any }),
+      }),
       ...(instructorId && { instructorId }),
       ...(cycleId && { cycleId }),
       // Always hide meetings from cancelled cycles
@@ -222,7 +227,7 @@ meetingsRouter.get('/:id', async (req, res, next) => {
       },
     });
 
-    if (!meeting) {
+    if (!meeting || (req.user!.role === 'instructor' && meeting.status === 'tentative')) {
       throw new AppError(404, 'Meeting not found');
     }
 
@@ -268,6 +273,9 @@ meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
     if (!cycle) {
       throw new AppError(404, 'Cycle not found');
     }
+
+    // A meeting added to a tentative cycle is tentative too and never gets a video link.
+    const cycleIsTentative = cycle.status === 'tentative';
 
     if (cycle.type === 'trial_private') {
       if (!registrationId) {
@@ -328,7 +336,7 @@ meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
         scheduledDate: new Date(scheduledDate),
         startTime: new Date(`1970-01-01T${startTime}:00Z`),
         endTime: new Date(`1970-01-01T${endTime}:00Z`),
-        status: 'scheduled',
+        status: cycleIsTentative ? 'tentative' : 'scheduled',
         activityType: activityType || cycle.activityType || 'frontal',
         topic,
         notes,
@@ -344,8 +352,8 @@ meetingsRouter.post('/', operationsManagerOrAdmin, async (req, res, next) => {
       },
     });
 
-    // Create video meeting if requested
-    if (withZoom) {
+    // Create video meeting if requested (never for a tentative cycle)
+    if (withZoom && !cycleIsTentative) {
       try {
         const dateStr = new Date(scheduledDate).toISOString().split('T')[0];
         if (videoProvider === 'google_meet') {
@@ -492,6 +500,12 @@ meetingsRouter.put('/:id', async (req, res, next) => {
 
     if (!existingMeeting) {
       throw new AppError(404, 'Meeting not found');
+    }
+
+    // Tentative meetings: only date/time edits or cancellation until the cycle is confirmed.
+    assertTentativeMeetingStatusChange(existingMeeting.status, existingMeeting.cycle?.status, data.status);
+    if (req.user!.role === 'instructor' && existingMeeting.status === 'tentative') {
+      throw new AppError(403, 'מפגש טנטטיבי אינו זמין למדריכים');
     }
 
     // Instructors: restricted to status (completed only) and topic, only on meeting day
@@ -964,6 +978,8 @@ meetingsRouter.post('/:id/add-zoom', operationsManagerOrAdmin, async (req, res, 
       include: { cycle: true, instructor: true },
     });
     if (!meeting) throw new AppError(404, 'Meeting not found');
+    assertNotTentative(meeting.status, 'מפגש טנטטיבי');
+    assertNotTentative(meeting.cycle?.status, 'מחזור טנטטיבי');
 
     const duration = meeting.cycle?.durationMinutes || 60;
     const scheduledDate = meeting.scheduledDate;

@@ -50,7 +50,7 @@ describe('generateBillingPeriod — monthly_fixed orders', () => {
     expect(lines[0].description).toContain('תשלום חודשי קבוע, 4 מפגשים');
     expect(lines[1]).toMatchObject({ quantity: 1, unitPrice: 1316.58, total: 1316.58 });
     expect(prismaMock.meeting.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ status: { notIn: ['cancelled', 'postponed'] }, revenue: { gt: 0 } }),
+      where: expect.objectContaining({ status: { notIn: ['cancelled', 'postponed', 'tentative'] }, revenue: { gt: 0 } }),
     }));
   });
 

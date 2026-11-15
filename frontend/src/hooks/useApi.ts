@@ -1467,7 +1467,7 @@ interface MonthlyData {
   isPartial?: boolean;
   completedCount?: number;
   scheduledCount?: number;
-  /** Forecast months only — net revenue from draft institutional orders; not part of revenue/profit. */
+  /** Net revenue from draft institutional orders (forecast months) + tentative cycles' meetings; not part of revenue/profit. */
   tentativeRevenue?: number;
   profitIncludingTentative?: number;
 }
@@ -1480,6 +1480,16 @@ export interface TentativeOrderSummary {
   total: number;
   monthsCovered: string[];
   unscheduled: boolean;
+}
+
+/** A tentative (unconfirmed) cycle whose meetings feed tentativeRevenue. */
+export interface TentativeCycleSummary {
+  id: string;
+  name: string;
+  branchName: string | null;
+  total: number;
+  meetingCount: number;
+  monthsCovered: string[];
 }
 
 interface ExpensePattern {
@@ -1502,6 +1512,7 @@ interface ForecastSummary {
   forecastConfidence: number;
   tentativeTotal?: number;
   tentativeUnscheduledTotal?: number;
+  tentativeCyclesTotal?: number;
 }
 
 interface ForecastResult {
@@ -1510,6 +1521,7 @@ interface ForecastResult {
   patterns: ExpensePattern[];
   summary: ForecastSummary;
   tentativeOrders?: TentativeOrderSummary[];
+  tentativeCycles?: TentativeCycleSummary[];
 }
 
 // ==================== Company fixed costs ====================

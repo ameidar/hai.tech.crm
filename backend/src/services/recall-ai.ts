@@ -204,6 +204,9 @@ export async function scheduleRecallBotForMeeting(options: ScheduleBotOptions) {
   });
 
   if (!meeting) throw new Error('Meeting not found');
+  if (meeting.status === 'tentative' || meeting.cycle?.status === 'tentative') {
+    throw new Error('Tentative meeting — confirm the cycle first');
+  }
   if (!meeting.zoomJoinUrl) throw new Error('Meeting has no video link');
   if (!isGoogleMeetUrl(meeting.zoomJoinUrl)) {
     throw new Error('Recall lesson reports are currently enabled only for Google Meet links');

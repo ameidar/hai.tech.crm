@@ -15,6 +15,7 @@ import { autoConvertLeadsForPayment } from '../services/lead-payment-evidence.js
 import { processMorningReceipt, RECEIPT_DOC_TYPES } from '../services/morning-receipt-sync.js';
 import type { MorningDocument } from '../services/morning/documents.js';
 import { extractMorningRef, settleMorningPaymentByRef } from '../services/morning-payment-link.js';
+import { applyMorningCreditNote, CREDIT_NOTE_DOC_TYPE } from '../services/morning-credit-notes.js';
 
 export const morningWebhookRouter = Router();
 
@@ -29,7 +30,7 @@ const DOC_TYPES: Record<number, string> = {
   310: 'חשבון עסקה',
   315: 'חשבון עסקה + קבלה',
   320: 'קבלה',
-  330: 'קבלה על תרומה',
+  330: 'חשבונית זיכוי',
   400: 'חשבונית זיכוי',
   405: 'חשבונית זיכוי + קבלה',
   420: 'זיכוי',
@@ -99,11 +100,19 @@ morningWebhookRouter.post('/', async (req, res) => {
           return res.json({ ok: true, paymentForm: settled.outcome });
         }
       }
-      // TODO(refunded): no hook yet for cancellations / credit notes. This webhook only fires on
-      // document creation, and payments/registrations don't store the Morning document id in a
-      // structured column (only embedded in description / invoiceUrl), so a credit note (type 330)
-      // or a cancelled document (status 4) can't be mapped back to the CRM row reliably. Until a
-      // document-id link exists, mark such payments `refunded` (זוכה) manually.
+      // Credit note (חשבונית זיכוי, 330): mark the payments/registrations of the cancelled
+      // original (via linkedDocuments; fetched from the API when absent) as `refunded` (זוכה).
+      // A nightly job (morning-credit-sync-scheduler) re-applies recent credit notes in case
+      // this webhook is missed. Documents cancelled without a credit note (status 4) are still
+      // not detected — those must be marked manually.
+      if (Number(payload.type) === CREDIT_NOTE_DOC_TYPE) {
+        const creditNote = await applyMorningCreditNote({
+          ...morningDocumentFromWebhook(payload),
+          linkedDocuments: Array.isArray(payload.linkedDocuments) ? payload.linkedDocuments : undefined,
+        });
+        console.log(`[Morning Webhook] credit note #${payload.number} → ${creditNote.outcome}`);
+        return res.json({ ok: true, creditNote: creditNote.outcome });
+      }
       if (!RECEIPT_DOC_TYPES.includes(payload.type)) {
         console.log('[Morning Webhook] Ignoring non-receipt document type:', payload.type);
         return res.json({ ok: true, ignored: true });

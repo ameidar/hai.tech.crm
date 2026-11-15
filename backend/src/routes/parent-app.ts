@@ -640,7 +640,8 @@ router.get('/meetings/:meetingId', authenticateParent, async (req: any, res, nex
       },
     });
 
-    if (!meeting) {
+    // Tentative (unconfirmed) meetings are never shown to parents.
+    if (!meeting || meeting.status === 'tentative') {
       throw new AppError(404, 'Meeting not found');
     }
 

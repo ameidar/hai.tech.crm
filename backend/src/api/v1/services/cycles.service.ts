@@ -14,6 +14,7 @@ import { resolveRegistrationAmount } from '../../../utils/registration-amount.js
 import { meetingRevenueForCycle } from '../../../utils/revenue.js';
 import { resolveSendParentReminders } from '../../../services/reminder-eligibility.js';
 import { syncMonthlyFixedForCycle } from '../../../services/monthly-fixed-billing.js';
+import { confirmTentativeMeetings, tentativeCyclesConfirmedByBulk } from '../../../services/tentative-cycles.js';
 
 /**
  * Cycles Service - Business logic layer
@@ -210,7 +211,8 @@ export class CyclesService {
           scheduledDate: new Date(currentDate),
           startTime: cycle.startTime,
           endTime: cycle.endTime,
-          status: 'scheduled' as const,
+          // Tentative cycle → tentative meetings (forecast-only, no side effects).
+          status: cycle.status === 'tentative' ? ('tentative' as const) : ('scheduled' as const),
           activityType: cycle.activityType,
           revenue: expectedRevenue,
           profit: expectedRevenue,
@@ -464,6 +466,9 @@ export class CyclesService {
       updateData.isOnline = data.activityType === 'online';
     }
 
+    // Tentative cycles may only be confirmed (→ active) or cancelled in bulk.
+    const confirmingIds = await tentativeCyclesConfirmedByBulk(ids, data.status);
+
     // Update all cycles in a transaction
     const results = await prisma.$transaction(
       ids.map((id) =>
@@ -474,6 +479,10 @@ export class CyclesService {
         })
       )
     );
+
+    for (const cycleId of confirmingIds) {
+      await confirmTentativeMeetings(cycleId, req);
+    }
 
     // Audit log
     if (req) {

@@ -5,7 +5,7 @@ import Modal from './ui/Modal';
 import MeetingExpenses from './MeetingExpenses';
 import SendMessageModal from './SendMessageModal';
 import { useMeetingExpenses } from '../hooks/useExpenses';
-import { meetingStatusHebrew, cycleTypeHebrew, activityTypeHebrew, meetingNatureHebrew } from '../types';
+import { meetingStatusHebrew, cycleTypeHebrew, activityTypeHebrew, meetingNatureHebrew, TENTATIVE_BADGE_CLASS } from '../types';
 import type { Meeting, MeetingStatus } from '../types';
 
 interface MeetingDetailModalProps {
@@ -86,6 +86,8 @@ export default function MeetingDetailModal({
         return 'badge-danger';
       case 'postponed':
         return 'badge-warning';
+      case 'tentative':
+        return TENTATIVE_BADGE_CLASS;
       default:
         return 'badge-info';
     }

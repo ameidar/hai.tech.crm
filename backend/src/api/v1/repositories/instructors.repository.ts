@@ -194,7 +194,8 @@ export class InstructorsRepository {
     const where: Prisma.MeetingWhereInput = {
       instructorId,
       deletedAt: null,
-      ...(status && { status: status as MeetingStatus }),
+      // Tentative meetings (unconfirmed cycles) are excluded unless explicitly requested.
+      status: status ? (status as MeetingStatus) : { not: 'tentative' as MeetingStatus },
       ...(from && { scheduledDate: { gte: from } }),
       ...(to && { scheduledDate: { lte: to } }),
     };

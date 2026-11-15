@@ -128,9 +128,15 @@ export default function MeetingEditModal({
             onChange={(e) => setFormData({ ...formData, status: e.target.value as MeetingStatus })}
             className="input w-full"
           >
-            {Object.entries(meetingStatusHebrew).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
+            {Object.entries(meetingStatusHebrew)
+              // A tentative meeting can only stay tentative or be cancelled until its cycle is confirmed;
+              // 'tentative' is never offered for a regular meeting.
+              .filter(([value]) => meeting.status === 'tentative'
+                ? value === 'tentative' || value === 'cancelled'
+                : value !== 'tentative')
+              .map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
           </select>
         </div>
 

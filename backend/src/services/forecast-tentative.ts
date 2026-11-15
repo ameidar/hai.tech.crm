@@ -17,7 +17,13 @@
  * Order totals are net (pre-VAT), like cycle meeting revenue and quote totals.
  *
  * Only `draft` orders count, and only while they have no live cycle (not deleted, not
- * cancelled) — once a cycle exists, its meetings already carry the revenue.
+ * cancelled) — once a cycle exists, its meetings already carry the revenue. A *tentative*
+ * cycle is live too: its tentative meetings carry the revenue (see
+ * computeTentativeMeetingRevenue), so the order's own amounts drop out — no double count.
+ *
+ * Tentative cycles (status 'tentative', meetings status 'tentative') — activities created
+ * as cycles before they are confirmed — contribute their meetings' expected revenue to the
+ * month of each meeting, again only as tentative revenue (never confirmed revenue/profit).
  */
 
 import { roundMoney } from '../utils/revenue.js';
@@ -174,4 +180,91 @@ export function computeTentativeRevenue(
     total: roundMoney(windowSum + unscheduledTotal),
     orders: summaries,
   };
+}
+
+export interface TentativeMeetingInput {
+  id: string;
+  cycleId: string;
+  scheduledDate: Date | string;
+  revenue?: Num;
+  nature?: string | null;
+  cycle: {
+    name: string;
+    type?: string | null;
+    meetingRevenue?: Num;
+    pricePerStudent?: Num;
+    studentCount?: number | null;
+    branch?: { name: string } | null;
+  };
+}
+
+export interface TentativeCycleSummary {
+  id: string;
+  name: string;
+  branchName: string | null;
+  /** Net expected revenue of the cycle's tentative meetings inside the window. */
+  total: number;
+  meetingCount: number;
+  monthsCovered: string[];
+}
+
+export interface TentativeMeetingRevenueResult {
+  byMonth: Record<string, number>;
+  total: number;
+  cycles: TentativeCycleSummary[];
+}
+
+/**
+ * Expected net revenue of one tentative meeting: the stored expected revenue (set at
+ * generation from the cycle's pricing), else the cycle's per-meeting revenue, else
+ * price-per-student × student count. No historical-average guess for unconfirmed work.
+ */
+export function tentativeMeetingRevenue(m: TentativeMeetingInput): number {
+  if (m.nature === 'no_revenue') return 0;
+  const stored = num(m.revenue);
+  if (stored > 0) return roundMoney(stored);
+  const perMeeting = num(m.cycle.meetingRevenue);
+  if (perMeeting > 0) return roundMoney(perMeeting);
+  if (m.cycle.type === 'institutional_per_child') {
+    const perChild = num(m.cycle.pricePerStudent);
+    const kids = Number(m.cycle.studentCount ?? 0);
+    if (perChild > 0 && kids > 0) return roundMoney(perChild * kids);
+  }
+  return 0;
+}
+
+/** Sum tentative meetings' expected revenue per month (only months in `monthKeys`). */
+export function computeTentativeMeetingRevenue(
+  meetings: TentativeMeetingInput[],
+  monthKeys: string[],
+): TentativeMeetingRevenueResult {
+  const window = new Set(monthKeys);
+  const byMonth: Record<string, number> = {};
+  for (const k of monthKeys) byMonth[k] = 0;
+  const perCycle = new Map<string, TentativeCycleSummary>();
+
+  for (const m of meetings) {
+    const key = monthKeyOfDate(m.scheduledDate);
+    if (!window.has(key)) continue;
+    const revenue = tentativeMeetingRevenue(m);
+    byMonth[key] = roundMoney(byMonth[key] + revenue);
+    const summary = perCycle.get(m.cycleId) ?? {
+      id: m.cycleId,
+      name: m.cycle.name,
+      branchName: m.cycle.branch?.name ?? null,
+      total: 0,
+      meetingCount: 0,
+      monthsCovered: [],
+    };
+    summary.total = roundMoney(summary.total + revenue);
+    summary.meetingCount += 1;
+    if (!summary.monthsCovered.includes(key)) summary.monthsCovered.push(key);
+    perCycle.set(m.cycleId, summary);
+  }
+
+  const cycles = [...perCycle.values()]
+    .map((c) => ({ ...c, monthsCovered: c.monthsCovered.sort() }))
+    .sort((a, b) => b.total - a.total);
+  const total = roundMoney(Object.values(byMonth).reduce((s, v) => s + v, 0));
+  return { byMonth, total, cycles };
 }

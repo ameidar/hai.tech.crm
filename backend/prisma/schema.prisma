@@ -95,6 +95,7 @@ enum CycleStatus {
   cancelled
   frozen
   retainer
+  tentative // not yet confirmed — meetings count only as tentative forecast revenue, no side effects
 }
 
 enum DayOfWeek {
@@ -152,6 +153,7 @@ enum MeetingStatus {
   postponed
   pending_cancellation
   pending_postponement
+  tentative // belongs to an unconfirmed (tentative) cycle — no reminders/video/payroll/billing
 }
 
 enum MeetingNature {

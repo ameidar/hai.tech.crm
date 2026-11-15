@@ -148,12 +148,13 @@ export class ReportsService {
     const endDate = new Date(params.endDate);
     endDate.setHours(23, 59, 59, 999);
 
-    // Build filter
+    // Build filter (tentative meetings belong to unconfirmed cycles — never in instructor reports)
     const where: any = {
       scheduledDate: {
         gte: startDate,
         lte: endDate,
       },
+      status: { not: 'tentative' },
     };
 
     if (params.instructorId) {

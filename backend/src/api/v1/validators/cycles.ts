@@ -16,7 +16,7 @@ export const cycleTypeEnum = z.enum(['private', 'trial_private', 'group', 'insti
 /**
  * Cycle status enum
  */
-export const cycleStatusEnum = z.enum(['active', 'completed', 'cancelled', 'frozen']);
+export const cycleStatusEnum = z.enum(['active', 'completed', 'cancelled', 'frozen', 'tentative']);
 
 /**
  * Day of week enum

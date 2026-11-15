@@ -4,6 +4,7 @@ import { authenticate, managerOrAdmin } from '../middleware/auth.js';
 import { Decimal } from '@prisma/client/runtime/library';
 import { fixedAdditionMonthlyCost, isFixedAdditionActiveInMonth } from '../services/instructor-fixed-additions.js';
 import { companyFixedCostForMonth } from '../services/company-fixed-costs.js';
+import { computeTentativeRevenue, type TentativeOrderSummary } from '../services/forecast-tentative.js';
 
 export const forecastRouter = Router();
 
@@ -66,6 +67,10 @@ interface MonthlyData {
   isPartial?: boolean; // current month: mix of actual + estimated
   completedCount?: number; // actual completed meetings in partial month
   scheduledCount?: number; // estimated scheduled meetings in partial month
+  // Forecast months only: net revenue expected from draft institutional orders that have no
+  // cycles yet. NOT included in revenue/profit — kept separate so confirmed numbers stay clean.
+  tentativeRevenue?: number;
+  profitIncludingTentative?: number;
 }
 
 interface ExpensePattern {
@@ -90,7 +95,10 @@ interface ForecastResult {
     expensesStdDev: number;
     profitStdDev: number;
     forecastConfidence: number; // 0-100%
+    tentativeTotal: number; // tentative revenue in the forecast window + unscheduled
+    tentativeUnscheduledTotal: number; // draft orders with a total but no months
   };
+  tentativeOrders: TentativeOrderSummary[];
 }
 
 // GET /api/forecast
@@ -716,6 +724,34 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
     }
 
     // ============================================
+    // TENTATIVE REVENUE (draft institutional orders without cycles)
+    // ============================================
+    const draftOrders = await prisma.institutionalOrder.findMany({
+      where: { status: 'draft' },
+      select: {
+        id: true,
+        status: true,
+        orderName: true,
+        orderNumber: true,
+        startDate: true,
+        endDate: true,
+        totalAmount: true,
+        estimatedTotal: true,
+        pricePerMeeting: true,
+        estimatedMeetings: true,
+        monthlyAmounts: true,
+        monthlyAmountsIncludeVat: true,
+        branch: { select: { name: true } },
+        cycles: { select: { status: true, deletedAt: true } },
+      },
+    });
+    const tentative = computeTentativeRevenue(draftOrders, Array.from(forecastByMonth.keys()));
+    for (const data of forecastByMonth.values()) {
+      data.tentativeRevenue = tentative.byMonth[data.month] ?? 0;
+      data.profitIncludingTentative = data.profit + data.tentativeRevenue;
+    }
+
+    // ============================================
     // SUMMARY STATISTICS
     // ============================================
     
@@ -751,7 +787,10 @@ forecastRouter.get('/', managerOrAdmin, async (req, res, next) => {
         expensesStdDev: Math.round(expensesStdDev),
         profitStdDev: Math.round(profitStdDev),
         forecastConfidence: Math.round(forecastConfidence),
+        tentativeTotal: Math.round(tentative.total),
+        tentativeUnscheduledTotal: Math.round(tentative.unscheduledTotal),
       },
+      tentativeOrders: tentative.orders.slice(0, 50),
     };
 
     res.json(result);

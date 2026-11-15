@@ -8,7 +8,8 @@ export type DayOfWeek = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursda
 export type MeetingStatus = 'scheduled' | 'completed' | 'cancelled' | 'postponed' | 'pending_cancellation' | 'pending_postponement';
 export type MeetingNature = 'regular' | 'no_revenue';
 export type RegistrationStatus = 'registered' | 'active' | 'completed' | 'pending_cancellation' | 'cancelled' | 'trial';
-export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
+// refunded = "זוכה": was paid, then cancelled with a Morning credit note. NOT paid.
+export type PaymentStatus = 'unpaid' | 'partial' | 'paid' | 'refunded';
 export type PaymentMethod = 'credit' | 'transfer' | 'cash' | 'standing_order' | 'institutional';
 export type AttendanceStatus = 'present' | 'absent' | 'late';
 export type UserRole = 'admin' | 'manager' | 'instructor' | 'sales' | 'operations' | 'operations_control' | 'operations_manager' | 'viewer';
@@ -551,7 +552,32 @@ export const paymentStatusHebrew: Record<PaymentStatus, string> = {
   unpaid: 'לא שולם',
   partial: 'חלקי',
   paid: 'שולם',
+  refunded: 'זוכה',
 };
+
+/** `.badge-*` class per payment status — refunded (זוכה) is neutral gray, not red. */
+export const paymentStatusBadgeClass: Record<PaymentStatus, string> = {
+  unpaid: 'badge-danger',
+  partial: 'badge-warning',
+  paid: 'badge-success',
+  refunded: 'badge-gray',
+};
+
+/** Tailwind pill classes per payment status (bordered chips). */
+export const paymentStatusPillClass: Record<PaymentStatus, string> = {
+  unpaid: 'bg-red-50 text-red-700 border-red-200',
+  partial: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+  paid: 'bg-green-50 text-green-700 border-green-200',
+  refunded: 'bg-gray-100 text-gray-600 border-gray-300',
+};
+
+/** Label + classes for the free-text `payments.status` column (payment history rows). */
+export function paymentRecordStatusDisplay(status: string | null | undefined): { label: string; cls: string } {
+  if (status === 'paid') return { label: 'שולם ✅', cls: 'bg-green-100 text-green-700' };
+  if (status === 'cancelled') return { label: 'בוטל ❌', cls: 'bg-red-100 text-red-700' };
+  if (status === 'refunded') return { label: 'זוכה', cls: 'bg-gray-100 text-gray-600' };
+  return { label: 'ממתין ⏳', cls: 'bg-yellow-100 text-yellow-700' };
+}
 
 export const attendanceStatusHebrew: Record<AttendanceStatus, string> = {
   present: 'נוכח',

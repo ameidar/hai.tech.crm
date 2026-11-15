@@ -12,6 +12,7 @@ import {
   UpdatePaymentInput,
   CancelRegistrationInput,
 } from '../validators/registrations.js';
+import { isPaidPaymentStatus } from '../../../utils/payment-status.js';
 
 /**
  * Registrations Service - Business logic layer
@@ -204,8 +205,7 @@ export class RegistrationsService {
       data.invoiceLink
     );
 
-    const paidStatuses = ['paid', 'partial'];
-    if (paidStatuses.includes(data.paymentStatus) && !paidStatuses.includes(existing.paymentStatus || '')) {
+    if (isPaidPaymentStatus(data.paymentStatus) && !isPaidPaymentStatus(existing.paymentStatus)) {
       await autoConvertLeadsForRegistration(registration.id);
     }
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PAYMENT_STATUSES } from '../utils/payment-status.js';
 
 const lowercase = <T extends string | null | undefined>(v: T): T =>
   (typeof v === 'string' ? v.trim().toLowerCase() : v) as T;
@@ -219,7 +220,7 @@ export const createRegistrationSchema = z.object({
   registrationDate: z.string().optional(),
   status: z.enum(['registered', 'active', 'completed', 'pending_cancellation', 'cancelled']).default('registered'),
   amount: z.number().positive().optional().nullable(),
-  paymentStatus: z.enum(['unpaid', 'partial', 'paid']).optional().nullable(),
+  paymentStatus: z.enum(PAYMENT_STATUSES).optional().nullable(),
   paymentMethod: z.enum(['credit', 'transfer', 'cash', 'institutional', 'standing_order']).optional().nullable(),
   invoiceLink: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),

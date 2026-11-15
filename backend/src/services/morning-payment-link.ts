@@ -330,7 +330,8 @@ export type SettleOutcome =
   | 'not_found'
   | 'not_morning'
   | 'no_document'
-  | 'document_used_elsewhere';
+  | 'document_used_elsewhere'
+  | 'refunded';
 
 export interface SettleResult {
   outcome: SettleOutcome;
@@ -401,6 +402,8 @@ export async function settleMorningPayment(
   if (payment.status === 'paid') {
     return { outcome: 'already_paid', paymentId: payment.id, invoiceUrl: payment.invoiceUrl, invoiceNumber: payment.invoiceNumber };
   }
+  // זוכה: the original receipt still exists in Morning — never let polling/sync re-settle it.
+  if (payment.status === 'refunded') return { outcome: 'refunded', paymentId: payment.id };
 
   const ref = morningRefForToken(payToken);
   const amount = Number(payment.amount);
@@ -423,7 +426,7 @@ export async function settleMorningPayment(
   const invoiceUrl = morningDocUrl(doc);
   const invoiceNumber = doc.number != null ? String(doc.number) : null;
   const updated = await prisma.payment.updateMany({
-    where: { id: payment.id, status: { not: 'paid' } },
+    where: { id: payment.id, status: { notIn: ['paid', 'refunded'] } },
     data: {
       status: 'paid',
       paidAt: new Date(),

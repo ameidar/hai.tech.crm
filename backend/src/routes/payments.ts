@@ -6,6 +6,7 @@ import { prisma } from '../utils/prisma.js';
 import { handlePostPaymentPlacement } from '../services/trial-placement.js';
 import { reconcileOmerRegistrationPayment } from '../services/omer-payment-reconciliation.js';
 import { autoConvertLeadsForPayment } from '../services/lead-payment-evidence.js';
+import { isPaymentRecordStatus } from '../utils/payment-status.js';
 import { extractGreenInvoice, syncRecentWooPayments, upsertWooOrderPayment } from '../services/woo-sync.js';
 import { createWooPaymentLink, inferDigitalCourseProductId } from '../services/woo-payment-link.js';
 import {
@@ -523,7 +524,13 @@ router.patch('/:id', authenticate, async (req, res) => {
   const updateData: any = { updatedAt: new Date() };
   if (invoiceUrl !== undefined) updateData.invoiceUrl = invoiceUrl || null;
   if (invoiceNumber !== undefined) updateData.invoiceNumber = invoiceNumber || null;
-  if (status !== undefined) updateData.status = status;
+  if (status !== undefined) {
+    // pending | paid | cancelled | refunded (זוכה — credit note issued; not paid)
+    if (!isPaymentRecordStatus(status)) {
+      return res.status(400).json({ error: `סטטוס לא חוקי: ${status}` });
+    }
+    updateData.status = status;
+  }
 
   try {
     const updated = await prisma.payment.update({ where: { id }, data: updateData });
@@ -545,7 +552,8 @@ router.delete('/:id', authenticate, async (req, res) => {
   try {
     const payment = await prisma.payment.findUnique({ where: { id } });
     if (!payment) return res.status(404).json({ error: 'תשלום לא נמצא' });
-    if (payment.status === 'paid') {
+    // refunded (זוכה) rows carry the Morning credit-note trail — keep them for audit.
+    if (payment.status === 'paid' || payment.status === 'refunded') {
       return res.status(409).json({ error: 'לא ניתן למחוק תשלום ששולם. שנה סטטוס ל"מבוטל" תחילה.' });
     }
     await prisma.payment.delete({ where: { id } });

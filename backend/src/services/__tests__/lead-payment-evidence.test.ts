@@ -195,4 +195,26 @@ describe('lead payment evidence', () => {
       expect(mockPrisma.leadAppointment.findMany).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('refunded (זוכה) is not payment evidence', () => {
+    it('only queries paid payments rows and paid/partial registrations — never refunded', async () => {
+      await expect(findPaymentEvidence(lead)).resolves.toBeNull();
+
+      expect(mockPrisma.payment.findFirst.mock.calls[0][0].where.status).toBe('paid');
+      const regWhere = mockPrisma.registration.findFirst.mock.calls[0][0].where;
+      expect(regWhere.paymentStatus.in).toEqual(['paid', 'partial']);
+      expect(regWhere.paymentStatus.in).not.toContain('refunded');
+    });
+
+    it('does not auto-convert leads for a refunded payment or registration', async () => {
+      mockPrisma.leadAppointment.findMany.mockResolvedValue([]);
+      mockPrisma.payment.findUnique.mockResolvedValue({ customerId: 'cust-1', status: 'refunded' });
+      await expect(autoConvertLeadsForPayment('pay-1')).resolves.toBe(0);
+
+      mockPrisma.registration.findUnique.mockResolvedValue({ paymentStatus: 'refunded', status: 'active', deletedAt: null, student: { customerId: 'cust-1' } });
+      await expect(autoConvertLeadsForRegistration('reg-1')).resolves.toBe(0);
+
+      expect(mockPrisma.leadAppointment.findMany).not.toHaveBeenCalled();
+    });
+  });
 });

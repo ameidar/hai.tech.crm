@@ -99,6 +99,11 @@ morningWebhookRouter.post('/', async (req, res) => {
           return res.json({ ok: true, paymentForm: settled.outcome });
         }
       }
+      // TODO(refunded): no hook yet for cancellations / credit notes. This webhook only fires on
+      // document creation, and payments/registrations don't store the Morning document id in a
+      // structured column (only embedded in description / invoiceUrl), so a credit note (type 330)
+      // or a cancelled document (status 4) can't be mapped back to the CRM row reliably. Until a
+      // document-id link exists, mark such payments `refunded` (זוכה) manually.
       if (!RECEIPT_DOC_TYPES.includes(payload.type)) {
         console.log('[Morning Webhook] Ignoring non-receipt document type:', payload.type);
         return res.json({ ok: true, ignored: true });

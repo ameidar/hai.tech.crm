@@ -222,7 +222,7 @@ export class RegistrationsRepository {
    */
   async updatePayment(
     id: string,
-    paymentStatus: 'unpaid' | 'partial' | 'paid',
+    paymentStatus: 'unpaid' | 'partial' | 'paid' | 'refunded',
     paymentMethod?: 'credit' | 'transfer' | 'cash' | 'institutional' | 'standing_order',
     amount?: number,
     invoiceLink?: string

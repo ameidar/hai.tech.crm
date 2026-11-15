@@ -13,6 +13,7 @@ import { resolveRegistrationAmountForCycle } from '../utils/registration-amount.
 import { cancelFutureMeetingsForCycle } from '../services/cancellations.js';
 import { autoConvertLeadsForRegistration } from '../services/lead-payment-evidence.js';
 import { redistributeMonthlyFixedRevenue, syncMonthlyFixedForCycle } from '../services/monthly-fixed-billing.js';
+import { isPaidPaymentStatus } from '../utils/payment-status.js';
 import {
   computeRevenuePerMeeting,
   generateMeetingsForCycle,
@@ -1008,7 +1009,7 @@ cyclesRouter.post('/:id/registrations', cycleRosterOrAdmin, async (req, res, nex
           cycle: { select: { id: true, name: true } },
         },
       });
-      if (data.paymentStatus === 'paid' || data.paymentStatus === 'partial') {
+      if (isPaidPaymentStatus(data.paymentStatus)) {
         await autoConvertLeadsForRegistration(reactivated.id);
       }
       return res.status(200).json(reactivated);
@@ -1040,7 +1041,7 @@ cyclesRouter.post('/:id/registrations', cycleRosterOrAdmin, async (req, res, nex
       console.error('[RECALC REVENUE] Error after registration create:', err)
     );
 
-    if (data.paymentStatus === 'paid' || data.paymentStatus === 'partial') {
+    if (isPaidPaymentStatus(data.paymentStatus)) {
       await autoConvertLeadsForRegistration(registration.id);
     }
 

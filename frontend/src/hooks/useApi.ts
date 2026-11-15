@@ -2274,7 +2274,7 @@ export interface InstitutionalOrderData {
   totalAmount?: number | null;
   invoiceNumber?: string | null;
   invoiceLink?: string | null;
-  paymentStatus?: 'unpaid' | 'partial' | 'paid' | null;
+  paymentStatus?: 'unpaid' | 'partial' | 'paid' | 'refunded' | null;
   paidAmount?: number | null;
   payingBody?: string | null;
   payingBodyId?: string | null;

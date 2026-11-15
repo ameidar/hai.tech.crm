@@ -120,6 +120,7 @@ enum PaymentStatus {
   unpaid
   partial
   paid
+  refunded // "זוכה": was paid, then cancelled with a Morning credit note — NOT paid
 }
 
 enum QuoteStatus {

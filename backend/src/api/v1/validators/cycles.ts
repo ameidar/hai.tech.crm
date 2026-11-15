@@ -6,6 +6,7 @@ import {
   uuidSchema,
   nonEmptyStringSchema,
 } from './common.js';
+import { PAYMENT_STATUSES } from '../../../utils/payment-status.js';
 
 /**
  * Cycle type enum
@@ -167,7 +168,7 @@ export const createCycleRegistrationSchema = z.object({
   registrationDate: z.string().optional().transform((val) => (val ? new Date(val) : new Date())),
   status: z.enum(['registered', 'active', 'completed', 'cancelled', 'trial']).optional().default('registered'),
   amount: z.number().nonnegative().optional(),
-  paymentStatus: z.enum(['unpaid', 'partial', 'paid']).optional(),
+  paymentStatus: z.enum(PAYMENT_STATUSES).optional(),
   paymentMethod: z.enum(['credit', 'transfer', 'cash', 'institutional']).optional(),
   invoiceLink: z.string().url().optional(),
   notes: z.string().optional(),

@@ -293,12 +293,16 @@ export async function upsertWooOrderPayment(
     }
   }
 
+  // A row already marked `refunded` (זוכה — Morning credit note) is final: the Woo order may
+  // still say "completed", so never let a re-sync flip it back to paid.
+  const keepRefunded = existing?.status === 'refunded';
   const updateData: any = {
-    status: paid ? 'paid' : order.status === 'cancelled' ? 'cancelled' : 'pending',
+    status: paid ? 'paid' : order.status === 'cancelled' ? 'cancelled' : order.status === 'refunded' ? 'refunded' : 'pending',
     paymentMethod: order.payment_method || undefined,
     updatedAt: new Date(),
   };
-  if (paid) {
+  if (keepRefunded) delete updateData.status;
+  if (paid && !keepRefunded) {
     updateData.paidAt = new Date(order.date_paid || order.date_modified || Date.now());
   }
   if (invoiceUrl) updateData.invoiceUrl = invoiceUrl;
@@ -317,7 +321,7 @@ export async function upsertWooOrderPayment(
     }
 
     await prisma.payment.update({ where: { id: existing.id }, data: { ...updateData, ...customerPatch } });
-    if (paid) {
+    if (paid && !keepRefunded) {
       const linkedCustomerId = customerPatch.customerId || existing.customerId;
       if (linkedCustomerId) await ensureMorningClientForCustomer(linkedCustomerId);
       await reconcileOmerRegistrationPayment(existing.id);

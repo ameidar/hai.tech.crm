@@ -545,8 +545,7 @@ ${JSON.stringify(knowledgeBase, null, 2)}
 מספר טלפון: ${conv.phone}
 ${conv.contactName ? `שם: ${conv.contactName}` : ''}
 ${conv.childName ? `שם הילד: ${conv.childName}` : ''}
-${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}
-${conv.leadInterest ? `הליד השאיר פרטים בטופס עם תחום עניין: ${conv.leadInterest}${conv.leadSource ? ` (מקור: ${conv.leadSource})` : ''}. התאם את השיחה לתחום העניין הזה.` : ''}
+${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}${conv.leadInterest ? `\nהליד השאיר פרטים בטופס עם תחום עניין: ${conv.leadInterest}${conv.leadSource ? ` (מקור: ${conv.leadSource})` : ''}. התאם את השיחה לתחום העניין הזה.` : ''}
 ${buildReferralPromptContext(conv)}
 
 ---

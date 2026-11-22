@@ -44,6 +44,17 @@ function resolveLeadWelcomePhone() {
   return { phoneNumberId, businessPhone };
 }
 
+const TEMPLATE_PREVIEWS: Record<string, (name: string) => string> = {
+  lead_request_received: (name) => `היי ${name}, קיבלנו את הפרטים ששלחת בטופס. נציג יחזור אליך בהקדם עם כל המידע. אפשר גם להשיב כאן להודעה זו בכל שאלה.`,
+  lead_welcome_course_interest: (name) => `היי ${name}, קיבלנו את ההתעניינות שלך בדרך ההייטק.`,
+  lead_welcome_hai: (name) => `היי ${name} 👋 קיבלנו את ההתעניינות שלך!`,
+};
+
+function templatePreview(templateName: string, name: string): string {
+  const body = TEMPLATE_PREVIEWS[templateName]?.(name) ?? `היי ${name}`;
+  return `[תבנית: ${templateName}] ${body}`;
+}
+
 function selectLeadWelcomeTemplate(interest?: string | null): LeadWelcomeTemplate {
   const exact = interest ? CAMPAIGN_TEMPLATES[interest] : null;
   if (exact) return exact;
@@ -61,14 +72,14 @@ function selectLeadWelcomeTemplate(interest?: string | null): LeadWelcomeTemplat
     return {
       name: process.env.LEAD_WELCOME_INTEREST_TEMPLATE_NAME || 'lead_welcome_course_interest',
       parameters: (name) => [name],
-      preview: (name) => `[תבנית: lead_welcome_course_interest] היי ${name}, קיבלנו את ההתעניינות שלך בדרך ההייטק.`,
+      preview: (name) => templatePreview(process.env.LEAD_WELCOME_INTEREST_TEMPLATE_NAME || 'lead_welcome_course_interest', name),
     };
   }
 
   return {
     name: process.env.LEAD_WELCOME_DEFAULT_TEMPLATE_NAME || 'lead_welcome_hai',
     parameters: (name) => [name],
-    preview: (name) => `[תבנית: lead_welcome_hai] היי ${name} 👋 קיבלנו את ההתעניינות שלך!`,
+    preview: (name) => templatePreview(process.env.LEAD_WELCOME_DEFAULT_TEMPLATE_NAME || 'lead_welcome_hai', name),
   };
 }
 

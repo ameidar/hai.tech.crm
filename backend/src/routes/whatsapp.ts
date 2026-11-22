@@ -545,7 +545,7 @@ ${JSON.stringify(knowledgeBase, null, 2)}
 מספר טלפון: ${conv.phone}
 ${conv.contactName ? `שם: ${conv.contactName}` : ''}
 ${conv.childName ? `שם הילד: ${conv.childName}` : ''}
-${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}
+${conv.summary ? `סיכום קודם: ${conv.summary}` : ''}${conv.leadInterest ? `\nהליד השאיר פרטים בטופס עם תחום עניין: ${conv.leadInterest}${conv.leadSource ? ` (מקור: ${conv.leadSource})` : ''}. התאם את השיחה לתחום העניין הזה.` : ''}
 ${buildReferralPromptContext(conv)}
 
 ---
@@ -576,6 +576,24 @@ function describeJevRoute(mode: string, result: JevComplexityResult | null, deci
   return `routing=${mode} jev=${jev} tier=${decision.tier}${decision.escalate ? ' escalate' : ''}`;
 }
 
+/** Latest lead form interest for this phone (last 9 digits match), within 60 days. */
+async function findLatestLeadInterestForPhone(phone?: string | null): Promise<{ interest: string | null; source: string | null } | null> {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (digits.length < 9) return null;
+  const tail = digits.slice(-9);
+  try {
+    const rows = await prisma.$queryRaw<Array<{ interest: string | null; source: string | null }>>`
+      SELECT interest, source FROM lead_appointments
+      WHERE right(regexp_replace(customer_phone, '\D', '', 'g'), 9) = ${tail}
+        AND interest IS NOT NULL AND created_at > now() - interval '60 days'
+      ORDER BY created_at DESC LIMIT 1`;
+    return rows[0] ?? null;
+  } catch (err) {
+    console.warn('[WA] lead interest lookup failed:', (err as Error).message);
+    return null;
+  }
+}
+
 async function generateAIReply(conversationId: string): Promise<AIReplyOutcome | null> {
   const messages = await prisma.waMessage.findMany({
     where: { conversationId },
@@ -587,7 +605,8 @@ async function generateAIReply(conversationId: string): Promise<AIReplyOutcome |
   const conv = await prisma.waConversation.findUnique({ where: { id: conversationId } });
   if (!conv) return null;
 
-  const system = buildBotSystemParts(conv);
+  const latestLead = await findLatestLeadInterestForPhone(conv.phone);
+  const system = buildBotSystemParts({ ...conv, leadInterest: latestLead?.interest ?? null, leadSource: latestLead?.source ?? null });
 
   // Messages to exclude from GPT history to prevent looping
   const BOT_SKIP_PHRASES = [
@@ -1028,6 +1047,21 @@ router.get('/webhook', (req: Request, res: Response) => {
 });
 
 // ── POST /api/wa/webhook — Incoming messages from Meta
+export async function applyMessageStatuses(statuses: any[]): Promise<void> {
+  for (const status of statuses) {
+    if (!status?.id) continue;
+    if (status.status === 'failed') {
+      await recordFailedMessageStatus(status);
+      continue;
+    }
+    await prisma.waMessage.updateMany({
+      where: { waMessageId: status.id },
+      data: { status: status.status }
+    });
+    broadcastSSE('message_status', { waMessageId: status.id, status: status.status });
+  }
+}
+
 async function recordFailedMessageStatus(status: any) {
   const { code, message } = describeMetaStatusError(status);
   const existing = await prisma.waMessage.findFirst({
@@ -1063,21 +1097,15 @@ router.post('/webhook', async (req: Request, res: Response) => {
       for (const change of entry.changes || []) {
         const value = change.value;
 
-        // Route selected phone-number traffic to an external agent and skip CRM handling.
-        if (await forwardInboundWebhookChangeToAgent(body, entry, change)) continue;
+        // Route selected phone-number traffic to an external agent. Inbound messages are the
+        // agent's to handle, but delivery statuses still belong to messages the CRM sent from that
+        // number (instructor reminders, report nudges…), so keep applying them here.
+        const forwardedToAgent = await forwardInboundWebhookChangeToAgent(body, entry, change);
 
-        // Status updates (delivered/read)
-        for (const status of value.statuses || []) {
-          if (status.status === 'failed') {
-            await recordFailedMessageStatus(status);
-            continue;
-          }
-          await prisma.waMessage.updateMany({
-            where: { waMessageId: status.id },
-            data: { status: status.status }
-          });
-          broadcastSSE('message_status', { waMessageId: status.id, status: status.status });
-        }
+        // Status updates (delivered/read/failed)
+        await applyMessageStatuses(value.statuses || []);
+
+        if (forwardedToAgent) continue;
 
         // Incoming messages
         const businessPhone = value.metadata?.display_phone_number ? '+' + value.metadata.display_phone_number.replace(/\D/g, '') : undefined;

@@ -755,7 +755,8 @@ export const useMeetings = (params?: { date?: string; from?: string; to?: string
   if (params?.branchId) searchParams.append('branchId', params.branchId);
   if (params?.cycleId) searchParams.append('cycleId', params.cycleId);
   if (params?.status) searchParams.append('status', params.status);
-  if (params?.limit) searchParams.append('limit', String(params.limit));
+  // The API pages at 50 by default; busy days have more (23.11.2026 had 56), so the tail of the day was silently dropped.
+  searchParams.append('limit', String(params?.limit ?? 2000));
   const queryString = searchParams.toString() ? `?${searchParams.toString()}` : '';
 
   return useQuery({
